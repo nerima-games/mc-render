@@ -131,6 +131,17 @@ mc-kernel が publish されたら:
 **これで型検査が通らなければ、ミラーが drift しており、その drift 自体がバグである。**
 ミラーは意図的に最小（mc-render が実際に使う分だけ）にしてあり、これは「正直に保つ対象を小さくする」ため。
 
+**ただし「最小」だけでは drift は防げない。** ブランドは**文字列**でキーされるので
+（`Brand.Brand<'DeltaTimeSecs'>`）、ミラーが kernel と違う述語で refine していても
+TypeScript にとっては同じ型である。`Context.Tag` も同様で、同じキーの 2 つのクラスは
+実行時には同じサービスである。**型検査器が構造的に捕まえられない種類の drift** であり、
+ロスター内で実際に 2 件起きていた（mc-sim の 1 フィールド `ClockService`、
+mc-physics の `[0.001, 0.05]` に refine された `DeltaTimeSecs`）。
+
+そこで `test/kernel-mirror.test.ts` が、ブランドの述語と `CameraPoseSnapshot` の形を
+kernel の文書化された定義に対して assert している（[testing.md](./testing.md) §4.1）。
+上の 3 手順の約束は、このテストによってはじめて実効性を持つ。
+
 なお `index.ts` はこのミラーを **re-export していない**。consumer が mc-render 経由で
 kernel の語彙を取ると真実の出所が 2 つになり、上記の削除が破壊的変更に化けるためである。
 
@@ -168,4 +179,4 @@ kernel の語彙を取ると真実の出所が 2 つになり、上記の削除�
 | `typescript` / `vitest` / `oxlint` | `^` 付き | ツールチェーンは揃えるが厳密ピンはしない |
 | `packageManager` | `pnpm@9.15.0` | 16 リポジトリで同一 |
 
-`engines.node` は `>=22.0.0`。devenv が `nodejs_22` を入れる。
+`engines.node` は `>=22.0.0`。`flake.nix` の devShell が `nodejs_22` を入れる。

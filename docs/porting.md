@@ -98,6 +98,10 @@ mc-meshing、THREE オブジェクト（`BufferGeometry` / `Material` / `Mesh`�
 
 plan.md §3.4 は「ブロック狙撃はレイキャストではなく voxel-DDA
 （参照実装で 2.3ms→0.09ms、25倍）」として **mc-physics** に置いている。
+この数値には出典がある —— 参照実装のコミット `101074e3` の
+`frame:interaction 2.3ms -> 0.09ms`（"Performance (all browser-measured)"）。
+計装済みステージに対するブラウザ実測で、ベンチマークスクリプトは無いため再実行はできない
+（mc-physics の `docs/design-notes.md` P-7）。
 
 `packages/rendering/infrastructure/raycasting/raycasting-service.ts` は THREE の `Raycaster` を使い、
 `scratchNormal`（:25, :60-70）で法線から対象ブロック座標を求めている。
@@ -200,4 +204,4 @@ plan.md §3.9 は「`packages/worker` のプール実装」と書く。
 | 無効パスを構築して `enabled = false` にする扱い | 構築しない（DN-07） |
 | `Effect.Service` によるサービス定義 | `Context.Tag` + 明示 Layer（[public-api.md](./public-api.md) §0） |
 | `window` / `document` への直接 `addEventListener` | 注入された `InputEvent` に置き換え。`window` アダプタは別 Layer |
-| `raycasting-service.ts` のブロック狙撃用途 | mc-physics の voxel-DDA に置き換え（plan.md §3.4、25倍高速） |
+| `raycasting-service.ts` のブロック狙撃用途 | mc-physics の voxel-DDA に置き換え（plan.md §3.4。25 倍の出典は参照実装のコミット `101074e3`、§2.1） |

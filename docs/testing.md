@@ -74,7 +74,7 @@ DOM を import せず `InputEvent` を注入で受ける。
 
 ## 4. 現在のテスト
 
-`vitest run`。6 ファイル / 108 テスト。すべて `environment: 'node'`。
+`vitest run`。7 ファイル / 112 テスト。すべて `environment: 'node'`。
 
 | ファイル | テスト数 | 対応 |
 | --- | ---: | --- |
@@ -83,7 +83,26 @@ DOM を import せず `InputEvent` を注入で受ける。
 | `test/camera-mirror.test.ts` | 13 | DN-06 |
 | `test/frame-scratch.test.ts` | 12 | DN-03 |
 | `test/material-policy.test.ts` | 10 | DN-02 |
+| `test/kernel-mirror.test.ts` | 4 | `domain/kernel-vocabulary.ts` が mc-kernel と同形であること（§4.1） |
 | `test/check-dependency-whitelist.test.ts` | 28 | DN-11 + 依存ホワイトリスト本体 |
+
+### 4.1 `test/kernel-mirror.test.ts` が守っているもの
+
+`domain/kernel-vocabulary.ts` は「削除して import を publish 済みパッケージに向け直せば型検査が通る」と
+約束している。**その約束は何にも強制されておらず、ロスターの他所では既に破られていた。**
+
+- mc-sim の同じミラーは `ClockService` を 1 フィールドで持っていた（kernel は 2 フィールド）
+- mc-physics は `DeltaTimeSecs` をフレームループのクランプ `[0.001, 0.05]` に refine していた
+  （kernel は「有限かつ非負」）
+
+**どちらも `tsc` には見えない。** ブランドは**文字列**でキーされるので
+（`Brand.Brand<'DeltaTimeSecs'>`）、検証の中身がどれだけ違ってもミラーと kernel の原本は同じ型である。
+`Context.Tag` も文字列でキーされるので、Port の 2 つのミラーは実行時には同じサービスである。
+どちらも型検査器が構造的に捕まえられない失敗であり、だからテストで assert している。
+
+mc-render のミラーは Port を持たないので、ここで固定するのは**ブランドの述語**と
+`CameraPoseSnapshot` の形である。同種のテストが mc-sim と mc-playground-kit にもあり、
+あちらは Tag キーと `ClockService` の形も固定している。
 
 ## 5. テストの書き方（本リポジトリの規約）
 
@@ -121,8 +140,17 @@ DOM を要するテストを書きたくなったら、それは DOM を domain/
 ### 5.4 定数は算術ではなくリテラルで assert する
 
 `expect(MIRROR_LAG_WARNING_SECS).toBe(0.1)` と書く。
-実測で確定した値（p95 33ms→9.2ms を根拠とする方針、`'YXZ'`、`'Escape'`、`'window'`）は
+参照実装で確定した値（`forceSinglePass` 方針、`'YXZ'`、`'Escape'`、`'window'`）は
 すべてリテラルで固定する。
+
+`forceSinglePass` の根拠となる `p95 33ms → 9.2ms` は実測値である
+（参照実装のコミット `d51c5ba7`、"Measured before/after (idle, settled world)"）。
+ただし**元の測定は `p95 25-33ms → 9.2ms` という範囲**であり、
+33 は plan.md §3.9 が範囲の悪いほうの端だけを取った表記である
+（[design-notes.md](./design-notes.md) DN-02）。
+そして本リポジトリでは**再測定できない**（ベンチマークも計測出力もコミットされていない）ので、
+**数値そのものを閾値として assert してはならない。**
+テストが固定してよいのは「診断メッセージにこの文字列が入っていること」だけである（§5.6）。
 
 ### 5.5 「逆にしたら壊れる」ことも assert する
 
@@ -137,6 +165,8 @@ DOM を要するテストを書きたくなったら、それは DOM を domain/
 
 これに当たった開発者は「これは実測されたスタッターであってスタイルの好みではない」と
 知る必要がある。知らないと、次の人が「整理」して消す。
+（実測の正確な範囲と出典コミットは [design-notes.md](./design-notes.md) DN-02。
+assert しているのは文字列の存在であって、数値の再現ではない。）
 
 ## 6. カバレッジ
 

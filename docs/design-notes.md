@@ -174,24 +174,43 @@ THREE.js アダプタの仕事は `buildPostProcessingChain` の出力を歩い�
 // two-pass ordering, so render single-pass like vanilla.
 ```
 
-### 数値 2 つの出所が違う（重要）
+### 数値の出所（**訂正**: 以前「未検証」と書いたのは誤り）
 
-上のコメントに出る 2 つの数値は、**裏付けの強さが同じではない**。混ぜて引用しないこと。
+本書は以前 `p95 33ms → 9.2ms` を「plan.md の主張。参照実装のソース・テスト・計測出力の
+いずれにも裏付けが無い」と記録していた。**その判定は誤りである。**
+追跡対象のファイルだけを全文検索して結論を出しており、**コミットメッセージを見ていなかった**。
+
+一次出典は参照実装のコミット `d51c5ba7`
+（`perf(gfx): kill idle-frame stutter — forceSinglePass on shared transparent DoubleSide materials`）である:
+
+```
+Measured before/after (idle, settled world):
+- p95 frame time 25-33ms -> 9.2ms; p99 34-42ms -> 9.3ms
+- frames >33ms per 8s: 19-23 -> 1; fps 84-94 -> display-capped 119
+- getParameters+getProgram self time 323ms/8s -> 0ms
+```
 
 | 数値 | 出所 | 扱い |
 | --- | --- | --- |
-| `~15k getParameters calls / 3s at idle` | **参照実装のソースコード**の実測値コメント（`chunk-mesh-materials.ts:145-150`、上に全文引用） | コード検証済み |
-| `p95 33ms → 9.2ms` | plan.md §3.9、および参照実装内にある同一文書のコピー `docs/explanations/architecture/repo-decomposition-plan.md:202` **のみ** | **plan.md の主張。未検証** |
+| `~15k getParameters calls / 3s at idle` | 参照実装のソースコードの実測値コメント（`chunk-mesh-materials.ts:145-150`、上に全文引用） | コード検証済み |
+| `p95 25-33ms → 9.2ms` / `p99 34-42ms → 9.3ms` | 参照実装のコミット `d51c5ba7` のメッセージ（"Measured before/after (idle, settled world)"） | **実測。ただし再実行はできない**（下記） |
 
-`p95 33ms → 9.2ms` は参照実装の**ソース・テスト・計測出力のいずれにも裏付けが無い**
-（`33ms` / `9.2ms` で全文検索して確認済み。ヒットするのは上記の計画文書のほかは
-`packages/app/application/main/qa-api-perf.ts:22,97` の `over33ms` カウンタと
-`packages/app/application/frame/frame-budget.test.ts:17` の「120 FPS で ~8.33ms」で、
-いずれも本件の測定ではない）。再計測できるまで「plan.md の主張」として扱うこと。
+**plan.md §3.9 は 25–33ms の範囲の悪いほうの端だけを取って「33ms」と書いている。**
+これは捏造ではないが、範囲の端点を単一の測定値として提示したものである。
+`p95 33ms → 9.2ms` という書き方は改善幅を最大に見せる。範囲で引くこと。
+
+**再現可能性についての限定は残る。** ベンチマークスクリプトも計測出力もコミットされておらず、
+条件（idle、settled world、8 秒窓、当時の実機とディスプレイ）を揃えて再実行する手段は無い。
+**由来は明確・再現手段は無い**、が正しい記述である。
+検索だけでは見つからない理由も記録しておく: 追跡ファイル側で `33ms` / `9.2ms` に
+ヒットするのは `packages/app/application/main/qa-api-perf.ts:22,97` の `over33ms` カウンタと
+`packages/app/application/frame/frame-budget.test.ts:17` の「120 FPS で ~8.33ms」だけで、
+どちらも本件の測定ではない。**追跡ファイルに無いことは「裏が無い」ことを意味しない。**
 
 なお `domain/material-policy.ts` の診断メッセージには `33ms -> 9.2ms` の文字列を**残してある**。
-これは次に読む人が「ただの最適化」と思って外さないための動機付けであり、
-数値の典拠を主張するものではない。上表がその典拠である。
+これは次に読む人が「ただの最適化」と思って外さないための動機付けである。
+文字列そのものは plan.md §3.9 の表記に合わせてあるが、
+典拠と正確な範囲は上表（コミット `d51c5ba7`）である。
 
 ### 適用箇所
 

@@ -88,21 +88,22 @@ oxlint 0.12 は `no-restricted-syntax` も `no-restricted-properties` も実装�
 ### セットアップ
 
 ```console
-$ direnv allow          # devenv 経由で nodejs_22 + pnpm が入る
+$ direnv allow          # flake.nix の devShell で nodejs_22 + corepack が入る
 $ pnpm install
 ```
 
-devenv を使わない場合は Node.js 22 以上と pnpm 9.15.0（`corepack` 推奨）を用意する。
+Nix を使わない場合は Node.js 22 以上と pnpm 9.15.0（`corepack` 推奨）を用意する。
 
-> **注意**: `devenv.lock` はコミットされていない。生成には `devenv` の実行が必要なため、
-> 初回に devenv を動かした人がコミットすること。
+> **注意**: ツールチェーンは `devenv.nix` から `flake.nix` + `flake.lock` に移行済みである。
+> `flake.lock` はコミットされているので、`nix develop`（`.envrc` は `use flake`）は
+> 誰の手元でも同じ nixpkgs に解決される。`devenv.nix` / `devenv.lock` はもう存在しない。
 
 ### コマンド
 
 | コマンド | 内容 |
 | --- | --- |
 | `pnpm typecheck` | `tsconfig.build.json` と `tsconfig.test.json` の両方を型検査 |
-| `pnpm lint` | oxlint（このリポジトリ唯一の lint / format 設定。prettier も biome も .editorconfig も置かない） |
+| `pnpm lint` | oxlint（このリポジトリ唯一の lint / format 設定。prettier も biome も .editorconfig も置かない）。**`--deny-warnings` 付きで走る**ため、`warn` のルールもビルドを落とす（`oxlint.json` は 5 カテゴリすべてと個別 67 ルールが `warn`、`error` は 4 つだけ。このフラグが無かった頃は実質その 4 つしかゲートになっていなかった） |
 | `pnpm lint:fix` | oxlint の自動修正 |
 | `pnpm test` | vitest（`@effect/vitest` の `it.effect` が主 API、`environment: 'node'`） |
 | `pnpm test:watch` | vitest watch |
@@ -159,6 +160,9 @@ devenv を使わない場合は Node.js 22 以上と pnpm 9.15.0（`corepack` �
 - **カバレッジ閾値は未設定。** 99% ゲートは完了条件到達時に有効化する。
 - **`domain/kernel-vocabulary.ts` は暫定ミラー。** mc-kernel 公開時に削除する。
   `index.ts` から re-export していないのは、真実の出所を 2 つにしないため。
+  ミラーが kernel と食い違っても `tsc` は気づかない（ブランドも `Context.Tag` も**文字列**でキーされる）ので、
+  `test/kernel-mirror.test.ts` がブランドの述語と `CameraPoseSnapshot` の形を kernel の定義に対して固定している
+  （[`docs/testing.md`](./docs/testing.md) §4.1）。
 
 ## ドキュメント
 
