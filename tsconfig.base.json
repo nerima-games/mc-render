@@ -1,0 +1,71 @@
+{
+  // Shared compiler options for every tsconfig in this repository.
+  // Strictness policy: `strict: true` PLUS every additional strictness flag
+  // spelled out explicitly, so that a future TypeScript release changing a
+  // default cannot silently weaken this repository.
+  "compilerOptions": {
+    "target": "ES2024",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    // ES2024 only, deliberately — for now.
+    //
+    // mc-render is the one repository that legitimately needs the DOM: THREE.js,
+    // WebGL, `window` event registration, pointer lock. `"DOM"` is NOT in this
+    // list yet because the current source contains no DOM code at all: input
+    // arrives through an injected `InputEventSource` port and the post-FX chain
+    // is described as data. Declaring a lib nothing uses would be a promise the
+    // compiler cannot check.
+    //
+    // Add `"DOM"` (and `"WebWorker"` for the worker-pool implementation) in the
+    // same commit as the first THREE.js adapter. See docs/design-notes.md.
+    "lib": ["ES2024"],
+    "types": [],
+
+    "allowJs": false,
+    "checkJs": false,
+
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "removeComments": false,
+
+    "strict": true,
+    "noImplicitAny": true,
+    "strictNullChecks": true,
+    "strictFunctionTypes": true,
+    "strictBindCallApply": true,
+    "strictPropertyInitialization": true,
+    "noImplicitThis": true,
+    "alwaysStrict": true,
+    "useUnknownInCatchVariables": true,
+    "exactOptionalPropertyTypes": true,
+    "noUncheckedIndexedAccess": true,
+    "noPropertyAccessFromIndexSignature": true,
+    "noImplicitOverride": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "allowUnreachableCode": false,
+    "allowUnusedLabels": false,
+
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "forceConsistentCasingInFileNames": true,
+    "isolatedModules": true,
+    "moduleDetection": "force",
+    "resolvePackageJsonExports": true,
+    "resolvePackageJsonImports": true,
+    "skipLibCheck": true,
+
+    "newLine": "lf",
+    "stripInternal": true,
+
+    // No build step yet (see README 現状). Every tsconfig here is check-only;
+    // `package.json#exports` points at TypeScript source. The emitting
+    // build/publish pipeline is added when this repo reaches completion.
+    "noEmit": true,
+
+    "baseUrl": "."
+  }
+}

@@ -1,0 +1,169 @@
+# @nerima-games/mc-render
+
+## 責務
+
+THREE.js 描画一式（マテリアル / カメラ / ポストFX / パーティクル / 水面）+ ワーカープール実装 +
+**実行時入力サービス**（キーボード / マウス / ポインタロック / タッチ / キーリマッピング）。
+テクスチャ同梱。
+
+一見無関係な 2 つが同居しているのには理由がある。plan.md §2.3-2 のとおり、
+mc-playground-kit は devDependency 専用で出荷ビルドに入らないため、
+**入力を kit に置くと本番ゲームから入力処理が丸ごと消える**。
+入力もブラウザプラットフォームの関心事であり、それを所有しているのがこのリポジトリである。
+
+**そしてこのリポジトリはカメラの正ではない。** `CameraPoseSnapshot` の正は mc-sim が持ち、
+ここはミラーするだけである。
+
+詳細は [`docs/responsibility.md`](./docs/responsibility.md)（**非スコープの明示を含む**）。
+
+## 依存
+
+| 依存先 | 何をもらうか |
+| --- | --- |
+| `mc-kernel` | 共有語彙。どのリポジトリからも import 可（許可リストに書かずに import できる） |
+| `mc-meshing` | `mesh(chunk, neighbors, config) → {opaque, water, transparentSolid}` |
+| `mc-sim` | `CameraPoseSnapshot`、チャンクダーティ購読、描画すべき状態 |
+| `mc-worldgen` | `Chunk` データ、ライトグリッド（計算は worldgen、**適用**がこちら） |
+
+`mc-physics` と `mc-save` は **import できない**（`mc-sim` 経由の推移依存に過ぎない）。
+レンダラは衝突判定をやり直さないし、セーブファイルも読まない。
+`mc-playground-kit` には**依存しない**（devDependency 専用。§2.3-2）。
+
+**現在の `dependencies` は `effect` のみ。** 上記 4 つはまだ publish されていないため
+（plan.md §6 Step 3 の bottom-up publish-then-pin）、kernel の語彙は
+`domain/kernel-vocabulary.ts` に暫定ミラーしてある。kernel 公開時に削除する。
+
+**`three` / `@types/three` もまだ入れていない**（参照実装は `^0.170.0`）。
+現在のソースが THREE.js を 1 行も import していないため。
+最初の THREE.js アダプタと同じコミットで追加する
+（[`docs/versioning.md`](./docs/versioning.md) §5）。
+
+## このリポジトリの位置づけ
+
+4 層アーキテクチャの**基盤**層。plan.md §7 の機能カバレッジ表で
+「描画・ポストFX・パーティクル・投射物トレーサー」と
+「実行時入力（キーボード/マウス/ポインタロック/タッチ/リマッピング）」の
+**両方**を割り当てられている唯一のリポジトリである。
+
+実行時依存元は `mc-playground-kit` のみ（`mc-compose` は推移的）。
+**ただしそれは界面が揺れてよいという意味ではない。** kit は全プレビューの土台であり、
+kit が壊れると 15 リポジトリの完了条件「内蔵プレビューが操作可能」が全部止まる。
+
+依存グラフ全体・4 階層・名詞/動詞ルール・kit の devDependency 専用規則・stage 全順序の所有者は
+[`docs/architecture.md`](./docs/architecture.md) を参照。
+
+### 依存ルール（16 リポジトリ共通）
+
+| ルール | 内容 |
+| --- | --- |
+| ハード失敗 | 違反があれば CI は必ず非ゼロ終了する。警告で済ませない |
+| 循環禁止 | 循環依存は一切許可しない。「co-evolution ペア」のような例外リストは設けない |
+| 推移閉包の禁止 | A→B、B→C のとき A は C を import できない |
+| kernel は例外 | mc-kernel はどこからでも import 可（`dependencies` への記載は必要） |
+| 宣言と実体の一致 | import する `@nerima-games/*` は `package.json` に記載必須 |
+| mc-playground-kit は devDependency 専用 | `dependencies` に入れてはならない。**実行時依存になると出荷ビルドから入力処理が消える** |
+| `Date.now()` 禁止 | 時刻はすべて注入された Clock Port から取得する |
+
+`scripts/check-dependency-whitelist.ts` は 16 リポジトリ共通のテンプレートである。
+冒頭で囲ってある `REPOSITORY_POLICY` 定数だけを書き換え、それ以外はそのままコピーする。
+本リポジトリの版は **plan.md §2.1 の 16 リポジトリ全行**を保持しており、循環検査が全体を見る。
+
+### `Date.now()` 禁止の実装方法
+
+oxlint 0.12 は `no-restricted-syntax` も `no-restricted-properties` も実装しておらず、
+`no-restricted-globals` は `oxlint --rules` の一覧に出るものの実装されていない
+（mc-kernel で 0.12.0 に対し実測確認済み。3 ルールすべて設定した状態で `Date.now()` を書いても診断 0 件）。
+
+そのため禁止は **`scripts/check-dependency-whitelist.ts` 側で実装**している。
+対象は `Date.now()` / `new Date()` / `performance.now()` の 3 つ。
+コメント・文字列リテラル・正規表現リテラルの中身はマスクされるので誤検知しない。
+
+**この禁止が最も効くのがこのリポジトリである。** `performance.now()` は FPS 計測・
+フレーム時間計測・アニメーション補間で自然に手が伸びる。
+そして**ブラウザプラットフォームを所有する以上、Clock Port の実装アダプタはおそらくここに置かれる**。
+だからエスケープハッチ（`mc-kernel-allow-time-source`）は**ファイル単位ではなく行単位**である。
+
+## 開発
+
+### セットアップ
+
+```console
+$ direnv allow          # devenv 経由で nodejs_22 + pnpm が入る
+$ pnpm install
+```
+
+devenv を使わない場合は Node.js 22 以上と pnpm 9.15.0（`corepack` 推奨）を用意する。
+
+> **注意**: `devenv.lock` はコミットされていない。生成には `devenv` の実行が必要なため、
+> 初回に devenv を動かした人がコミットすること。
+
+### コマンド
+
+| コマンド | 内容 |
+| --- | --- |
+| `pnpm typecheck` | `tsconfig.build.json` と `tsconfig.test.json` の両方を型検査 |
+| `pnpm lint` | oxlint（このリポジトリ唯一の lint / format 設定。prettier も biome も .editorconfig も置かない） |
+| `pnpm lint:fix` | oxlint の自動修正 |
+| `pnpm test` | vitest（`@effect/vitest` の `it.effect` が主 API、`environment: 'node'`） |
+| `pnpm test:watch` | vitest watch |
+| `pnpm test:coverage` | カバレッジ計測（閾値は未設定。後述） |
+| `pnpm check:deps` | 依存ホワイトリスト + 循環検査 + `Date.now()` 禁止の検査 |
+| `pnpm verify` | `typecheck && lint && check:deps && test`。CI と同じ内容 |
+
+## 現状
+
+**このリポジトリはまだ叩き台（pre-audit first cut）である。しかも THREE.js が 1 行も入っていない。**
+
+現在のソースはすべて**純粋**である。ポストFXチェーンは配列、マテリアル方針は述語、
+入力バインディングは表、スクラッチバッファはただの `Map`。DOM も WebGL も無い。
+
+**これは手抜きではなく設計判断である。** 参照実装ではこれらの知識が
+「builder 関数の文の並び順」や「`addEventListener` 2 行」にしか書かれておらず、
+読むことでしか検査できず、GPU が無いとテストできなかった。データにすれば
+`environment: 'node'` の単体テストで固定できる。
+
+| 参照実装で読むしかなかった知識 | ここでの表現 |
+| --- | --- |
+| `composer.addPass()` の呼び出し順 | `POST_PROCESSING_PASS_ORDER` + `validatePostProcessingChain` |
+| どのマテリアルに `forceSinglePass` が要るか | `requiresForceSinglePass` 述語（名指しせず規則で） |
+| どのイベントをどこに登録するか | `LISTENER_PLAN` + `GAMEPLAY_LISTENER_TARGET` / `MODAL_LISTENER_TARGET` |
+| フレーム毎の一時オブジェクト再利用 | `withScratch`（フレームを跨いだ参照漏れを実行時検出） |
+| Escape キーの所有者 | `ESCAPE_OWNER = 'frame-handler'`（grep できる値） |
+
+| 領域 | 実装 | 設計注意 |
+| --- | --- | --- |
+| ポストFXの確定順序 | `domain/post-processing.ts` | DN-01 |
+| `forceSinglePass` 規則 | `domain/material-policy.ts` | DN-02 |
+| フレーム毎スクラッチの再利用 | `domain/frame-scratch.ts` | DN-03 |
+| 入力の window/document 遮蔽 | `domain/input-bindings.ts` / `application/input-service.ts` | DN-04 |
+| Escape の単一所有 | 同上 | DN-05 |
+| カメラのミラー（書き戻し無し） | `domain/camera-mirror.ts` | DN-06 |
+
+各 DN の参照実装証跡（file:line）と書くべき回帰テスト一覧は
+[`docs/design-notes.md`](./docs/design-notes.md)。
+
+### まだ無いもの
+
+- **THREE.js アダプタ一式。** マテリアル / パーティクル / 水面 / テクスチャ / シーン。
+- **`WorldRenderer`。** plan.md §3.9 の筆頭 API でありながら 1 行も無い。
+  **mc-sim のチャンクダーティ通知が未設計**なため書けない
+  （[`docs/public-api.md`](./docs/public-api.md) §3）。
+- **`window` 入力アダプタ。** 現在は注入された `InputEvent` を受けるだけ。
+  ゲームパッド / タッチ / ポインタロック要求も未実装。
+- **ワーカープール実装。** 参照実装 `packages/worker` の 1,373 LOC 相当。
+- **内蔵 fixture ビューア。** plan.md §6 Step 2 の完了条件の半分。
+- **グラフィックス品質プリセットの残り半分。** レンダースケール・影解像度・視界距離・
+  `bloomStrength` / `godRaysSamples`・`composerRtType`。
+- **ビルド／publish はまだない。** `exports` は TypeScript ソースを直接指している。
+  `version` は `0.x` に留める（[`docs/versioning.md`](./docs/versioning.md)）。
+- **カバレッジ閾値は未設定。** 99% ゲートは完了条件到達時に有効化する。
+- **`domain/kernel-vocabulary.ts` は暫定ミラー。** mc-kernel 公開時に削除する。
+  `index.ts` から re-export していないのは、真実の出所を 2 つにしないため。
+
+## ドキュメント
+
+[`docs/README.md`](./docs/README.md) が索引。
+
+## License
+
+MIT

@@ -1,0 +1,16 @@
+{
+  // Shipped source only. `types: []` (inherited) is deliberate: if a Node type
+  // ever leaks into `domain/` or `application/` this project fails, which is
+  // what keeps the package usable from browser, worker and server alike.
+  "extends": "./tsconfig.base.json",
+  "include": ["index.ts", "domain/**/*.ts", "application/**/*.ts"],
+  "exclude": [
+    "node_modules",
+    "coverage",
+    "dist",
+    "test/**",
+    "scripts/**",
+    "**/*.test.ts",
+    "**/*.spec.ts"
+  ]
+}
