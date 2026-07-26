@@ -13,7 +13,7 @@
 <!-- ------------------------------------------------------------------------- -->
 
 format: 1
-exported declarations: 98
+exported declarations: 121
 supporting declarations: 17
 
 ## Exported
@@ -22,6 +22,35 @@ supporting declarations: 17
 
 ```ts
 type Bindings = Readonly<Record<string, InputCode>>;
+```
+
+### BrowserInputOptions  `type`
+
+```ts
+type BrowserInputOptions = {
+    readonly targets: BrowserInputTargets;
+    readonly canvas?: PointerLockTarget;
+    readonly allowsPointerLock?: () => boolean;
+    readonly bindings?: Bindings;
+};
+```
+
+### BrowserInputTargets  `type`
+
+```ts
+type BrowserInputTargets = {
+    readonly window: DomEventTarget;
+    readonly document: DomDocument;
+};
+```
+
+### BrowserPointerLockOptions  `type`
+
+```ts
+type BrowserPointerLockOptions = {
+    readonly canvas: PointerLockTarget;
+    readonly allowsPointerLock?: () => boolean;
+};
 ```
 
 ### COMPOSITE_SUBSUMES  `const`
@@ -43,6 +72,60 @@ type ChainViolation = {
 
 ```ts
 const DEFAULT_BINDINGS: Readonly<Record<Exclude<InputAction, 'escape'>, InputCode>>;
+```
+
+### DomDocument  `type`
+
+```ts
+type DomDocument = DomEventTarget & {
+    readonly pointerLockElement: unknown;
+};
+```
+
+### DomEventContext  `type`
+
+```ts
+type DomEventContext = {
+    readonly pointerLockHeld: boolean;
+};
+```
+
+### DomEventTarget  `type`
+
+```ts
+type DomEventTarget = {
+    readonly addEventListener: (type: string, listener: DomListener, options?: DomListenerOptions) => void;
+    readonly removeEventListener: (type: string, listener: DomListener, options?: DomListenerOptions) => void;
+};
+```
+
+### DomInputEvent  `type`
+
+```ts
+type DomInputEvent = {
+    readonly preventDefault: () => void;
+    readonly code?: string;
+    readonly button?: number;
+    readonly movementX?: number;
+    readonly movementY?: number;
+    readonly deltaY?: number;
+    readonly deltaMode?: number;
+};
+```
+
+### DomListener  `type`
+
+```ts
+type DomListener = (event: DomInputEvent) => void;
+```
+
+### DomListenerOptions  `type`
+
+```ts
+type DomListenerOptions = {
+    readonly capture?: boolean;
+    readonly passive?: boolean;
+};
 ```
 
 ### ESCAPE_KEY_CODE  `const`
@@ -215,6 +298,15 @@ type InputSnapshot = {
 };
 ```
 
+### InstalledInputListeners  `type`
+
+```ts
+type InstalledInputListeners = {
+    readonly registrations: ReadonlyArray<ListenerRegistration>;
+    readonly remove: () => void;
+};
+```
+
 ### KeyCode  `type`
 
 ```ts
@@ -229,6 +321,17 @@ const LISTENER_PLAN: ReadonlyArray<{
     readonly target: ListenerTarget;
     readonly note: string;
 }>;
+```
+
+### ListenerRegistration  `type`
+
+```ts
+type ListenerRegistration = {
+    readonly event: string;
+    readonly target: ListenerTarget;
+    readonly listener: DomListener;
+    readonly options: DomListenerOptions;
+};
 ```
 
 ### ListenerTarget  `type`
@@ -351,6 +454,21 @@ const POINTER_LOCK_STATES: readonly ["unlocked", "requested", "locked", "refused
 const POST_PROCESSING_PASS_ORDER: readonly ["render", "gtao", "godRays", "bloom", "bokeh", "composite", "smaa", "output"];
 ```
 
+### PREVENT_DEFAULT_EVENTS  `const`
+
+```ts
+const PREVENT_DEFAULT_EVENTS: ReadonlyArray<string>;
+```
+
+### PlannedListener  `type`
+
+```ts
+type PlannedListener = {
+    readonly event: string;
+    readonly target: ListenerTarget;
+};
+```
+
 ### PointerLockPort  `type`
 
 ```ts
@@ -369,6 +487,14 @@ type PointerLockRequestOutcome = 'sent' | 'unavailable';
 
 ```ts
 type PointerLockState = (typeof POINTER_LOCK_STATES)[number];
+```
+
+### PointerLockTarget  `type`
+
+```ts
+type PointerLockTarget = {
+    readonly requestPointerLock?: () => unknown;
+};
 ```
 
 ### PostProcessingPass  `type`
@@ -475,6 +601,12 @@ type ScratchViolation = {
 };
 ```
 
+### TRANSLATED_DOM_EVENTS  `const`
+
+```ts
+const TRANSLATED_DOM_EVENTS: ReadonlyArray<string>;
+```
+
 ### UNAVAILABLE_POINTER_LOCK  `const`
 
 ```ts
@@ -568,6 +700,12 @@ const auditMaterials: (materials: ReadonlyArray<MaterialSpec>) => ReadonlyArray<
 const bindingFor: (bindings: Bindings, action: InputAction) => InputCode | undefined;
 ```
 
+### browserInputLayer  `const`
+
+```ts
+const browserInputLayer: (options: BrowserInputOptions) => Layer.Layer<InputService>;
+```
+
 ### buildPostProcessingChain  `const`
 
 ```ts
@@ -590,6 +728,12 @@ const describeMaterialPolicy: (material: MaterialSpec) => MaterialPolicyVerdict;
 
 ```ts
 const forwardVector: (snapshot: CameraPoseSnapshot) => Position;
+```
+
+### installInputListeners  `const`
+
+```ts
+const installInputListeners: (targets: BrowserInputTargets, input: InputServiceApi) => InstalledInputListeners;
 ```
 
 ### isCanonicalChain  `const`
@@ -620,6 +764,24 @@ const isMirrorStale: (state: MirroredCameraState, now: MonotonicTimeSecs) => boo
 
 ```ts
 const isMouseButton: (code: InputCode) => code is MouseButton;
+```
+
+### isPointerLockHeld  `const`
+
+```ts
+const isPointerLockHeld: (document: DomDocument) => boolean;
+```
+
+### listenerOptionsFor  `const`
+
+```ts
+const listenerOptionsFor: (eventName: string) => DomListenerOptions;
+```
+
+### makeBrowserPointerLockPort  `const`
+
+```ts
+const makeBrowserPointerLockPort: (options: BrowserPointerLockOptions) => PointerLockPort;
 ```
 
 ### makeFrameScratch  `const`
@@ -653,6 +815,12 @@ const makeRenderStagesForPreview: (quality?: GraphicsQuality) => Effect.Effect<{
 
 ```ts
 const makeScratchMap: <K, V>(name: string, initialCapacity?: number) => ScratchMap<K, V>;
+```
+
+### mayPreventDefault  `const`
+
+```ts
+const mayPreventDefault: (eventName: string) => boolean;
 ```
 
 ### mirrorLagSecs  `const`
@@ -715,6 +883,12 @@ const renderStages: (state: RenderFrameState, input: InputServiceApi) => Readonl
 const requiresForceSinglePass: (material: MaterialSpec) => boolean;
 ```
 
+### scopedInputListeners  `const`
+
+```ts
+const scopedInputListeners: (targets: BrowserInputTargets, input: InputServiceApi) => Effect.Effect<InstalledInputListeners, never, Scope.Scope>;
+```
+
 ### snapshotAgeSecs  `const`
 
 ```ts
@@ -743,6 +917,12 @@ const suppressesBrowserScroll: (pointerLocked: boolean) => boolean;
 
 ```ts
 const takesTwoPassPath: (material: MaterialSpec) => boolean;
+```
+
+### translateDomEvent  `const`
+
+```ts
+const translateDomEvent: (planned: PlannedListener, event: DomInputEvent, context: DomEventContext) => InputEvent | undefined;
 ```
 
 ### validatePostProcessingChain  `const`

@@ -83,12 +83,13 @@ E2E でも（ポインタロックが使えないので）単体でも（DOM が
 
 ## 4. 現在のテスト
 
-`vitest run`。9 ファイル / 228 テスト。すべて `environment: 'node'`。
+`vitest run`。10 ファイル / 277 テスト。すべて `environment: 'node'`。
 
 | ファイル | テスト数 | 対応 |
 | --- | ---: | --- |
 | `test/post-processing.test.ts` | 20 | DN-01 / DN-07 |
 | `test/input.test.ts` | 87 | DN-04 / DN-05 / DN-08 / DN-09 / DN-12 / DN-13 / DN-14 |
+| `test/browser-input-adapter.test.ts` | 49 | `window` アダプタ。DN-04（登録と解除）/ DN-12 / DN-13 / DN-14 / DN-15 |
 | `test/camera-mirror.test.ts` | 13 | DN-06 |
 | `test/frame-scratch.test.ts` | 12 | DN-03 |
 | `test/material-policy.test.ts` | 10 | DN-02 |
@@ -136,8 +137,15 @@ it.effect('name', () => Effect.gen(function* () { ... }))
 
 これは制約に見えて、**設計を守る仕掛け**である。
 DOM を要するテストを書きたくなったら、それは DOM を domain/application に持ち込もうと
-している合図である。ブラウザ依存は THREE.js / `window` アダプタに閉じ込め、
-アダプタの検証は §1 の 3 本立て（fixture / スクリーンショット / 内蔵ビューア）で行う。
+している合図である。ブラウザ依存は THREE.js / `window` アダプタに閉じ込める。
+
+**`window` 入力アダプタはこの規約の中に収まった**（§8.1）。
+`jsdom` も Playwright も要らない——アダプタが触る DOM メンバは 8 個しかなく
+（`application/dom-surface.ts`）、偽装は 40 行で済む。
+`lib.DOM` を入れずに済ませたことがそのまま「偽装できる大きさ」を保証している（DN-15）。
+
+THREE.js アダプタは違う。あちらの検証は §1 の 3 本立て
+（fixture / スクリーンショット / 内蔵ビューア）で行う。
 
 ### 5.3 全数テストできるものは全数テストする
 
@@ -230,15 +238,41 @@ typecheck (build + test の 2 プロジェクト)
 | `the THREE adapter adds passes in exactly buildPostProcessingChain order` | DN-01 | アダプタ実装時 |
 | `every shared material built by the adapter passes auditMaterials` | DN-02 | 同上（起動時アサーションとして） |
 | `a full frame allocates no new Map` | DN-03 | 同上 |
-| `the window adapter registers exactly LISTENER_PLAN` | DN-04 | `window` アダプタ実装時 |
-| `every listener is removed on finalizer` | DN-04 | 同上（kit の 2 枚並列でリークする） |
-| `the window adapter passes deltaMode through wheelDeltaModeForIndex` | DN-13 | 同上 |
-| `the wheel handler calls preventDefault exactly when shouldSuppressWheelScroll says so` | DN-13 | 同上 |
-| `the browser port calls canvas.requestPointerLock exactly once per ask` | DN-14 | 同上 |
 | `no source file in this repository reads camera.position` | DN-06 | アダプタ実装時。走査テストで |
 | `blur clears gamepad and touch state too` | DN-08 | それらの実装時 |
 | ワーカープールの Port 適合 / 死んだワーカーの置き換え | DN-10 | プール実装時 |
-| 参照実装の入力テスト 1,261 LOC の移植 | — | 入力アダプタ実装時（[porting.md](./porting.md) §6） |
+| 参照実装の入力テスト 1,261 LOC の移植 | — | 残り（[porting.md](./porting.md) §6） |
+
+### 8.1 解消済み: `window` 入力アダプタの 5 本
+
+かつてこの表にあった以下は `test/browser-input-adapter.test.ts`（49 テスト）で**実装済み**である。
+
+| テスト | 対応 |
+| --- | --- |
+| `the window adapter registers exactly LISTENER_PLAN` | DN-04 |
+| `every listener is removed on finalizer` | DN-04（kit の 2 枚並列でリークする） |
+| `the window adapter passes deltaMode through wheelDeltaModeForIndex` | DN-13 |
+| `the wheel handler calls preventDefault exactly when shouldSuppressWheelScroll says so` | DN-13 |
+| `the browser port calls canvas.requestPointerLock exactly once per ask` | DN-14 |
+
+DOM は**偽物**で駆動している。§5.2 の「ブラウザを要するテストを書かない」に反していない——
+アダプタが触る DOM メンバは 8 個しかなく（`application/dom-surface.ts`）、
+偽装は 40 行で済む。そしてこれは妥協ではなく §3.2 の論法そのものである:
+実ブラウザでもポインタロックは駆動できない（Playwright は SwiftShader）ので、
+「本物の DOM で試す」という選択肢は最初から存在しない。
+
+追加で 2 本、**この設計自体**を守るテストがある（DN-15）。
+
+| テスト | 何を守るか |
+| --- | --- |
+| `a real Window, Document and HTMLCanvasElement satisfy the adapter without a cast` | `test/fixtures/dom-surface.ts` を**本物の `lib.dom.d.ts`** に対してコンパイルし、診断 0 件を assert する。狭い構造的型が実物の部分集合であること |
+| `the shipped project still compiles with NO DOM at all` | `tsconfig.build.json` の `lib` / `types` が後から緩められていないこと |
+
+前者はフィクスチャを `ts.createProgram` で**テストの中からコンパイル**する
+（`typescript` は既に devDependency で、`test/api-lock.test.ts` と同じ手である）。
+フィクスチャは `tsconfig.json` / `tsconfig.test.json` から `test/fixtures/**` として除外してある。
+DOM 型を名指しするのが目的のファイルであり、DOM の無いプロジェクトに入れれば落ちるだけで、
+出荷プロジェクトに入れれば `"DOM"` が裏口から入ったのと同じになる。
 
 **APIロックの diff はこの表から外れた。** 実装済みで、しかも vitest のテストではない。
 「コミット済みの `api-lock.md` が現在の公開面と一致するか」は `pnpm api:check` が見る。

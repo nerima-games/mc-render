@@ -16,5 +16,7 @@
     "scripts/**/*.ts",
     "vitest.config.ts"
   ],
-  "exclude": ["node_modules", "coverage", "dist"]
+  // `test/fixtures/**` names DOM types deliberately and is compiled by a test
+  // against `lib.dom.d.ts` instead — see tsconfig.test.json.
+  "exclude": ["node_modules", "coverage", "dist", "test/fixtures/**"]
 }

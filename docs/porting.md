@@ -203,5 +203,5 @@ plan.md §3.9 は「`packages/worker` のプール実装」と書く。
 | `session-post-processing.ts` が `packages/app` にあること | 描画設定は mc-render が持つ |
 | 無効パスを構築して `enabled = false` にする扱い | 構築しない（DN-07） |
 | `Effect.Service` によるサービス定義 | `Context.Tag` + 明示 Layer（[public-api.md](./public-api.md) §0） |
-| `window` / `document` への直接 `addEventListener` | 注入された `InputEvent` に置き換え。`window` アダプタは別 Layer |
+| `window` / `document` への直接 `addEventListener` | 注入された `InputEvent` に置き換え。`window` アダプタは別 Layer（`application/browser-input-adapter.ts`。DOM 型は `lib` ではなく `application/dom-surface.ts` の構造的な型で受ける——DN-15） |
 | `raycasting-service.ts` のブロック狙撃用途 | mc-physics の voxel-DDA に置き換え（plan.md §3.4。25 倍の出典は参照実装のコミット `101074e3`、§2.1） |

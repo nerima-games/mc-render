@@ -426,6 +426,127 @@ unlocked ──requestPointerLock──▶ requested ──pointerlockchange(tru
                           （refused からもクリックで再要求できる）
 ```
 
+## 2.9 `window` 入力アダプタ — **DOM を `lib` ではなく型で受ける**
+
+§2.2 の表がずっと「`window` アダプタは別 Layer」とだけ書いていた穴。
+§7 の表にも「`window` 入力アダプタ: 未実装、消費者は全プレビュー」とあった。**実装済み。**
+
+### 2.9.1 公開するもの
+
+```typescript
+// application/dom-surface.ts —— このリポジトリの DOM 依存の全部（メンバ 8 個）
+type DomListenerOptions = { readonly capture?: boolean; readonly passive?: boolean }
+type DomInputEvent = {
+  readonly preventDefault: () => void         // 必須。これが weak type を防ぐ
+  readonly code?: string                      // KeyboardEvent.code
+  readonly button?: number                    // MouseEvent.button
+  readonly movementX?: number
+  readonly movementY?: number
+  readonly deltaY?: number                    // WheelEvent.deltaY（生）
+  readonly deltaMode?: number                 // WheelEvent.deltaMode
+}
+type DomListener = (event: DomInputEvent) => void
+type DomEventTarget = { addEventListener; removeEventListener }
+type DomDocument = DomEventTarget & { readonly pointerLockElement: unknown }
+type PointerLockTarget = { readonly requestPointerLock?: () => unknown }
+const isPointerLockHeld: (document: DomDocument) => boolean
+
+// application/browser-input-adapter.ts
+type BrowserInputTargets = { readonly window: DomEventTarget; readonly document: DomDocument }
+type PlannedListener = { readonly event: string; readonly target: ListenerTarget }
+type ListenerRegistration = { event; target; listener; options }
+type InstalledInputListeners = { registrations: ReadonlyArray<ListenerRegistration>; remove: () => void }
+type DomEventContext = { readonly pointerLockHeld: boolean }
+
+const PREVENT_DEFAULT_EVENTS: ReadonlyArray<string>   // ['wheel', 'contextmenu']
+const mayPreventDefault: (eventName: string) => boolean
+const listenerOptionsFor: (eventName: string) => DomListenerOptions
+const TRANSLATED_DOM_EVENTS: ReadonlyArray<string>
+
+const translateDomEvent: (planned, event: DomInputEvent, context) => InputEvent | undefined
+const installInputListeners: (targets, input: InputServiceApi) => InstalledInputListeners
+const scopedInputListeners: (targets, input) => Effect<InstalledInputListeners, never, Scope>
+
+type BrowserPointerLockOptions = { canvas: PointerLockTarget; allowsPointerLock?: () => boolean }
+const makeBrowserPointerLockPort: (options) => PointerLockPort
+
+type BrowserInputOptions = { targets; canvas?; allowsPointerLock?; bindings? }
+const browserInputLayer: (options: BrowserInputOptions) => Layer<InputService>
+```
+
+### 2.9.2 `lib` に `"DOM"` を入れなかった理由
+
+正本は [design-notes.md](./design-notes.md) DN-15。要点だけ:
+
+`lib: ["ES2024"]` / `types: []` は**ポストFXの順序・ホイールのモデル・ロック状態機械を
+`environment: 'node'` で検査可能にしている当の機構**であり、
+plan.md §3.10（Playwright は SwiftShader でポインタロック不可）により
+ブラウザ側にも逃げ場が無い。1 つのアダプタのために全ファイルからその歯止めを外すのは高すぎる。
+
+アダプタ専用の 2 つ目の tsconfig プロジェクトも採れない。
+`scripts/api-lock.ts` は `tsconfig.build.json` から公開面を作り、
+`scripts/check-dependency-whitelist.ts` は `index.ts` / `domain/` / `application/` / `stages/` で
+出荷ソースを分類する。どちらも 16 リポジトリに byte-identical で vendor される領域であり、
+build プロジェクトの外に置いたアダプタは `index.ts` から re-export できない
+——つまり**それが存在する理由であるプレビューから使えない**。
+
+代入可能性はテストで証明してある（§8.1 相当は [testing.md](./testing.md) §8.1）。
+`test/fixtures/dom-surface.ts` を**本物の `lib.dom.d.ts`** に対してコンパイルし、
+実物の `Window` / `Document` / `HTMLCanvasElement` が**キャスト無しで**適合することを assert する。
+`strictFunctionTypes` によりリスナの引数は反変なので、`DomInputEvent` を狭めると
+実物が代入できなくなり、消費者は `as unknown as` に手を伸ばす——型安全が失われるのはそこである。
+
+### 2.9.3 アダプタが決めてよいこと / いけないこと
+
+**いけない**（ここでの判断は**どのテストからも押さえられない**判断になるため）:
+
+| 事項 | 正はどこか |
+| --- | --- |
+| どのイベントをどこに登録するか | `LISTENER_PLAN`。アダプタはそれを `map` する |
+| `preventDefault()` するか | `shouldSuppressWheelScroll` / `shouldSuppressContextMenu`（§2.6 / §2.7） |
+| 何ピクセルが 1 ノッチか | `notchesForWheelDelta`（§2.7） |
+| いつロックを要求するか | `acquiresPointerLock` + `render:input` stage（§2.8） |
+
+**よい**——すべて**番号→名前**の同型の変換である:
+
+| 変換 | 1 箇所 |
+| --- | --- |
+| `MouseEvent.button` → `MouseButton` | `mouseButtonForIndex` |
+| `WheelEvent.deltaMode` → `WheelDeltaMode` | `wheelDeltaModeForIndex` |
+| DOM のイベント名 → `InputEvent` の case | `translateDomEvent`（`mousemove` → `pointermove`） |
+| `document.pointerLockElement` → `locked: boolean` | `isPointerLockHeld` |
+
+名前を付けられない値は**境界で落とす**（親指ボタン、未知の `deltaMode`、`NaN` の `movementX`）。
+イベントハンドラは throw してはならず、推測はもっと悪い。
+
+### 2.9.4 解除は正確でなければならない
+
+`installInputListeners` は登録した内容（登録先・イベント名・リスナ**関数**・オプション**オブジェクト**）を
+返し、`remove` は**その同じ配列**を歩く。「足したものが全部外れる」は
+読み手が 2 つのリストを見比べて信じる約束ではなく、1 つのリストを 2 回歩く事実である。
+
+`removeEventListener` は type / 関数同一性 / **capture フラグ**の 3 つで照合し、
+1 つでも外れると**黙って何もしない**。だから `capture: false` を既定に任せず明示し、
+同じオブジェクトを両方に渡している。
+
+漏らした場合の症状は plan.md §3.8 が参照実装の最悪バグ群として記録している
+「2 回目のワールドロード」と同型である: 1 回目のハンドラが生き残って 2 回目と並走し、
+キーが 2 つのことをする。kit はプレビューを 2 枚並べるので、**このリポジトリは 2 個目を先に見る**。
+だから `browserInputLayer` が既定の入口であり、解除は Scope に結ばれている。
+
+### 2.9.5 `passive: false` は 2 つだけ
+
+`preventDefault()` を呼びうるリスナだけが `passive: false` で登録される
+（`PREVENT_DEFAULT_EVENTS` = `wheel` / `contextmenu`）。
+スクロール経路上の非 passive リスナは実際にフレーム時間を食う——
+ブラウザはスクロールしてよいかを知るためにハンドラの復帰を待たなければならない。
+
+厳密に**必要**なのは `wheel` だけである（ブラウザが既定で passive にするのは
+`wheel` / `mousewheel` / `touchstart` / `touchmove` であり、`contextmenu` は元から非 passive）。
+`contextmenu` も列挙してあるのは、この 1 つのリストが
+「既定を抑止しうる」と「非 passive で登録する」の両方を表しており、
+既に非 passive なものに `passive: false` を明示しても挙動もフレーム時間も変わらないからである。
+
 ## 3. WorldRenderer — **未設計。最優先**
 
 plan.md §3.9 の筆頭 API であり、**まだ 1 行も無い。**
@@ -629,7 +750,7 @@ plan.md §3.8 が参照実装の最悪の構造バグとして記録している
 | 性能計測 HUD | `infrastructure/perf/` + `presentation/` | 698 | 開発時 |
 | レイキャスト（描画側の当たり） | `infrastructure/raycasting/` | 89 | **要検討**: voxel-DDA は mc-physics（plan.md §3.4） |
 | ワーカープール実装 | `packages/worker/infrastructure/` | ~1,100 | mc-worldgen / mc-meshing |
-| `window` 入力アダプタ | `packages/presentation/input/input-service.ts:171-205` | — | 全プレビュー |
+| ~~`window` 入力アダプタ~~ | ~~`input-service.ts:171-205`~~ | — | **実装済。§2.9** |
 | ゲームパッド / タッチ | `gamepad-input-state.ts` / `virtual-input-state.ts` | 216 | mx-ui（モバイル） |
 
 `raycasting-service.ts`（89 LOC）に注意。plan.md §3.4 は
@@ -644,7 +765,7 @@ mc-render の下流は kit のみだが、kit は全プレビューの土台な�
 
 | 項目 | 内容 |
 | --- | --- |
-| 生成物 | リポジトリ直下の `api-lock.md`（公開宣言 98 件 + 参照されている非 export 宣言 17 件。コミット対象） |
+| 生成物 | リポジトリ直下の `api-lock.md`（公開宣言 121 件 + 参照されている非 export 宣言 17 件。コミット対象） |
 | 生成器 | `scripts/api-lock.ts`（16 リポジトリに byte-identical で vendor。`scripts/check-dependency-whitelist.ts` と同じ方式で、編集してよいのは `REPOSITORY_POLICY` だけ） |
 | 検査 | `pnpm api:check` — `api-lock.md` が実際の公開 API と食い違えば非ゼロ終了 |
 | 更新 | `pnpm api:update` |

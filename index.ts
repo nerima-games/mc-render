@@ -19,11 +19,20 @@
  * produces renderer state, in that direction only. The dependency graph makes
  * the reverse a cycle, which `pnpm check:deps` rejects outright.
  *
- * Everything exported here is CURRENTLY PURE — no THREE.js, no DOM, no WebGL.
- * The post-FX chain, the material policy, the input bindings and the scratch
- * buffers are all data and pure functions, which is what lets them be tested in
- * Node under `environment: 'node'`. The THREE.js and `window` adapters are the
- * next commit, and they are what turns `"DOM"` on in `tsconfig.base.json`.
+ * The domain is PURE — no THREE.js, no DOM, no WebGL. The post-FX chain, the
+ * material policy, the input bindings and the scratch buffers are all data and
+ * pure functions, which is what lets them be tested in Node under
+ * `environment: 'node'`.
+ *
+ * The `window` input adapter is here now, and it did NOT turn `"DOM"` on in
+ * `tsconfig.base.json`: it describes the handful of DOM members it uses as
+ * structural types in `application/dom-surface.ts`, which is one file, is
+ * auditable in one read, and is proved against the real `lib.dom.d.ts` by a
+ * test. `pnpm typecheck` therefore still compiles this entire shipped surface
+ * with `lib: ["ES2024"]` and `types: []` — which is the property that keeps the
+ * pointer-lock state machine testable at all (plan.md §3.10: Playwright runs on
+ * SwiftShader and cannot do pointer lock). The THREE.js adapter is the next
+ * commit and is where `"DOM"`/`"WebWorker"` get argued about again.
  */
 
 // --- Domain: pure values, policies and orderings ---------------------------
@@ -35,6 +44,13 @@ export * from './domain/post-processing'
 
 // --- Application: Effect services ------------------------------------------
 export * from './application/input-service'
+
+// --- Application: the browser adapter for the input service ------------------
+// The ONLY files in this repository that know what an `addEventListener` is.
+// `dom-surface.ts` is the whole DOM dependency, structurally; see its header for
+// why that is a narrow interface rather than `"lib": ["DOM"]`.
+export * from './application/dom-surface'
+export * from './application/browser-input-adapter'
 
 // --- Stages: this repository's contribution to the frame --------------------
 // `renderModule` is a full `GameModule` (plan.md §4.1): a Layer plus an

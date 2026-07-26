@@ -21,7 +21,7 @@ plan.md §2.3-1 の分類でいう **名詞**。「どう見えるか」の仕�
 | 水面 | 水マテリアル・屈折 | 未実装 |
 | `WorldRenderer` | chunk ダーティ購読 → メッシュ更新 | **未実装。ただし購読先は決まった**（`mc-worldgen` の `ChunkStore.subscribeDirty`。[public-api.md §3.1](./public-api.md)） |
 | ワーカープール**実装** | 地形ワーカー / メッシングワーカーのプール（Port は各所有者） | 未実装 |
-| **実行時入力サービス** | キーボード / マウス / ポインタロック / タッチ / キーリマッピング | ポート越しに実装済 `application/input-service.ts`（`window` アダプタは未） |
+| **実行時入力サービス** | キーボード / マウス / ポインタロック / タッチ / キーリマッピング | ポート越しに実装済 `application/input-service.ts` + `window` アダプタ `application/browser-input-adapter.ts`（ゲームパッド / タッチは未） |
 | **フレーム stage 登録** | `render:input` / `render:camera-mirror` / `render:chunk-sync` / `render:draw` / `render:post-fx` | 登録位置は確定済 `stages/`。本体は FIRST CUT |
 | フレーム毎スクラッチ | 一時 `Map` の事前確保と再利用 | 実装済 `domain/frame-scratch.ts` |
 | グラフィックス品質プリセット適用 | low / medium / high / ultra | ポストFX部分のみ `domain/post-processing.ts` |

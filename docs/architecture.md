@@ -241,5 +241,13 @@ GPU が無いとテストできなかった知識である。データにする�
 THREE.js アダプタの仕事は、これらのデータを読んで `composer.addPass` を呼ぶだけになる。
 順序を間違えるには、GPU 不要のテストを落とすしかない。
 
-`tsconfig.base.json` の `lib` に `"DOM"` を入れるのは、最初の THREE.js アダプタと同じコミットである
-（[versioning.md](./versioning.md) §5）。
+`tsconfig.base.json` の `lib` に **`"DOM"` は入っていない。`window` 入力アダプタが入った後もである。**
+アダプタが実際に触る DOM メンバは 8 個しかないので、`application/dom-surface.ts` に
+**構造的な型**として書いてある。1 つのアダプタのために全ファイルから
+「`environment: 'node'` で検査できる」という歯止めを外すのは高すぎ、
+しかも plan.md §3.10 によりブラウザ側にも逃げ場が無い（Playwright はポインタロック不可）。
+実物の `Window` が**キャスト無しで**適合することはテストで証明してある
+（[design-notes.md](./design-notes.md) DN-15、[testing.md](./testing.md) §8.1）。
+
+`"DOM"` / `"WebWorker"` を入れるかどうかは最初の THREE.js アダプタで改めて議論する。
+THREE のクラス階層は「メンバ 8 個」ではない（[versioning.md](./versioning.md) §5）。

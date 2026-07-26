@@ -108,6 +108,12 @@ plan.md §3.9 も THREE.js 描画一式を mc-render の責務としている。
 
 1. `dependencies` に `three`、`devDependencies` に `@types/three`
 2. `tsconfig.base.json` の `lib` に `"DOM"`（+ ワーカープール実装時に `"WebWorker"`）
+   ——**ただしこれは自動ではない。改めて議論すること。**
+   `window` 入力アダプタは `"DOM"` **無しで**入った（[design-notes.md](./design-notes.md) DN-15）:
+   使う DOM メンバが 8 個だったので `application/dom-surface.ts` に構造的な型として書いた。
+   THREE のクラス階層はその手が効く大きさではないので、おそらく `"DOM"` が要る。
+   要ると判断した場合、**それは `environment: 'node'` で検査できる範囲が縮むということ**であり、
+   縮む範囲を測ってから入れること
 3. `types` に `"three"` は不要（`three` は自前の型を持たないが `@types/three` が
    `three` モジュールの型宣言を提供するため、`import` すれば解決される）
 4. `vitest.config.ts` の `coverage.include` の見直し（GPU 依存コードは Node 計測から漏れる。

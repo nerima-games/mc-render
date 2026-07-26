@@ -22,6 +22,7 @@ plan.md §3.9「設計注意（参照実装の実測知見）」の全項目を�
 | DN-12 | クリックはロック状態で意味が変わる。`contextmenu` はロック中のみ抑止 | 済 |
 | DN-13 | ホイールはエッジでもレベルでもなくデルタ。単位はドメインで正規化する | 済 |
 | DN-14 | ポインタロックは要求であり、拒否されうる。`unlocked` と `refused` は別 | 済 |
+| DN-15 | DOM は `lib` ではなく**狭い構造的インターフェース**で受ける。`lib.DOM` を入れない | 済 |
 
 ---
 
@@ -452,8 +453,17 @@ packages/presentation/input/input-service.ts:172-177
 | `mousedown and mouseup register on the same target, or a held button sticks` | 上の逸脱。両方 `window` |
 | `an event tagged as arriving at the modal target is not gameplay input` | |
 | `a click a modal consumed NEVER reaches gameplay` | ボタンにも同じ遮蔽が効くこと |
-| **（要追加）** `the window adapter registers exactly LISTENER_PLAN` | アダプタ実装時 |
-| **（要追加）** `every listener is removed on finalizer` | 参照実装 :191- 相当。kit の 2 枚並列でリークする |
+
+`test/browser-input-adapter.test.ts` の `describe`（アダプタ側、**実装済**）:
+
+| テスト名 | 内容 |
+| --- | --- |
+| `the window adapter registers exactly LISTENER_PLAN` | 登録先も順序も `LISTENER_PLAN` そのもの |
+| `gameplay codes go on window, and nothing puts one on the modal target` | 遮蔽規則をアダプタが実際に適用していること |
+| `every listener is removed on finalizer` | 参照実装 :191- 相当 |
+| `the removal matches the registration: same target, same function, same flags` | `removeEventListener` は type / 関数同一性 / capture の 3 つで照合する。1 つでも外すと**黙って**何もしない |
+| `REGRESSION: a second world load leaks nothing` | plan.md §3.8 の最悪バグ（2 回目のロード）と同型 |
+| `two services on one page get two independent sets of listeners` | kit の 2 枚並列 |
 
 ---
 
@@ -807,7 +817,8 @@ plan.md §3.10 のとおり Playwright（SwiftShader）はヘッドレスでポ�
 | `is NOT suppressed while unlocked, where the browser menu is the platform behaviour` | 参照実装との差 |
 | `the contextmenu event adds NO second right-button edge — one click, one placement` | :137-139 |
 | `a UI click ASKS for the pointer lock — the consumer uiClicks never had` | `test/stage-registration.test.ts`。DN-14 |
-| **（要追加）** `the window adapter calls preventDefault exactly when shouldSuppressContextMenu says so` | アダプタ実装時 |
+| `the window adapter calls preventDefault exactly when shouldSuppressContextMenu says so` | `test/browser-input-adapter.test.ts`。**実装済** |
+| `no OTHER handler ever calls preventDefault, locked or not` | 同上。抑止が過剰でないこと |
 
 ---
 
@@ -886,7 +897,9 @@ JavaScript の `%` は被除数の符号を保つ。`+ HOTBAR_SIZE` 1 回で足�
 | `losing the lock drops the wheel travel, so the hotbar does not jump on return` | 同上 |
 | `browser scrolling is suppressed while locked and NOT while unlocked` | §2.6 と同型 |
 | `REGRESSION: a MULTI-notch step wraps too — the reference formula returns -3 here` | 上記 3 |
-| **（要追加）** `the window adapter passes deltaMode through wheelDeltaModeForIndex` | アダプタ実装時 |
+| `the window adapter passes deltaMode through wheelDeltaModeForIndex` | `test/browser-input-adapter.test.ts`。**実装済**。0/1/2 は名前に、3 は落とす |
+| `the wheel handler calls preventDefault exactly when shouldSuppressWheelScroll says so` | 同上。`passive: false` はこのためだけに付いている |
+| `a wheel whose unit cannot be named is still suppressed while locked` | 同上。イベントは捨てるが、ロック中のキャンバスの下でページが動いてはならない |
 
 ---
 
@@ -961,4 +974,75 @@ DN-09 と同じ論法で、こちらのほうが強い。
 | `only the LEFT button asks for the lock, and only while it is askable` | `acquiresPointerLock` |
 | `a UI click ASKS for the pointer lock — the consumer uiClicks never had` | `test/stage-registration.test.ts` |
 | `a click while ALREADY locked is a game action and asks for nothing` | 同上 |
-| **（要追加）** `the browser port calls canvas.requestPointerLock exactly once per ask` | アダプタ実装時 |
+| `the browser port calls canvas.requestPointerLock exactly once per ask` | `test/browser-input-adapter.test.ts`。**実装済** |
+| `a refused lock surfaces as pointerlockerror, through the real listener` | 同上。要求→拒否→`refused` を実リスナ経由で通す |
+| `an element with no requestPointerLock is unavailable, not sent` | 同上。上記 2（答えの来ない要求） |
+| `a permissions policy that forbids the lock is unavailable, and is not asked` | 同上。参照実装 :258-262 相当を Port の引数として受ける |
+| `a THROWING requestPointerLock is unavailable — the ask did not go out` | 同上。throw は拒否ではない（拒否はイベント） |
+| `a REJECTED promise still counts as sent, and does not escape as an unhandled rejection` | 同上。現行ブラウザは promise を reject **かつ** `pointerlockerror` を投げる |
+
+---
+
+## DN-15 DOM は `lib` ではなく**狭い構造的インターフェース**で受ける
+
+plan.md には無い。**`window` 入力アダプタを書いた時点で決めざるを得なかった**ことである。
+
+### 何が問題だったか
+
+このリポジトリは `lib: ["ES2024"]` / `types: []` で出荷ソースを検査している
+（`tsconfig.base.json`、ゲートは `tsconfig.build.json`）。
+それは整理整頓ではなく、**ポストFXの順序・ホイールのモデル・ロック状態機械を
+`environment: 'node'` で検査可能にしている当の機構**である。
+そして plan.md §3.10 のとおり、ブラウザ側にも逃げ場は無い——
+Playwright は SwiftShader でポインタロックを扱えないので、
+「ブラウザでしか観測できない挙動」は**この世のどのテストからも観測できない挙動**になる。
+
+一方でアダプタは `window` / `document` / canvas と話さなければならない。
+
+### 選択肢は 3 つあった
+
+| 案 | 結果 |
+| --- | --- |
+| `lib` に `"DOM"` を足す | 純粋なファイル全部から同時に歯止めが消える。しかも**数ヶ月誰も気づかない** |
+| アダプタ専用の 2 つ目の tsconfig プロジェクト（`lib.DOM` 付き） | **機械的に詰む**。`scripts/api-lock.ts` は `tsconfig.build.json` から公開面を作り、`scripts/check-dependency-whitelist.ts` は `index.ts` / `domain/` / `application/` / `stages/` で出荷ソースを分類する。どちらも 16 リポジトリに byte-identical で vendor される領域で、リポジトリ毎に編集してはならない。build プロジェクト外のアダプタは `index.ts` から re-export できず、**それが存在する理由であるプレビューから使えない** |
+| **実際に使う DOM メンバだけを構造的に書く** | 採用 |
+
+### 採ったかたち
+
+`application/dom-surface.ts` が**このリポジトリの DOM 依存の全部**である（メンバ 8 個）。
+`application/browser-input-adapter.ts` がそれを使う唯一のファイルである。
+
+構造的な型は「実物が代入できる」ことが保証されなければ意味が無く、それは自明ではない。
+`strictFunctionTypes` によりリスナの引数は反変なので、
+`DomInputEvent.code` を必須にしたり、イベント種別ごとに型を分けたりすると
+**実物の `Window` が `DomEventTarget` に代入できなくなる**。
+そのとき `pnpm typecheck` は何も言わない（そちらのプロジェクトには代入元の DOM が無い）。
+最初に気づくのはブラウザ側の消費者で、その人が手を伸ばすのは `as unknown as` である——
+型安全が実際に失われるのはそこである。
+
+だから代入可能性そのものをテストにしてある。
+
+| 半分 | 何を証明するか | どこ |
+| --- | --- | --- |
+| ドメインは DOM 非依存のまま | `pnpm typecheck` が `lib: ["ES2024"]` / `types: []` で**出荷ソース全部**を通す | `pnpm verify` |
+| 同上（設定が後から緩められていない） | `tsconfig.build.json` の `lib` / `types` を assert | `the shipped project still compiles with NO DOM at all` |
+| 狭い型が実物の**部分集合**である | `test/fixtures/dom-surface.ts` を**本物の `lib.dom.d.ts`** に対してコンパイルし、診断 0 件を assert | `a real Window, Document and HTMLCanvasElement satisfy the adapter without a cast` |
+
+3 番目のフィクスチャは `tsconfig.json` / `tsconfig.test.json` から `test/fixtures/**` として
+**除外**してある。DOM 型を名指しするのが目的のファイルであり、
+DOM の無いプロジェクトに入れれば落ちるだけで、出荷プロジェクトに入れれば
+それは `"DOM"` フラグが裏口から入ったのと同じだからである。
+
+### 適用範囲の限定
+
+**これは THREE.js には持ち越せない。** THREE のクラス階層は「メンバ 8 個」ではない。
+`"DOM"` / `"WebWorker"` を入れるかどうかは最初の THREE.js アダプタで改めて議論する。
+DN-15 が言えるのは「1 つのアダプタのために全ファイルから歯止めを外すのは高すぎる」であって、
+「構造的な型はいつでも DOM の代わりになる」ではない。
+
+### 書くべき回帰テスト
+
+| テスト名 | 場所 |
+| --- | --- |
+| `a real Window, Document and HTMLCanvasElement satisfy the adapter without a cast` | `test/browser-input-adapter.test.ts` |
+| `the shipped project still compiles with NO DOM at all` | 同上 |

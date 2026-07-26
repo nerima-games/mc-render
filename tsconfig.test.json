@@ -2,6 +2,13 @@
   // Tests and repo tooling. Node types are available here and only here.
   // Unlike the reference repository this project does NOT relax any strictness
   // flag for tests: test code is code, and a skeleton has no legacy to grandfather.
+  //
+  // `test/fixtures/**` is EXCLUDED and that exclusion is load-bearing. Those
+  // files name DOM types on purpose, and they are compiled by a test
+  // (`test/browser-input-adapter.test.ts`) against `lib.dom.d.ts` to prove that
+  // a real `Window` satisfies `application/dom-surface.ts`. Compiling them here,
+  // where there is no DOM, would only fail; putting them in the shipped project
+  // would be the `"DOM"` flag arriving by the back door.
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
     "types": ["node"]
@@ -15,5 +22,5 @@
     "scripts/**/*.ts",
     "vitest.config.ts"
   ],
-  "exclude": ["node_modules", "coverage", "dist"]
+  "exclude": ["node_modules", "coverage", "dist", "test/fixtures/**"]
 }

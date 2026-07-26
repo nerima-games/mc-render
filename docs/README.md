@@ -40,10 +40,14 @@ mc-playground-kit は devDependency 専用で出荷ビルドに入らないた�
 
 **pre-audit first cut（叩き台）。しかも THREE.js が 1 行も入っていない。**
 
-現在のソースはすべて**純粋**である。ポストFXチェーンは配列、マテリアル方針は述語、
-入力バインディングは表、スクラッチバッファはただの `Map`。DOM も WebGL も無い。
+ドメインはすべて**純粋**である。ポストFXチェーンは配列、マテリアル方針は述語、
+入力バインディングは表、スクラッチバッファはただの `Map`。WebGL は無い。
 これは手抜きではなく設計判断で、理由は [testing.md](./testing.md) §3 にある——
 順序規則やイベント遮蔽規則を **`environment: 'node'` の単体テストで固定できる**ようにするため。
+
+`window` 入力アダプタは入ったが、**`lib` の `"DOM"` は入れていない**。
+触る DOM メンバは 8 個で、`application/dom-surface.ts` に構造的な型として書いてある
+（[design-notes.md](./design-notes.md) DN-15）。
 
 | 領域 | 実装 | 設計注意 |
 | --- | --- | --- |
@@ -52,9 +56,10 @@ mc-playground-kit は devDependency 専用で出荷ビルドに入らないた�
 | フレーム毎スクラッチの再利用 | `domain/frame-scratch.ts` | DN-03 |
 | 入力の window/document 遮蔽と Escape 単一所有 | `domain/input-bindings.ts` / `application/input-service.ts` | DN-04 / DN-05 |
 | クリック・ホイール・ポインタロック要求 | 同上 | DN-12 / DN-13 / DN-14 |
+| `window` 入力アダプタ（登録 / 解除 / 変換 / ロック要求） | `application/browser-input-adapter.ts` / `application/dom-surface.ts` | DN-04 / DN-12 / DN-13 / DN-14 / DN-15 |
 | カメラのミラー（書き戻し無し） | `domain/camera-mirror.ts` | DN-06 |
 
 まだ無いもの: **THREE.js アダプタ一式**（`WorldRenderer` / マテリアル / パーティクル / 水面 /
-テクスチャ）、`window` 入力アダプタ、ワーカープール実装、内蔵 fixture ビューア、
+テクスチャ）、ゲームパッド / タッチ入力、ワーカープール実装、内蔵 fixture ビューア、
 グラフィックス品質プリセットの残り半分（レンダースケール・影解像度・視界距離）。
 `three` / `@types/three` は**まだ依存に入れていない**（[versioning.md](./versioning.md) §5）。

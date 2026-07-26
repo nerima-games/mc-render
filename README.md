@@ -118,8 +118,14 @@ Nix を使わない場合は Node.js 22 以上と pnpm 9.15.0（`corepack` 推�
 
 **このリポジトリはまだ叩き台（pre-audit first cut）である。しかも THREE.js が 1 行も入っていない。**
 
-現在のソースはすべて**純粋**である。ポストFXチェーンは配列、マテリアル方針は述語、
-入力バインディングは表、スクラッチバッファはただの `Map`。DOM も WebGL も無い。
+ドメインはすべて**純粋**である。ポストFXチェーンは配列、マテリアル方針は述語、
+入力バインディングは表、スクラッチバッファはただの `Map`。WebGL は無い。
+
+DOM に触るのは `window` 入力アダプタ 1 つだけで、**`tsconfig` の `lib` に `"DOM"` は入っていない**。
+アダプタが実際に使う DOM メンバは 8 個しかないので、`application/dom-surface.ts` に
+**構造的な型**として書いてある。実物の `Window` / `Document` / `HTMLCanvasElement` が
+**キャスト無しで**適合することは、本物の `lib.dom.d.ts` に対してフィクスチャをコンパイルする
+テストで証明している（[`docs/design-notes.md`](./docs/design-notes.md) DN-15）。
 
 **これは手抜きではなく設計判断である。** 参照実装ではこれらの知識が
 「builder 関数の文の並び順」や「`addEventListener` 2 行」にしか書かれておらず、
@@ -149,6 +155,8 @@ Nix を使わない場合は Node.js 22 以上と pnpm 9.15.0（`corepack` 推�
 | マウスボタン、ロック状態でのクリックの意味、`contextmenu` 抑止 | 同上 | DN-12 |
 | ホイールはデルタ。単位の正規化とホットバー循環 | 同上 | DN-13 |
 | ポインタロックの要求と拒否（`PointerLockPort`） | 同上 | DN-14 |
+| `window` 入力アダプタ（登録 / 正確な解除 / イベント変換 / ロック要求の実行） | `application/browser-input-adapter.ts` | DN-04 / DN-12 / DN-13 / DN-14 |
+| DOM を `lib` ではなく狭い構造的インターフェースで受ける | `application/dom-surface.ts` | DN-15 |
 | カメラのミラー（書き戻し無し） | `domain/camera-mirror.ts` | DN-06 |
 
 各 DN の参照実装証跡（file:line）と書くべき回帰テスト一覧は
@@ -161,12 +169,10 @@ Nix を使わない場合は Node.js 22 以上と pnpm 9.15.0（`corepack` 推�
   購読先は決まった（**mc-worldgen** の `ChunkStore.subscribeDirty`。mc-sim ではない）。
   [docs/public-api.md](./docs/public-api.md) §3.1 に骨格がある
   （[`docs/public-api.md`](./docs/public-api.md) §3）。
-- **`window` 入力アダプタ。** 現在は注入された `InputEvent` を受けるだけ。
-  ゲームパッドとタッチも未実装。
-  ポインタロックの**要求**は入った（`PointerLockPort` + `requestPointerLock`、
-  非ロック中の左クリックを `render:input` stage が受けて要求する）が、
-  その Port を `canvas.requestPointerLock()` に繋ぐブラウザ実装はアダプタ側でまだ書かれていない
-  （[`docs/design-notes.md`](./docs/design-notes.md) DN-14）。
+- **ゲームパッドとタッチ入力。** 参照実装の `gamepad-input-state.ts` / `virtual-input-state.ts`
+  相当（216 LOC）。`window` 入力アダプタ本体（キー / マウス / ホイール / ポインタロック /
+  blur、登録と解除、`canvas.requestPointerLock()` に繋がる `PointerLockPort` の実装）は
+  **入った**（[`docs/public-api.md`](./docs/public-api.md) §2.9）。
 - **ワーカープール実装。** 参照実装 `packages/worker` の 1,373 LOC 相当。
 - **内蔵 fixture ビューア。** plan.md §6 Step 2 の完了条件の半分。
 - **グラフィックス品質プリセットの残り半分。** レンダースケール・影解像度・視界距離・

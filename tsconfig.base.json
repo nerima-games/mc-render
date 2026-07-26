@@ -7,17 +7,31 @@
     "target": "ES2024",
     "module": "ESNext",
     "moduleResolution": "bundler",
-    // ES2024 only, deliberately — for now.
+    // ES2024 only, deliberately — AND THE `window` INPUT ADAPTER DID NOT CHANGE
+    // THAT.
     //
     // mc-render is the one repository that legitimately needs the DOM: THREE.js,
-    // WebGL, `window` event registration, pointer lock. `"DOM"` is NOT in this
-    // list yet because the current source contains no DOM code at all: input
-    // arrives through an injected `InputEventSource` port and the post-FX chain
-    // is described as data. Declaring a lib nothing uses would be a promise the
-    // compiler cannot check.
+    // WebGL, `window` event registration, pointer lock. It now HAS the `window`
+    // event registration (`application/browser-input-adapter.ts`) and `"DOM"` is
+    // still absent, because the adapter describes the ~8 DOM members it actually
+    // uses as structural types in `application/dom-surface.ts` rather than
+    // importing a 20,000-line lib. Read that file's header for the argument; the
+    // short version is that `lib: ["ES2024"]` + `types: []` on THIS project is
+    // the mechanism that keeps the pointer-lock state machine testable under
+    // `environment: 'node'`, and plan.md §3.10 says no browser test could
+    // replace it (Playwright is on SwiftShader and cannot do pointer lock).
+    // Turning the flag on for the whole project to serve one adapter would have
+    // removed that mechanism from every pure file at the same time, and nothing
+    // would have noticed for months.
     //
-    // Add `"DOM"` (and `"WebWorker"` for the worker-pool implementation) in the
-    // same commit as the first THREE.js adapter. See docs/design-notes.md.
+    // A real `Window` / `Document` / `HTMLCanvasElement` satisfying those
+    // structural types is proved, not assumed: `test/fixtures/dom-surface.ts` is
+    // compiled against the real `lib.dom.d.ts` by
+    // `test/browser-input-adapter.test.ts`.
+    //
+    // The THREE.js adapter and the worker pool are where `"DOM"` /
+    // `"WebWorker"` get argued about again — a class hierarchy the size of
+    // THREE's is not a handful of members. See docs/design-notes.md.
     "lib": ["ES2024"],
     "types": [],
 
