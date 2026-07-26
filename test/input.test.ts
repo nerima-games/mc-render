@@ -231,7 +231,7 @@ describe('InputService frame semantics', () => {
       yield* input.dispatch({ kind: 'keydown', code: 'KeyE', target: GAMEPLAY_LISTENER_TARGET })
       expect(yield* input.wasActionJustTriggered('openInventory')).toBe(true)
 
-      yield* input.endFrame
+      yield* input.endFrame()
       yield* input.dispatch({ kind: 'keydown', code: 'KeyE', target: GAMEPLAY_LISTENER_TARGET })
 
       expect(yield* input.wasActionJustTriggered('openInventory')).toBe(false)
@@ -250,7 +250,7 @@ describe('InputService frame semantics', () => {
 
       expect((yield* input.snapshot).pointerDelta).toStrictEqual({ x: 4, y: -1 })
 
-      yield* input.endFrame
+      yield* input.endFrame()
       const after = yield* input.snapshot
 
       expect(after.pointerDelta).toStrictEqual({ x: 0, y: 0 })
@@ -384,7 +384,7 @@ describe('mouse buttons are gameplay input, in the same code space as keys', () 
       // Reading it twice in one frame is still the same one edge.
       expect(yield* input.wasButtonJustPressed('MouseLeft')).toBe(true)
 
-      yield* input.endFrame
+      yield* input.endFrame()
 
       expect(yield* input.wasActionJustTriggered('attack')).toBe(false)
       expect(yield* input.wasButtonJustPressed('MouseLeft')).toBe(false)
@@ -396,8 +396,8 @@ describe('mouse buttons are gameplay input, in the same code space as keys', () 
       const input = yield* lockedInput
 
       yield* input.dispatch({ kind: 'mousedown', button: 'MouseLeft', target: GAMEPLAY_LISTENER_TARGET })
-      yield* input.endFrame
-      yield* input.endFrame
+      yield* input.endFrame()
+      yield* input.endFrame()
 
       expect(yield* input.isButtonDown('MouseLeft')).toBe(true)
       expect(yield* input.isActionActive('attack')).toBe(true)
@@ -457,7 +457,7 @@ describe('mouse buttons are gameplay input, in the same code space as keys', () 
 
       // ...and the button it used to have no longer triggers it, so the rebind
       // MOVED the action rather than adding a second way to fire it.
-      yield* input.endFrame
+      yield* input.endFrame()
       yield* input.dispatch({ kind: 'keyup', code: 'KeyB', target: GAMEPLAY_LISTENER_TARGET })
       yield* input.dispatch({ kind: 'mousedown', button: 'MouseLeft', target: GAMEPLAY_LISTENER_TARGET })
 
@@ -491,6 +491,59 @@ describe('mouse buttons are gameplay input, in the same code space as keys', () 
 
       expect(yield* input.isButtonDown('MouseLeft')).toBe(false)
       expect(yield* input.isActionActive('attack')).toBe(false)
+    }),
+  )
+
+  it.effect('REGRESSION: blur ends the LOCKED SESSION, so the click that refocuses is not an attack', () =>
+    Effect.gen(function* () {
+      // The half of `blur` that nothing used to assert. Three tests dispatched
+      // it and all three checked what it CLEARS; none checked what it KEPT —
+      // and what it kept was `pointerLockState`, the one field that decides
+      // what a click MEANS. `withButtonDown` routes a mousedown into `pressed`
+      // while the state says `locked`, so until the browser got around to
+      // delivering `pointerlockchange` the click the player used to come BACK
+      // to the tab fired `attack`.
+      //
+      // The reason is already written down for the other handler:
+      // `withoutHeldButtons` exists because "the click belonged to the locked
+      // session", and a blur ends that session as surely as losing the lock
+      // does. The two handlers disagreed.
+      const input = yield* lockedInput
+      expect((yield* input.snapshot).pointerLocked).toBe(true)
+
+      yield* input.dispatch({ kind: 'blur' })
+
+      expect(yield* input.pointerLockState).toBe('unlocked')
+      expect((yield* input.snapshot).pointerLocked).toBe(false)
+
+      // The click that brings the window back is a UI click — which is what
+      // ASKS for the lock again — and fires no game action.
+      yield* input.dispatch({ kind: 'mousedown', button: 'MouseLeft', target: GAMEPLAY_LISTENER_TARGET })
+
+      expect(yield* input.wasUiClick('MouseLeft')).toBe(true)
+      expect(yield* input.wasActionJustTriggered('attack')).toBe(false)
+      expect(yield* input.isActionActive('attack')).toBe(false)
+      expect(acquiresPointerLock('MouseLeft', yield* input.pointerLockState)).toBe(true)
+    }),
+  )
+
+  it.effect('blur does NOT invent a refusal — `unlocked` is "nobody asked", not "the browser said no"', () =>
+    Effect.gen(function* () {
+      // `refused` is what a UI draws as "click again to look around" and is
+      // reserved for `pointerlockerror` and for a platform with no pointer lock
+      // to ask. A window losing focus is neither.
+      const input = yield* lockedInput
+
+      yield* input.dispatch({ kind: 'blur' })
+      expect(yield* input.pointerLockState).toBe('unlocked')
+
+      // ...and an EXISTING refusal survives, because it is documented as sticky
+      // until something ASKS again, and a blur is not an ask.
+      const refused = yield* makeInputService()
+      yield* refused.dispatch({ kind: 'pointerlockerror' })
+      yield* refused.dispatch({ kind: 'blur' })
+
+      expect(yield* refused.pointerLockState).toBe('refused')
     }),
   )
 
@@ -562,7 +615,7 @@ describe('REGRESSION: a click means different things locked and unlocked', () =>
       const input = yield* makeInputService()
 
       yield* input.dispatch({ kind: 'mousedown', button: 'MouseLeft', target: GAMEPLAY_LISTENER_TARGET })
-      yield* input.endFrame
+      yield* input.endFrame()
 
       expect(yield* input.wasUiClick('MouseLeft')).toBe(false)
       expect((yield* input.snapshot).uiClicks.size).toBe(0)
@@ -649,7 +702,7 @@ describe('REGRESSION: the browser context menu', () => {
 
       expect((yield* input.snapshot).justPressed.size).toBe(1)
 
-      yield* input.endFrame
+      yield* input.endFrame()
       yield* input.dispatch({ kind: 'contextmenu', target: GAMEPLAY_LISTENER_TARGET })
 
       expect(yield* input.wasActionJustTriggered('use')).toBe(false)
@@ -697,9 +750,12 @@ describe('the wheel is a DELTA — not an edge, not a level', () => {
 
       yield* input.dispatch(oneNotchDown)
       yield* input.dispatch(oneNotchDown)
-      expect((yield* input.snapshot).wheelSteps).toBe(2)
+      const frame = yield* input.snapshot
+      expect(frame.wheelSteps).toBe(2)
 
-      yield* input.endFrame
+      // The frame hands back the reading it acted on; `endFrame` consumes
+      // exactly that.
+      yield* input.endFrame(frame)
 
       const after = yield* input.snapshot
       expect(after.wheelNotches).toBe(0)
@@ -764,16 +820,140 @@ describe('the wheel is a DELTA — not an edge, not a level', () => {
 
       for (let frame = 0; frame < 4; frame += 1) {
         yield* input.dispatch({ kind: 'wheel', deltaY: 20, deltaMode: 'pixel' })
-        expect((yield* input.snapshot).wheelSteps).toBe(0)
-        yield* input.endFrame
+        const sampled = yield* input.snapshot
+        expect(sampled.wheelSteps).toBe(0)
+        yield* input.endFrame(sampled)
       }
 
       // The fifth 0.2 completes the notch.
       yield* input.dispatch({ kind: 'wheel', deltaY: 20, deltaMode: 'pixel' })
-      expect((yield* input.snapshot).wheelSteps).toBe(1)
+      const fifth = yield* input.snapshot
+      expect(fifth.wheelSteps).toBe(1)
 
       // ...and only the whole notch is consumed.
-      yield* input.endFrame
+      yield* input.endFrame(fifth)
+      expect((yield* input.snapshot).wheelNotches).toBe(0)
+    }),
+  )
+
+  it.effect('REGRESSION: endFrame consumes what the FRAME was told, not what arrived after it', () =>
+    Effect.gen(function* () {
+      // The event ordering no single-fiber test naturally writes, and the only
+      // one that shows the bug: a `wheel` listener fires between the frame
+      // stage's `snapshot` and the frame loop's `endFrame`.
+      //
+      // `snapshot` truncated at read time and `endFrame` re-read the
+      // accumulator and truncated AGAIN, at a different instant. 0.9 notches is
+      // 0 whole steps, so the frame moved the hotbar by nothing; the next 0.3
+      // pushed the accumulator to 1.2, and `endFrame` then ate a whole notch
+      // the frame was never told about. The player turned a detent and the
+      // selection did not move, once, unreproducibly.
+      //
+      // Same class as the consume-on-read `consumeMouseClick` this file
+      // explicitly rejects: whether travel survives depended on who read it
+      // first. The fix is that the frame hands its reading BACK.
+      const input = yield* lockedInput
+
+      yield* input.dispatch({ kind: 'wheel', deltaY: 90, deltaMode: 'pixel' })
+      const seenByTheFrame = yield* input.snapshot
+      expect(seenByTheFrame.wheelSteps).toBe(0)
+
+      // The DOM listener runs here.
+      yield* input.dispatch({ kind: 'wheel', deltaY: 30, deltaMode: 'pixel' })
+
+      yield* input.endFrame(seenByTheFrame)
+
+      // Nothing was consumed, because nothing was reported. The 1.2 notches
+      // carry whole into the next frame instead of being silently spent.
+      const nextFrame = yield* input.snapshot
+      expect(nextFrame.wheelNotches).toBeCloseTo(1.2, 10)
+      expect(nextFrame.wheelSteps).toBe(1)
+
+      // ...and THAT frame's endFrame consumes exactly the notch it reported.
+      yield* input.endFrame(nextFrame)
+      expect((yield* input.snapshot).wheelNotches).toBeCloseTo(0.2, 10)
+    }),
+  )
+
+  it.effect('REGRESSION: snapshot is a PURE read — an observer cannot move the frame boundary', () =>
+    Effect.gen(function* () {
+      // The reason the reading is an argument rather than something the service
+      // remembers. If `snapshot` recorded what it reported, a debug overlay or a
+      // preview redrawing its analogue panel would change how much travel the
+      // next `endFrame` consumed — and this repository's own preview redraws
+      // after every step, so it would have reproduced the bug through its
+      // instrumentation alone. An observer must not move the thing it observes.
+      const input = yield* lockedInput
+
+      yield* input.dispatch({ kind: 'wheel', deltaY: 90, deltaMode: 'pixel' })
+      const frame = yield* input.snapshot
+      expect(frame.wheelSteps).toBe(0)
+
+      yield* input.dispatch({ kind: 'wheel', deltaY: 30, deltaMode: 'pixel' })
+      // A dev overlay reads the accumulator. Three times, for good measure.
+      expect((yield* input.snapshot).wheelSteps).toBe(1)
+      expect((yield* input.snapshot).wheelSteps).toBe(1)
+      expect((yield* input.snapshot).wheelNotches).toBeCloseTo(1.2, 10)
+
+      yield* input.endFrame(frame)
+
+      // Still 1.2: the overlay's reads changed nothing.
+      expect((yield* input.snapshot).wheelNotches).toBeCloseTo(1.2, 10)
+    }),
+  )
+
+  it.effect('two stages reading the same frame see the same travel, and it is consumed once', () =>
+    Effect.gen(function* () {
+      // Not a consuming read, which is what `wasButtonJustPressed` rejects by
+      // name: neither reader can take travel away from the other.
+      const input = yield* lockedInput
+
+      yield* input.dispatch({ kind: 'wheel', deltaY: 250, deltaMode: 'pixel' })
+
+      const stageA = yield* input.snapshot
+      const stageB = yield* input.snapshot
+      expect(stageA.wheelSteps).toBe(2)
+      expect(stageB.wheelSteps).toBe(2)
+
+      yield* input.endFrame(stageA)
+
+      // Two whole notches, consumed once.
+      expect((yield* input.snapshot).wheelNotches).toBeCloseTo(0.5, 10)
+    }),
+  )
+
+  it.effect('a frame loop that never samples consumes nothing — travel is deferred, not lost', () =>
+    Effect.gen(function* () {
+      // The corollary of "consume exactly what was reported", and the reason
+      // omitting the argument is the honest default rather than a convenience.
+      // Nothing acted on this travel, so throwing it away would lose it
+      // outright rather than defer it to a frame that will read it.
+      const input = yield* lockedInput
+
+      yield* input.dispatch({ kind: 'wheel', deltaY: 150, deltaMode: 'pixel' })
+      yield* input.endFrame()
+
+      expect((yield* input.snapshot).wheelNotches).toBeCloseTo(1.5, 10)
+      expect((yield* input.snapshot).wheelSteps).toBe(1)
+    }),
+  )
+
+  it.effect('a STALE reading cannot drive the accumulator past zero', () =>
+    Effect.gen(function* () {
+      // The one way a caller can get the argument wrong: hand back a snapshot
+      // the accumulator can no longer cover, because the lock was lost in
+      // between. A bare subtraction would invent travel in the opposite
+      // direction — a hotbar that cycles on its own — so the worst case is
+      // "this frame consumed nothing" instead.
+      const input = yield* lockedInput
+
+      yield* input.dispatch({ kind: 'wheel', deltaY: 250, deltaMode: 'pixel' })
+      const stale = yield* input.snapshot
+      expect(stale.wheelSteps).toBe(2)
+
+      yield* input.dispatch({ kind: 'pointerlockchange', locked: false })
+      yield* input.endFrame(stale)
+
       expect((yield* input.snapshot).wheelNotches).toBe(0)
     }),
   )
@@ -783,9 +963,10 @@ describe('the wheel is a DELTA — not an edge, not a level', () => {
       const input = yield* lockedInput
 
       yield* input.dispatch({ kind: 'wheel', deltaY: 250, deltaMode: 'pixel' })
-      expect((yield* input.snapshot).wheelSteps).toBe(2)
+      const frame = yield* input.snapshot
+      expect(frame.wheelSteps).toBe(2)
 
-      yield* input.endFrame
+      yield* input.endFrame(frame)
 
       expect((yield* input.snapshot).wheelNotches).toBeCloseTo(0.5, 10)
       expect((yield* input.snapshot).wheelSteps).toBe(0)
@@ -797,7 +978,7 @@ describe('the wheel is a DELTA — not an edge, not a level', () => {
       const input = yield* lockedInput
 
       yield* input.dispatch({ kind: 'wheel', deltaY: 50, deltaMode: 'pixel' })
-      yield* input.endFrame
+      yield* input.endFrame(yield* input.snapshot)
       yield* input.dispatch({ kind: 'wheel', deltaY: -50, deltaMode: 'pixel' })
 
       expect((yield* input.snapshot).wheelNotches).toBe(0)
@@ -1047,8 +1228,8 @@ describe('REGRESSION: pointer lock is a REQUEST, and a request can be refused', 
       const input = yield* makeInputService()
 
       yield* input.dispatch({ kind: 'pointerlockerror' })
-      yield* input.endFrame
-      yield* input.endFrame
+      yield* input.endFrame()
+      yield* input.endFrame()
 
       expect(yield* input.pointerLockState).toBe('refused')
     }),
@@ -1088,6 +1269,42 @@ describe('REGRESSION: pointer lock is a REQUEST, and a request can be refused', 
 
       expect(yield* input.requestPointerLock).toBe('locked')
       expect(yield* Ref.get(asked)).toBe(0)
+    }),
+  )
+
+  it.effect('REGRESSION: a blur ABANDONS a pending request rather than stranding the session', () =>
+    Effect.gen(function* () {
+      // `requested` used to be an absorbing state. Only `pointerlockchange` and
+      // `pointerlockerror` ever left it, and both come from the browser;
+      // `blur` preserved it, and `requestPointerLock` refuses to re-ask while
+      // one is pending — correctly, because a second request while one is
+      // pending is one of the documented ways the browser refuses the next.
+      //
+      // So a request issued and never answered stranded the session for good:
+      // `acquiresPointerLock` declines to act on a click in `requested`, so the
+      // gesture that would normally fix it does nothing. The player could walk
+      // and type and never look around again. A window blurring between the ask
+      // and the answer is the ordinary way that happens.
+      //
+      // This repository already knew the hazard by name — see the
+      // `unavailable` test below, whose comment reads "Leaving the machine in
+      // `requested` would strand it for the session." The `sent` path had the
+      // identical hole and nothing guarded it.
+      const { port, asked } = yield* countingPointerLock('sent')
+      const input = yield* makeInputService(defaultBindings(), port)
+
+      expect(yield* input.requestPointerLock).toBe('requested')
+      expect(yield* Ref.get(asked)).toBe(1)
+
+      // The answer never arrives; the window loses focus instead.
+      yield* input.dispatch({ kind: 'blur' })
+
+      expect(yield* input.pointerLockState).toBe('unlocked')
+      // ...so a click is once again the gesture that asks, and the ask reaches
+      // the port a SECOND time.
+      expect(acquiresPointerLock('MouseLeft', yield* input.pointerLockState)).toBe(true)
+      expect(yield* input.requestPointerLock).toBe('requested')
+      expect(yield* Ref.get(asked)).toBe(2)
     }),
   )
 

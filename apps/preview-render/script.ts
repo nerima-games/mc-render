@@ -123,53 +123,58 @@ const HAPPY_PATH: Scenario = {
  * session", and `test/input.test.ts:1094-1099` pins that path with the comment
  * "Leaving the machine in `requested` would strand it for the session."
  *
- * The `sent` path has the same hole and nothing guards it.
+ * The `sent` path had the same hole and nothing guarded it. `blur` now
+ * abandons a pending ask and resolves to `unlocked`; this scenario is what
+ * notices if it stops.
  */
 const STRANDED_REQUEST: Scenario = {
   name: 'stranded-request',
-  headline: 'the ask went out, the answer never came, and nothing can ask again',
+  headline: 'the ask went out, the answer never came — and a blur must let us ask again',
   detail: [
     'The port reports `sent`, so the service moves to `requested` and waits for',
-    'an event. The window then blurs. `blur` clears every held code and',
-    'deliberately KEEPS the lock state, so `requested` survives it — and',
-    'requestPointerLock is idempotent while pending, by design, so it will not',
-    'ask again. From step 3 on, every click the player makes is a uiClick that',
-    'acquiresPointerLock() declines to act on, for the rest of the session.',
+    'an event. The window then blurs. `blur` used to clear every held code and',
+    'KEEP the lock state, so `requested` survived it — and requestPointerLock is',
+    'idempotent while pending, by design, so it would not ask again. Every click',
+    'from step 3 on was a uiClick that acquiresPointerLock() declined to act on,',
+    'for the rest of the session. Watch step 2 land on `unlocked` instead, and',
+    'step 4 reach the port a second time.',
   ],
   steps: [
     at(0, 'a UI click', ev({ kind: 'mousedown', button: 'MouseLeft', target: 'window' })),
     at(1, 'the ask goes out; the port says `sent`', cmd({ kind: 'requestLock' })),
     at(2, 'the user alt-tabs before the browser answers', ev({ kind: 'blur' })),
     at(3, 'back at the tab. Click to look around again', ev({ kind: 'mousedown', button: 'MouseLeft', target: 'window' })),
-    at(4, 'the frame asks. It is refused by our OWN machine, not the browser', cmd({ kind: 'requestLock' })),
+    at(4, 'the frame asks, and this time the ask reaches the port', cmd({ kind: 'requestLock' })),
     at(5, 'end', cmd({ kind: 'endFrame' })),
     at(6, 'and again', ev({ kind: 'mousedown', button: 'MouseLeft', target: 'window' })),
     at(7, 'and again', cmd({ kind: 'requestLock' })),
     at(8, 'a keypress still works — the keyboard never needed the lock', ev({ kind: 'keydown', code: 'KeyW', target: 'window' })),
-    at(9, 'read: pointerLocked false, state `requested`, and no way out', cmd({ kind: 'readSnapshot' })),
+    at(9, 'read: pointerLocked false, and a way out', cmd({ kind: 'readSnapshot' })),
   ],
 }
 
 /**
  * The lost notch.
  *
- * `endFrame` consumes `Math.trunc(wheelNotches)` READ AT endFrame TIME, not the
- * value the frame's snapshot reported. A wheel event that lands between the two
- * pushes the accumulator over a notch boundary, and that notch is subtracted
- * without any consumer having seen it.
+ * `endFrame` used to consume `Math.trunc(wheelNotches)` READ AT endFrame TIME,
+ * not the value the frame's snapshot reported. A wheel event that lands between
+ * the two pushes the accumulator over a notch boundary, and that notch was
+ * subtracted without any consumer having seen it. It now consumes exactly what
+ * `snapshot` last reported.
  *
  * The events here are the same in both halves; only the order differs.
  */
 const LOST_NOTCH: Scenario = {
   name: 'lost-notch',
-  headline: 'endFrame consumes a wheel step the snapshot never reported',
+  headline: 'endFrame must consume only the wheel steps the snapshot reported',
   detail: [
     'Steps 0-4 are the ordered case: the browser delivers, the frame reads, the',
     'frame ends. One notch in, one notch acted on.',
     'Steps 5-10 are the same events with one of them arriving between the read',
     'and the endFrame — which is exactly where a DOM listener runs. The frame',
-    'sees 0 steps and acts on 0 slots; endFrame then subtracts 1. The hotbar',
-    'slot the player scrolled to is never selected, and nothing reports it.',
+    'sees 0 steps and acts on 0 slots, so endFrame must subtract 0 and carry the',
+    'travel into the next frame. It used to subtract 1, and the hotbar slot the',
+    'player scrolled to was never selected. Watch the NOTCH LEDGER stay level.',
   ],
   steps: [
     at(0, 'locked, so the wheel means the hotbar', ev({ kind: 'pointerlockchange', locked: true })),
@@ -180,29 +185,35 @@ const LOST_NOTCH: Scenario = {
     at(5, 'now the same total, reordered. 0.6 on top of the 0.2 carried = 0.8', ev(wheel(60))),
     at(6, 'read: 0.8 notches -> 0 whole steps. The hotbar does not move', cmd({ kind: 'readSnapshot' })),
     at(7, 'a DOM wheel listener fires HERE, between the read and the endFrame', ev(wheel(30))),
-    at(8, 'end: trunc is re-read at 1.1, so 1 is consumed that no frame was told about', cmd({ kind: 'endFrame' })),
-    at(9, 'read: 0.1 carried. The detent the player turned selected nothing', cmd({ kind: 'readSnapshot' })),
-    at(10, 'note', cmd({ kind: 'note', text: 'the NOTCH LEDGER row is now out of balance by 1' })),
+    at(8, 'end: 0 consumed, because 0 was reported. The 1.1 carries', cmd({ kind: 'endFrame' })),
+    at(9, 'read: 1.1 notches -> 1 whole step. The detent lands, one frame later', cmd({ kind: 'readSnapshot' })),
+    // The ledger only means anything at a frame BOUNDARY: step 9 is a reading
+    // no endFrame has answered yet, so stopping there would show an imbalance
+    // that is the scenario's own doing rather than the service's.
+    at(10, 'end: 1 consumed, matching the 1 this frame WAS told about', cmd({ kind: 'endFrame' })),
+    at(11, 'note', cmd({ kind: 'note', text: 'the NOTCH LEDGER row is still in balance' })),
   ],
 }
 
 /**
- * Blur leaves the machine reporting that mouselook is live.
+ * Blur used to leave the machine reporting that mouselook is live.
  *
- * `blur` returns `{ ...initialState(bindings), pointerLockState: current.pointerLockState }`
- * (input-service.ts:581-585). Every held code goes; the one field that decides
- * whether the NEXT click is an attack or a UI click stays.
+ * `blur` returned `{ ...initialState(bindings), pointerLockState: current.pointerLockState }`.
+ * Every held code went; the one field that decides whether the NEXT click is an
+ * attack or a UI click stayed. It now ends the locked session, like every other
+ * handler that ends one.
  */
 const BLUR_WHILE_LOCKED: Scenario = {
   name: 'blur-while-locked',
-  headline: 'after blur the service still reports pointerLocked, so the refocus click attacks',
+  headline: 'blur ends the locked session, so the refocus click is not an attack',
   detail: [
     'blur clears pressed, justPressed, uiClicks, the pointer delta and the wheel',
-    'accumulator — everything except pointerLockState. So between the blur and',
-    "the browser's pointerlockchange, isActionActive is false but pointerLocked",
-    'is TRUE, shouldSuppressContextMenu is TRUE, and withButtonDown routes the',
+    'accumulator — and it used to keep pointerLockState. So between the blur and',
+    "the browser's pointerlockchange, isActionActive was false but pointerLocked",
+    'was TRUE, shouldSuppressContextMenu was TRUE, and withButtonDown routed the',
     'next mousedown into `pressed` as a game action. That mousedown is the click',
-    'the player used to come back to the tab.',
+    'the player used to come back to the tab. Watch step 5 read `unlocked` and',
+    'step 7 report a uiClick instead of an attack.',
   ],
   steps: [
     at(0, 'in the game', ev({ kind: 'pointerlockchange', locked: true })),
@@ -210,11 +221,11 @@ const BLUR_WHILE_LOCKED: Scenario = {
     at(2, 'and walking', ev({ kind: 'keydown', code: 'KeyW', target: 'window' })),
     at(3, 'read: attack held, moveForward held', cmd({ kind: 'readSnapshot' })),
     at(4, 'alt-tab', ev({ kind: 'blur' })),
-    at(5, 'read: everything released — except the lock state', cmd({ kind: 'readSnapshot' })),
+    at(5, 'read: everything released, INCLUDING the locked session', cmd({ kind: 'readSnapshot' })),
     at(6, 'the click that refocuses the window', ev({ kind: 'mousedown', button: 'MouseLeft', target: 'window' })),
-    at(7, 'read: it is in pressed and justPressed. attack fired', cmd({ kind: 'readSnapshot' })),
+    at(7, 'read: a uiClick. It asks for the lock; it does not break a block', cmd({ kind: 'readSnapshot' })),
     at(8, 'the browser gets around to telling us the lock ended', ev({ kind: 'pointerlockchange', locked: false })),
-    at(9, 'read: now it is unlocked, one click too late', cmd({ kind: 'readSnapshot' })),
+    at(9, 'read: still unlocked. The event told us nothing new', cmd({ kind: 'readSnapshot' })),
   ],
 }
 
@@ -227,13 +238,16 @@ const BLUR_WHILE_LOCKED: Scenario = {
  */
 const MIRROR_STALENESS: Scenario = {
   name: 'mirror-staleness',
-  headline: 'the mirrored pose starts unset, and starts claiming to be fresh',
+  headline: 'KNOWN GAP: the mirrored pose starts unset, and starts claiming to be fresh',
   detail: [
     'No render stage ever writes authoritativePose — mc-sim does, across the',
     'boundary. Until it does, the mirror holds UNSET_CAMERA_POSE with',
     'capturedAtSecs 0, while mirrorLagSecs is initialised to 0, i.e. "perfectly',
     'fresh". Advance the injected clock and the two answers diverge without any',
     'pose having changed. Then publish a pose and watch it settle.',
+    'Pinned, not fixed: there is no honest value to seed the gauge with, because',
+    'makeRenderFrameState has no clock and Infinity would only move the',
+    'contradiction into sourceCapturedAtSecs. See test/stage-registration.test.ts.',
   ],
   steps: [
     at(0, 'nothing has published a pose yet', cmd({ kind: 'note', text: 'lag says 0; the pose is UNSET' })),

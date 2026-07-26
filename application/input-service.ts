@@ -342,10 +342,37 @@ export type InputServiceApi = {
   /**
    * Clear per-frame edges. The frame loop calls this exactly once per frame.
    *
-   * Clears `justPressed`, `uiClicks`, the pointer delta and the WHOLE wheel
-   * notches. See the implementation for the one thing it deliberately keeps.
+   * Clears `justPressed`, `uiClicks` and the pointer delta outright, and
+   * consumes the whole wheel notches THIS FRAME WAS TOLD ABOUT — which is what
+   * `frame` is for. Pass the snapshot the frame acted on; `render:input` in
+   * `stages/registration.ts` is the shipped example, and it already holds one.
+   *
+   * ---------------------------------------------------------------------------
+   * Why the reading is an argument rather than something the service remembers
+   * ---------------------------------------------------------------------------
+   *
+   * `snapshot` truncates the accumulator at READ time. `endFrame` used to
+   * re-read it and truncate AGAIN, at a different instant, so a wheel event
+   * arriving between the two — exactly where a DOM listener runs — could carry
+   * the second truncation past a notch boundary the first never reached. The
+   * frame was told 0 steps and moved 0 hotbar slots; `endFrame` consumed 1. The
+   * player turned a detent and the selection did not move, once,
+   * unreproducibly. That is the same class as the reference's consume-on-read
+   * `consumeMouseClick`, which `wasButtonJustPressed` above rejects by name.
+   *
+   * The service could remember what the last `snapshot` reported instead. It
+   * deliberately does not: that would make `snapshot` a read WITH AN EFFECT on
+   * the frame boundary, so a debug overlay or a preview redrawing its analogue
+   * panel would change how much travel the next `endFrame` consumed. An
+   * observer must not be able to move the thing it observes. Passing the
+   * reading back states the contract in the type instead — you cannot end a
+   * frame on a reading you did not take.
+   *
+   * OMITTING `frame` means "no frame read the wheel", and consumes no notches.
+   * That is the honest default rather than a convenience: travel nothing acted
+   * on is deferred to the frame that does read it, never spent on its behalf.
    */
-  readonly endFrame: Effect.Effect<void>
+  readonly endFrame: (frame?: InputSnapshot | undefined) => Effect.Effect<void>
   /** Drop every held code and analogue value. Wired to `blur`. */
   readonly clearHeld: Effect.Effect<void>
   readonly bindings: Effect.Effect<Bindings>
@@ -469,6 +496,27 @@ const withoutAnalogueState = (state: InputState): InputState => ({
   wheelNotches: 0,
 })
 
+/**
+ * Whole wheel notches `endFrame` may take, given what the frame was told.
+ *
+ * `frame.wheelSteps` is the figure a consumer acted on, and consuming exactly
+ * it is the whole rule. The clamp guards the one way a caller can get this
+ * wrong: handing back a STALE snapshot, whose reading the accumulator can no
+ * longer cover — the lock was lost in between, or the player scrolled back. A
+ * bare subtraction would then drive the accumulator past zero and invent travel
+ * in the opposite direction, which is a hotbar that cycles on its own. Taking
+ * the smaller magnitude, and only when the two agree on direction, makes the
+ * worst case "this frame consumed nothing" instead.
+ */
+const consumableSteps = (frame: InputSnapshot | undefined, state: InputState): number => {
+  const reported = frame === undefined ? 0 : frame.wheelSteps
+  const available = Math.trunc(state.wheelNotches)
+  if (reported === 0 || available === 0 || Math.sign(reported) !== Math.sign(available)) {
+    return 0
+  }
+  return Math.sign(reported) * Math.min(Math.abs(reported), Math.abs(available))
+}
+
 export const makeInputService = (
   bindings: Bindings = defaultBindings(),
   /**
@@ -579,15 +627,47 @@ export const makeInputService = (
               // failure.
               return { ...current, pointerLockState: 'refused' }
             case 'blur':
+              // The window losing focus ENDS the locked session, exactly as
+              // losing the lock does — and `withoutHeldButtons` already states
+              // why that matters: "the click belonged to the locked session".
+              // Preserving `pointerLockState` here made the two handlers
+              // disagree, and the field it preserved is the one that decides
+              // what a click MEANS: `withButtonDown` routes a mousedown into
+              // `pressed` while the state says `locked`, so until the browser
+              // got around to delivering `pointerlockchange` the click the
+              // player used to come BACK to the tab was an `attack`.
+              //
+              // It also unsticks `requested`. Only `pointerlockchange` and
+              // `pointerlockerror` ever left that state, and
+              // `requestPointerLock` refuses to re-ask while one is pending —
+              // correctly, because a second request while one is pending is one
+              // of the ways the browser refuses the next. So a request issued
+              // and never answered stranded the session: `acquiresPointerLock`
+              // declines to act on a click in `requested`, and the player could
+              // walk and type but never look around again. This repository
+              // already knows that hazard by name for the `unavailable` path
+              // (`PointerLockRequestOutcome` above); the `sent` path had the
+              // identical hole, and a blur between the ask and the answer is
+              // the ordinary way it opens.
+              //
+              // `unlocked` and NOT `refused`, because the browser did not
+              // refuse anything: the ask was abandoned. `refused` is what a UI
+              // draws as "click again to look around" and is reserved for
+              // `pointerlockerror` and for a platform that has no pointer lock
+              // to ask. An existing `refused` therefore survives a blur — it is
+              // documented as sticky until something ASKS again, and a blur is
+              // not an ask.
               return {
                 ...initialState(current.bindings),
-                pointerLockState: current.pointerLockState,
+                pointerLockState: current.pointerLockState === 'refused' ? 'refused' : 'unlocked',
               }
             default:
               return current
           }
         }),
 
+      // A PURE read, with no effect on the frame boundary — see `endFrame` on
+      // why the reading is handed back rather than remembered here.
       snapshot: Ref.get(state).pipe(
         Effect.map((current) => ({
           pressed: current.pressed,
@@ -656,21 +736,26 @@ export const makeInputService = (
         })
       }),
 
-      endFrame: Ref.update(state, (current) => ({
-        ...current,
-        justPressed: new Set<InputCode>(),
-        uiClicks: new Set<MouseButton>(),
-        pointerDelta: { x: 0, y: 0 },
-        // Whole notches are consumed; the SUB-NOTCH REMAINDER is kept. This is
-        // the one deliberate difference from `pointerDelta`, which is zeroed
-        // outright, and the reason is the trackpad: it emits a few pixels per
-        // event, so every frame's total rounds to zero notches and a
-        // clear-everything rule would make the hotbar unreachable on a laptop.
-        // The remainder is bounded by one notch, is dropped whenever the lock
-        // is lost or the window blurs, and cancels itself out when the player
-        // scrolls back — so it cannot accumulate into a phantom step.
-        wheelNotches: current.wheelNotches - Math.trunc(current.wheelNotches),
-      })),
+      endFrame: (frame) =>
+        Ref.update(state, (current) => ({
+          ...current,
+          justPressed: new Set<InputCode>(),
+          uiClicks: new Set<MouseButton>(),
+          pointerDelta: { x: 0, y: 0 },
+          // Whole notches are consumed; the SUB-NOTCH REMAINDER is kept. This
+          // is the one deliberate difference from `pointerDelta`, which is
+          // zeroed outright, and the reason is the trackpad: it emits a few
+          // pixels per event, so every frame's total rounds to zero notches and
+          // a clear-everything rule would make the hotbar unreachable on a
+          // laptop. The remainder is dropped whenever the lock is lost or the
+          // window blurs, and cancels itself out when the player scrolls back —
+          // so it cannot accumulate into a phantom step.
+          //
+          // Consumed: exactly the whole notches `frame` was told about. What
+          // the accumulator holds NOW is not the question; see the doc on
+          // `endFrame` in `InputServiceApi`.
+          wheelNotches: current.wheelNotches - consumableSteps(frame, current),
+        })),
 
       clearHeld: Ref.update(state, (current) => ({
         ...initialState(current.bindings),

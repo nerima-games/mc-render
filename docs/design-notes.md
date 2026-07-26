@@ -136,7 +136,8 @@ low/medium the CompositePass would have no inputs to composite
 `domain/post-processing.ts` は配列 `POST_PROCESSING_PASS_ORDER` と
 純粋関数 `validatePostProcessingChain` にしてあるので、`environment: 'node'` で固定できる。
 
-THREE.js アダプタの仕事は `buildPostProcessingChain` の出力を歩いて `composer.addPass` を
+THREE.js アダプタの仕事は `buildPostProcessingChain` の出力（`PostProcessingStep` の列。
+`composite` はそれが合成するエフェクト一覧を `effects` に持つ）を歩いて `composer.addPass` を
 呼ぶだけになる。順序を間違えるには GPU 不要のテストを落とすしかない。
 
 ### 書くべき回帰テスト
@@ -865,7 +866,22 @@ Firefox（Windows・クラシックホイール）では `3`（行）である�
 **1 点だけ差がある。`endFrame` は整数ノッチだけを消し、1 ノッチ未満の端数を持ち越す。**
 トラックパッドは 1 イベント数ピクセルしか送らないので、毎フレーム全部捨てると
 どのフレームも 0 ノッチに丸まり、**ノート PC でホットバーが操作不能になる**。
-持ち越しは 1 ノッチ未満に有界で、ロック喪失と `blur` で消え、逆回しで相殺される。
+持ち越しはロック喪失と `blur` で消え、逆回しで相殺される。
+
+**消費するのは「そのフレームに伝えた分」であって「実行時点の累算器が言う分」ではない。**
+`endFrame(frame)` はフレームが読んだスナップショットを受け取る。以前は
+`snapshot` と `endFrame` がそれぞれ別の瞬間に `Math.trunc` を取っていたので、
+あいだに届いたホイールイベント —— DOM リスナが走るのはまさにそこである ——
+が 2 つ目を段の境界の向こうへ押し、フレームが知らない段が 1 つ消費された。
+プレイヤーはデテントを 1 つ回したのにスロットが動かない、それも再現しない形で。
+これは参照実装の consume-on-read `consumeMouseClick` と同じ種類で、DN-12 が明示的に
+拒否したものである。
+
+サービスに「最後に報告した値」を覚えさせなかったのは意図的である。そうすると
+`snapshot` が**フレーム境界に副作用を持つ読み取り**になり、デバッグオーバーレイや
+プレビューのアナログパネルの再描画が次の `endFrame` の消費量を変えてしまう。
+**計器が観測対象を動かしてはならない。** 契約は型に置いた ——
+読んでいないスナップショットでフレームは閉じられない。
 
 ### 3. 循環の剰余算は、参照実装の式が**歩幅 2 以上で壊れる**
 

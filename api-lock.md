@@ -13,7 +13,7 @@
 <!-- ------------------------------------------------------------------------- -->
 
 format: 1
-exported declarations: 121
+exported declarations: 123
 supporting declarations: 17
 
 ## Exported
@@ -266,7 +266,7 @@ type InputServiceApi = {
     readonly shouldSuppressWheelScroll: Effect.Effect<boolean>;
     readonly pointerLockState: Effect.Effect<PointerLockState>;
     readonly requestPointerLock: Effect.Effect<PointerLockState>;
-    readonly endFrame: Effect.Effect<void>;
+    readonly endFrame: (frame?: InputSnapshot | undefined) => Effect.Effect<void>;
     readonly clearHeld: Effect.Effect<void>;
     readonly bindings: Effect.Effect<Bindings>;
     readonly rebind: (action: InputAction, key: InputCode) => Effect.Effect<RemapOutcome>;
@@ -503,6 +503,15 @@ type PointerLockTarget = {
 type PostProcessingPass = (typeof POST_PROCESSING_PASS_ORDER)[number];
 ```
 
+### PostProcessingStep  `type`
+
+```ts
+type PostProcessingStep = {
+    readonly pass: PostProcessingPass;
+    readonly effects: ReadonlyArray<PostProcessingPass>;
+};
+```
+
 ### QUALITY_PRESETS  `const`
 
 ```ts
@@ -560,16 +569,10 @@ type RenderFrameState = {
     readonly input: Ref.Ref<InputSnapshot>;
     readonly visibleChunkCount: Ref.Ref<number>;
     readonly quality: Ref.Ref<GraphicsQuality>;
-    readonly postFxChain: Ref.Ref<ReadonlyArray<PostProcessingPass>>;
+    readonly postFxChain: Ref.Ref<ReadonlyArray<PostProcessingStep>>;
     readonly postFxBuiltFrom: Ref.Ref<GraphicsQuality>;
     readonly framesDrawn: Ref.Ref<number>;
 };
-```
-
-### RenderRegistrationLayer  `const`
-
-```ts
-const RenderRegistrationLayer: Layer.Layer<InputService>;
 ```
 
 ### ScratchMap  `type`
@@ -709,7 +712,19 @@ const browserInputLayer: (options: BrowserInputOptions) => Layer.Layer<InputServ
 ### buildPostProcessingChain  `const`
 
 ```ts
-const buildPostProcessingChain: (quality: GraphicsQuality) => ReadonlyArray<PostProcessingPass>;
+const buildPostProcessingChain: (quality: GraphicsQuality) => ReadonlyArray<PostProcessingStep>;
+```
+
+### chainEffects  `const`
+
+```ts
+const chainEffects: (chain: ReadonlyArray<PostProcessingStep>) => ReadonlyArray<PostProcessingPass>;
+```
+
+### chainPasses  `const`
+
+```ts
+const chainPasses: (chain: ReadonlyArray<PostProcessingStep>) => ReadonlyArray<PostProcessingPass>;
 ```
 
 ### defaultBindings  `const`

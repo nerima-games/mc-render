@@ -56,18 +56,36 @@ kit を待っていると永遠に始まらない。つまり mc-render のプ�
 下の RND-1 / RND-2 はどちらも、テストがたまたま逆順で発行している 2 つのイベントを
 入れ替えただけで出てくる。
 
-`--stats` は数値レポートで、**8 件の発見**に file:line と再現コマンドを付けて出す。
+`--stats` はかつて **8 件の発見**を出していた。**6 件は修正済み、2 件は「直さない」と決めて
+テストで固定した。** どちらの場合も `test/` にテストがあり、そこでしか主張は CI で落ちない
+—— `--stats` の行はピンではない。
 
-| # | 内容 | 場所 |
-| --- | --- | --- |
-| RND-1 | `requested` は吸収状態。`blur` が保存し `requestPointerLock` は再送しない | `application/input-service.ts:581-585`, `:634-642` |
-| RND-2 | `endFrame` がどのフレームにも報告していないホイール段を消費する | `application/input-service.ts:600`, `:672` |
-| RND-3 | `blur` が `pointerLocked` を残すので、復帰クリックが `attack` になる | `application/input-service.ts:581-585` |
-| RND-4 | ミラーの初期状態が自己矛盾（`UNSET` のポーズに `mirrorLagSecs = 0`） | `stages/registration.ts:170-173` |
-| RND-5 | `MIRROR_LAG_WARNING_SECS` の doc が「Milliseconds」と書いている | `domain/camera-mirror.ts:160` |
-| RND-6 | `RenderRegistrationLayer` が `renderModule` の引数を捨てる | `stages/registration.ts:410` |
-| RND-7 | `withScratch` が捕まえるのは同一性エスケープだけ | `domain/frame-scratch.ts:167-196` |
-| RND-8 | `buildPostProcessingChain` が `high` と `ultra` に同一の配列を返す | `domain/post-processing.ts:235-266` |
+| # | 内容 | 状態 | 固定しているテスト |
+| --- | --- | --- | --- |
+| RND-1 | `requested` は吸収状態。`blur` が保存し `requestPointerLock` は再送しない | **修正** | `test/input.test.ts` `REGRESSION: a blur ABANDONS a pending request rather than stranding the session` |
+| RND-2 | `endFrame` がどのフレームにも報告していないホイール段を消費する | **修正** | `REGRESSION: endFrame consumes what the FRAME was told, not what arrived after it` ほか 4 件 |
+| RND-3 | `blur` が `pointerLocked` を残すので、復帰クリックが `attack` になる | **修正** | `REGRESSION: blur ends the LOCKED SESSION, so the click that refocuses is not an attack` |
+| RND-4 | ミラーの初期状態が自己矛盾（`UNSET` のポーズに `mirrorLagSecs = 0`） | **保留（ピン）** | `test/stage-registration.test.ts` `KNOWN GAP: before a pose arrives, the two staleness answers DISAGREE` |
+| RND-5 | `MIRROR_LAG_WARNING_SECS` の doc が「Milliseconds」と書いている | **修正** | `test/camera-mirror.test.ts`（秒として比較していることは既に固定済み） |
+| RND-6 | `RenderRegistrationLayer` が `renderModule` の引数を捨てる | **修正（削除）** | `test/stage-registration.test.ts` `registers its stages against the InputService it itself provides` |
+| RND-7 | `withScratch` が捕まえるのは同一性エスケープだけ | **保留（ピン）** | `test/frame-scratch.test.ts` `KNOWN GAP: withScratch catches only the identity escape`（6 件） |
+| RND-8 | `buildPostProcessingChain` が `high` と `ultra` に同一の配列を返す | **修正** | `test/post-processing.test.ts` `REGRESSION: \`high\` and \`ultra\` are DIFFERENT chains, and the composite step is why` |
+
+保留 2 件の理由:
+
+- **RND-4**: ゲージに入れる正直な値が無い。`makeRenderFrameState` は時計を持たない
+  （ステージではなくコンストラクタで、plan.md §5.1-3 がグローバル時計の読み取りを禁じている）し、
+  `Infinity` を入れても矛盾が `mirroredCamera.sourceCapturedAtSecs` に移るだけである
+  —— 消費側が実際に読むのはそちらだ。両者を一致させるには
+  `MirroredCameraState` 自身で「未設定」と「陳腐化」を区別する必要があり、
+  それは mc-sim を pin して `authoritativePose` が `PlayerService.cameraPose` になるときの仕事である。
+  そのとき窓は構造的に閉じる。いまの窓は「最初のフレームより前」だけで、
+  リポジトリ内の読み手は診断ゲージ 1 つだけ。
+- **RND-7**: 検出するには生の `Map` を渡すのをやめるしかない（lease 付き facade、または
+  `buffer` の非公開化）。どちらも公開型を変え、facade はこのモジュールが
+  無アロケーションに保つためのホットパスに分岐とラッパーを載せる —— それは
+  plan.md §5.2 が**名指しで**認めている逸脱であり、局所的に決めてよい話ではない。
+  出荷されている呼び出し口（`render:chunk-sync`）は同期で、だから誰も踏んでいない。
 
 全件の詳細は [`apps/preview-render/README.md`](../apps/preview-render/README.md)。
 

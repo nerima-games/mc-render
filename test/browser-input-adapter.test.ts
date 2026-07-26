@@ -837,7 +837,7 @@ describe('the adapter drives the service the way a browser would', () => {
       expect(yield* input.isActionActive('moveForward')).toBe(true)
       expect(yield* input.wasActionJustTriggered('moveForward')).toBe(true)
 
-      yield* input.endFrame
+      yield* input.endFrame()
       expect(yield* input.wasActionJustTriggered('moveForward')).toBe(false)
       expect(yield* input.isActionActive('moveForward')).toBe(true)
 
@@ -856,7 +856,7 @@ describe('the adapter drives the service the way a browser would', () => {
       expect(yield* input.wasActionJustTriggered('attack')).toBe(false)
       expect(yield* input.wasUiClick('MouseLeft')).toBe(true)
 
-      yield* input.endFrame
+      yield* input.endFrame()
       dom.setPointerLockElement({ tagName: 'CANVAS' })
       dom.fire('pointerlockchange')
       dom.fire('mousedown', { button: 0 })

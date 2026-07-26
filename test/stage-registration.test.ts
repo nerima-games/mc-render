@@ -1,5 +1,6 @@
 import { describe, expect, it } from '@effect/vitest'
 import { Effect, Ref } from 'effect'
+import { isMirrorStale, mirrorLagSecs } from '../domain/camera-mirror'
 import {
   GAMEPLAY_LISTENER_TARGET,
   MODAL_LISTENER_TARGET,
@@ -14,7 +15,7 @@ import {
   type CameraPoseSnapshot,
   type StageRegistration,
 } from '../domain/kernel-vocabulary'
-import { QUALITY_PRESETS } from '../domain/post-processing'
+import { chainPasses, QUALITY_PRESETS } from '../domain/post-processing'
 import {
   InputService,
   InputServiceLayer,
@@ -346,6 +347,60 @@ describe('render:camera-mirror', () => {
       expect(UNSET_CAMERA_POSE.capturedAtSecs).toBe(0)
     }),
   )
+
+  it.effect('KNOWN GAP: before a pose arrives, the two staleness answers DISAGREE', () =>
+    withStages((stages, state) =>
+      Effect.gen(function* () {
+        // Pinning current behaviour, not endorsing it. `makeRenderFrameState`
+        // seeds `mirrorLagSecs` with the literal 0 — "perfectly fresh" — while
+        // `mirroredCamera` is built from UNSET_CAMERA_POSE, whose
+        // `capturedAtSecs` is 0, i.e. the beginning of the monotonic epoch. A
+        // consumer reading the Ref before `render:camera-mirror` has ever run
+        // is told the mirror is current; the same consumer calling
+        // `mirrorLagSecs` on the mirrored state is told it is as old as the
+        // process. Nothing in stages/ ever writes `authoritativePose` (only
+        // mc-sim does, across the boundary), so in the `renderModule` path —
+        // where the state is deliberately not exposed — `isMirrorStale` is true
+        // from the first frame until a pose arrives, with no way to tell
+        // "stale" from "never set".
+        //
+        // NOT FIXED, deliberately. There is no honest value to seed the gauge
+        // with: `makeRenderFrameState` has no clock (it is a constructor, not a
+        // stage, and plan.md §5.1-3 bans reading a global one), and seeding
+        // Infinity would only move the contradiction, because
+        // `mirroredCamera.sourceCapturedAtSecs` would still read 0 and that is
+        // the value consumers actually read. Making them agree means
+        // distinguishing "never set" from "stale" in `MirroredCameraState`
+        // itself — an Option, or a nullable `sourceCapturedAtSecs` every
+        // consumer must then handle. That is an API change worth making WITH
+        // the mc-sim pin, when `authoritativePose` stops being a FIRST CUT Ref
+        // and becomes `PlayerService.cameraPose` read at registration time —
+        // at which point the window closes by construction and the Option may
+        // turn out to be unnecessary. Until then the window is "before the
+        // first frame" and the only in-repo reader is a diagnostic gauge.
+        const before = yield* Ref.get(state.mirrorLagSecs)
+        const mirrored = yield* Ref.get(state.mirroredCamera)
+
+        // The gauge says fresh...
+        expect(before).toBe(0)
+        // ...and the mirrored state it is supposed to describe says the epoch.
+        expect(mirrored.sourceCapturedAtSecs).toBe(0)
+        expect(mirrorLagSecs(mirrored, MonotonicTimeSecs(100))).toBe(100)
+        expect(isMirrorStale(mirrored, MonotonicTimeSecs(100))).toBe(true)
+
+        // One run of the stage replaces the guess with a measurement, and from
+        // then on the two agree — which is why the gap is bounded by the first
+        // frame.
+        yield* stageById(stages, RENDER_STAGE_IDS.cameraMirror)
+          .run(dt)
+          .pipe(Effect.provide(FRAME_SERVICES))
+
+        expect(yield* Ref.get(state.mirrorLagSecs)).toBe(
+          mirrorLagSecs(yield* Ref.get(state.mirroredCamera), MonotonicTimeSecs(100)),
+        )
+      }),
+    ),
+  )
 })
 
 describe('render:chunk-sync, render:draw and render:post-fx', () => {
@@ -394,7 +449,12 @@ describe('render:chunk-sync, render:draw and render:post-fx', () => {
         yield* stage.run(dt).pipe(Effect.provide(FRAME_SERVICES))
         const after = yield* Ref.get(state.postFxChain)
         expect(after).not.toBe(before)
-        expect([...after]).toStrictEqual(['render', 'output'])
+        expect(chainPasses(after)).toStrictEqual(['render', 'output'])
+        // The state holds STEPS, not bare passes: `high` and `ultra` share a
+        // pass order and differ only in what `composite` composites, so a Ref
+        // of pass names could not tell the two presets apart at all.
+        expect(chainPasses(before)).toStrictEqual(['render', 'gtao', 'composite', 'smaa', 'output'])
+        expect(before.find((entry) => entry.pass === 'composite')?.effects).toStrictEqual(['bloom'])
       }),
     ),
   )

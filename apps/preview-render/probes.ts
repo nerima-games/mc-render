@@ -9,8 +9,9 @@
  * defence is a table somebody can recompute.
  *
  * **Nothing here asserts.** These probes print. Anything in here that turns out
- * to be a real invariant belongs in `test/`, where it can fail CI; each FINDING
- * says which test should exist and why the existing suite cannot see it.
+ * to be a real invariant belongs in `test/`, where it can fail CI; each note
+ * says which test holds the claim, and each KNOWN GAP says why it is a pin
+ * rather than a fix.
  */
 import { Effect } from 'effect'
 import {
@@ -32,10 +33,15 @@ import {
   withScratch,
   type ScratchMap,
 } from '../../domain/frame-scratch'
-import { defaultBindings, POINTER_LOCK_STATES, type PointerLockState } from '../../domain/input-bindings'
+import {
+  defaultBindings,
+  notchesForWheelDelta,
+  POINTER_LOCK_STATES,
+  type PointerLockState,
+} from '../../domain/input-bindings'
 import { MonotonicTimeSecs } from '../../domain/kernel-vocabulary'
 import { buildPostProcessingChain, QUALITY_PRESETS } from '../../domain/post-processing'
-import { makeRenderFrameState, renderModule, RenderRegistrationLayer, UNSET_CAMERA_POSE } from '../../stages/registration'
+import { makeRenderFrameState, renderModule, UNSET_CAMERA_POSE } from '../../stages/registration'
 import { RENDER_STAGE_IDS } from '../../stages/stage-ids'
 import { fixed, pad, padStart } from './style'
 
@@ -100,30 +106,31 @@ const lockMachineProbe = Effect.gen(function* () {
     '',
     `   with UNAVAILABLE_POINTER_LOCK (the library default, and the truth in Node): ${withUnavailable}`,
     '',
-    '   FINDING RND-1. Only two events leave `requested`, and both come from the browser.',
-    '   `blur` does not: application/input-service.ts:581-585 rebuilds the state from',
-    '   initialState() and then deliberately restores `pointerLockState: current.pointerLockState`.',
-    '   `requestPointerLock` does not either: input-service.ts:634-642 claims the transition only',
-    '   from `unlocked` or `refused`, and returns the pending state otherwise — which is correct,',
-    '   because a second request while one is pending is one of the documented ways a browser',
-    '   refuses the next one.',
+    '   `requested` is no longer an absorbing state — read the `blur` row. Only two events used to',
+    '   leave it, and both came from the browser. `blur` did not: it rebuilt the state from',
+    '   initialState() and then restored `pointerLockState` unchanged. `requestPointerLock` does',
+    '   not either, and that half is CORRECT — it claims the transition only from `unlocked` or',
+    '   `refused`, because a second request while one is pending is one of the documented ways a',
+    '   browser refuses the next one.',
     '',
-    '   So a request that is issued and never answered strands the session. The window blurring',
-    '   between the ask and the answer is the ordinary way that happens, and the user gesture that',
-    '   would normally fix it (a click) is exactly what acquiresPointerLock() declines to act on in',
-    '   `requested` (input-bindings.ts:678-679). The player can walk and type; they can never look',
-    '   around again.',
+    '   So a request issued and never answered stranded the session. The window blurring between',
+    '   the ask and the answer is the ordinary way that happens, and the user gesture that would',
+    '   normally fix it (a click) is exactly what acquiresPointerLock() declines to act on in',
+    '   `requested`. The player could walk and type; they could never look around again.',
     '',
-    '   The repository already knows this hazard by name. PointerLockRequestOutcome documents',
-    '   `unavailable` as existing because "a request that can never be answered would otherwise',
-    '   leave the state machine in `requested` for the rest of the session"',
-    '   (input-service.ts:236-240), and test/input.test.ts:1094-1099 pins that path with the',
-    '   comment "Leaving the machine in `requested` would strand it for the session." The `sent`',
-    '   path has the identical hole and nothing guards it.',
+    '   The repository already knew this hazard by name for the OTHER path.',
+    '   PointerLockRequestOutcome documents `unavailable` as existing because "a request that can',
+    '   never be answered would otherwise leave the state machine in `requested` for the rest of',
+    '   the session", and a test pins it with "Leaving the machine in `requested` would strand it',
+    '   for the session." The `sent` path had the identical hole and nothing guarded it.',
     '',
-    '   No test can catch it today because no test dispatches `blur` while a request is pending,',
-    '   and Playwright cannot reach pointer lock at all (plan.md §3.10).',
-    '   Reproduce: pnpm preview --scenario stranded-request --at 10 --once --ascii',
+    '   blur resolves to `unlocked` and NOT to `refused`: the browser did not refuse anything, the',
+    '   ask was abandoned. `refused` is what a UI draws as "click again to look around". An',
+    '   existing `refused` survives a blur, because it is sticky until something ASKS again.',
+    '',
+    '   Pinned by test/input.test.ts `REGRESSION: a blur ABANDONS a pending request rather than',
+    '   stranding the session`, which checks the port is asked a SECOND time afterwards.',
+    '   Watch it: pnpm preview --scenario stranded-request --at 10 --once --ascii',
   ]
 })
 
@@ -132,26 +139,44 @@ const lockMachineProbe = Effect.gen(function* () {
 // ---------------------------------------------------------------------------
 
 const wheelLedgerProbe = Effect.gen(function* () {
+  /**
+   * ONE frame, with exactly one `snapshot` in it.
+   *
+   * That constraint is load-bearing for the measurement, not just for realism:
+   * `snapshot` records the whole notches it reports, so an extra
+   * "let me just read the accumulator" call between the late event and
+   * `endFrame` would itself be a frame being told about the late event, and the
+   * probe would measure its own instrumentation. The accumulated total is
+   * computed from the deltas below instead, which the probe fully controls.
+   */
+  const FIRST_DELTA_PIXELS = 90
+  const SECOND_DELTA_PIXELS = 30
+
   const run = (lateEvent: boolean) =>
     Effect.gen(function* () {
       const service = yield* makeInputService()
       yield* service.dispatch({ kind: 'pointerlockchange', locked: true })
-      yield* service.dispatch(wheel(90))
+      yield* service.dispatch(wheel(FIRST_DELTA_PIXELS))
       if (!lateEvent) {
-        yield* service.dispatch(wheel(30))
+        yield* service.dispatch(wheel(SECOND_DELTA_PIXELS))
       }
       const seen = yield* service.snapshot
       if (lateEvent) {
         // A DOM wheel listener runs here: after the frame stage read its
         // snapshot, before the frame loop called endFrame.
-        yield* service.dispatch(wheel(30))
+        yield* service.dispatch(wheel(SECOND_DELTA_PIXELS))
       }
-      const before = (yield* service.snapshot).wheelNotches
-      yield* service.endFrame
+      // `seen` — the reading the frame acted on — handed BACK. That is the
+      // contract, and it is why the extra instrumentation snapshot below is
+      // harmless: `snapshot` is a pure read.
+      yield* service.endFrame(seen)
       const after = (yield* service.snapshot).wheelNotches
+      const accumulated =
+        notchesForWheelDelta(FIRST_DELTA_PIXELS, 'pixel') +
+        notchesForWheelDelta(SECOND_DELTA_PIXELS, 'pixel')
       return {
         reported: seen.wheelSteps,
-        consumed: Math.round(before - after),
+        consumed: Math.round(accumulated - after),
         carried: after,
       }
     })
@@ -168,25 +193,34 @@ const wheelLedgerProbe = Effect.gen(function* () {
     `   ${cell('both events, then snapshot, then endFrame', 46)}${padStart(String(ordered.reported), 10)}${padStart(String(ordered.consumed), 10)}${padStart(fixed(ordered.carried, 3), 10)}`,
     `   ${cell('one event, snapshot, the OTHER event, endFrame', 46)}${padStart(String(raced.reported), 10)}${padStart(String(raced.consumed), 10)}${padStart(fixed(raced.carried, 3), 10)}`,
     '',
-    '   FINDING RND-2. `snapshot` computes wheelSteps as Math.trunc(wheelNotches)',
-    '   (input-service.ts:600) and `endFrame` subtracts Math.trunc(wheelNotches)',
-    '   (input-service.ts:672) — but it RE-READS the accumulator. The two truncations are taken at',
-    '   different instants, and every wheel event the browser delivers between them can move the',
-    '   second one past a notch boundary the first did not reach.',
+    '   Both rows balance: endFrame consumes EXACTLY what the frame was told, whichever order the',
+    '   events fall in. `endFrame(frame)` takes the reading the frame acted on and subtracts its',
+    '   whole notches — it used to re-read the accumulator and truncate it a SECOND time, at a',
+    '   different instant, so every wheel event the browser delivered between the two could move',
+    '   the second truncation past a notch boundary the first never reached.',
     '',
-    '   The row above is the smallest case: the frame is told 0 whole steps and acts on 0 hotbar',
-    '   slots; endFrame then consumes 1. The player scrolled a detent and the selection did not',
-    '   move, once, unreproducibly. It is the same class of bug as the reference implementation\'s',
-    '   consume-on-read `consumeMouseClick`, which this file explicitly rejected',
-    '   (input-service.ts:288-292) — "whether a click survives depends on who read it first".',
+    '   The second row was the smallest case: the frame was told 0 whole steps and moved 0 hotbar',
+    '   slots; endFrame then consumed 1. The player turned a detent and the selection did not',
+    '   move, once, unreproducibly. Same class as the reference implementation\'s consume-on-read',
+    '   `consumeMouseClick`, which this file explicitly rejects — "whether a click survives',
+    '   depends on who read it first".',
     '',
-    '   The remainder-carrying design at input-service.ts:664-672 is right and is what makes a',
-    '   trackpad usable; what is missing is that endFrame must consume exactly what the frame was',
-    '   told, not what the accumulator says at the moment it runs.',
+    '   The reading is an ARGUMENT rather than something the service remembers, and that is not a',
+    '   style choice. If `snapshot` recorded what it reported, a debug overlay — or this app, which',
+    '   redraws its analogue panel after every step — would change how much travel the next',
+    '   endFrame consumed, and the instrumentation would reproduce the bug it exists to watch. An',
+    '   observer must not move the thing it observes, so `snapshot` stays a pure read and the',
+    '   contract lives in the type: you cannot end a frame on a reading you did not take.',
     '',
-    '   test/input.test.ts:694 and :760-800 cover this thoroughly with the events strictly before',
-    '   the snapshot, which is the only order a single-fiber test naturally writes.',
-    '   Reproduce: pnpm preview --scenario lost-notch --at 11 --once --ascii',
+    '   Omitting the argument means "no frame read the wheel" and consumes nothing, so travel',
+    '   nothing acted on is deferred to the frame that does read it rather than spent on its',
+    '   behalf. A stale reading is clamped to what the accumulator can cover, so the worst a',
+    '   caller can do is consume nothing — never drive the hotbar backwards.',
+    '',
+    '   Pinned by test/input.test.ts `REGRESSION: endFrame consumes what the FRAME was told, not',
+    '   what arrived after it`, plus three tests around it. The old tests put both events strictly',
+    '   before the snapshot, which is the only order a single-fiber test naturally writes.',
+    '   Watch it: pnpm preview --scenario lost-notch --at 11 --once --ascii',
   ]
 })
 
@@ -217,24 +251,25 @@ const blurProbe = Effect.gen(function* () {
     `   ${cell('justPressed', 26)}${cell(String(before.justPressed.size), 18)}${cell(String(after.justPressed.size), 18)}`,
     `   ${cell('pointerDelta.x', 26)}${cell(String(before.pointerDelta.x), 18)}${cell(String(after.pointerDelta.x), 18)}`,
     `   ${cell('wheelNotches', 26)}${cell(String(before.wheelNotches), 18)}${cell(String(after.wheelNotches), 18)}`,
-    `   ${cell('pointerLockState', 26)}${cell(before.pointerLockState, 18)}${cell(after.pointerLockState, 18)}   <-- kept`,
-    `   ${cell('pointerLocked', 26)}${cell(String(before.pointerLocked), 18)}${cell(String(after.pointerLocked), 18)}   <-- kept`,
+    `   ${cell('pointerLockState', 26)}${cell(before.pointerLockState, 18)}${cell(after.pointerLockState, 18)}   <-- the locked session ENDS`,
+    `   ${cell('pointerLocked', 26)}${cell(String(before.pointerLocked), 18)}${cell(String(after.pointerLocked), 18)}`,
     '',
     `   the click that refocuses the window:  attack edge = ${String(refocusIsAttack)},  uiClick = ${String(refocusIsUiClick)}`,
     '',
-    '   FINDING RND-3. `blur` (input-service.ts:581-585) clears every held code and all analogue',
-    '   state, and deliberately preserves the one field that decides what a click MEANS.',
-    '   `withButtonDown` (input-service.ts:432-435) routes a mousedown into `pressed` when the',
-    '   state says `locked`, so until the browser gets around to delivering pointerlockchange, the',
-    '   click the player used to come back to the tab is an attack.',
+    '   The last row is the one that mattered. `blur` clears every held code and all analogue',
+    '   state, and used to PRESERVE the one field that decides what a click MEANS. `withButtonDown`',
+    '   routes a mousedown into `pressed` when the state says `locked`, so until the browser got',
+    '   around to delivering pointerlockchange, the click the player used to come back to the tab',
+    '   was an attack.',
     '',
-    '   The whole reason `withoutHeldButtons` exists is stated at input-service.ts:437-448 — "the',
-    '   click belonged to the locked session" — and a blur ends that session as surely as losing',
-    '   the lock does. The two handlers disagree about it.',
+    '   The whole reason `withoutHeldButtons` exists is stated in input-service.ts — "the click',
+    '   belonged to the locked session" — and a blur ends that session as surely as losing the',
+    '   lock does. The two handlers disagreed about it; they no longer do.',
     '',
-    '   test/input.test.ts:287, :481 and :847 all dispatch `blur` and assert what it clears; none',
-    '   asserts what it keeps, and none dispatches a mousedown afterwards.',
-    '   Reproduce: pnpm preview --scenario blur-while-locked --at 10 --once --ascii',
+    '   Three tests dispatched `blur` and all three asserted what it CLEARS; none asserted what it',
+    '   KEPT, and none dispatched a mousedown afterwards. Pinned now by',
+    '   `REGRESSION: blur ends the LOCKED SESSION, so the click that refocuses is not an attack`.',
+    '   Watch it: pnpm preview --scenario blur-while-locked --at 10 --once --ascii',
   ]
 })
 
@@ -266,25 +301,36 @@ const mirrorProbe = Effect.gen(function* () {
     '',
     `   MIRROR_LAG_WARNING_SECS = ${String(MIRROR_LAG_WARNING_SECS)}, compared with > (strict), so exactly 0.1 is NOT stale.`,
     '',
-    '   FINDING RND-4. Two answers to "how stale is the mirror?" exist at startup and disagree.',
-    '   stages/registration.ts:170-173 builds `mirroredCamera` from UNSET_CAMERA_POSE — whose',
-    '   capturedAtSecs is 0, i.e. the beginning of the monotonic epoch — and `mirrorLagSecs` from',
-    '   the literal 0. A consumer reading the Ref before render:camera-mirror first runs is told',
-    '   the mirror is current; the same consumer calling mirrorLagSecs() on the mirrored state is',
-    '   told it is as old as the process. Nothing in stages/ ever writes authoritativePose (only',
-    '   mc-sim does, across the boundary), so in the renderModule path — where the state is',
-    '   deliberately not exposed, registration.ts:388-395 — isMirrorStale is true from the first',
-    '   frame until a pose arrives, and there is no way to distinguish "stale" from "never set".',
-    '   test/stage-registration.test.ts:343 checks UNSET_CAMERA_POSE\'s fields and :329 writes a',
-    '   pose first, so the gap between them is untested.',
-    '   Reproduce: pnpm preview --view mirror --scenario mirror-staleness --at 4 --once --ascii',
+    '   KNOWN GAP RND-4, pinned rather than fixed. Two answers to "how stale is the mirror?" exist',
+    '   at startup and disagree. `makeRenderFrameState` builds `mirroredCamera` from',
+    '   UNSET_CAMERA_POSE — whose capturedAtSecs is 0, i.e. the beginning of the monotonic epoch —',
+    '   and `mirrorLagSecs` from the literal 0. A consumer reading the Ref before',
+    '   render:camera-mirror first runs is told the mirror is current; the same consumer calling',
+    '   mirrorLagSecs() on the mirrored state is told it is as old as the process. Nothing in',
+    '   stages/ ever writes authoritativePose (only mc-sim does, across the boundary), so in the',
+    '   renderModule path — where the state is deliberately not exposed — isMirrorStale is true',
+    '   from the first frame until a pose arrives, with no way to tell "stale" from "never set".',
     '',
-    '   FINDING RND-5. domain/camera-mirror.ts:160 documents the constant as',
-    '   "Milliseconds of lag past which a mirrored pose is worth complaining about."',
-    '   It is named _SECS, its value is 0.1, and isMirrorStale compares it against a quantity in',
-    '   SECONDS. As milliseconds, 0.1 would be a tenth of a millisecond and every mirror ever',
-    '   built would be stale. The code is right and the sentence above it is wrong — which is the',
-    '   worse way round for a threshold somebody will eventually tune.',
+    '   NOT FIXED. There is no honest value to seed the gauge with: makeRenderFrameState has no',
+    '   clock (it is a constructor, not a stage, and plan.md §5.1-3 bans reading a global one), and',
+    '   seeding Infinity would only MOVE the contradiction — mirroredCamera.sourceCapturedAtSecs',
+    '   would still read 0, and that is the value consumers actually read. Making the two agree',
+    '   means distinguishing "never set" from "stale" in MirroredCameraState itself, which every',
+    '   consumer must then handle. That belongs with the mc-sim pin, when authoritativePose stops',
+    '   being a FIRST CUT Ref and becomes PlayerService.cameraPose read at registration time — at',
+    '   which point the window closes by construction. Until then it is bounded by the first frame',
+    '   and the only in-repo reader is a diagnostic gauge.',
+    '',
+    '   Pinned by test/stage-registration.test.ts `KNOWN GAP: before a pose arrives, the two',
+    '   staleness answers DISAGREE`, which also shows one run of the stage reconciling them.',
+    '   Watch it: pnpm preview --view mirror --scenario mirror-staleness --at 4 --once --ascii',
+    '',
+    '   RND-5 is fixed. domain/camera-mirror.ts documented the constant as "Milliseconds of lag',
+    '   past which a mirrored pose is worth complaining about." It is named _SECS, its value is',
+    '   0.1, and isMirrorStale compares it against a quantity in SECONDS. As milliseconds, 0.1',
+    '   would be a tenth of a millisecond and every mirror ever built would be stale. The code was',
+    '   right and the sentence above it was wrong — the worse way round for a threshold somebody',
+    '   will eventually tune, because tuning starts from the prose.',
     '',
     `   (state.framesDrawn exists and starts at ${String(yield* state.framesDrawn.pipe(Effect.map((value) => value)))}; it is here so the probe touches the built state rather than a mock.)`,
   ]
@@ -305,20 +351,18 @@ const registrationLayerProbe = Effect.gen(function* () {
 
   const built = renderModule(QUALITY_PRESETS.high, spy)
 
-  // The path RenderRegistrationLayer's doc invites.
-  const stages = yield* built.frameStages.pipe(Effect.provide(RenderRegistrationLayer))
-
-  const viaRegistrationLayer: PointerLockState = yield* Effect.gen(function* () {
+  // The ONLY supported shape: one provide of `module.layers`, with the
+  // registration and the frame's use of the service both inside it.
+  const viaModuleLayer = yield* Effect.gen(function* () {
+    const stages = yield* built.frameStages
     const service = yield* InputService
-    return yield* service.requestPointerLock
-  }).pipe(Effect.provide(RenderRegistrationLayer))
-
-  const viaModuleLayer: PointerLockState = yield* Effect.gen(function* () {
-    const service = yield* InputService
-    return yield* service.requestPointerLock
+    const lock: PointerLockState = yield* service.requestPointerLock
+    return { stageCount: stages.length, lock }
   }).pipe(Effect.provide(built.layers))
 
-  // Even the correct Layer, provided twice, is two services.
+  // Why there is no standalone registration Layer to reach for: `Layer.effect`
+  // builds a fresh service per `Effect.provide`, so one Layer VALUE used twice
+  // is two machines. This is the trap in its general form.
   const shared = InputServiceLayer()
   const first = yield* Effect.gen(function* () {
     const service = yield* InputService
@@ -335,40 +379,40 @@ const registrationLayerProbe = Effect.gen(function* () {
       'REGISTRATION-LAYER',
       'renderModule(quality, pointerLock) takes a port. Where does it end up?',
     ),
-    `   ${cell('stages registered via RenderRegistrationLayer', 48)}${String(stages.length)}`,
+    `   ${cell('stages registered via module.layers', 48)}${String(viaModuleLayer.stageCount)}`,
     `   ${cell('ids', 48)}${Object.values(RENDER_STAGE_IDS).join(', ')}`,
     '',
-    `   ${cell('requestPointerLock on RenderRegistrationLayer', 48)}${viaRegistrationLayer}`,
-    `   ${cell('requestPointerLock on renderModule(...).layers', 48)}${viaModuleLayer}`,
+    `   ${cell('requestPointerLock on renderModule(...).layers', 48)}${viaModuleLayer.lock}`,
     `   ${cell('times the injected port was actually asked', 48)}${String(asks)}`,
     '',
     `   ${cell('one Layer value, provided twice: first sees', 48)}${String(first)}`,
     `   ${cell('...and the second sees', 48)}${String(second)}`,
     '',
-    '   FINDING RND-6. stages/registration.ts:410 is',
+    '   There used to be a `RenderRegistrationLayer` here:',
     '',
     '       /** The Layer a host needs in order to run `renderModule`\'s registration. */',
     '       export const RenderRegistrationLayer: Layer.Layer<InputService> = InputServiceLayer()',
     '',
-    '   `InputServiceLayer()` takes no arguments here, so it builds a service with',
-    '   `defaultBindings()` and `UNAVAILABLE_POINTER_LOCK` — while `renderModule(q, port)` builds',
-    '   `InputServiceLayer(defaultBindings(), port)` at registration.ts:381. A host that follows',
-    '   the doc therefore registers its five stages against a DIFFERENT InputService from the one',
-    '   its Layer provides: the stage closes over the instance it saw at',
-    '   registration.ts:384 `renderStages(state, input)`, so the DOM events the adapter dispatches',
-    '   into the real service are invisible to render:input, the player\'s persisted bindings are',
-    '   ignored, and requestPointerLock answers `refused` without ever reaching the host\'s port —',
-    `   the spy above was asked ${String(asks)} time(s), not twice.`,
+    '   `InputServiceLayer()` took no arguments, so it built a service with `defaultBindings()`',
+    '   and `UNAVAILABLE_POINTER_LOCK` — while `renderModule(q, port)` builds',
+    '   `InputServiceLayer(defaultBindings(), port)`. A host that followed the doc registered its',
+    '   five stages against a DIFFERENT InputService from the one its Layer provides: the stage',
+    '   closes over the instance it saw in `renderStages(state, input)`, so the DOM events the',
+    '   adapter dispatched into the real service were invisible to render:input, the player\'s',
+    '   persisted bindings were ignored, and requestPointerLock answered `refused` without ever',
+    '   reaching the host\'s port.',
     '',
-    '   The last two rows are the general form of the same trap: `Layer.effect` builds a fresh',
-    '   service per `Effect.provide`, so even the CORRECT layer used twice — once for the',
-    '   registration, once for the frame loop — is two machines. `renderModule` is a GameModule',
-    '   precisely so a host provides `module.layers` once and takes `frameStages` from inside it;',
-    '   RenderRegistrationLayer exists to let a host do the other thing.',
+    '   It was DELETED rather than repaired, and the last two rows are why: taking the arguments',
+    '   would not have been enough. `Layer.effect` builds a fresh service per `Effect.provide`, so',
+    '   even the correct Layer used twice — once for the registration, once for the frame loop —',
+    '   is two machines. Any standalone Layer constant or Layer-returning function invites exactly',
+    '   that, because having one in hand is an invitation to provide it separately. A GameModule',
+    '   is the shape that makes the mistake unwritable: provide `module.layers` ONCE and take',
+    `   \`frameStages\` from inside that same provide, which is what the ${String(asks)} above says happened.`,
     '',
-    '   test/stage-registration.test.ts:411 uses the single-provide form and is right to. Nothing',
-    '   references RenderRegistrationLayer outside api-lock.md:569 — it is exported, locked, and',
-    '   unused, which is why nothing has noticed.',
+    '   test/stage-registration.test.ts uses the single-provide form and is right to. Nothing',
+    '   referenced RenderRegistrationLayer outside api-lock.md — it was exported, locked, and',
+    '   unused, which is why nothing had noticed.',
   ]
 })
 
@@ -442,29 +486,39 @@ const scratchProbe = (): ReadonlyArray<string> => {
     '',
     `   usageCount() after the borrows above: ${String(usage)}`,
     '',
-    '   FINDING RND-7. domain/frame-scratch.ts:52-59 says the cross-frame invariant "is enforced',
-    '   rather than documented". One shape of escape is enforced: the identity check at',
-    '   frame-scratch.ts:183 compares the RESULT against the buffer. A wrapper object, a closure',
-    '   over `buffer`, and `scratch.buffer` read directly all hand out the same live Map and the',
-    '   same lifetime bug, undetected — and `buffer` is a public field on `ScratchMap`, documented',
-    '   as "Valid ONLY inside a withScratch callback" with nothing making that true. The repo\'s',
-    '   own tests read it outside a borrow (test/frame-scratch.test.ts:70, :201-203).',
+    '   KNOWN GAP RND-7, pinned rather than fixed. domain/frame-scratch.ts says the cross-frame',
+    '   invariant "is enforced rather than documented". One shape of escape is enforced: the',
+    '   identity check compares the RESULT against the buffer. A wrapper object, a closure over',
+    '   `buffer`, and `scratch.buffer` read directly all hand out the same live Map and the same',
+    '   lifetime bug, undetected — and `buffer` is a public field on `ScratchMap`, documented as',
+    '   "Valid ONLY inside a withScratch callback" with nothing making that true.',
     '',
     '   The deferred-callback row is the sharpest one, because it is the shape Effect code',
     '   naturally reaches for. `withScratch` releases the lease in a `finally`, so',
     '   `withScratch(s, b => Effect.sync(() => b.size))` returns an unevaluated Effect with the',
     '   lease already gone; by the time it runs, the next borrow has cleared the buffer. The',
-    '   shipped call site (registration.ts:305) is synchronous and therefore safe, which is why',
+    '   shipped call site (render:chunk-sync) is synchronous and therefore safe, which is why',
     '   nothing has hit it.',
     '',
-    '   A foreign ScratchMap dies with `TypeError: Cannot read properties of undefined` rather',
-    '   than ScratchMisuseError, because frame-scratch.ts:168 casts to a private shape the public',
-    '   type does not carry. frame-scratch.ts:99-103 states that structural satisfiability is',
-    '   deliberate; the cast is what makes it a crash instead of a diagnostic.',
+    '   NOT FIXED. Detecting these means not handing out the live Map at all — a lease-checked',
+    '   facade, or making `buffer` private. Both change the public type, and the facade puts a',
+    '   branch and a wrapper object on the hot path this module exists to keep allocation-free,',
+    '   which is the deviation plan.md §5.2 sanctions BY NAME. That is not a local decision.',
     '',
-    '   usageCount is documented at frame-scratch.ts:78 as "Frames this buffer has served". It',
-    '   increments in `enter()`, i.e. once per BORROW — and a borrow that dies on the escape check',
-    '   has already counted.',
+    '   The foreign-ScratchMap row is the one piece that is cheap in isolation — withScratch casts',
+    '   to a private shape the public type does not carry, so a hand-built ScratchMap dies with a',
+    '   TypeError rather than a diagnostic. It is left with the rest deliberately: makeScratchMap',
+    '   is the only constructor and it is exported, so reaching that row means hand-writing an',
+    '   object literal against a type documented as "only withScratch may drive it". Paying a new',
+    '   public ScratchViolation rule for a case nothing in the org can reach, while the escapes',
+    '   above stay open, buys a louder error on the least likely path. Both, or neither.',
+    '',
+    '   usageCount is documented as "Frames this buffer has served". It increments in `enter()`,',
+    '   i.e. once per BORROW — and a borrow that dies on the escape check has already counted.',
+    '',
+    '   Every row above is pinned by test/frame-scratch.test.ts, under',
+    '   `KNOWN GAP: withScratch catches only the identity escape`. When the module is fixed, those',
+    '   are the tests that fail.',
   ]
 }
 
@@ -475,12 +529,14 @@ const scratchProbe = (): ReadonlyArray<string> => {
 const postFxProbe = (): ReadonlyArray<string> => {
   const rows = (['low', 'medium', 'high', 'ultra'] as const).map((preset) => {
     const chain = buildPostProcessingChain(QUALITY_PRESETS[preset])
-    return `   ${cell(preset, 10)}${cell(String(chain.length), 8)}${chain.join(' -> ')}`
+    return `   ${cell(preset, 10)}${cell(String(chain.length), 8)}${chain
+      .map((entry) => (entry.pass === 'composite' ? `composite{${entry.effects.join('+')}}` : entry.pass))
+      .join(' -> ')}`
   })
 
   const distinct = new Set(
     (['low', 'medium', 'high', 'ultra'] as const).map((preset) =>
-      buildPostProcessingChain(QUALITY_PRESETS[preset]).join(','),
+      JSON.stringify(buildPostProcessingChain(QUALITY_PRESETS[preset])),
     ),
   )
 
@@ -491,28 +547,30 @@ const postFxProbe = (): ReadonlyArray<string> => {
     '',
     `   four presets, ${String(distinct.size)} distinct chains.`,
     '',
-    '   FINDING RND-8. `high` and `ultra` produce the SAME array. The difference between them is',
-    '   which effects the composite shader composites — the reference is explicit about it,',
-    '   quoted at post-processing.ts:143-145: "high -> CompositePass enabled with { bloom };',
-    '   ultra -> CompositePass enabled with { bloom, godRays, bokeh }" — and',
-    '   `buildPostProcessingChain` returns `ReadonlyArray<PostProcessingPass>`, which carries the',
-    '   ORDER and nothing else. `composite` is one opaque token in both.',
+    '   `high` and `ultra` share a PASS ORDER and are no longer the same chain. The difference',
+    '   between them is which effects the composite shader composites — the reference is explicit',
+    '   about it: "high -> CompositePass enabled with { bloom }; ultra -> CompositePass enabled',
+    '   with { bloom, godRays, bokeh }" — and `buildPostProcessingChain` used to return',
+    '   `ReadonlyArray<PostProcessingPass>`, which carries the ORDER and nothing else. `composite`',
+    '   was one opaque token in both, so the two presets produced equal values.',
     '',
-    '   That matters because of the claim the module makes about itself at post-processing.ts:59-61:',
+    '   That mattered because of the claim the module makes about itself:',
     '',
     '       The THREE.js adapter\'s only job is then to walk `buildPostProcessingChain`\'s output',
     '       and call `composer.addPass` in that order.',
     '',
-    '   An adapter that does exactly that builds an identical composer for high and ultra, and the',
-    '   ultra player gets no god rays and no depth of field while the preset table promises both.',
-    '   The adapter would have to reach past this function and read `GraphicsQuality` itself, which',
-    '   is the second source of truth modelling the chain as data was meant to remove.',
+    '   An adapter that did exactly that built an identical composer for high and ultra, and the',
+    '   ultra player got no god rays and no depth of field while the preset table promised both.',
+    '   The alternative — the adapter reaching past this function and reading `GraphicsQuality`',
+    '   itself — is the second source of truth modelling the chain as data was meant to remove.',
     '',
-    '   Note what is NOT wrong here: the ORDER is right, `isCompositeActive` is right, and the',
-    '   subsumption is right. The gap is that the return type cannot say which inputs the composite',
-    '   pass has. A `{ pass, inputs }` element for `composite`, or returning the resolved',
-    '   `GraphicsQuality` alongside the chain, would close it. `test/post-processing.test.ts`',
-    '   asserts the chain per preset and so agrees with the code that high and ultra coincide.',
+    '   Note what was NOT wrong: the ORDER, `isCompositeActive`, and the subsumption were all',
+    '   right. The gap was that the return type could not say which inputs the composite pass has.',
+    '   A chain is now a list of `PostProcessingStep` — `{ pass, effects }` — where `effects` is',
+    '   `[pass]` for an ordinary pass and the subsumed list for `composite`, so the inputs are in',
+    '   the value an adapter already holds at the moment it builds the pass. `chainPasses` is the',
+    '   projection the order checker takes. Pinned by test/post-processing.test.ts `REGRESSION:',
+    '   `high` and `ultra` are DIFFERENT chains, and the composite step is why`.',
     '',
     '   plan.md §3.9 lists seven passes and omits `composite`; domain/post-processing.ts:19-31',
     '   records it as a real eighth stage and cites the reference\'s addPass order. The table above',
@@ -531,8 +589,8 @@ const postFxProbe = (): ReadonlyArray<string> => {
 const HEADER: ReadonlyArray<string> = [
   'mc-render --stats — the input machine and the policy tables, in numbers',
   '',
-  'Nothing here asserts. Every line is a quantity, and every FINDING names what should become a',
-  'test in test/ — that is where a claim can fail CI. Run with --ascii for a pasteable copy.',
+  'Nothing here asserts. Every line is a quantity, and every note names the test in test/ that',
+  'holds the claim to it — that is where it can fail CI. Run with --ascii for a pasteable copy.',
 ]
 
 const FOOTER: ReadonlyArray<string> = [

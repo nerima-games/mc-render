@@ -52,7 +52,7 @@
  * local port would be a second answer to "who owns the camera pose", which is
  * the inversion plan.md §3.8 records as the reference's worst structural bug.
  */
-import { Effect, Layer, Ref } from 'effect'
+import { Effect, Ref } from 'effect'
 import {
   InputService,
   InputServiceLayer,
@@ -82,7 +82,7 @@ import {
   buildPostProcessingChain,
   QUALITY_PRESETS,
   type GraphicsQuality,
-  type PostProcessingPass,
+  type PostProcessingStep,
 } from '../domain/post-processing'
 import { RENDER_STAGE_IDS, UPSTREAM_STAGE_IDS } from './stage-ids'
 
@@ -145,8 +145,15 @@ export type RenderFrameState = {
    */
   readonly visibleChunkCount: Ref.Ref<number>
   readonly quality: Ref.Ref<GraphicsQuality>
-  /** The post-FX chain built for `quality`. Rebuilt only when quality changes. */
-  readonly postFxChain: Ref.Ref<ReadonlyArray<PostProcessingPass>>
+  /**
+   * The post-FX chain built for `quality`. Rebuilt only when quality changes.
+   *
+   * Steps, not bare passes: `high` and `ultra` produce the same PASS order and
+   * differ only in what the `composite` step composites, so a chain that
+   * carried the order alone could not tell the two apart. See
+   * `domain/post-processing.ts`.
+   */
+  readonly postFxChain: Ref.Ref<ReadonlyArray<PostProcessingStep>>
   /** The quality object `postFxChain` was built from. Compared by reference. */
   readonly postFxBuiltFrom: Ref.Ref<GraphicsQuality>
   /** Frames drawn. Diagnostics only. */
@@ -255,7 +262,17 @@ export const renderStages = (
           yield* input.requestPointerLock
         }
 
-        yield* input.endFrame
+        // `sampled`, not a fresh read: `endFrame` consumes the whole wheel
+        // notches THIS FRAME WAS TOLD ABOUT, and `sampled` is that reading. A
+        // wheel event that lands between the two lines above and this one — and
+        // a DOM listener runs exactly there — must not be consumed by a frame
+        // that never saw it. See `endFrame` in `application/input-service.ts`.
+        //
+        // Handing back the same value the stage published to `state.input` is
+        // also what makes "sampling and clearing are ONE stage" mean something
+        // stronger than adjacency: the two halves now agree on a VALUE, not
+        // merely on an ordering.
+        yield* input.endFrame(sampled)
       }),
   },
   {
@@ -406,5 +423,32 @@ export const makeRenderStagesForPreview = (
     return { state, stages: renderStages(state, input) }
   })
 
-/** The Layer a host needs in order to run `renderModule`'s registration. */
-export const RenderRegistrationLayer: Layer.Layer<InputService> = InputServiceLayer()
+/**
+ * There is deliberately NO `RenderRegistrationLayer`.
+ *
+ * There used to be one, and it was a trap in two independent ways:
+ *
+ *   export const RenderRegistrationLayer: Layer.Layer<InputService> = InputServiceLayer()
+ *
+ * FIRST, it took no arguments, so it built a service with `defaultBindings()`
+ * and `UNAVAILABLE_POINTER_LOCK` while `renderModule(quality, pointerLock)`
+ * builds `InputServiceLayer(defaultBindings(), pointerLock)`. A host following
+ * the doc registered its five stages against a DIFFERENT `InputService` from
+ * the one its Layer provides — the stage closes over the instance it saw in
+ * `renderStages(state, input)` — so the DOM events the adapter dispatched into
+ * the real service were invisible to `render:input`, the player's persisted
+ * bindings were ignored, and `requestPointerLock` answered `refused` without
+ * ever reaching the host's port.
+ *
+ * SECOND, and this is why it could not be repaired by taking the arguments:
+ * `InputServiceLayer` is `Layer.effect`, so it builds a FRESH service per
+ * `Effect.provide`. Even the correct Layer, provided twice — once for the
+ * registration and once for the frame loop — is two machines. Any standalone
+ * Layer constant or Layer-returning function invites exactly that, because
+ * having it in hand is an invitation to provide it separately.
+ *
+ * A `GameModule` is the shape that makes the mistake unwritable: a host
+ * provides `module.layers` ONCE, and takes `frameStages` from inside that same
+ * provide. `makeRenderStagesForPreview` above is the same discipline for a
+ * preview or a test — it runs IN the context, and cannot bring its own.
+ */

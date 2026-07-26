@@ -44,9 +44,19 @@ type GraphicsQuality = {
 const QUALITY_PRESETS: Record<'low' | 'medium' | 'high' | 'ultra', GraphicsQuality>
 
 const isCompositeActive: (quality: GraphicsQuality) => boolean
-const buildPostProcessingChain: (quality: GraphicsQuality) => ReadonlyArray<PostProcessingPass>
-const validatePostProcessingChain: (chain) => ReadonlyArray<ChainViolation>
-const isCanonicalChain: (chain) => boolean
+
+// チェーンの要素は「パス」と「そのパスが実行するエフェクト」。
+// 通常のパスでは effects === [pass]。`composite` では包摂したパスの一覧で、
+// それが `high` と `ultra` を区別する唯一の値である（パス順は同じ）。
+type PostProcessingStep = {
+  readonly pass: PostProcessingPass
+  readonly effects: ReadonlyArray<PostProcessingPass>
+}
+const buildPostProcessingChain: (quality: GraphicsQuality) => ReadonlyArray<PostProcessingStep>
+const chainPasses: (chain: ReadonlyArray<PostProcessingStep>) => ReadonlyArray<PostProcessingPass>
+const chainEffects: (chain: ReadonlyArray<PostProcessingStep>) => ReadonlyArray<PostProcessingPass>
+const validatePostProcessingChain: (chain: ReadonlyArray<PostProcessingPass>) => ReadonlyArray<ChainViolation>
+const isCanonicalChain: (chain: ReadonlyArray<PostProcessingPass>) => boolean
 ```
 
 ### 1.2 参照実装との照合
@@ -77,7 +87,13 @@ const isCanonicalChain: (chain) => boolean
 
 - `buildPostProcessingChain` の出力を**その順で**歩いて `composer.addPass` する
 - 各パスの構築は「チェーンに含まれるときだけ」行う
-- 起動時に `validatePostProcessingChain` を通し、違反があれば開発ビルドで大声で落ちる
+- **`composite` を組み立てるときは、そのステップの `effects` を入力として使う。**
+  `GraphicsQuality` を読み直してはならない —— チェーンをデータにした意味が消える。
+  `effects` が無かった頃、`high` と `ultra` は同一の配列で、ドキュメント通りに
+  歩いたアダプタは両方に同じコンポーザを作り、ultra のプレイヤーには
+  god ray も被写界深度も出なかった
+- 起動時に `validatePostProcessingChain(chainPasses(chain))` を通し、違反があれば
+  開発ビルドで大声で落ちる
 
 ## 2. InputService
 
@@ -157,7 +173,10 @@ type InputServiceApi = {
   readonly shouldSuppressWheelScroll: Effect.Effect<boolean>
   readonly pointerLockState: Effect.Effect<PointerLockState>
   readonly requestPointerLock: Effect.Effect<PointerLockState>
-  readonly endFrame: Effect.Effect<void>
+  // フレームが読んだスナップショットを**返してもらう**。整数ノッチは
+  // 「そのフレームに伝えた分」だけを消費する。省略＝「このフレームはホイールを
+  // 読んでいない」＝ 0 消費（移動量は次のフレームへ繰り越す）。§2.7
+  readonly endFrame: (frame?: InputSnapshot | undefined) => Effect.Effect<void>
   readonly clearHeld: Effect.Effect<void>
   readonly bindings: Effect.Effect<Bindings>
   readonly rebind: (action, key: InputCode) => Effect.Effect<RemapOutcome>

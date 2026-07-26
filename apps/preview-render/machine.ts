@@ -149,6 +149,8 @@ type Book = {
   poseNeverPublished: boolean
   lastFrameSnapshot: InputSnapshot | undefined
   lastFrameSnapshotAtStep: number | undefined
+  /** The reading the current frame took, handed back to `endFrame`. Cleared by it. */
+  frameReading: InputSnapshot | undefined
   notchesReported: number
   notchesConsumed: number
   log: Array<LogLine>
@@ -232,6 +234,7 @@ export const makeMachine = async (config: MachineConfig): Promise<Machine> => {
     poseNeverPublished: true,
     lastFrameSnapshot: undefined,
     lastFrameSnapshotAtStep: undefined,
+    frameReading: undefined,
     notchesReported: 0,
     notchesConsumed: 0,
     log: [],
@@ -261,6 +264,10 @@ export const makeMachine = async (config: MachineConfig): Promise<Machine> => {
             Effect.sync(() => {
               book.lastFrameSnapshot = snapshot
               book.lastFrameSnapshotAtStep = book.step
+              // The reading this "frame" acted on, kept so the `endFrame` step
+              // can hand it BACK — which is the whole contract. Reading it here
+              // for the log costs nothing, because `snapshot` is a pure read.
+              book.frameReading = snapshot
               book.notchesReported += snapshot.wheelSteps
               push(
                 book,
@@ -274,12 +281,20 @@ export const makeMachine = async (config: MachineConfig): Promise<Machine> => {
 
       case 'endFrame':
         // Read the accumulator on BOTH sides of endFrame, so the difference is a
-        // number the app can print rather than a claim it makes. This is the
-        // whole `lost-notch` finding: the trunc endFrame subtracts is re-read at
-        // endFrame time and need not equal the one the snapshot reported.
+        // number the app can print rather than a claim it makes. That is only
+        // measurable at all because `snapshot` is a PURE read: if the service
+        // remembered what it last reported, these two instrumentation reads
+        // would themselves decide how much the endFrame between them consumed,
+        // and this app would reproduce the `lost-notch` finding through its own
+        // overlay. See `endFrame` in application/input-service.ts.
+        //
+        // The frame's own reading — the one a `readSnapshot` step took — is what
+        // gets handed back, and it is CLEARED afterwards: a frame that never
+        // read the wheel must consume nothing.
         return Effect.gen(function* () {
           const before = (yield* service.snapshot).wheelNotches
-          yield* service.endFrame
+          yield* service.endFrame(book.frameReading)
+          book.frameReading = undefined
           const after = (yield* service.snapshot).wheelNotches
           const consumed = Math.round(before - after)
           book.notchesConsumed += consumed

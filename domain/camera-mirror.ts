@@ -157,7 +157,20 @@ export const forwardVector = (snapshot: CameraPoseSnapshot): Position => {
 export const mirrorLagSecs = (state: MirroredCameraState, now: MonotonicTimeSecs): number =>
   now - state.sourceCapturedAtSecs
 
-/** Milliseconds of lag past which a mirrored pose is worth complaining about. */
+/**
+ * SECONDS of lag past which a mirrored pose is worth complaining about.
+ *
+ * Seconds, as the name says and as `isMirrorStale` requires: `mirrorLagSecs`
+ * returns `now - sourceCapturedAtSecs`, and both are `MonotonicTimeSecs`. This
+ * comment used to read "Milliseconds", which would make the threshold a tenth
+ * of a millisecond and every mirror ever built stale. The code was right and
+ * the sentence was wrong — the worse way round for a number somebody will
+ * eventually tune, because tuning starts from the prose.
+ *
+ * 0.1 s is six frames at 60 Hz: long enough that an ordinary frame's mirror lag
+ * never trips it, short enough that a stalled simulation is visible before a
+ * player would describe it as "the camera is stuck".
+ */
 export const MIRROR_LAG_WARNING_SECS = 0.1
 
 export const isMirrorStale = (state: MirroredCameraState, now: MonotonicTimeSecs): boolean =>

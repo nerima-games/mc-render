@@ -24,6 +24,8 @@ import {
 } from '../../domain/material-policy'
 import {
   buildPostProcessingChain,
+  chainEffects,
+  chainPasses,
   COMPOSITE_SUBSUMES,
   isCompositeActive,
   MANDATORY_PASSES,
@@ -280,7 +282,7 @@ export const postFxView = (style: Style, width: number): ReadonlyArray<string> =
   for (const preset of ['low', 'medium', 'high', 'ultra'] as ReadonlyArray<QualityPreset>) {
     const quality = QUALITY_PRESETS[preset]
     const chain = buildPostProcessingChain(quality)
-    const violations = validatePostProcessingChain(chain)
+    const violations = validatePostProcessingChain(chainPasses(chain))
     lines.push(
       row(
         style,
@@ -293,7 +295,14 @@ export const postFxView = (style: Style, width: number): ReadonlyArray<string> =
           `${style.dim(pad(yesNo(quality.smaaEnabled), 6))}` +
           `${style.dim(pad(yesNo(quality.useCompositePass), 6))}` +
           `${style.paint(pad(yesNo(isCompositeActive(quality)), 8), isCompositeActive(quality) ? NOTE : LABEL)}` +
-          `${style.paint(chain.join(' -> '), violations.length === 0 ? VALUE : BAD)}`,
+          `${style.paint(
+            chain
+              .map((entry) =>
+                entry.pass === 'composite' ? `composite{${entry.effects.join('+')}}` : entry.pass,
+              )
+              .join(' -> '),
+            violations.length === 0 ? VALUE : BAD,
+          )}`,
       ),
     )
   }
@@ -306,7 +315,9 @@ export const postFxView = (style: Style, width: number): ReadonlyArray<string> =
     row(
       style,
       'ultra',
-      style.dim(`3 passes merged into 1; the chain is ${String(ultraChain.length)} long instead of 7`),
+      style.dim(
+        `3 passes merged into 1; the chain is ${String(ultraChain.length)} long instead of 7, and the composite step says it performs ${chainEffects(ultraChain).filter((pass) => pass !== 'render' && pass !== 'gtao' && pass !== 'smaa' && pass !== 'output').join(' + ')}`,
+      ),
     ),
   )
   lines.push(
@@ -323,12 +334,13 @@ export const postFxView = (style: Style, width: number): ReadonlyArray<string> =
     row(
       style,
       'high vs ultra',
-      highChain.join(',') === ultraChain.join(',')
-        ? `${style.paint('IDENTICAL ARRAYS', BAD)}   ` +
+      chainPasses(highChain).join(',') === chainPasses(ultraChain).join(',')
+        ? `${style.paint('same PASS order, different chains', NOTE)}   ` +
           style.dim(
-            'the difference is WHICH effects composite composites — { bloom } against { bloom, godRays, bokeh } — and the return type carries only the order. An adapter that walks this output, as post-processing.ts:59-61 says it should, builds the same composer for both.',
+            `the difference is WHICH effects composite composites — {${chainEffects(highChain).filter((pass) => pass !== 'render' && pass !== 'gtao' && pass !== 'smaa' && pass !== 'output').join('+')}} against {${chainEffects(ultraChain).filter((pass) => pass !== 'render' && pass !== 'gtao' && pass !== 'smaa' && pass !== 'output').join('+')}} — and every step now carries what it performs, so an adapter that walks this output, as post-processing.ts says it should, cannot build the same composer for both`,
           )
-        : style.dim('different chains'),
+        : `${style.paint('IDENTICAL CHAINS', BAD)}   ` +
+          style.dim('the ultra player gets no god rays and no depth of field'),
     ),
   )
 
@@ -658,30 +670,36 @@ export const logView = (view: MachineView, style: Style, width: number): Readonl
 export const findingsView = (view: MachineView, style: Style, width: number): ReadonlyArray<string> => {
   const findings: ReadonlyArray<{ readonly id: string; readonly hit: boolean; readonly text: string }> = [
     {
-      id: 'RND-1',
-      hit: view.pointerLockState === 'requested',
-      text: '`requested` has no self-recovery: blur preserves it and requestPointerLock will not re-ask. The session cannot enter mouselook again',
+      id: 'lock',
+      hit: false,
+      text:
+        view.pointerLockState === 'requested'
+          ? 'a request is pending. blur now abandons it and a click can ask again, so `requested` is no longer an absorbing state'
+          : '`requested` is left by blur as well as by the browser\'s two answers, so an unanswered ask cannot strand the session',
     },
     {
-      id: 'RND-2',
+      id: 'wheel',
       hit: view.notchesConsumed !== view.notchesReported,
-      text: `endFrame consumed ${String(view.notchesConsumed)} whole notch(es) against ${String(view.notchesReported)} reported to frames — the difference is hotbar travel no consumer saw`,
+      text:
+        view.notchesConsumed === view.notchesReported
+          ? `the notch ledger balances: ${String(view.notchesConsumed)} consumed against ${String(view.notchesReported)} reported. endFrame consumes what the frame was TOLD, whenever the events fall`
+          : `endFrame consumed ${String(view.notchesConsumed)} whole notch(es) against ${String(view.notchesReported)} reported to frames — the difference is hotbar travel no consumer saw`,
     },
     {
-      id: 'RND-3',
+      id: 'mirror',
       hit: view.poseNeverPublished && view.clockSecs > MIRROR_LAG_WARNING_SECS,
-      text: 'the mirrored pose is still UNSET_CAMERA_POSE while the clock has moved; makeRenderFrameState seeds mirrorLagSecs to 0, which claimed it was fresh',
+      text: 'KNOWN GAP (RND-4, pinned not fixed): the mirrored pose is still UNSET_CAMERA_POSE while the clock has moved, and makeRenderFrameState seeds mirrorLagSecs to 0, which claims it is fresh',
     },
   ]
 
   return [
-    heading(style, 'findings (live predicates, not assertions)', width),
+    heading(style, 'invariants (live predicates, not assertions)', width),
     ...findings.map((finding) =>
       row(
         style,
         '',
-        `${style.paint(pad(finding.id, 7), finding.hit ? BAD : LABEL)}` +
-          `${style.paint(pad(finding.hit ? 'HIT' : '·', 5), finding.hit ? BAD : LABEL)}` +
+        `${style.paint(pad(finding.id, 8), finding.hit ? BAD : LABEL)}` +
+          `${style.paint(pad(finding.hit ? 'GAP' : 'ok', 6), finding.hit ? BAD : LABEL)}` +
           (finding.hit ? style.paint(finding.text, BAD) : style.dim(finding.text)),
       ),
     ),

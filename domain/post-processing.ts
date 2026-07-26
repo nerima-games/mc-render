@@ -59,6 +59,22 @@
  * The THREE.js adapter's only job is then to walk `buildPostProcessingChain`'s
  * output and call `composer.addPass` in that order. It cannot get the order
  * wrong without failing a test that needs no GPU to run.
+ *
+ * For that claim to be TRUE, the output has to carry everything the adapter
+ * needs — and for a while it did not. The chain was a bare
+ * `ReadonlyArray<PostProcessingPass>`, which carries the order and nothing
+ * else, so `high` and `ultra` produced the identical array: `composite` was one
+ * opaque token in both, and the only difference between the presets is WHICH
+ * effects that one shader composites (`{ bloom }` against
+ * `{ bloom, godRays, bokeh }`; see `QUALITY_PRESETS` below). An adapter doing
+ * exactly what the paragraph above says built the same composer for both, and
+ * the `ultra` player got no god rays and no depth of field while the preset
+ * table promised both. The alternative — the adapter reaching past this
+ * function and reading `GraphicsQuality` itself — is the second source of truth
+ * that modelling the chain as data exists to remove.
+ *
+ * So a chain is a list of `PostProcessingStep`, and every step says what it
+ * DOES as well as where it goes.
  */
 
 /**
@@ -225,45 +241,88 @@ export const isCompositeActive = (quality: GraphicsQuality): boolean =>
   (quality.bloomEnabled || quality.godRaysEnabled || quality.dofEnabled)
 
 /**
+ * One entry in a built chain: a pass, and the effects that pass performs.
+ *
+ * `effects` is `[pass]` for every ordinary pass — a bloom pass blooms, and
+ * saying so uniformly means an adapter never has to special-case reading it.
+ * For `composite` it is the subsumed passes the single shader does, in
+ * canonical order, and that list is the ONLY difference between the `high`
+ * chain and the `ultra` chain. Putting it ON the element rather than beside the
+ * array is deliberate: an adapter builds its pass from a step, so the inputs
+ * are in the value it already holds at the moment it needs them, instead of in
+ * a second lookup it can forget to do.
+ */
+export type PostProcessingStep = {
+  readonly pass: PostProcessingPass
+  readonly effects: ReadonlyArray<PostProcessingPass>
+}
+
+/** The passes of a chain, in order. The ORDERING vocabulary, without the payload. */
+export const chainPasses = (
+  chain: ReadonlyArray<PostProcessingStep>,
+): ReadonlyArray<PostProcessingPass> => chain.map((step) => step.pass)
+
+/** An ordinary pass: it performs itself, and nothing else. */
+const step = (pass: PostProcessingPass): PostProcessingStep => ({ pass, effects: [pass] })
+
+/**
  * Build the pass chain for a quality setting.
  *
  * Returns passes in canonical order by construction — the function emits them
  * in declaration order rather than sorting afterwards, so the order cannot be
- * lost to an unstable sort or a comparator bug. `assertCanonicalOrder` then
- * checks the result independently, which is the belt to this brace.
+ * lost to an unstable sort or a comparator bug. `validatePostProcessingChain`
+ * then checks the result independently, which is the belt to this brace.
  */
 export const buildPostProcessingChain = (
   quality: GraphicsQuality,
-): ReadonlyArray<PostProcessingPass> => {
+): ReadonlyArray<PostProcessingStep> => {
   const composite = isCompositeActive(quality)
-  const chain: Array<PostProcessingPass> = ['render']
+  const chain: Array<PostProcessingStep> = [step('render')]
 
   if (quality.ssaoEnabled) {
-    chain.push('gtao')
+    chain.push(step('gtao'))
   }
   // The three subsumed passes are emitted ONLY when the composite shader is
   // not doing their work. The reference builds them and disables them; not
   // building them also saves their render targets (:53-56 documents GTAO
   // costing 30-60 MB of VRAM even while disabled, which is the same lesson).
   if (quality.godRaysEnabled && !composite) {
-    chain.push('godRays')
+    chain.push(step('godRays'))
   }
   if (quality.bloomEnabled && !composite) {
-    chain.push('bloom')
+    chain.push(step('bloom'))
   }
   if (quality.dofEnabled && !composite) {
-    chain.push('bokeh')
+    chain.push(step('bokeh'))
   }
   if (composite) {
-    chain.push('composite')
+    // Emitted in canonical order, from the SAME flags the individual passes
+    // were tested against just above, so "composite does what those passes
+    // would have done" is true by construction rather than by transcription.
+    // `isCompositeActive` guarantees this list is non-empty.
+    chain.push({
+      pass: 'composite',
+      effects: POST_PROCESSING_PASS_ORDER.filter(
+        (pass) =>
+          COMPOSITE_SUBSUMES.has(pass) &&
+          ((pass === 'godRays' && quality.godRaysEnabled) ||
+            (pass === 'bloom' && quality.bloomEnabled) ||
+            (pass === 'bokeh' && quality.dofEnabled)),
+      ),
+    })
   }
   if (quality.smaaEnabled) {
-    chain.push('smaa')
+    chain.push(step('smaa'))
   }
-  chain.push('output')
+  chain.push(step('output'))
 
   return chain
 }
+
+/** Everything the chain will actually draw, in canonical order. */
+export const chainEffects = (
+  chain: ReadonlyArray<PostProcessingStep>,
+): ReadonlyArray<PostProcessingPass> => chain.flatMap((entry) => entry.effects)
 
 export type ChainViolation = {
   readonly rule: 'out-of-order' | 'missing-mandatory' | 'duplicate' | 'composite-conflict' | 'trailing-pass'
@@ -273,10 +332,15 @@ export type ChainViolation = {
 /**
  * Check a chain against every ordering rule, independently of how it was built.
  *
- * This is the function a THREE.js adapter should call on its own pass list
- * before handing it to `EffectComposer`, and the function
- * `test/post-processing.test.ts` uses to pin the rules. It returns violations
- * rather than throwing so that a caller can log all of them at once.
+ * Takes PASSES, not steps: every rule below is about position, and position is
+ * the only thing a pass name carries. An adapter validating a built chain calls
+ * `validatePostProcessingChain(chainPasses(chain))`; one validating its own
+ * hand-rolled `EffectComposer` pass list passes that list straight in, which is
+ * the case this signature exists for. `test/post-processing.test.ts` uses it
+ * both ways.
+ *
+ * It returns violations rather than throwing so that a caller can log all of
+ * them at once.
  */
 export const validatePostProcessingChain = (
   chain: ReadonlyArray<PostProcessingPass>,

@@ -66,69 +66,131 @@ plan.md §3.10 は **Playwright が SwiftShader 上で動き、ポインタロ�
 
 ## 見つけたもの
 
-`--stats` が全部を数値で出す。各項目に file:line と再現コマンドが付いている。
+`--stats` が全部を数値で出す。**8 件のうち 6 件は修正済み、2 件は「直さない」と決めて
+テストで固定した。** `--stats` の数字は、見つけるための数字から、戻っていないことを確かめる
+数字になった —— そして `--stats` の行はピンではないので、保留分にも `test/` のテストがある。
 
-| # | 内容 | 場所 |
+| # | 内容 | 状態 |
 | --- | --- | --- |
-| RND-1 | **`requested` は吸収状態。** `blur` が保存し、`requestPointerLock` は再送しない。セッション中もう二度とマウスルックに入れない | `application/input-service.ts:581-585`, `:634-642` |
-| RND-2 | **`endFrame` が、どのフレームにも報告していないホイール段を消費する。** `Math.trunc` を 2 回別々の瞬間に取っている | `application/input-service.ts:600`, `:672` |
-| RND-3 | **`blur` が `pointerLocked` を残す。** タブに戻るためのクリックが `attack` になる | `application/input-service.ts:581-585` |
-| RND-4 | ミラーの初期状態が自己矛盾。`UNSET_CAMERA_POSE`（`capturedAtSecs` 0）に対し `mirrorLagSecs` はリテラル `0`（＝新鮮） | `stages/registration.ts:170-173` |
-| RND-5 | `MIRROR_LAG_WARNING_SECS` の doc が「Milliseconds」と書いている。名前は `_SECS`、値は `0.1`、比較対象は秒 | `domain/camera-mirror.ts:160` |
-| RND-6 | **`RenderRegistrationLayer` が `renderModule` の引数を捨てる。** ステージが別インスタンスに結び付く | `stages/registration.ts:410` |
-| RND-7 | `withScratch` が捕まえるのは同一性エスケープだけ。包んで返す / クロージャ / 遅延コールバック / 直接読みはすべて素通り | `domain/frame-scratch.ts:167-196` |
-| RND-8 | **`buildPostProcessingChain` は `high` と `ultra` に同一の配列を返す。** composite の入力が型に無い | `domain/post-processing.ts:235-266` |
+| RND-1 | **`requested` は吸収状態だった。** `blur` が保存し、`requestPointerLock` は再送しない。セッション中もう二度とマウスルックに入れない | **修正** |
+| RND-2 | **`endFrame` が、どのフレームにも報告していないホイール段を消費していた。** `Math.trunc` を 2 回別々の瞬間に取っていた | **修正** |
+| RND-3 | **`blur` が `pointerLocked` を残していた。** タブに戻るためのクリックが `attack` になる | **修正** |
+| RND-4 | ミラーの初期状態が自己矛盾。`UNSET_CAMERA_POSE`（`capturedAtSecs` 0）に対し `mirrorLagSecs` はリテラル `0`（＝新鮮） | **保留（ピン）** |
+| RND-5 | `MIRROR_LAG_WARNING_SECS` の doc が「Milliseconds」と書いていた。名前は `_SECS`、値は `0.1`、比較対象は秒 | **修正** |
+| RND-6 | **`RenderRegistrationLayer` が `renderModule` の引数を捨てていた。** ステージが別インスタンスに結び付く | **修正（削除）** |
+| RND-7 | `withScratch` が捕まえるのは同一性エスケープだけ。包んで返す / クロージャ / 遅延コールバック / 直接読みはすべて素通り | **保留（ピン）** |
+| RND-8 | **`buildPostProcessingChain` が `high` と `ultra` に同一の配列を返していた。** composite の入力が型に無い | **修正** |
 
-### RND-1 —— 一番重いもの
+各行がどのテストに固定されたかは [`docs/testing.md`](../../docs/testing.md) §2.2 にある。
 
-このリポジトリは**このハザードを名前で知っている**。`PointerLockRequestOutcome` の doc
-（input-service.ts:236-240）は `unavailable` という値が存在する理由を
+### RND-1 —— 一番重かったもの
+
+このリポジトリは**このハザードを名前で知っていた**。`PointerLockRequestOutcome` の doc は
+`unavailable` という値が存在する理由を
 「答えの返りようがない要求は、状態機械をセッション中ずっと `requested` に置き去りにするから」
-と書いており、`test/input.test.ts:1094-1099` はそのパスを
-「Leaving the machine in `requested` would strand it for the session.」というコメント付きで固定している。
+と書いており、`test/input.test.ts` はそのパスを
+「Leaving the machine in `requested` would strand it for the session.」というコメント付きで固定していた。
 
-**`sent` のパスには同じ穴が空いていて、何も守っていない。**
+**`sent` のパスには同じ穴が空いていて、何も守っていなかった。**
 
 ```console
-$ pnpm preview --stats | sed -n '/LOCK-MACHINE/,/FINDING/p'
+$ pnpm preview --stats | sed -n '/LOCK-MACHINE/,/^$/p'
 
    after requesting, then...         state         re-ask gives
    (nothing)                         requested     requested
-   blur                              requested     requested
+   blur                              unlocked      requested      <- 以前は requested / requested
    pointerlockchange locked=true     locked        locked
    pointerlockchange locked=false    unlocked      requested
    pointerlockerror                  refused       requested
    keydown / mousedown / wheel       requested     requested
 ```
 
-`requested` から出られるのはブラウザ発の 2 イベントだけである。
+`requested` から出られるのはブラウザ発の 2 イベントだけだった。
 要求と応答のあいだにウィンドウが blur するのは日常であり、
 本来それを直すユーザジェスチャ（クリック）は、まさに
-`acquiresPointerLock()` が `requested` では作用しないと決めているものである
-（input-bindings.ts:678-679）。プレイヤーは歩けるし打てる。二度と見回せない。
+`acquiresPointerLock()` が `requested` では作用しないと決めているものである。
+プレイヤーは歩けるし打てる。二度と見回せない。
+
+`blur` は `unlocked` に落ちる。`refused` ではない —— ブラウザは何も拒否していない、
+要求が放棄されただけである。`refused` は UI が「もう一度クリックして見回してください」と
+描くための状態で、`pointerlockerror` と「そもそもポインタロックの無いプラットフォーム」専用である。
+既にある `refused` は blur を生き延びる（「次に *要求* があるまで sticky」だから）。
 
 ### RND-2 —— 順序を入れ替えただけ
 
 ```console
-$ pnpm preview --stats | sed -n '/WHEEL-LEDGER/,/FINDING/p'
+$ pnpm preview --stats | sed -n '/WHEEL-LEDGER/,/^$/p'
 
    ordering                                        reported  consumed   carried
    both events, then snapshot, then endFrame              1         1     0.200
-   one event, snapshot, the OTHER event, endFrame         0         1     0.200
+   one event, snapshot, the OTHER event, endFrame         0         0     1.200
 ```
 
-`snapshot` は `Math.trunc(wheelNotches)` を返し（input-service.ts:600）、
-`endFrame` は `Math.trunc(wheelNotches)` を引く（input-service.ts:672）。
+2 行目は以前 `0 / 1 / 0.200` だった。`snapshot` は `Math.trunc(wheelNotches)` を返し、
+`endFrame` は `Math.trunc(wheelNotches)` を引いていた。
 **この 2 つの trunc は別の瞬間に取られる。** あいだに届いたホイールイベントが
 2 つ目を段の境界の向こうへ押すと、フレームが知らない段が 1 つ消費される。
+参照実装の consume-on-read `consumeMouseClick` と同じ種類のバグで、
+このファイル自身が明示的に拒否したもの
+（「クリックが生き残るかは誰が先に読んだかで決まる」）である。
 
-これは参照実装の consume-on-read `consumeMouseClick` と同じ種類のバグで、
-このファイル自身が明示的に拒否したもの（input-service.ts:288-292 —
-「クリックが生き残るかは誰が先に読んだかで決まる」）である。
+余りを繰り越す設計は正しく、トラックパッドを使い物にしている。
+足りなかったのは、**`endFrame` が「フレームに伝えた分」を消費すべきで、
+「実行時点の累算器が言う分」ではない**ということだった。
 
-余りを繰り越す設計（input-service.ts:664-672）は正しく、トラックパッドを使い物にしている。
-足りないのは、**`endFrame` が「フレームに伝えた分」を消費すべきで、
-「実行時点の累算器が言う分」ではない**ということである。
+修正は `endFrame(frame?)` —— フレームが読んだスナップショットを**返してもらう**。
+サービスに覚えさせなかったのは意図的である。`snapshot` が報告値を記録したら、
+デバッグオーバーレイや **このアプリ**（1 ステップごとにアナログパネルを描き直す）が
+次の `endFrame` の消費量を変えてしまい、計器が自分の観測対象を動かすことになる。
+`snapshot` は純粋な読み取りのまま、契約は型に置いた ——
+**読んでいないスナップショットでフレームを閉じることはできない。**
+引数を省くと「このフレームはホイールを読んでいない」＝ 0 消費で、
+誰も作用していない移動量は次のフレームに繰り越される。
+
+### RND-8
+
+`high` と `ultra` は**パス順が同じ**である。違いは composite シェーダが何を合成するかで、
+それが返り値の型に無かった。チェーンは `PostProcessingStep`（`{ pass, effects }`）のリストになり、
+`effects` は通常のパスでは `[pass]`、`composite` では包摂されたパスの一覧になる ——
+アダプタがパスを組み立てるその瞬間に手元にある値の中に入っている。
+順序チェッカが取る射影が `chainPasses`。
+
+```console
+   preset    passes  chain
+   low       2       render -> output
+   medium    2       render -> output
+   high      5       render -> gtao -> composite{bloom} -> smaa -> output
+   ultra     5       render -> gtao -> composite{godRays+bloom+bokeh} -> smaa -> output
+```
+
+### RND-6 —— 直さずに消した
+
+`RenderRegistrationLayer` は引数を取るようにしても直らない。`InputServiceLayer` は
+`Layer.effect` なので `Effect.provide` ごとに新しいサービスを組み立てる ——
+**正しい Layer を 2 回使っても 2 台の機械になる**（`--stats` の最後の 2 行がそれ）。
+単体の Layer 定数や Layer を返す関数は、手元にあること自体が「別々に provide する」誘いである。
+`GameModule` は、その間違いを書けなくする形だった: `module.layers` を **1 回**
+provide し、`frameStages` はその中から取る。
+
+### RND-4 / RND-7 —— ピンであって修正ではない
+
+- **RND-4**: ゲージに入れる正直な値が無い。`makeRenderFrameState` は時計を持たない
+  （ステージではなくコンストラクタで、plan.md §5.1-3 がグローバル時計の読み取りを禁じている）し、
+  `Infinity` を入れても矛盾が `mirroredCamera.sourceCapturedAtSecs` に移るだけである
+  —— 消費側が実際に読むのはそちらだ。両者を一致させるには `MirroredCameraState` 自身で
+  「未設定」と「陳腐化」を区別する必要があり、それは mc-sim を pin して
+  `authoritativePose` が `PlayerService.cameraPose` になるときの仕事である。
+  そのとき窓は構造的に閉じる。
+- **RND-7**: 検出するには生の `Map` を渡すのをやめるしかない（lease 付き facade、または
+  `buffer` の非公開化）。どちらも公開型を変え、facade はこのモジュールが
+  無アロケーションに保つためのホットパスに分岐とラッパーを載せる —— それは
+  plan.md §5.2 が**名指しで**認めている逸脱であり、局所的に決めてよい話ではない。
+  「他所で作った `ScratchMap` が `TypeError` で死ぬ」行だけは単体では安いが、
+  `makeScratchMap` が唯一のコンストラクタで export もされている以上、
+  そこに到達するには「`withScratch` だけが駆動する」と書かれた型に対して
+  手書きのオブジェクトリテラルを当てるしかない。到達不能な経路のために公開
+  `ScratchViolation` を 1 つ増やしても、隣のエスケープが開いたままなら
+  モジュールの中心的な主張は同じだけ嘘のままである。**両方まとめてか、どちらもか。**
 
 ## クロックを読んでいない
 

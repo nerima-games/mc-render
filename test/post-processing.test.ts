@@ -17,6 +17,8 @@ import { describe, expect, it } from '@effect/vitest'
 import { Effect } from 'effect'
 import {
   buildPostProcessingChain,
+  chainEffects,
+  chainPasses,
   COMPOSITE_SUBSUMES,
   isCanonicalChain,
   isCompositeActive,
@@ -27,6 +29,7 @@ import {
   validatePostProcessingChain,
   type GraphicsQuality,
   type PostProcessingPass,
+  type PostProcessingStep,
 } from '../domain/post-processing'
 
 const ALL_ON: GraphicsQuality = {
@@ -96,13 +99,16 @@ describe('the canonical order', () => {
 describe('buildPostProcessingChain', () => {
   it.effect('the minimum chain is render then output', () =>
     Effect.sync(() => {
-      expect(buildPostProcessingChain(QUALITY_PRESETS.low)).toStrictEqual(['render', 'output'])
+      expect(chainPasses(buildPostProcessingChain(QUALITY_PRESETS.low))).toStrictEqual([
+        'render',
+        'output',
+      ])
     }),
   )
 
   it.effect('emits every enabled pass in canonical order', () =>
     Effect.sync(() => {
-      expect(buildPostProcessingChain(ALL_ON)).toStrictEqual([
+      expect(chainPasses(buildPostProcessingChain(ALL_ON))).toStrictEqual([
         'render',
         'gtao',
         'godRays',
@@ -111,6 +117,17 @@ describe('buildPostProcessingChain', () => {
         'smaa',
         'output',
       ])
+      // An ordinary pass performs itself and nothing else, so an adapter never
+      // has to special-case reading `effects`.
+      expect(buildPostProcessingChain(ALL_ON).map((entry) => entry.effects)).toStrictEqual([
+        ['render'],
+        ['gtao'],
+        ['godRays'],
+        ['bloom'],
+        ['bokeh'],
+        ['smaa'],
+        ['output'],
+      ])
     }),
   )
 
@@ -118,7 +135,7 @@ describe('buildPostProcessingChain', () => {
     Effect.sync(() => {
       for (const [name, quality] of Object.entries(QUALITY_PRESETS)) {
         const chain = buildPostProcessingChain(quality)
-        expect(validatePostProcessingChain(chain), `preset ${name}`).toStrictEqual([])
+        expect(validatePostProcessingChain(chainPasses(chain)), `preset ${name}`).toStrictEqual([])
       }
     }),
   )
@@ -134,7 +151,14 @@ describe('buildPostProcessingChain', () => {
           flags.map((flag, index) => [flag, (mask & (1 << index)) !== 0]),
         ) as unknown as GraphicsQuality
         const chain = buildPostProcessingChain(quality)
-        expect(validatePostProcessingChain(chain), `mask ${String(mask)}`).toStrictEqual([])
+        expect(
+          validatePostProcessingChain(chainPasses(chain)),
+          `mask ${String(mask)}`,
+        ).toStrictEqual([])
+        // Whatever the flags, the chain never claims to draw an effect twice
+        // and never claims to draw one the preset turned off.
+        const effects = chainEffects(chain)
+        expect(new Set(effects).size, `mask ${String(mask)}`).toBe(effects.length)
       }
     }),
   )
@@ -157,11 +181,79 @@ describe('CompositePass', () => {
     Effect.sync(() => {
       const chain = buildPostProcessingChain(QUALITY_PRESETS.ultra)
 
-      expect(chain).toContain('composite')
+      const passes = chainPasses(chain)
+      expect(passes).toContain('composite')
       for (const subsumed of COMPOSITE_SUBSUMES) {
-        expect(chain).not.toContain(subsumed)
+        expect(passes).not.toContain(subsumed)
       }
-      expect(chain).toStrictEqual(['render', 'gtao', 'composite', 'smaa', 'output'])
+      expect(passes).toStrictEqual(['render', 'gtao', 'composite', 'smaa', 'output'])
+      // ...and the work is not lost with them: the composite step SAYS it does
+      // all three, which is what `chainEffects` reads.
+      expect(chainEffects(chain)).toStrictEqual([
+        'render',
+        'gtao',
+        'godRays',
+        'bloom',
+        'bokeh',
+        'smaa',
+        'output',
+      ])
+    }),
+  )
+
+  it.effect('REGRESSION: `high` and `ultra` are DIFFERENT chains, and the composite step is why', () =>
+    Effect.sync(() => {
+      // The preset table promises the ultra player god rays and depth of field
+      // (`ultra: + god rays + dof + max DPR`), and the reference states the
+      // difference exactly: `high -> CompositePass enabled with { bloom }`,
+      // `ultra -> CompositePass enabled with { bloom, godRays, bokeh }`.
+      //
+      // Both presets enable SSAO, SMAA and the composite pass, so their PASS
+      // ORDER is identical — and while a chain was a bare list of pass names,
+      // that made the two chains equal values. An adapter doing what
+      // domain/post-processing.ts calls its "only job" (walk the output, call
+      // addPass in that order) built the same composer for both, and the ultra
+      // player got neither effect. A test asserting the chain per preset agreed
+      // with the code, because there was nothing left in the value to disagree
+      // about.
+      const high = buildPostProcessingChain(QUALITY_PRESETS.high)
+      const ultra = buildPostProcessingChain(QUALITY_PRESETS.ultra)
+
+      // The order really is the same. That is not the bug.
+      expect(chainPasses(high)).toStrictEqual(chainPasses(ultra))
+      // The chains are not.
+      expect(high).not.toStrictEqual(ultra)
+
+      const compositeEffects = (chain: ReadonlyArray<PostProcessingStep>) =>
+        chain.find((entry) => entry.pass === 'composite')?.effects
+
+      expect(compositeEffects(high)).toStrictEqual(['bloom'])
+      expect(compositeEffects(ultra)).toStrictEqual(['godRays', 'bloom', 'bokeh'])
+
+      // Which is what an adapter reads, and what the player sees.
+      expect(chainEffects(high)).not.toContain('godRays')
+      expect(chainEffects(high)).not.toContain('bokeh')
+      expect(chainEffects(ultra)).toContain('godRays')
+      expect(chainEffects(ultra)).toContain('bokeh')
+    }),
+  )
+
+  it.effect('a composite step never claims an effect its preset turned off', () =>
+    Effect.sync(() => {
+      // `isCompositeActive` guarantees the list is non-empty; this is the other
+      // half — it is built from the SAME flags the individual passes were
+      // tested against, so it cannot drift into promising work nobody asked
+      // for.
+      const godRaysOnly = buildPostProcessingChain({
+        ...QUALITY_PRESETS.low,
+        godRaysEnabled: true,
+        useCompositePass: true,
+      })
+
+      expect(godRaysOnly.find((entry) => entry.pass === 'composite')?.effects).toStrictEqual([
+        'godRays',
+      ])
+      expect(chainEffects(godRaysOnly)).toStrictEqual(['render', 'godRays', 'output'])
     }),
   )
 

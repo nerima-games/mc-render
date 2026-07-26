@@ -164,6 +164,29 @@ describe('mirror staleness', () => {
     }),
   )
 
+  it.effect('REGRESSION: the threshold is in SECONDS, as its name says and its doc used to not', () =>
+    Effect.sync(() => {
+      // The constant's doc read "Milliseconds of lag past which a mirrored pose
+      // is worth complaining about." It is named `_SECS`, its value is 0.1, and
+      // `isMirrorStale` compares it against `now - sourceCapturedAtSecs` — both
+      // `MonotonicTimeSecs`. Read as milliseconds, 0.1 would be a tenth of a
+      // millisecond and EVERY mirror ever built would be stale. The code was
+      // right and the sentence above it was wrong, which is the worse way round
+      // for a threshold somebody will eventually tune: tuning starts from the
+      // prose, and "0.1 ms is far too tight, make it 100" is the edit it
+      // invited. This is the test that would catch that edit.
+      const mirrored = mirroredCameraState(AUTHORITATIVE)
+
+      // 100 ms after capture is the boundary, and `>` is strict, so it is NOT
+      // stale. One more millisecond is.
+      expect(isMirrorStale(mirrored, MonotonicTimeSecs(100 + MIRROR_LAG_WARNING_SECS))).toBe(false)
+      expect(isMirrorStale(mirrored, MonotonicTimeSecs(100.101))).toBe(true)
+      // Read as milliseconds the threshold would be 0.0001 s, and a single
+      // 60 Hz frame of lag — 16.7 ms — would already be stale. It is not.
+      expect(isMirrorStale(mirrored, MonotonicTimeSecs(100.0167))).toBe(false)
+    }),
+  )
+
   it.effect('lag goes negative under clock skew rather than clamping the problem away', () =>
     Effect.sync(() => {
       const mirrored = mirroredCameraState(AUTHORITATIVE)
