@@ -33,6 +33,8 @@ import {
 declare const browserWindow: Window
 declare const browserDocument: Document
 declare const browserCanvas: HTMLCanvasElement
+/** The nine hotbar slots mx-ui creates, as a browser host would collect them. */
+declare const browserSlots: ReadonlyArray<HTMLElement>
 
 /** The gameplay listener target. `LISTENER_PLAN` puts keys and buttons here. */
 export const windowIsAnEventTarget: DomEventTarget = browserWindow
@@ -68,4 +70,86 @@ export const registersAndRemoves = (): void => {
   browserDocument.addEventListener('wheel', handler, nonPassive)
   browserDocument.removeEventListener('wheel', handler, nonPassive)
   browserWindow.removeEventListener('keydown', handler)
+}
+
+/**
+ * The member added for focus navigation, and the one direction that could have
+ * broken everything above.
+ *
+ * `Event.target` is `EventTarget | null`, so `DomInputEvent.target` has to
+ * accept BOTH — and it has to do so without giving TypeScript a reason to stop
+ * accepting `Event` itself, because listener parameters are contravariant under
+ * `strictFunctionTypes` and an unassignable `Event` makes `Window`
+ * unassignable to `DomEventTarget`. `unknown` is the only shape that survives
+ * that: an object type with a `getAttribute` member would be a WEAK TYPE with
+ * no overlap against `EventTarget`, and TypeScript would reject it outright.
+ *
+ * If this file ever stops compiling here, the fix is NOT to widen `target` into
+ * an element type — it is to keep comparing rather than reading.
+ */
+const focusHandler: DomListener = (event: DomInputEvent) => {
+  const target: unknown = event.target
+  if (target === null || target === undefined) {
+    return
+  }
+  // The only operation the adapter performs on it: identity, against elements
+  // the host named. `resolveFocusTarget` does exactly this, in a loop.
+  for (const slot of browserSlots) {
+    if (target === slot) {
+      return
+    }
+  }
+}
+
+/**
+ * A host's focus roster is `ReadonlyArray<unknown>`, so real elements go in
+ * without a cast and nothing in this repository can read one by accident.
+ */
+export const slotsAreOpaqueToTheAdapter: ReadonlyArray<unknown> = browserSlots
+
+/**
+ * The lock target is compared the same way, and needs no more of the DOM than
+ * the roster does (DN-16 §5(b)).
+ *
+ * This is the half of the fix that could have cost the surface a member.
+ * `contains` (or `composedPath`) was the option DN-16 §5(b) named, and it would
+ * have had to go on `DomInputEvent.target` or on the canvas: `EventTarget` has
+ * no `contains` — `Node` does — so declaring one would make `Event` unassignable
+ * to `DomInputEvent`, and listener parameters being contravariant under
+ * `strictFunctionTypes`, `Window` would stop being assignable to
+ * `DomEventTarget`. Silently, because `pnpm typecheck` has no DOM to be
+ * assignable from. `===` on `event.target` needs none of it: the target IS the
+ * deepest element hit, and `<canvas>` has no rendered children to descend into.
+ *
+ * If this file ever stops compiling here, the fix is NOT to reach for `contains`
+ * — it is to keep comparing the element the host named.
+ */
+const clickLandingHandler: DomListener = (event: DomInputEvent) => {
+  const target: unknown = event.target
+  // The lock target, as the host declares it: the same object it hands to
+  // `makeBrowserPointerLockPort`, and the only operation is identity.
+  const lockTarget: unknown = browserCanvas
+  if (target === lockTarget) {
+    return
+  }
+  for (const slot of browserSlots) {
+    if (target === slot) {
+      return
+    }
+  }
+}
+
+export const scopesTheLockToAnElementItOnlyCompares = (): void => {
+  browserWindow.addEventListener('mousedown', clickLandingHandler, { capture: false })
+  browserWindow.removeEventListener('mousedown', clickLandingHandler, { capture: false })
+}
+
+export const observesFocusAndGivesItBack = (): void => {
+  // `focusin` / `focusout` rather than `focus` / `blur`, because only the first
+  // pair bubbles — one listener on `document` therefore covers every slot mx-ui
+  // ever creates, including ones created after this call.
+  browserDocument.addEventListener('focusin', focusHandler, { capture: false })
+  browserDocument.addEventListener('focusout', focusHandler, { capture: false })
+  browserDocument.removeEventListener('focusout', focusHandler, { capture: false })
+  browserDocument.removeEventListener('focusin', focusHandler, { capture: false })
 }

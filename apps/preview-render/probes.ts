@@ -68,7 +68,7 @@ const lockMachineProbe = Effect.gen(function* () {
   const probeOne = (label: string, drive: (dispatch: (event: InputEvent) => Effect.Effect<void>) => Effect.Effect<void>) =>
     Effect.gen(function* () {
       const service = yield* makeInputService(defaultBindings(), SENT_PORT)
-      yield* service.dispatch({ kind: 'mousedown', button: 'MouseLeft', target: 'window' })
+      yield* service.dispatch({ kind: 'mousedown', button: 'MouseLeft', target: 'window', landing: 'lock-target' })
       yield* service.requestPointerLock
       yield* drive(service.dispatch)
       const state = yield* service.pointerLockState
@@ -84,7 +84,7 @@ const lockMachineProbe = Effect.gen(function* () {
     probeOne('pointerlockerror', (dispatch) => dispatch({ kind: 'pointerlockerror' })),
     probeOne('keydown / mousedown / wheel', (dispatch) =>
       dispatch({ kind: 'keydown', code: 'KeyW', target: 'window' }).pipe(
-        Effect.zipRight(dispatch({ kind: 'mousedown', button: 'MouseLeft', target: 'window' })),
+        Effect.zipRight(dispatch({ kind: 'mousedown', button: 'MouseLeft', target: 'window', landing: 'lock-target' })),
         Effect.zipRight(dispatch(wheel(100))),
       ),
     ),
@@ -231,7 +231,7 @@ const wheelLedgerProbe = Effect.gen(function* () {
 const blurProbe = Effect.gen(function* () {
   const service = yield* makeInputService()
   yield* service.dispatch({ kind: 'pointerlockchange', locked: true })
-  yield* service.dispatch({ kind: 'mousedown', button: 'MouseLeft', target: 'window' })
+  yield* service.dispatch({ kind: 'mousedown', button: 'MouseLeft', target: 'window', landing: 'lock-target' })
   yield* service.dispatch({ kind: 'keydown', code: 'KeyW', target: 'window' })
   yield* service.dispatch({ kind: 'pointermove', deltaX: 30, deltaY: 10 })
 
@@ -240,7 +240,7 @@ const blurProbe = Effect.gen(function* () {
   const after = yield* service.snapshot
 
   // The click that brings the window back.
-  yield* service.dispatch({ kind: 'mousedown', button: 'MouseLeft', target: 'window' })
+  yield* service.dispatch({ kind: 'mousedown', button: 'MouseLeft', target: 'window', landing: 'lock-target' })
   const refocusIsAttack = yield* service.wasActionJustTriggered('attack')
   const refocusIsUiClick = yield* service.wasUiClick('MouseLeft')
 

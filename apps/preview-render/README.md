@@ -57,12 +57,24 @@ plan.md §3.10 は **Playwright が SwiftShader 上で動き、ポインタロ�
 
 | ビュー | キー | 何が見えるか |
 | --- | --- | --- |
-| `input` | `1` | ロック機械 / pressed / justPressed / uiClicks / ポインタ差分 / ホイール台帳 / Escape 所有 |
+| `input` | `1` | ロック機械 / pressed / justPressed / uiClicks（**落ちた先つき**）/ ポインタ差分 / ホイール台帳 / Escape 所有 |
 | `postfx` | `2` | 正典順の 8 パス、4 プリセット、composite の包含、バリデータの棄却例 |
 | `material` | `3` | `forceSinglePass` の判定表と `auditMaterials` |
 | `mirror` | `4` | カメラミラーの陳腐化。**クロックは操作者が動かす** |
 | `scratch` | `5` | borrow / return 規律で、実際に捕まるものと捕まらないもの |
 | `stages` | `6` | 5 つのステージと `after` 辺、リスナ計画 |
+
+## `hud-click` シナリオ —— DN-16 §5(b)
+
+`l` / `r` / `m` はどれも **canvas 上の**クリックである。`u` は**ホットバーのスロット上**、
+`n` は**どちらでもない場所**（レターボックスなど）。3 つとも `uiClicks` に入るが、
+`acquiresPointerLock` が作用するのは 1 つ目だけである。
+
+`input` ビューの「a left click」行が両方を並べて出す:
+`on the canvas -> yes` / `on a HUD slot -> no`。
+`--scenario hud-click` はその往復を歩く——スロットにフォーカスが入り（リング点灯）、
+スロットをクリックしてもロックを取らず、canvas をクリックすると取り、
+ロック中はリングが**マスク**され、Escape で**同じスロットに戻る**。
 
 ## 見つけたもの
 

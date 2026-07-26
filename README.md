@@ -144,6 +144,8 @@ DOM に触るのは `window` 入力アダプタ 1 つだけで、**`tsconfig` �
 | ロック中のクリックとUIクリックの違い | `pressed` / `justPressed` と `uiClicks` の分離 |
 | ホイールの `deltaY` が何単位か | `WheelDeltaMode` + `notchesForWheelDelta`（1 ノッチ = 100px / 3 行 / 1 ページ） |
 | ロック要求が拒否されたのか未要求なのか | `PointerLockState`（`unlocked` / `requested` / `locked` / `refused`） |
+| キーボードがどの UI に居るか | `FocusTarget`（`{ group, index }`）+ `HOTBAR_FOCUS_GROUP`。解決は `resolveFocusTarget` の**同一性照合** 1 箇所 |
+| Tab を `preventDefault` してよいか | `FOCUS_NAVIGATION_OWNER = 'user-agent'` / `FOCUS_NAVIGATION_POLICY.preventDefault === false`（grep できる値。`remap` も Tab を拒否する） |
 
 | 領域 | 実装 | 設計注意 |
 | --- | --- | --- |
@@ -158,6 +160,7 @@ DOM に触るのは `window` 入力アダプタ 1 つだけで、**`tsconfig` �
 | ポインタロックの要求と拒否（`PointerLockPort`） | 同上 | DN-14 |
 | `window` 入力アダプタ（登録 / 正確な解除 / イベント変換 / ロック要求の実行） | `application/browser-input-adapter.ts` | DN-04 / DN-12 / DN-13 / DN-14 |
 | DOM を `lib` ではなく狭い構造的インターフェースで受ける | `application/dom-surface.ts` | DN-15 |
+| キーボードフォーカスの**観測**（`focusin` / `focusout`、ロック中のマスク、Tab を奪わない） | 同上 + `domain/input-bindings.ts` / `application/input-service.ts` | DN-16 |
 | カメラのミラー（書き戻し無し） | `domain/camera-mirror.ts` | DN-06 |
 
 各 DN の参照実装証跡（file:line）と書くべき回帰テスト一覧は
@@ -170,6 +173,15 @@ DOM に触るのは `window` 入力アダプタ 1 つだけで、**`tsconfig` �
   購読先は決まった（**mc-worldgen** の `ChunkStore.subscribeDirty`。mc-sim ではない）。
   [docs/public-api.md](./docs/public-api.md) §3.1 に骨格がある
   （[`docs/public-api.md`](./docs/public-api.md) §3）。
+- **キーボードフォーカスの「移動」側。** 観測（`focusin` / `focusout` → `InputSnapshot.keyboardFocus`）は
+  **入った**が、グループ**内**を矢印キーで動かす手段は無い。ホットバーはタブストップが 1 つなので、
+  Tab で入れるのはスロット 0 だけである。閉じるには `dom-surface.ts` に `focus()` が要り、
+  どのキーが移動するかとロック中の扱いを mx-ui と一緒に決める必要がある
+  （[`docs/design-notes.md`](./docs/design-notes.md) DN-16 §5(a)、配線手順は
+  [`docs/public-api.md`](./docs/public-api.md) §2.10.6）。
+  **同 §5(b)（HUD の上のクリックがポインタロック要求になる）は閉じた**——
+  `acquiresPointerLock` がクリックの落ちた先を受け取るようになり、
+  mx-ui もホストも変わっていない（[`docs/public-api.md`](./docs/public-api.md) §2.11）。
 - **ゲームパッドとタッチ入力。** 参照実装の `gamepad-input-state.ts` / `virtual-input-state.ts`
   相当（216 LOC）。`window` 入力アダプタ本体（キー / マウス / ホイール / ポインタロック /
   blur、登録と解除、`canvas.requestPointerLock()` に繋がる `PointerLockPort` の実装）は

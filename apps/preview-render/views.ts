@@ -45,7 +45,6 @@ import {
   WHEEL_LINES_PER_NOTCH,
   WHEEL_PAGES_PER_NOTCH,
   WHEEL_PIXELS_PER_NOTCH,
-  type InputCode,
 } from '../../domain/input-bindings'
 import { LISTENER_PLAN } from '../../application/input-service'
 import { MIRROR_LAG_WARNING_SECS } from '../../domain/camera-mirror'
@@ -79,7 +78,7 @@ const heading = (style: Style, text: string, width: number): string => {
   return style.dim(prefix + '-'.repeat(Math.max(0, width - prefix.length)))
 }
 
-const codes = (values: ReadonlyArray<InputCode>): string =>
+const codes = (values: ReadonlyArray<string>): string =>
   values.length === 0 ? '(none)' : values.join(' ')
 
 export const VIEW_MODES = ['input', 'postfx', 'material', 'mirror', 'scratch', 'stages'] as const
@@ -131,9 +130,22 @@ export const inputView = (view: MachineView, style: Style, width: number): Reado
       'a left click',
       view.pointerLocked
         ? style.dim('is a GAME action: it joins pressed / justPressed like a key')
-        : `${style.paint(`acquiresPointerLock -> ${yesNo(view.wouldAcquireOnLeftClick)}`, view.wouldAcquireOnLeftClick ? GOOD : WARN)}   ` +
-          style.dim(`(only ${POINTER_LOCK_ACQUIRE_BUTTON} asks, and only from unlocked / refused)`),
+        : `${style.paint(`on the canvas -> ${yesNo(view.wouldAcquireOnLeftClick)}`, view.wouldAcquireOnLeftClick ? GOOD : WARN)}   ` +
+          `${style.paint(`on a HUD slot -> ${yesNo(view.wouldAcquireOnHudClick)}`, view.wouldAcquireOnHudClick ? BAD : GOOD)}   ` +
+          style.dim(`(only ${POINTER_LOCK_ACQUIRE_BUTTON} asks, only from unlocked / refused, only on the LOCK TARGET)`),
     ),
+    ...(view.pointerLocked
+      ? []
+      : [
+          row(
+            style,
+            '',
+            style.dim(
+              'DN-16 §5(b): the HUD column was the hazard. tabindex="-1" focuses on click, so the ring ' +
+                'lit; the same mousedown bubbled to window and took the pointer, masking it.',
+            ),
+          ),
+        ]),
     ...(stranded
       ? [
           row(
@@ -160,7 +172,7 @@ export const inputView = (view: MachineView, style: Style, width: number): Reado
       style,
       'uiClicks',
       `${style.paint(codes(view.uiClicks), view.uiClicks.length > 0 ? NOTE : VALUE)}   ` +
-        style.dim('clicks that landed while UNLOCKED; attack cannot fire from these'),
+        style.dim('clicks that landed while UNLOCKED, with WHERE; attack cannot fire from these'),
     ),
     row(
       style,

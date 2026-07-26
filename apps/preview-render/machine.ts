@@ -58,7 +58,6 @@ import {
   type Bindings,
   type InputAction,
   type InputCode,
-  type MouseButton,
   type PointerLockState,
 } from '../../domain/input-bindings'
 import { UNSET_CAMERA_POSE } from '../../stages/registration'
@@ -100,7 +99,8 @@ export type MachineView = {
   /** The live state, read outside any frame. */
   readonly pressed: ReadonlyArray<InputCode>
   readonly justPressed: ReadonlyArray<InputCode>
-  readonly uiClicks: ReadonlyArray<MouseButton>
+  /** `MouseLeft@lock-target` — the button AND where it landed (DN-16 §5(b)). */
+  readonly uiClicks: ReadonlyArray<string>
   readonly pointerDelta: { readonly x: number; readonly y: number }
   readonly wheelNotches: number
   readonly wheelSteps: number
@@ -120,8 +120,17 @@ export type MachineView = {
   readonly bindings: Bindings
   readonly actions: ReadonlyArray<ActionRow>
 
-  /** True when an unlocked click is one `acquiresPointerLock` would act on. */
+  /**
+   * True when an unlocked left click ON THE CANVAS is one `acquiresPointerLock`
+   * would act on.
+   */
   readonly wouldAcquireOnLeftClick: boolean
+  /**
+   * The same click, landing on a hotbar slot instead. FALSE at every lock
+   * state, and the whole of DN-16 §5(b): clicking your own HUD must not throw
+   * you into mouselook and mask the focus ring the click just lit.
+   */
+  readonly wouldAcquireOnHudClick: boolean
 
   readonly clockSecs: number
   readonly authoritativePose: CameraPoseSnapshot
@@ -180,8 +189,12 @@ export const describeEvent = (event: InputEvent): string => {
     case 'keyup':
       return `${event.kind} ${event.code} @${event.target}`
     case 'mousedown':
+      // The landing is shown because it is half of what the event MEANS: the
+      // same left click asks for the pointer on the canvas and asks for nothing
+      // on a hotbar slot.
+      return `mousedown ${event.button} @${event.target} on ${event.landing}`
     case 'mouseup':
-      return `${event.kind} ${event.button} @${event.target}`
+      return `mouseup ${event.button} @${event.target}`
     case 'contextmenu':
       return `contextmenu @${event.target}`
     case 'pointermove':
@@ -203,6 +216,8 @@ export const describeCommand = (command: Command): string => {
   switch (command.kind) {
     case 'requestLock':
       return 'requestPointerLock'
+    case 'frameAsk':
+      return 'render:input decides whether to ask'
     case 'readSnapshot':
       return 'snapshot  (a frame stage reads)'
     case 'endFrame':
@@ -257,6 +272,31 @@ export const makeMachine = async (config: MachineConfig): Promise<Machine> => {
           ),
           Effect.asVoid,
         )
+
+      case 'frameAsk':
+        // `stages/registration.ts`'s `render:input`, in miniature: the landings
+        // are what the predicate reads, and a click on UI or on nothing is
+        // reported and then declined.
+        return Effect.gen(function* () {
+          const snapshot = yield* service.snapshot
+          const state = yield* service.pointerLockState
+          const acting = snapshot.uiClickLandings.filter(({ button, landing }) =>
+            acquiresPointerLock(button, state, landing),
+          )
+          if (acting.length === 0) {
+            const seen = snapshot.uiClickLandings
+              .map((click) => `${click.button}@${click.landing}`)
+              .join(' ')
+            push(
+              book,
+              `render:input asked for nothing (state ${state}; clicks: ${seen === '' ? '(none)' : seen})`,
+              'reject',
+            )
+            return
+          }
+          const next = yield* service.requestPointerLock
+          push(book, `render:input asked -> ${next}`, next === 'requested' ? 'command' : 'reject')
+        })
 
       case 'readSnapshot':
         return service.snapshot.pipe(
@@ -425,7 +465,9 @@ export const makeMachine = async (config: MachineConfig): Promise<Machine> => {
           lastThing: book.lastThing,
           pressed: [...snapshot.pressed],
           justPressed: [...snapshot.justPressed],
-          uiClicks: [...snapshot.uiClicks],
+          uiClicks: snapshot.uiClickLandings.map(
+            (click) => `${click.button}@${click.landing}`,
+          ),
           pointerDelta: snapshot.pointerDelta,
           wheelNotches: snapshot.wheelNotches,
           wheelSteps: snapshot.wheelSteps,
@@ -439,7 +481,12 @@ export const makeMachine = async (config: MachineConfig): Promise<Machine> => {
           notchesConsumed: book.notchesConsumed,
           bindings,
           actions,
-          wouldAcquireOnLeftClick: acquiresPointerLock('MouseLeft', snapshot.pointerLockState),
+          wouldAcquireOnLeftClick: acquiresPointerLock(
+            'MouseLeft',
+            snapshot.pointerLockState,
+            'lock-target',
+          ),
+          wouldAcquireOnHudClick: acquiresPointerLock('MouseLeft', snapshot.pointerLockState, 'ui'),
           clockSecs: book.clockSecs,
           authoritativePose: book.authoritativePose,
           mirrored,

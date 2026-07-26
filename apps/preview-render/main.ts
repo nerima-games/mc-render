@@ -120,12 +120,21 @@ const eventForKey = (key: string): InputEvent | Command | undefined => {
     // consume, and was never meant for gameplay either way.
     case 'E':
       return { kind: 'keydown', code: 'KeyE', target: 'document' }
+    // The three buttons, all landing ON THE CANVAS — the element the lock would
+    // be granted to, and therefore the only landing that may ask for it.
     case 'l':
-      return { kind: 'mousedown', button: 'MouseLeft', target: 'window' }
+      return { kind: 'mousedown', button: 'MouseLeft', target: 'window', landing: 'lock-target' }
     case 'r':
-      return { kind: 'mousedown', button: 'MouseRight', target: 'window' }
+      return { kind: 'mousedown', button: 'MouseRight', target: 'window', landing: 'lock-target' }
     case 'm':
-      return { kind: 'mousedown', button: 'MouseMiddle', target: 'window' }
+      return { kind: 'mousedown', button: 'MouseMiddle', target: 'window', landing: 'lock-target' }
+    // The same left click, landing somewhere else. These two are DN-16 §5(b):
+    // before the landing existed, all three of these keys did the same thing,
+    // and clicking a hotbar slot threw the player into mouselook.
+    case 'u':
+      return { kind: 'mousedown', button: 'MouseLeft', target: 'window', landing: 'ui' }
+    case 'n':
+      return { kind: 'mousedown', button: 'MouseLeft', target: 'window', landing: 'elsewhere' }
     case 'L':
       return { kind: 'mouseup', button: 'MouseLeft', target: 'window' }
     case 'R':

@@ -24,8 +24,10 @@ import { describe, expect, it } from '@effect/vitest'
 import { Effect } from 'effect'
 import ts from 'typescript'
 import {
+  acquiresPointerLock,
   defaultBindings,
   GAMEPLAY_LISTENER_TARGET,
+  HOTBAR_FOCUS_GROUP,
   MODAL_LISTENER_TARGET,
   WHEEL_LINES_PER_NOTCH,
   WHEEL_PIXELS_PER_NOTCH,
@@ -43,11 +45,14 @@ import {
   makeBrowserPointerLockPort,
   mayPreventDefault,
   PREVENT_DEFAULT_EVENTS,
+  resolveClickLanding,
+  resolveFocusTarget,
   scopedInputListeners,
   translateDomEvent,
   TRANSLATED_DOM_EVENTS,
   type BrowserInputTargets,
 } from '../application/browser-input-adapter'
+import type { DomEventContext, FocusGroupTargets } from '../application/browser-input-adapter'
 import type { DomInputEvent, DomListener, DomListenerOptions } from '../application/dom-surface'
 
 // ---------------------------------------------------------------------------
@@ -146,7 +151,13 @@ const planned = (event: string) => {
   return entry
 }
 
-const noContext = { pointerLockHeld: false } as const
+/**
+ * No lock, and no focusable UI named. The second half is the honest default for
+ * a host that draws only a canvas — and it is what makes "a focusin on an
+ * element nobody named reports NO focus" the case that runs by default rather
+ * than the one somebody has to remember to write.
+ */
+const noContext: DomEventContext = { pointerLockHeld: false, focusGroups: [] }
 
 /** A `preventDefault` that records nothing. Translation never calls it. */
 const noop = (): void => undefined
@@ -430,9 +441,28 @@ describe('every DOM event kind translates to the right InputEvent', () => {
       const down = (button: number) =>
         translateDomEvent(planned('mousedown'), { preventDefault: noop, button }, noContext)
 
-      expect(down(0)).toStrictEqual({ kind: 'mousedown', button: 'MouseLeft', target: GAMEPLAY_LISTENER_TARGET })
-      expect(down(1)).toStrictEqual({ kind: 'mousedown', button: 'MouseMiddle', target: GAMEPLAY_LISTENER_TARGET })
-      expect(down(2)).toStrictEqual({ kind: 'mousedown', button: 'MouseRight', target: GAMEPLAY_LISTENER_TARGET })
+      // `landing: 'elsewhere'` because `noContext` names no lock target and no
+      // roster, and the event carries no `target`. That is the correct answer
+      // for a host that declared nothing — and it is the direction the default
+      // has to fall: a click nobody can place must not take the pointer.
+      expect(down(0)).toStrictEqual({
+        kind: 'mousedown',
+        button: 'MouseLeft',
+        target: GAMEPLAY_LISTENER_TARGET,
+        landing: 'elsewhere',
+      })
+      expect(down(1)).toStrictEqual({
+        kind: 'mousedown',
+        button: 'MouseMiddle',
+        target: GAMEPLAY_LISTENER_TARGET,
+        landing: 'elsewhere',
+      })
+      expect(down(2)).toStrictEqual({
+        kind: 'mousedown',
+        button: 'MouseRight',
+        target: GAMEPLAY_LISTENER_TARGET,
+        landing: 'elsewhere',
+      })
       // 3 and 4 are the browser's back/forward thumb buttons. The reference
       // recorded them and nothing ever read them (:120); here they are dropped
       // at the boundary rather than becoming state that cannot become an action.
@@ -523,10 +553,10 @@ describe('every DOM event kind translates to the right InputEvent', () => {
   it.effect('pointerlockchange reads the DOCUMENT, not the event', () =>
     Effect.sync(() => {
       expect(
-        translateDomEvent(planned('pointerlockchange'), { preventDefault: noop }, { pointerLockHeld: true }),
+        translateDomEvent(planned('pointerlockchange'), { preventDefault: noop }, { ...noContext, pointerLockHeld: true }),
       ).toStrictEqual({ kind: 'pointerlockchange', locked: true })
       expect(
-        translateDomEvent(planned('pointerlockchange'), { preventDefault: noop }, { pointerLockHeld: false }),
+        translateDomEvent(planned('pointerlockchange'), { preventDefault: noop }, { ...noContext, pointerLockHeld: false }),
       ).toStrictEqual({ kind: 'pointerlockchange', locked: false })
     }),
   )
@@ -922,6 +952,594 @@ describe('the adapter drives the service the way a browser would', () => {
       dom.fire('pointerlockchange')
 
       expect((yield* input.snapshot).pointerDelta).toStrictEqual({ x: 0, y: 0 })
+    }),
+  )
+})
+
+// ---------------------------------------------------------------------------
+// Keyboard focus
+// ---------------------------------------------------------------------------
+
+/**
+ * Nine opaque objects standing in for mx-ui's nine hotbar slot elements.
+ *
+ * They are `{}` and not fakes of an element, which is the whole point of
+ * `FocusGroupTargets.targets` being `ReadonlyArray<unknown>`: the adapter has no
+ * way to read anything off them, so a test cannot accidentally exercise a path
+ * a browser would not have. Identity is all there is, and identity is all the
+ * adapter uses.
+ */
+const makeSlots = (count: number): ReadonlyArray<unknown> =>
+  Array.from({ length: count }, (_unused, index) => ({ slot: index }))
+
+describe('REGRESSION: focusin resolves the element the browser focused', () => {
+  it.effect('an element in the roster becomes its group and its 0-based position', () =>
+    Effect.sync(() => {
+      // The conversion at the boundary, and it is the same KIND of conversion
+      // `mouseButtonForIndex` is: an opaque thing the DOM handed over becomes a
+      // name the pure model can carry. 0-based, because that is what
+      // `HudView.setKeyboardFocus` takes.
+      const slots = makeSlots(9)
+      const hotbar: FocusGroupTargets = { group: HOTBAR_FOCUS_GROUP, targets: slots }
+
+      expect(
+        translateDomEvent(
+          planned('focusin'),
+          { preventDefault: noop, target: slots[3] },
+          { pointerLockHeld: false, focusGroups: [hotbar] },
+        ),
+      ).toStrictEqual({ kind: 'focuschange', focus: { group: HOTBAR_FOCUS_GROUP, index: 3 } })
+    }),
+  )
+
+  it.effect('an element NOBODY named reports no focus — never slot zero', () =>
+    Effect.sync(() => {
+      // The bug a careless `indexOf` clamp would produce: `-1` becomes `0`, and
+      // the ring lights slot 0 every time the player Tabs to the address bar.
+      const slots = makeSlots(9)
+      const hotbar: FocusGroupTargets = { group: HOTBAR_FOCUS_GROUP, targets: slots }
+
+      expect(
+        translateDomEvent(
+          planned('focusin'),
+          { preventDefault: noop, target: { someOtherButton: true } },
+          { pointerLockHeld: false, focusGroups: [hotbar] },
+        ),
+      ).toStrictEqual({ kind: 'focuschange', focus: undefined })
+    }),
+  )
+
+  it.effect('focus that went to nothing at all reports no focus, not a dropped event', () =>
+    Effect.sync(() => {
+      // A DROPPED event would leave the ring lit on the slot the keyboard just
+      // left, which is the opposite of the failure being fixed. So `undefined`
+      // and `null` targets are REPORTS, not drops.
+      expect(
+        translateDomEvent(planned('focusin'), { preventDefault: noop }, noContext),
+      ).toStrictEqual({ kind: 'focuschange', focus: undefined })
+      expect(
+        translateDomEvent(planned('focusin'), { preventDefault: noop, target: null }, noContext),
+      ).toStrictEqual({ kind: 'focuschange', focus: undefined })
+    }),
+  )
+
+  it.effect('focusout ALWAYS reports no focus, whatever element it came from', () =>
+    Effect.sync(() => {
+      // `focusout` fires on the element being LEFT. Resolving its target would
+      // report the slot the keyboard just departed as the slot it is on — the
+      // ring would lag one move behind, permanently.
+      const slots = makeSlots(9)
+      const hotbar: FocusGroupTargets = { group: HOTBAR_FOCUS_GROUP, targets: slots }
+
+      expect(
+        translateDomEvent(
+          planned('focusout'),
+          { preventDefault: noop, target: slots[3] },
+          { pointerLockHeld: false, focusGroups: [hotbar] },
+        ),
+      ).toStrictEqual({ kind: 'focuschange', focus: undefined })
+    }),
+  )
+
+  it.effect('the index is the position within its OWN group, not across all of them', () =>
+    Effect.sync(() => {
+      const hotbarSlots = makeSlots(9)
+      const settingsControls = makeSlots(4)
+      const groups: ReadonlyArray<FocusGroupTargets> = [
+        { group: HOTBAR_FOCUS_GROUP, targets: hotbarSlots },
+        { group: 'settings', targets: settingsControls },
+      ]
+
+      expect(resolveFocusTarget(groups, hotbarSlots[8])).toStrictEqual({
+        group: HOTBAR_FOCUS_GROUP,
+        index: 8,
+      })
+      expect(resolveFocusTarget(groups, settingsControls[1])).toStrictEqual({
+        group: 'settings',
+        index: 1,
+      })
+    }),
+  )
+
+  it.effect('a host with NO roster reports every focus change as no focus', () =>
+    Effect.sync(() => {
+      // The honest answer for a preview that draws only a canvas: there is no
+      // focusable game UI, so the keyboard is never on any of it. It is a
+      // coherent state, not a degenerate one — which is why the listeners are
+      // registered anyway and `LISTENER_PLAN` does not vary per host.
+      expect(resolveFocusTarget([], {})).toBeUndefined()
+      expect(resolveFocusTarget([{ group: HOTBAR_FOCUS_GROUP, targets: [] }], {})).toBeUndefined()
+    }),
+  )
+
+  it.effect('resolution is by IDENTITY, so an equal-looking element is not the same slot', () =>
+    Effect.sync(() => {
+      // The property that makes an attribute read unnecessary. Two slots that
+      // carry the same `data-slot-index` — mx-ui's hotbar slot 0 and its
+      // inventory slot 0 do — are still two different objects.
+      const hotbarSlot0 = { 'data-slot-index': '0' }
+      const inventorySlot0 = { 'data-slot-index': '0' }
+      const groups: ReadonlyArray<FocusGroupTargets> = [
+        { group: HOTBAR_FOCUS_GROUP, targets: [hotbarSlot0] },
+      ]
+
+      expect(resolveFocusTarget(groups, hotbarSlot0)).toStrictEqual({
+        group: HOTBAR_FOCUS_GROUP,
+        index: 0,
+      })
+      expect(resolveFocusTarget(groups, inventorySlot0)).toBeUndefined()
+    }),
+  )
+})
+
+describe('the adapter observes focus the way a browser would deliver it', () => {
+  it.effect('a Tab into the hotbar is visible in the snapshot, end to end', () =>
+    Effect.gen(function* () {
+      // The whole feature, through the real listener: the browser moved focus
+      // on Tab, `focusin` bubbled to `document`, and the snapshot now says
+      // where it went. Nothing here pressed Tab, and nothing here moved focus.
+      const dom = makeFakeDom()
+      const input = yield* makeInputService()
+      const slots = makeSlots(9)
+      installInputListeners(dom.targets, input, [
+        { group: HOTBAR_FOCUS_GROUP, targets: slots },
+      ])
+
+      dom.fire('focusin', { target: slots[2] })
+
+      expect((yield* input.snapshot).keyboardFocus).toStrictEqual({
+        group: HOTBAR_FOCUS_GROUP,
+        index: 2,
+      })
+    }),
+  )
+
+  it.effect('a move within the group settles on the ARRIVAL, not on the departure', () =>
+    Effect.gen(function* () {
+      // Exactly the pair of events a browser fires for one focus move, in the
+      // order it fires them: focusout from the old element, then focusin on the
+      // new one, in the same task. The intermediate "nowhere" is real and no
+      // frame can observe it.
+      const dom = makeFakeDom()
+      const input = yield* makeInputService()
+      const slots = makeSlots(9)
+      installInputListeners(dom.targets, input, [
+        { group: HOTBAR_FOCUS_GROUP, targets: slots },
+      ])
+      dom.fire('focusin', { target: slots[0] })
+
+      dom.fire('focusout', { target: slots[0] })
+      dom.fire('focusin', { target: slots[5] })
+
+      expect((yield* input.snapshot).keyboardFocus).toStrictEqual({
+        group: HOTBAR_FOCUS_GROUP,
+        index: 5,
+      })
+    }),
+  )
+
+  it.effect('Tabbing OUT of the group clears the report, so the ring goes with it', () =>
+    Effect.gen(function* () {
+      const dom = makeFakeDom()
+      const input = yield* makeInputService()
+      const slots = makeSlots(9)
+      installInputListeners(dom.targets, input, [
+        { group: HOTBAR_FOCUS_GROUP, targets: slots },
+      ])
+      dom.fire('focusin', { target: slots[8] })
+
+      // The last slot, Tab again: the browser leaves the group entirely.
+      dom.fire('focusout', { target: slots[8] })
+      dom.fire('focusin', { target: { theBrowsersOwnChrome: true } })
+
+      expect((yield* input.snapshot).keyboardFocus).toBeUndefined()
+    }),
+  )
+
+  it.effect('REGRESSION: no focus handler EVER calls preventDefault', () =>
+    Effect.gen(function* () {
+      // The trap this feature is most likely to fall into, asserted through the
+      // installed listeners rather than by reading the code. A canvas that eats
+      // Tab is a keyboard trap: the player cannot reach the browser chrome, the
+      // next control, or the settings screen that would let them rebind out of
+      // it. Locked as well as unlocked, because "only while locked" is exactly
+      // the narrowing the context menu and the scroll DID get and this must not.
+      const dom = makeFakeDom()
+      const input = yield* lockedInput
+      const slots = makeSlots(9)
+      installInputListeners(dom.targets, input, [
+        { group: HOTBAR_FOCUS_GROUP, targets: slots },
+      ])
+
+      dom.fire('keydown', { code: 'Tab' })
+      dom.fire('focusin', { target: slots[1] })
+      dom.fire('focusout', { target: slots[1] })
+      dom.fire('keyup', { code: 'Tab' })
+
+      expect(dom.preventedDefaults()).toBe(0)
+    }),
+  )
+
+  it.effect('the focus listeners make NO preventDefault claim — no passive: false on either', () =>
+    Effect.gen(function* () {
+      // NOT "they are passive": `focusin` is non-passive by default, like every
+      // event except wheel/mousewheel/touchstart/touchmove, and this repository
+      // does not ask for anything else. The assertion is that neither listener
+      // carries the explicit `passive: false` that `listenerOptionsFor` puts on
+      // exactly the handlers allowed to suppress a default — an option object
+      // that said `passive: false` here would be a claim that a focus handler
+      // might call `preventDefault()`, and it must never be able to make it.
+      const dom = makeFakeDom()
+      const input = yield* makeInputService()
+      installInputListeners(dom.targets, input)
+
+      const focusCalls = dom.added.filter((call) => call.type.startsWith('focus'))
+      expect(focusCalls.map((call) => call.type).sort()).toStrictEqual(['focusin', 'focusout'])
+      expect(focusCalls.every((call) => call.options?.passive === undefined)).toBe(true)
+      expect(focusCalls.every((call) => call.where === 'document')).toBe(true)
+    }),
+  )
+
+  it.effect('the roster travels through browserInputLayer and its listeners leave with the scope', () =>
+    Effect.gen(function* () {
+      const dom = makeFakeDom()
+      const slots = makeSlots(9)
+
+      yield* Effect.gen(function* () {
+        const input = yield* InputService
+
+        dom.fire('focusin', { target: slots[6] })
+        expect((yield* input.snapshot).keyboardFocus).toStrictEqual({
+          group: HOTBAR_FOCUS_GROUP,
+          index: 6,
+        })
+      }).pipe(
+        Effect.provide(
+          browserInputLayer({
+            targets: dom.targets,
+            bindings: defaultBindings(),
+            focusGroups: [{ group: HOTBAR_FOCUS_GROUP, targets: slots }],
+          }),
+        ),
+      )
+
+      expect(dom.live()).toStrictEqual([])
+      // A dead listener cannot report a focus that is not this page's any more.
+      expect(dom.fire('focusin', { target: slots[6] })).toBe(0)
+    }),
+  )
+
+  it.effect('a host that names no groups still registers the listeners and reports nothing', () =>
+    Effect.gen(function* () {
+      const dom = makeFakeDom()
+      const input = yield* makeInputService()
+      installInputListeners(dom.targets, input)
+
+      expect(dom.fire('focusin', { target: { anything: true } })).toBe(1)
+
+      expect((yield* input.snapshot).keyboardFocus).toBeUndefined()
+    }),
+  )
+})
+
+// ---------------------------------------------------------------------------
+// DN-16 §5(b): WHERE the click landed
+// ---------------------------------------------------------------------------
+//
+// The adapter's half. `acquiresPointerLock` is a pure predicate over NAMES and
+// stays testable in Node with fakes; turning an element into one of those names
+// is a boundary conversion and lives here, next to `mouseButtonForIndex` and
+// `resolveFocusTarget`. Each landing has its own test, so a failure says which
+// one broke rather than "the pointer lock".
+
+describe('REGRESSION: a mousedown carries WHERE it landed', () => {
+  it.effect('the LOCK TARGET is recognised by identity, and only by identity', () =>
+    Effect.sync(() => {
+      // The canvas the host named — the same object `makeBrowserPointerLockPort`
+      // will call `requestPointerLock()` on. The rule stated once: the element
+      // that will receive the lock is the element you must click to ask for it.
+      const canvas = { canvas: true }
+      const lookalike = { canvas: true }
+
+      expect(resolveClickLanding(canvas, [], canvas)).toBe('lock-target')
+      // Structurally equal is not the same element. `===` is the only operation
+      // this repository performs on a DOM object, and that is what keeps the
+      // surface at `target?: unknown` (DN-15).
+      expect(resolveClickLanding(canvas, [], lookalike)).toBe('elsewhere')
+    }),
+  )
+
+  it.effect('a REGISTERED UI element is `ui`, which is the landing that never asks', () =>
+    Effect.sync(() => {
+      const canvas = { canvas: true }
+      const slots = makeSlots(9)
+      const hotbar: FocusGroupTargets = { group: HOTBAR_FOCUS_GROUP, targets: slots }
+
+      expect(resolveClickLanding(canvas, [hotbar], slots[0])).toBe('ui')
+      expect(resolveClickLanding(canvas, [hotbar], slots[8])).toBe('ui')
+    }),
+  )
+
+  it.effect('an element in NEITHER is `elsewhere`, and that is a third answer and not a `ui`', () =>
+    Effect.sync(() => {
+      // The case that decides which predicate this is. A letterbox bar beside a
+      // fixed-aspect canvas, a host-drawn header, `<body>` itself: none of them
+      // are in the roster, because the roster exists for FOCUS and a decorative
+      // bar is not focusable. Reporting them as `ui` would be a lie; granting
+      // them the pointer — which "not UI" would do — is the hazard.
+      const canvas = { canvas: true }
+      const hotbar: FocusGroupTargets = { group: HOTBAR_FOCUS_GROUP, targets: makeSlots(9) }
+
+      expect(resolveClickLanding(canvas, [hotbar], { letterbox: true })).toBe('elsewhere')
+    }),
+  )
+
+  it.effect('a click on NOTHING is `elsewhere`, even when the host named no lock target', () =>
+    Effect.sync(() => {
+      // The trap in the obvious implementation: with `pointerLockTarget`
+      // undefined and `event.target` undefined, a bare `===` says `lock-target`
+      // — so every unplaceable click would take the pointer in exactly the
+      // hosts that declared nothing. Both guards are here on purpose.
+      expect(resolveClickLanding(undefined, [], undefined)).toBe('elsewhere')
+      expect(resolveClickLanding(undefined, [], null)).toBe('elsewhere')
+      expect(resolveClickLanding({ canvas: true }, [], null)).toBe('elsewhere')
+      expect(resolveClickLanding(undefined, [], { anything: true })).toBe('elsewhere')
+    }),
+  )
+
+  it.effect('the lock target WINS over a roster that also names it, so the tie is not silent', () =>
+    Effect.sync(() => {
+      // A host contradiction with no safe reading; the tie has to break
+      // somewhere and it breaks toward the truth, because that element IS the
+      // one `requestPointerLock` will be called on. No roster produces this by
+      // accident — a query like `[data-mx-ui="slot"]` cannot return the canvas.
+      const canvas = { canvas: true }
+      const confused: FocusGroupTargets = { group: HOTBAR_FOCUS_GROUP, targets: [canvas] }
+
+      expect(resolveClickLanding(canvas, [confused], canvas)).toBe('lock-target')
+    }),
+  )
+
+  it.effect('the translation puts the landing on the event, and on mousedown only', () =>
+    Effect.sync(() => {
+      const canvas = { canvas: true }
+      const slots = makeSlots(9)
+      const context: DomEventContext = {
+        pointerLockHeld: false,
+        focusGroups: [{ group: HOTBAR_FOCUS_GROUP, targets: slots }],
+        pointerLockTarget: canvas,
+      }
+
+      expect(
+        translateDomEvent(planned('mousedown'), { preventDefault: noop, button: 0, target: canvas }, context),
+      ).toStrictEqual({
+        kind: 'mousedown',
+        button: 'MouseLeft',
+        target: GAMEPLAY_LISTENER_TARGET,
+        landing: 'lock-target',
+      })
+      expect(
+        translateDomEvent(planned('mousedown'), { preventDefault: noop, button: 0, target: slots[2] }, context),
+      ).toStrictEqual({
+        kind: 'mousedown',
+        button: 'MouseLeft',
+        target: GAMEPLAY_LISTENER_TARGET,
+        landing: 'ui',
+      })
+      // `mouseup` has none, and must not grow one: a release is unconditional
+      // (`withCodeUp`), and a button released after the lock was lost has to
+      // come up wherever the cursor happens to be.
+      expect(
+        translateDomEvent(planned('mouseup'), { preventDefault: noop, button: 0, target: slots[2] }, context),
+      ).toStrictEqual({ kind: 'mouseup', button: 'MouseLeft', target: GAMEPLAY_LISTENER_TARGET })
+    }),
+  )
+})
+
+describe('REGRESSION: clicking the HUD does not take the pointer', () => {
+  /** A page with a canvas and a nine-slot hotbar over it, as a host builds one. */
+  const makePage = () => {
+    const canvas = makeFakeCanvas()
+    const slots = makeSlots(9)
+    return {
+      canvas,
+      slots,
+      focusGroups: [{ group: HOTBAR_FOCUS_GROUP, targets: slots }] as ReadonlyArray<FocusGroupTargets>,
+    }
+  }
+
+  it.effect('a click on a HOTBAR SLOT is a uiClick that does NOT ask for the lock', () =>
+    Effect.gen(function* () {
+      // The hazard end to end, through the listener the adapter really
+      // registers. A DOM HUD drawn over the canvas is the TARGET of a click on
+      // it — `event.target` is the deepest element the hit test found — so no
+      // `contains` and no `composedPath` is needed to tell the two apart.
+      const dom = makeFakeDom()
+      const page = makePage()
+      const input = yield* makeInputService()
+      installInputListeners(dom.targets, input, page.focusGroups, page.canvas)
+
+      // `tabindex="-1"` focuses on click, so this arrives first, and it is
+      // correct — it is what lights the ring.
+      dom.fire('focusin', { target: page.slots[3] })
+      dom.fire('mousedown', { button: 0, target: page.slots[3] })
+
+      const snapshot = yield* input.snapshot
+      // Still a UI click: the menu that drew the slot wants to hear about it.
+      expect([...snapshot.uiClicks]).toStrictEqual(['MouseLeft'])
+      // ...and the frame can see that it must not ask.
+      expect(snapshot.uiClickLandings).toStrictEqual([{ button: 'MouseLeft', landing: 'ui' }])
+      expect(
+        snapshot.uiClickLandings.some(({ button, landing }) =>
+          acquiresPointerLock(button, snapshot.pointerLockState, landing),
+        ),
+      ).toBe(false)
+    }),
+  )
+
+  it.effect('the ring the click LIT is still reported, because nothing locked', () =>
+    Effect.gen(function* () {
+      // The half the player sees. Before, the ring lit on `focusin` and was
+      // masked one frame later by the lock the same `mousedown` had asked for.
+      const dom = makeFakeDom()
+      const page = makePage()
+      const input = yield* makeInputService()
+      installInputListeners(dom.targets, input, page.focusGroups, page.canvas)
+
+      dom.fire('focusin', { target: page.slots[3] })
+      dom.fire('mousedown', { button: 0, target: page.slots[3] })
+
+      expect(yield* input.keyboardFocus).toStrictEqual({ group: HOTBAR_FOCUS_GROUP, index: 3 })
+      expect(page.canvas.asks()).toBe(0)
+    }),
+  )
+
+  it.effect('a click on the CANVAS does ask, so mouselook still works', () =>
+    Effect.gen(function* () {
+      const dom = makeFakeDom()
+      const page = makePage()
+      const input = yield* makeInputService()
+      installInputListeners(dom.targets, input, page.focusGroups, page.canvas)
+
+      dom.fire('mousedown', { button: 0, target: page.canvas })
+
+      const snapshot = yield* input.snapshot
+      expect(snapshot.uiClickLandings).toStrictEqual([
+        { button: 'MouseLeft', landing: 'lock-target' },
+      ])
+      expect(
+        snapshot.uiClickLandings.some(({ button, landing }) =>
+          acquiresPointerLock(button, snapshot.pointerLockState, landing),
+        ),
+      ).toBe(true)
+    }),
+  )
+
+  it.effect('a click on NEITHER does not ask — the third case, through the real listener', () =>
+    Effect.gen(function* () {
+      const dom = makeFakeDom()
+      const page = makePage()
+      const input = yield* makeInputService()
+      installInputListeners(dom.targets, input, page.focusGroups, page.canvas)
+
+      dom.fire('mousedown', { button: 0, target: { letterbox: true } })
+
+      const snapshot = yield* input.snapshot
+      expect(snapshot.uiClickLandings).toStrictEqual([
+        { button: 'MouseLeft', landing: 'elsewhere' },
+      ])
+      expect(
+        snapshot.uiClickLandings.some(({ button, landing }) =>
+          acquiresPointerLock(button, snapshot.pointerLockState, landing),
+        ),
+      ).toBe(false)
+    }),
+  )
+
+  it.effect('browserInputLayer scopes the click to the canvas it was ALREADY given', () =>
+    Effect.gen(function* () {
+      // The reason this fix costs a browser host nothing. `canvas` is the field
+      // a host already had to pass to be able to lock at all; it now also says
+      // where a click has to land to be allowed to ask. No new declaration, and
+      // no host that could not lock before changes behaviour.
+      const dom = makeFakeDom()
+      const page = makePage()
+
+      yield* Effect.gen(function* () {
+        const input = yield* InputService
+
+        dom.fire('mousedown', { button: 0, target: page.slots[0] })
+        dom.fire('mousedown', { button: 0, target: page.canvas })
+
+        expect((yield* input.snapshot).uiClickLandings).toStrictEqual([
+          { button: 'MouseLeft', landing: 'ui' },
+          { button: 'MouseLeft', landing: 'lock-target' },
+        ])
+      }).pipe(
+        Effect.provide(
+          browserInputLayer({
+            targets: dom.targets,
+            canvas: page.canvas,
+            focusGroups: page.focusGroups,
+          }),
+        ),
+      )
+    }),
+  )
+
+  it.effect('a host with NO canvas resolves every click as elsewhere, and could never lock anyway', () =>
+    Effect.gen(function* () {
+      // Not a regression for that host: with no canvas the port is
+      // `UNAVAILABLE_POINTER_LOCK`, so its clicks never produced a lock before
+      // either. What it keeps is `uiClicks`, which is all it ever read.
+      const dom = makeFakeDom()
+      const input = yield* makeInputService()
+      installInputListeners(dom.targets, input)
+
+      dom.fire('mousedown', { button: 0, target: { anything: true } })
+
+      const snapshot = yield* input.snapshot
+      expect([...snapshot.uiClicks]).toStrictEqual(['MouseLeft'])
+      expect(snapshot.uiClickLandings).toStrictEqual([
+        { button: 'MouseLeft', landing: 'elsewhere' },
+      ])
+    }),
+  )
+
+  it.effect('a click while LOCKED is a game action, and the landing decides nothing', () =>
+    Effect.gen(function* () {
+      // While locked the pointer is captured by the lock target and every event
+      // goes there by definition, so the landing is not consulted — the click
+      // joins the ordinary code space wherever the browser says it landed.
+      const dom = makeFakeDom()
+      const page = makePage()
+      const input = yield* lockedInput
+      installInputListeners(dom.targets, input, page.focusGroups, page.canvas)
+
+      dom.fire('mousedown', { button: 0, target: page.slots[3] })
+
+      expect(yield* input.wasButtonJustPressed('MouseLeft')).toBe(true)
+      expect(yield* input.isActionActive('attack')).toBe(true)
+      expect((yield* input.snapshot).uiClickLandings).toStrictEqual([])
+    }),
+  )
+
+  it.effect('no click handler EVER calls preventDefault, whatever it landed on', () =>
+    Effect.gen(function* () {
+      // The landing is an OBSERVATION. Suppressing the default on a HUD click
+      // would break the focus the click is supposed to move — and the
+      // `preventDefault` list stays at wheel and contextmenu (DN-16 §1).
+      const dom = makeFakeDom()
+      const page = makePage()
+      const input = yield* makeInputService()
+      installInputListeners(dom.targets, input, page.focusGroups, page.canvas)
+
+      dom.fire('mousedown', { button: 0, target: page.slots[3] })
+      dom.fire('mousedown', { button: 0, target: page.canvas })
+      dom.fire('mousedown', { button: 0, target: { letterbox: true } })
+
+      expect(dom.preventedDefaults()).toBe(0)
+      expect(PREVENT_DEFAULT_EVENTS).toStrictEqual(['wheel', 'contextmenu'])
     }),
   )
 })

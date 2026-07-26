@@ -22,7 +22,10 @@ import {
   defaultBindings,
   ESCAPE_KEY_CODE,
   ESCAPE_OWNER,
+  FOCUS_NAVIGATION_KEY_CODE,
+  FOCUS_NAVIGATION_OWNER,
   GAMEPLAY_LISTENER_TARGET,
+  HOTBAR_FOCUS_GROUP,
   INPUT_ACTIONS,
   isMouseButton,
   MODAL_LISTENER_TARGET,
@@ -30,9 +33,12 @@ import {
   MOUSE_BUTTONS,
   mouseButtonForIndex,
   notchesForWheelDelta,
+  CLICK_LANDINGS,
   POINTER_LOCK_ACQUIRE_BUTTON,
+  POINTER_LOCK_ACQUIRE_LANDING,
   POINTER_LOCK_STATES,
   remap,
+  reportsKeyboardFocus,
   suppressesBrowserContextMenu,
   suppressesBrowserScroll,
   WHEEL_DELTA_MODES,
@@ -43,12 +49,14 @@ import {
 } from '../domain/input-bindings'
 import {
   ESCAPE_POLICY,
+  FOCUS_NAVIGATION_POLICY,
   LISTENER_PLAN,
   makeInputService,
   UNAVAILABLE_POINTER_LOCK,
   type PointerLockPort,
   type PointerLockRequestOutcome,
 } from '../application/input-service'
+import { PREVENT_DEFAULT_EVENTS, mayPreventDefault } from '../application/browser-input-adapter'
 
 describe('REGRESSION: Escape has exactly one owner', () => {
   it.effect('the owner is the frame-level handler, recorded as a value not a comment', () =>
@@ -378,7 +386,7 @@ describe('mouse buttons are gameplay input, in the same code space as keys', () 
     Effect.gen(function* () {
       const input = yield* lockedInput
 
-      yield* input.dispatch({ kind: 'mousedown', button: 'MouseLeft', target: GAMEPLAY_LISTENER_TARGET })
+      yield* input.dispatch({ kind: 'mousedown', button: 'MouseLeft', target: GAMEPLAY_LISTENER_TARGET, landing: 'lock-target' })
       expect(yield* input.wasActionJustTriggered('attack')).toBe(true)
       expect(yield* input.wasButtonJustPressed('MouseLeft')).toBe(true)
       // Reading it twice in one frame is still the same one edge.
@@ -395,7 +403,7 @@ describe('mouse buttons are gameplay input, in the same code space as keys', () 
     Effect.gen(function* () {
       const input = yield* lockedInput
 
-      yield* input.dispatch({ kind: 'mousedown', button: 'MouseLeft', target: GAMEPLAY_LISTENER_TARGET })
+      yield* input.dispatch({ kind: 'mousedown', button: 'MouseLeft', target: GAMEPLAY_LISTENER_TARGET, landing: 'lock-target' })
       yield* input.endFrame()
       yield* input.endFrame()
 
@@ -413,8 +421,8 @@ describe('mouse buttons are gameplay input, in the same code space as keys', () 
     Effect.gen(function* () {
       const input = yield* lockedInput
 
-      yield* input.dispatch({ kind: 'mousedown', button: 'MouseLeft', target: GAMEPLAY_LISTENER_TARGET })
-      yield* input.dispatch({ kind: 'mousedown', button: 'MouseLeft', target: GAMEPLAY_LISTENER_TARGET })
+      yield* input.dispatch({ kind: 'mousedown', button: 'MouseLeft', target: GAMEPLAY_LISTENER_TARGET, landing: 'lock-target' })
+      yield* input.dispatch({ kind: 'mousedown', button: 'MouseLeft', target: GAMEPLAY_LISTENER_TARGET, landing: 'lock-target' })
 
       expect((yield* input.snapshot).justPressed.size).toBe(1)
     }),
@@ -424,7 +432,7 @@ describe('mouse buttons are gameplay input, in the same code space as keys', () 
     Effect.gen(function* () {
       const input = yield* lockedInput
 
-      yield* input.dispatch({ kind: 'mousedown', button: 'MouseRight', target: GAMEPLAY_LISTENER_TARGET })
+      yield* input.dispatch({ kind: 'mousedown', button: 'MouseRight', target: GAMEPLAY_LISTENER_TARGET, landing: 'lock-target' })
 
       expect(yield* input.wasActionJustTriggered('use')).toBe(true)
       expect(yield* input.wasActionJustTriggered('attack')).toBe(false)
@@ -436,7 +444,7 @@ describe('mouse buttons are gameplay input, in the same code space as keys', () 
     Effect.gen(function* () {
       const input = yield* lockedInput
 
-      yield* input.dispatch({ kind: 'mousedown', button: 'MouseMiddle', target: GAMEPLAY_LISTENER_TARGET })
+      yield* input.dispatch({ kind: 'mousedown', button: 'MouseMiddle', target: GAMEPLAY_LISTENER_TARGET, landing: 'lock-target' })
 
       expect(yield* input.wasActionJustTriggered('pickBlock')).toBe(true)
       expect(yield* input.wasActionJustTriggered('attack')).toBe(false)
@@ -459,7 +467,7 @@ describe('mouse buttons are gameplay input, in the same code space as keys', () 
       // MOVED the action rather than adding a second way to fire it.
       yield* input.endFrame()
       yield* input.dispatch({ kind: 'keyup', code: 'KeyB', target: GAMEPLAY_LISTENER_TARGET })
-      yield* input.dispatch({ kind: 'mousedown', button: 'MouseLeft', target: GAMEPLAY_LISTENER_TARGET })
+      yield* input.dispatch({ kind: 'mousedown', button: 'MouseLeft', target: GAMEPLAY_LISTENER_TARGET, landing: 'lock-target' })
 
       expect(yield* input.wasActionJustTriggered('attack')).toBe(false)
       expect(yield* input.isActionActive('attack')).toBe(false)
@@ -484,7 +492,7 @@ describe('mouse buttons are gameplay input, in the same code space as keys', () 
       // buttons explicitly: "no keyup/mouseup for keys/BUTTONS still held".
       const input = yield* lockedInput
 
-      yield* input.dispatch({ kind: 'mousedown', button: 'MouseLeft', target: GAMEPLAY_LISTENER_TARGET })
+      yield* input.dispatch({ kind: 'mousedown', button: 'MouseLeft', target: GAMEPLAY_LISTENER_TARGET, landing: 'lock-target' })
       expect(yield* input.isButtonDown('MouseLeft')).toBe(true)
 
       yield* input.dispatch({ kind: 'blur' })
@@ -518,12 +526,12 @@ describe('mouse buttons are gameplay input, in the same code space as keys', () 
 
       // The click that brings the window back is a UI click — which is what
       // ASKS for the lock again — and fires no game action.
-      yield* input.dispatch({ kind: 'mousedown', button: 'MouseLeft', target: GAMEPLAY_LISTENER_TARGET })
+      yield* input.dispatch({ kind: 'mousedown', button: 'MouseLeft', target: GAMEPLAY_LISTENER_TARGET, landing: 'lock-target' })
 
       expect(yield* input.wasUiClick('MouseLeft')).toBe(true)
       expect(yield* input.wasActionJustTriggered('attack')).toBe(false)
       expect(yield* input.isActionActive('attack')).toBe(false)
-      expect(acquiresPointerLock('MouseLeft', yield* input.pointerLockState)).toBe(true)
+      expect(acquiresPointerLock('MouseLeft', yield* input.pointerLockState, 'lock-target')).toBe(true)
     }),
   )
 
@@ -563,7 +571,7 @@ describe('mouse buttons are gameplay input, in the same code space as keys', () 
     Effect.gen(function* () {
       const input = yield* lockedInput
 
-      yield* input.dispatch({ kind: 'mousedown', button: 'MouseLeft', target: MODAL_LISTENER_TARGET })
+      yield* input.dispatch({ kind: 'mousedown', button: 'MouseLeft', target: MODAL_LISTENER_TARGET, landing: 'lock-target' })
 
       expect(yield* input.wasActionJustTriggered('attack')).toBe(false)
       expect(yield* input.isButtonDown('MouseLeft')).toBe(false)
@@ -577,7 +585,7 @@ describe('REGRESSION: a click means different things locked and unlocked', () =>
     Effect.gen(function* () {
       const input = yield* lockedInput
 
-      yield* input.dispatch({ kind: 'mousedown', button: 'MouseRight', target: GAMEPLAY_LISTENER_TARGET })
+      yield* input.dispatch({ kind: 'mousedown', button: 'MouseRight', target: GAMEPLAY_LISTENER_TARGET, landing: 'lock-target' })
 
       expect(yield* input.wasActionJustTriggered('use')).toBe(true)
       expect(yield* input.wasUiClick('MouseRight')).toBe(false)
@@ -588,7 +596,7 @@ describe('REGRESSION: a click means different things locked and unlocked', () =>
     Effect.gen(function* () {
       const input = yield* makeInputService()
 
-      yield* input.dispatch({ kind: 'mousedown', button: 'MouseLeft', target: GAMEPLAY_LISTENER_TARGET })
+      yield* input.dispatch({ kind: 'mousedown', button: 'MouseLeft', target: GAMEPLAY_LISTENER_TARGET, landing: 'lock-target' })
 
       expect(yield* input.wasActionJustTriggered('attack')).toBe(false)
       expect(yield* input.isActionActive('attack')).toBe(false)
@@ -603,7 +611,7 @@ describe('REGRESSION: a click means different things locked and unlocked', () =>
       // which is the same left-click that breaks a block one frame later.
       const input = yield* makeInputService()
 
-      yield* input.dispatch({ kind: 'mousedown', button: 'MouseLeft', target: GAMEPLAY_LISTENER_TARGET })
+      yield* input.dispatch({ kind: 'mousedown', button: 'MouseLeft', target: GAMEPLAY_LISTENER_TARGET, landing: 'lock-target' })
 
       expect(yield* input.wasUiClick('MouseLeft')).toBe(true)
       expect((yield* input.snapshot).uiClicks.has('MouseLeft')).toBe(true)
@@ -614,7 +622,7 @@ describe('REGRESSION: a click means different things locked and unlocked', () =>
     Effect.gen(function* () {
       const input = yield* makeInputService()
 
-      yield* input.dispatch({ kind: 'mousedown', button: 'MouseLeft', target: GAMEPLAY_LISTENER_TARGET })
+      yield* input.dispatch({ kind: 'mousedown', button: 'MouseLeft', target: GAMEPLAY_LISTENER_TARGET, landing: 'lock-target' })
       yield* input.endFrame()
 
       expect(yield* input.wasUiClick('MouseLeft')).toBe(false)
@@ -628,7 +636,7 @@ describe('REGRESSION: a click means different things locked and unlocked', () =>
       // mouseup is coming, because the next click goes to the menu.
       const input = yield* lockedInput
 
-      yield* input.dispatch({ kind: 'mousedown', button: 'MouseLeft', target: GAMEPLAY_LISTENER_TARGET })
+      yield* input.dispatch({ kind: 'mousedown', button: 'MouseLeft', target: GAMEPLAY_LISTENER_TARGET, landing: 'lock-target' })
       expect(yield* input.isActionActive('attack')).toBe(true)
 
       yield* input.dispatch({ kind: 'pointerlockchange', locked: false })
@@ -653,7 +661,7 @@ describe('REGRESSION: a click means different things locked and unlocked', () =>
     Effect.gen(function* () {
       const input = yield* lockedInput
 
-      yield* input.dispatch({ kind: 'mousedown', button: 'MouseLeft', target: GAMEPLAY_LISTENER_TARGET })
+      yield* input.dispatch({ kind: 'mousedown', button: 'MouseLeft', target: GAMEPLAY_LISTENER_TARGET, landing: 'lock-target' })
       yield* input.dispatch({ kind: 'pointerlockchange', locked: false })
       yield* input.dispatch({ kind: 'mouseup', button: 'MouseLeft', target: GAMEPLAY_LISTENER_TARGET })
 
@@ -697,7 +705,7 @@ describe('REGRESSION: the browser context menu', () => {
       // fires `use` twice for one click.
       const input = yield* lockedInput
 
-      yield* input.dispatch({ kind: 'mousedown', button: 'MouseRight', target: GAMEPLAY_LISTENER_TARGET })
+      yield* input.dispatch({ kind: 'mousedown', button: 'MouseRight', target: GAMEPLAY_LISTENER_TARGET, landing: 'lock-target' })
       yield* input.dispatch({ kind: 'contextmenu', target: GAMEPLAY_LISTENER_TARGET })
 
       expect((yield* input.snapshot).justPressed.size).toBe(1)
@@ -1302,7 +1310,7 @@ describe('REGRESSION: pointer lock is a REQUEST, and a request can be refused', 
       expect(yield* input.pointerLockState).toBe('unlocked')
       // ...so a click is once again the gesture that asks, and the ask reaches
       // the port a SECOND time.
-      expect(acquiresPointerLock('MouseLeft', yield* input.pointerLockState)).toBe(true)
+      expect(acquiresPointerLock('MouseLeft', yield* input.pointerLockState, 'lock-target')).toBe(true)
       expect(yield* input.requestPointerLock).toBe('requested')
       expect(yield* Ref.get(asked)).toBe(2)
     }),
@@ -1361,14 +1369,145 @@ describe('REGRESSION: pointer lock is a REQUEST, and a request can be refused', 
       // a paste or an autoscroll; grabbing the pointer from either takes away
       // the menu the player was trying to use.
       expect(POINTER_LOCK_ACQUIRE_BUTTON).toBe('MouseLeft')
-      expect(acquiresPointerLock('MouseLeft', 'unlocked')).toBe(true)
+      expect(acquiresPointerLock('MouseLeft', 'unlocked', 'lock-target')).toBe(true)
       // A refusal usually means the last attempt lacked a user gesture; a click
       // is exactly the gesture that fixes it.
-      expect(acquiresPointerLock('MouseLeft', 'refused')).toBe(true)
-      expect(acquiresPointerLock('MouseLeft', 'requested')).toBe(false)
-      expect(acquiresPointerLock('MouseLeft', 'locked')).toBe(false)
-      expect(acquiresPointerLock('MouseRight', 'unlocked')).toBe(false)
-      expect(acquiresPointerLock('MouseMiddle', 'unlocked')).toBe(false)
+      expect(acquiresPointerLock('MouseLeft', 'refused', 'lock-target')).toBe(true)
+      expect(acquiresPointerLock('MouseLeft', 'requested', 'lock-target')).toBe(false)
+      expect(acquiresPointerLock('MouseLeft', 'locked', 'lock-target')).toBe(false)
+      expect(acquiresPointerLock('MouseRight', 'unlocked', 'lock-target')).toBe(false)
+      expect(acquiresPointerLock('MouseMiddle', 'unlocked', 'lock-target')).toBe(false)
+    }),
+  )
+
+  // ---------------------------------------------------------------------------
+  // DN-16 §5(b): the predicate learned WHERE
+  // ---------------------------------------------------------------------------
+
+  it.effect('DN-16 §5(b): only a click on the LOCK TARGET asks — a HUD click does not', () =>
+    Effect.sync(() => {
+      // The hazard as a truth table. The predicate used to be `(button, state)`
+      // and every one of these rows was `true` for the left button.
+      expect(POINTER_LOCK_ACQUIRE_LANDING).toBe('lock-target')
+      expect(acquiresPointerLock('MouseLeft', 'unlocked', 'lock-target')).toBe(true)
+      expect(acquiresPointerLock('MouseLeft', 'unlocked', 'ui')).toBe(false)
+      expect(acquiresPointerLock('MouseLeft', 'refused', 'ui')).toBe(false)
+    }),
+  )
+
+  it.effect('DN-16 §5(b): a click on NEITHER asks for nothing — the rule is "on the lock target", not "not on UI"', () =>
+    Effect.sync(() => {
+      // THE choice DN-16 §5(b) left open, as one assertion. `!== 'ui'` and
+      // `=== 'lock-target'` agree on the first two landings and disagree here,
+      // and this is where the argument lands: a rule stated as "not UI" grants
+      // the pointer to everything the host failed to declare — the letterbox
+      // beside a fixed-aspect canvas, a header, the page background — and the
+      // cost of forgetting a declaration is a player thrown into mouselook.
+      // Stated as "on the lock target", the cost of forgetting one is mouselook
+      // that does not engage: visible immediately, and not disorienting.
+      expect(acquiresPointerLock('MouseLeft', 'unlocked', 'elsewhere')).toBe(false)
+      expect(acquiresPointerLock('MouseLeft', 'refused', 'elsewhere')).toBe(false)
+      // `ui` and `elsewhere` decide the same and are still two names, so that a
+      // lock target whose identity stopped matching (a host handing over a
+      // wrapper) is distinguishable from a correct refusal on the HUD.
+      expect(CLICK_LANDINGS).toStrictEqual(['lock-target', 'ui', 'elsewhere'])
+    }),
+  )
+
+  it.effect('DN-16 §5(b): the landing does not decide whether it is a uiClick — every unlocked click is one', () =>
+    Effect.gen(function* () {
+      // Filtering the HUD click out of `uiClicks` would have been the cheap
+      // fix and the wrong one: the menu that drew the element is exactly what
+      // wants to hear about a click on it.
+      const input = yield* makeInputService()
+
+      yield* input.dispatch({ kind: 'mousedown', button: 'MouseLeft', target: GAMEPLAY_LISTENER_TARGET, landing: 'ui' })
+
+      expect(yield* input.wasUiClick('MouseLeft')).toBe(true)
+      expect([...(yield* input.snapshot).uiClicks]).toStrictEqual(['MouseLeft'])
+      // ...and it is NOT a gameplay click either, exactly as before.
+      expect(yield* input.wasActionJustTriggered('attack')).toBe(false)
+      expect(yield* input.isActionActive('attack')).toBe(false)
+      // What changed is that the frame can now tell where it landed.
+      expect((yield* input.snapshot).uiClickLandings).toStrictEqual([
+        { button: 'MouseLeft', landing: 'ui' },
+      ])
+    }),
+  )
+
+  it.effect('DN-16 §5(b): two clicks in ONE frame keep their own landings', () =>
+    Effect.gen(function* () {
+      // The reason the reading is a list of PAIRS and not a second set. A
+      // player can click a hotbar slot and then the canvas inside one frame,
+      // and a shape that lost the pairing would let one landing answer for
+      // both — which is the hazard again, with an extra step.
+      const input = yield* makeInputService()
+
+      yield* input.dispatch({ kind: 'mousedown', button: 'MouseLeft', target: GAMEPLAY_LISTENER_TARGET, landing: 'ui' })
+      yield* input.dispatch({ kind: 'mousedown', button: 'MouseLeft', target: GAMEPLAY_LISTENER_TARGET, landing: 'lock-target' })
+
+      const snapshot = yield* input.snapshot
+      expect(snapshot.uiClickLandings).toStrictEqual([
+        { button: 'MouseLeft', landing: 'ui' },
+        { button: 'MouseLeft', landing: 'lock-target' },
+      ])
+      // One button, so the projection is still one entry — the two readings
+      // answer two different questions and cannot disagree about the first.
+      expect([...snapshot.uiClicks]).toStrictEqual(['MouseLeft'])
+    }),
+  )
+
+  it.effect('DN-16 §5(b): one physical click delivered twice is ONE ui click, landing and all', () =>
+    Effect.gen(function* () {
+      // The same guard `withCodeDown` puts on the `justPressed` edge, applied
+      // to the pair: a duplicate `mousedown` must not become two clicks.
+      const input = yield* makeInputService()
+
+      yield* input.dispatch({ kind: 'mousedown', button: 'MouseLeft', target: GAMEPLAY_LISTENER_TARGET, landing: 'ui' })
+      yield* input.dispatch({ kind: 'mousedown', button: 'MouseLeft', target: GAMEPLAY_LISTENER_TARGET, landing: 'ui' })
+
+      expect((yield* input.snapshot).uiClickLandings).toStrictEqual([
+        { button: 'MouseLeft', landing: 'ui' },
+      ])
+    }),
+  )
+
+  it.effect('DN-16 §5(b): endFrame clears the landings with the clicks, because both are the same edge', () =>
+    Effect.gen(function* () {
+      const input = yield* makeInputService()
+
+      yield* input.dispatch({ kind: 'mousedown', button: 'MouseLeft', target: GAMEPLAY_LISTENER_TARGET, landing: 'lock-target' })
+      const frame = yield* input.snapshot
+      yield* input.endFrame(frame)
+
+      const next = yield* input.snapshot
+      expect([...next.uiClicks]).toStrictEqual([])
+      expect(next.uiClickLandings).toStrictEqual([])
+    }),
+  )
+
+  it.effect('DN-16 §5(b): a HUD click does NOT mask the focus ring, and a canvas click does', () =>
+    Effect.gen(function* () {
+      // The two halves of the symptom, in one place. Clicking a hotbar slot lit
+      // the ring (`tabindex="-1"` focuses on click) and then took the pointer,
+      // which masked it — the player saw the ring flash and vanish, and was in
+      // mouselook. Half one: the ring survives the HUD click.
+      const input = yield* makeInputService()
+
+      yield* input.dispatch({
+        kind: 'focuschange',
+        focus: { group: HOTBAR_FOCUS_GROUP, index: 3 },
+      })
+      yield* input.dispatch({ kind: 'mousedown', button: 'MouseLeft', target: GAMEPLAY_LISTENER_TARGET, landing: 'ui' })
+
+      expect(yield* input.pointerLockState).toBe('unlocked')
+      expect(yield* input.keyboardFocus).toStrictEqual({ group: HOTBAR_FOCUS_GROUP, index: 3 })
+
+      // Half two: the mask itself is untouched. A test that only checked the
+      // first half would pass if the report had stopped following the lock
+      // state at all, which would be a different bug wearing this one's face.
+      yield* input.dispatch({ kind: 'pointerlockchange', locked: true })
+      expect(yield* input.keyboardFocus).toBeUndefined()
     }),
   )
 
@@ -1378,11 +1517,11 @@ describe('REGRESSION: pointer lock is a REQUEST, and a request can be refused', 
       // also break a block.
       const input = yield* makeInputService()
 
-      yield* input.dispatch({ kind: 'mousedown', button: 'MouseLeft', target: GAMEPLAY_LISTENER_TARGET })
+      yield* input.dispatch({ kind: 'mousedown', button: 'MouseLeft', target: GAMEPLAY_LISTENER_TARGET, landing: 'lock-target' })
 
       expect(yield* input.wasUiClick('MouseLeft')).toBe(true)
       expect(yield* input.wasActionJustTriggered('attack')).toBe(false)
-      expect(acquiresPointerLock('MouseLeft', yield* input.pointerLockState)).toBe(true)
+      expect(acquiresPointerLock('MouseLeft', yield* input.pointerLockState, 'lock-target')).toBe(true)
     }),
   )
 
@@ -1393,6 +1532,400 @@ describe('REGRESSION: pointer lock is a REQUEST, and a request can be refused', 
       expect(entry).toBeDefined()
       expect(entry?.target).toBe('document')
       expect(entry?.note).toContain('requestPointerLock')
+    }),
+  )
+})
+
+// ---------------------------------------------------------------------------
+// Keyboard focus
+// ---------------------------------------------------------------------------
+
+/** mx-ui's hotbar slot 3, as this repository names it. 0-based. */
+const HOTBAR_SLOT_3 = { group: HOTBAR_FOCUS_GROUP, index: 3 } as const
+
+describe('REGRESSION: keyboard focus is observed, never moved and never suppressed', () => {
+  it.effect('a focus change is visible in the snapshot — the half mx-ui was waiting for', () =>
+    Effect.gen(function* () {
+      // mx-ui built the ring, the roving tabindex and `setKeyboardFocus`, and
+      // then stopped: moving focus and observing it are input, and input is
+      // this repository's. Until this line held, a player who pressed Tab saw
+      // the user agent's ring instead of the palette's, because nothing told
+      // mx-ui the keyboard had arrived.
+      const input = yield* makeInputService()
+
+      expect((yield* input.snapshot).keyboardFocus).toBeUndefined()
+
+      yield* input.dispatch({ kind: 'focuschange', focus: HOTBAR_SLOT_3 })
+
+      expect((yield* input.snapshot).keyboardFocus).toStrictEqual(HOTBAR_SLOT_3)
+      expect(yield* input.keyboardFocus).toStrictEqual(HOTBAR_SLOT_3)
+    }),
+  )
+
+  it.effect('focus leaving the group is undefined and NOT slot zero', () =>
+    Effect.gen(function* () {
+      // The asymmetry mx-ui's `setKeyboardFocus` has and this must not lose:
+      // `undefined` hides every ring, `0` LIGHTS slot 0. Reporting a departure
+      // as slot 0 would make the ring follow the player to the address bar.
+      const input = yield* makeInputService()
+      yield* input.dispatch({ kind: 'focuschange', focus: HOTBAR_SLOT_3 })
+
+      yield* input.dispatch({ kind: 'focuschange', focus: undefined })
+
+      expect((yield* input.snapshot).keyboardFocus).toBeUndefined()
+      expect((yield* input.snapshot).keyboardFocus).not.toStrictEqual({
+        group: HOTBAR_FOCUS_GROUP,
+        index: 0,
+      })
+    }),
+  )
+
+  it.effect('a move REPLACES rather than accumulating — focus is single-valued', () =>
+    Effect.gen(function* () {
+      const input = yield* makeInputService()
+
+      // Exactly what the DOM does for one Tab press: focusout from the old
+      // element, focusin on the new one, same task, in that order.
+      yield* input.dispatch({ kind: 'focuschange', focus: HOTBAR_SLOT_3 })
+      yield* input.dispatch({ kind: 'focuschange', focus: undefined })
+      yield* input.dispatch({ kind: 'focuschange', focus: { group: HOTBAR_FOCUS_GROUP, index: 4 } })
+
+      expect((yield* input.snapshot).keyboardFocus).toStrictEqual({
+        group: HOTBAR_FOCUS_GROUP,
+        index: 4,
+      })
+    }),
+  )
+
+  it.effect('endFrame does NOT clear it: focus is a LEVEL, like pressed and unlike justPressed', () =>
+    Effect.gen(function* () {
+      // The rule this had to be consistent with. `endFrame` clears EDGES —
+      // `justPressed`, `uiClicks`, the pointer delta — and leaves LEVELS alone.
+      // Focus does not happen, focus IS: a ring cleared at the frame boundary
+      // would flicker at the refresh rate.
+      const input = yield* makeInputService()
+      yield* input.dispatch({ kind: 'keydown', code: 'KeyW', target: GAMEPLAY_LISTENER_TARGET })
+      yield* input.dispatch({ kind: 'focuschange', focus: HOTBAR_SLOT_3 })
+
+      const frame = yield* input.snapshot
+      yield* input.endFrame(frame)
+      const next = yield* input.snapshot
+
+      expect(next.justPressed.size).toBe(0)
+      expect(next.pressed.has('KeyW')).toBe(true)
+      expect(next.keyboardFocus).toStrictEqual(HOTBAR_SLOT_3)
+
+      // And it survives an arbitrary number of them, because nothing consumes it.
+      yield* input.endFrame(next)
+      yield* input.endFrame(yield* input.snapshot)
+      expect((yield* input.snapshot).keyboardFocus).toStrictEqual(HOTBAR_SLOT_3)
+    }),
+  )
+
+  it.effect('blur PRESERVES it — the browser does not move focus when the window loses it', () =>
+    Effect.gen(function* () {
+      // The one thing a blur does not clear, and the exception is deliberate.
+      // A window losing focus does not move the DOM focus inside it: the
+      // browser restores the same element on return, usually without
+      // re-announcing it. Clearing here would hide the ring on a tab switch and
+      // never bring it back — mc-render's report and the browser's actual focus
+      // would disagree, which is the failure this whole feature exists to fix.
+      const input = yield* makeInputService()
+      yield* input.dispatch({ kind: 'keydown', code: 'KeyW', target: GAMEPLAY_LISTENER_TARGET })
+      yield* input.dispatch({ kind: 'focuschange', focus: HOTBAR_SLOT_3 })
+
+      yield* input.dispatch({ kind: 'blur' })
+
+      const after = yield* input.snapshot
+      expect(after.pressed.has('KeyW')).toBe(false)
+      expect(after.keyboardFocus).toStrictEqual(HOTBAR_SLOT_3)
+    }),
+  )
+
+  it.effect('clearHeld preserves it too, for the same reason', () =>
+    Effect.gen(function* () {
+      const input = yield* makeInputService()
+      yield* input.dispatch({ kind: 'focuschange', focus: HOTBAR_SLOT_3 })
+      yield* input.dispatch({ kind: 'keydown', code: 'Space', target: GAMEPLAY_LISTENER_TARGET })
+
+      yield* input.clearHeld
+
+      const after = yield* input.snapshot
+      expect(after.pressed.size).toBe(0)
+      expect(after.keyboardFocus).toStrictEqual(HOTBAR_SLOT_3)
+    }),
+  )
+
+  it.effect('a real focusout DOES clear it, so the ring does not follow the player out', () =>
+    Effect.gen(function* () {
+      const input = yield* makeInputService()
+      yield* input.dispatch({ kind: 'focuschange', focus: HOTBAR_SLOT_3 })
+
+      // What the adapter translates a `focusout` with no following `focusin`
+      // into: the keyboard left and did not arrive anywhere this host named.
+      yield* input.dispatch({ kind: 'focuschange', focus: undefined })
+
+      expect((yield* input.snapshot).keyboardFocus).toBeUndefined()
+    }),
+  )
+
+  it.effect('focus is NOT reported while the pointer is LOCKED — Tab then is not navigation', () =>
+    Effect.gen(function* () {
+      // The seam, and it is the one `withButtonDown` already draws for clicks:
+      // locked, the keys drive an avatar and the player is looking at a world.
+      // A ring lit on a hotbar slot then is a lie about what the next key press
+      // will do.
+      const input = yield* makeInputService()
+      yield* input.dispatch({ kind: 'focuschange', focus: HOTBAR_SLOT_3 })
+      yield* input.dispatch({ kind: 'pointerlockchange', locked: true })
+
+      expect((yield* input.snapshot).keyboardFocus).toBeUndefined()
+      expect(yield* input.keyboardFocus).toBeUndefined()
+    }),
+  )
+
+  it.effect('a focus change ARRIVING while locked is still not reported', () =>
+    Effect.gen(function* () {
+      const input = yield* makeInputService()
+      yield* input.dispatch({ kind: 'pointerlockchange', locked: true })
+
+      yield* input.dispatch({ kind: 'focuschange', focus: HOTBAR_SLOT_3 })
+
+      expect((yield* input.snapshot).keyboardFocus).toBeUndefined()
+    }),
+  )
+
+  it.effect('REGRESSION: the lock MASKS the focus, it does not forget it', () =>
+    Effect.gen(function* () {
+      // The bug the mask exists to avoid, played out: Tab to slot 3, click in
+      // to look around, press Escape. The browser never moved the focus — it
+      // cannot, the pointer lock does not touch the keyboard — so on unlock the
+      // ring must come back where it was. A service that CLEARED on lock would
+      // show a ring on nothing while the player's next Space activated slot 3.
+      const input = yield* makeInputService()
+      yield* input.dispatch({ kind: 'focuschange', focus: HOTBAR_SLOT_3 })
+      yield* input.dispatch({ kind: 'pointerlockchange', locked: true })
+      expect((yield* input.snapshot).keyboardFocus).toBeUndefined()
+
+      yield* input.dispatch({ kind: 'pointerlockchange', locked: false })
+
+      expect((yield* input.snapshot).keyboardFocus).toStrictEqual(HOTBAR_SLOT_3)
+    }),
+  )
+
+  it.effect('a blur DURING a locked session leaves the focus recoverable as well', () =>
+    Effect.gen(function* () {
+      // Blur ends the locked session (it sets `unlocked`), so this is the mask
+      // lifting by the other route. Both routes must agree, or the ring would
+      // depend on how the player left mouselook.
+      const input = yield* makeInputService()
+      yield* input.dispatch({ kind: 'focuschange', focus: HOTBAR_SLOT_3 })
+      yield* input.dispatch({ kind: 'pointerlockchange', locked: true })
+
+      yield* input.dispatch({ kind: 'blur' })
+
+      expect((yield* input.snapshot).pointerLockState).toBe('unlocked')
+      expect((yield* input.snapshot).keyboardFocus).toStrictEqual(HOTBAR_SLOT_3)
+    }),
+  )
+
+  it.effect('the mask is exactly `locked`: requested and refused still report', () =>
+    Effect.sync(() => {
+      // `requested` has captured nothing yet — a ring that blinked out for the
+      // browser's round trip would blink straight back. `refused` is a state in
+      // which DOM UI is the ONLY thing the player has.
+      expect(POINTER_LOCK_STATES.filter((state) => !reportsKeyboardFocus(state))).toStrictEqual([
+        'locked',
+      ])
+      expect(reportsKeyboardFocus('unlocked')).toBe(true)
+      expect(reportsKeyboardFocus('requested')).toBe(true)
+      expect(reportsKeyboardFocus('refused')).toBe(true)
+      expect(reportsKeyboardFocus('locked')).toBe(false)
+    }),
+  )
+
+  it.effect('a refused lock still reports focus — the DOM UI is all the player has', () =>
+    Effect.gen(function* () {
+      const input = yield* makeInputService()
+      yield* input.dispatch({ kind: 'focuschange', focus: HOTBAR_SLOT_3 })
+
+      yield* input.dispatch({ kind: 'pointerlockerror' })
+
+      expect((yield* input.snapshot).pointerLockState).toBe('refused')
+      expect((yield* input.snapshot).keyboardFocus).toStrictEqual(HOTBAR_SLOT_3)
+    }),
+  )
+
+  it.effect('the group is carried, so focus on OTHER UI is not focus on the hotbar', () =>
+    Effect.gen(function* () {
+      // Why `FocusTarget` is not a bare number. mx-ui's hotbar has to be told
+      // `undefined` when the keyboard goes to a settings button, and a report
+      // that said only "index 2" could not distinguish the two.
+      const input = yield* makeInputService()
+
+      yield* input.dispatch({ kind: 'focuschange', focus: { group: 'settings', index: 2 } })
+
+      const focus = (yield* input.snapshot).keyboardFocus
+      expect(focus?.group).toBe('settings')
+      expect(focus?.group).not.toBe(HOTBAR_FOCUS_GROUP)
+    }),
+  )
+})
+
+describe('REGRESSION: Tab belongs to the user agent, and is never taken away', () => {
+  it.effect('the owner is the user agent, recorded as a value not a comment', () =>
+    Effect.sync(() => {
+      expect(FOCUS_NAVIGATION_POLICY.key).toBe(FOCUS_NAVIGATION_KEY_CODE)
+      expect(FOCUS_NAVIGATION_POLICY.key).toBe('Tab')
+      expect(FOCUS_NAVIGATION_POLICY.owner).toBe(FOCUS_NAVIGATION_OWNER)
+      expect(FOCUS_NAVIGATION_POLICY.owner).toBe('user-agent')
+      // The one field the rest of the record exists to protect.
+      expect(FOCUS_NAVIGATION_POLICY.preventDefault).toBe(false)
+    }),
+  )
+
+  it.effect('NOTHING suppresses Tab: the preventDefault list stays at wheel and contextmenu', () =>
+    Effect.sync(() => {
+      // A suppressed context menu costs a player "copy" on a chat line; a
+      // suppressed scroll costs them the bottom of a settings screen; a
+      // suppressed Tab costs them every way out of the canvas — including the
+      // settings screen that would let them rebind their way out of it
+      // (WCAG 2.1 SC 2.1.2). So this list must not grow a key event at all.
+      expect([...PREVENT_DEFAULT_EVENTS].sort()).toStrictEqual(['contextmenu', 'wheel'])
+      expect(mayPreventDefault('keydown')).toBe(false)
+      expect(mayPreventDefault('keyup')).toBe(false)
+      expect(mayPreventDefault('focusin')).toBe(false)
+      expect(mayPreventDefault('focusout')).toBe(false)
+    }),
+  )
+
+  it.effect('there is NO Tab listener: the browser moves focus and this repository watches', () =>
+    Effect.sync(() => {
+      // The plan registers no key handler dedicated to Tab, and it must not:
+      // implementing Tab would mean reimplementing the platform's focus order,
+      // and then `preventDefault()` to stop the platform running its own.
+      expect(LISTENER_PLAN.some((planned) => planned.event.toLowerCase().includes('tab'))).toBe(false)
+      expect(FOCUS_NAVIGATION_POLICY.registeredBy).toContain('focusin')
+    }),
+  )
+
+  it.effect('Tab cannot be bound to an action — the owner that cannot be removed gets no second', () =>
+    Effect.sync(() => {
+      const outcome = remap(defaultBindings(), 'jump', FOCUS_NAVIGATION_KEY_CODE)
+
+      expect(outcome.kind).toBe('rejected')
+      expect(outcome.kind === 'rejected' ? outcome.rejection.reason : undefined).toBe(
+        'key-reserved-by-user-agent',
+      )
+    }),
+  )
+
+  it.effect('a rejected Tab rebind leaves the service state untouched', () =>
+    Effect.gen(function* () {
+      const input = yield* makeInputService()
+
+      const outcome = yield* input.rebind('attack', FOCUS_NAVIGATION_KEY_CODE)
+
+      expect(outcome.kind).toBe('rejected')
+      expect((yield* input.bindings)['attack']).toBe('MouseLeft')
+    }),
+  )
+
+  it.effect('actionForKey never resolves Tab, even from a corrupt persisted blob', () =>
+    Effect.sync(() => {
+      // `remap` refuses to WRITE it; this is the other door. A settings blob
+      // written before the rule existed, or by hand, arrives here directly.
+      const corrupt = { ...defaultBindings(), jump: FOCUS_NAVIGATION_KEY_CODE }
+
+      expect(actionForKey(corrupt, FOCUS_NAVIGATION_KEY_CODE)).toBeUndefined()
+      expect(actionForKey(corrupt, 'KeyW')).toBe('moveForward')
+    }),
+  )
+
+  it.effect('no default binding uses Tab, and none uses Escape', () =>
+    Effect.sync(() => {
+      const bound = Object.values(defaultBindings())
+
+      expect(bound).not.toContain(FOCUS_NAVIGATION_KEY_CODE)
+      expect(bound).not.toContain(ESCAPE_KEY_CODE)
+    }),
+  )
+
+  it.effect('a Tab keydown still reaches the service as an ordinary held code', () =>
+    Effect.gen(function* () {
+      // Not swallowed, not special-cased, not prevented. It simply drives no
+      // action, exactly as Escape does — and the browser has already moved the
+      // focus by the time this is recorded.
+      const input = yield* makeInputService()
+
+      yield* input.dispatch({
+        kind: 'keydown',
+        code: FOCUS_NAVIGATION_KEY_CODE,
+        target: GAMEPLAY_LISTENER_TARGET,
+      })
+
+      const snapshot = yield* input.snapshot
+      expect(snapshot.pressed.has('Tab')).toBe(true)
+      for (const action of INPUT_ACTIONS) {
+        expect(yield* input.isActionActive(action)).toBe(false)
+      }
+    }),
+  )
+
+  it.effect('Escape and Tab have OPPOSITE policy shapes, and that is the design', () =>
+    Effect.sync(() => {
+      // Escape's owner is one this codebase chose and could move: a frame-level
+      // handler inside the app. Tab's owner is outside the app and cannot be
+      // moved, only overridden — which is the keyboard trap. So one policy
+      // names an owner inside and forbids a second; the other names an owner
+      // outside and forbids the app from becoming one.
+      expect(ESCAPE_POLICY.owner).toBe('frame-handler')
+      expect(FOCUS_NAVIGATION_POLICY.owner).toBe('user-agent')
+      expect(FOCUS_NAVIGATION_POLICY.rationale).toContain('2.1.2')
+    }),
+  )
+})
+
+describe('the focus listeners are planned, on the target the browser dispatches them to', () => {
+  it.effect('focusin and focusout are both registered, and on document', () =>
+    Effect.sync(() => {
+      const focusin = LISTENER_PLAN.find((planned) => planned.event === 'focusin')
+      const focusout = LISTENER_PLAN.find((planned) => planned.event === 'focusout')
+
+      expect(focusin).toBeDefined()
+      expect(focusout).toBeDefined()
+      expect(focusin?.target).toBe(MODAL_LISTENER_TARGET)
+      expect(focusout?.target).toBe(MODAL_LISTENER_TARGET)
+    }),
+  )
+
+  it.effect('they are focusIN and focusOUT, because only those two BUBBLE', () =>
+    Effect.sync(() => {
+      // `focus` and `blur` do not bubble, so covering the hotbar with them would
+      // mean a listener on every slot mx-ui creates — i.e. this repository
+      // knowing about elements it does not own, and re-installing whenever the
+      // HUD rebuilt. One listener on `document` covers slots that do not exist
+      // yet.
+      const events = LISTENER_PLAN.map((planned) => planned.event)
+
+      expect(events).toContain('focusin')
+      expect(events).toContain('focusout')
+      expect(events.filter((event) => event === 'focus')).toStrictEqual([])
+      expect(LISTENER_PLAN.find((planned) => planned.event === 'focusin')?.note).toContain('bubbles')
+    }),
+  )
+
+  it.effect('the focus listeners are NOT gameplay listeners — no code goes on document', () =>
+    Effect.sync(() => {
+      // The shielding rule is about keys and buttons. Focus events join the
+      // pointer and wheel events on `document`: they do not participate, and
+      // nothing about them moves a gameplay listener off `window`.
+      const gameplay = LISTENER_PLAN.filter((planned) =>
+        ['keydown', 'keyup', 'mousedown', 'mouseup', 'blur'].includes(planned.event),
+      )
+
+      expect(gameplay).toHaveLength(5)
+      expect(gameplay.every((planned) => planned.target === GAMEPLAY_LISTENER_TARGET)).toBe(true)
     }),
   )
 })

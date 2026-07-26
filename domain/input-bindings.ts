@@ -429,6 +429,24 @@ export const ESCAPE_OWNER = 'frame-handler' as const
 /** The key code the frame-level handler owns. */
 export const ESCAPE_KEY_CODE: KeyCode = 'Escape'
 
+/**
+ * WHO OWNS TAB. Not this repository, and not the game.
+ *
+ * `'user-agent'` means: the BROWSER moves focus on Tab, this repository never
+ * calls `preventDefault()` on it, and no binding may claim it. The full
+ * argument is with `FocusTarget` at the foot of this file; the short form is
+ * that Escape's owner is one we chose and Tab's is one we cannot dislodge.
+ *
+ * A player CAN still be given a player-list key — vanilla's Tab — by binding
+ * any other code to it. What they cannot be given is a Tab that means two
+ * things, because the only way to stop the browser's meaning is to take the
+ * key away, and taking Tab away traps every keyboard user in the canvas.
+ */
+export const FOCUS_NAVIGATION_OWNER = 'user-agent' as const
+
+/** The key code the user agent owns. Never bindable; never suppressed. */
+export const FOCUS_NAVIGATION_KEY_CODE: KeyCode = 'Tab'
+
 export type Bindings = Readonly<Record<string, InputCode>>
 
 export const defaultBindings = (): Bindings => ({ ...DEFAULT_BINDINGS })
@@ -443,7 +461,11 @@ export const bindingFor = (bindings: Bindings, action: InputAction): InputCode |
   action === 'escape' ? undefined : bindings[action]
 
 export type RemapRejection = {
-  readonly reason: 'escape-is-not-bindable' | 'key-already-bound' | 'unknown-action'
+  readonly reason:
+    | 'escape-is-not-bindable'
+    | 'key-reserved-by-user-agent'
+    | 'key-already-bound'
+    | 'unknown-action'
   readonly message: string
 }
 
@@ -458,13 +480,20 @@ export type RemapOutcome =
  * rejected rebind is an ordinary outcome that the UI shows to the player, not
  * an exceptional one.
  *
- * Three rejections, in priority order:
+ * Four rejections, in priority order:
  *
  * 1. `escape-is-not-bindable` — neither as the action nor as the key. Allowing
  *    a second Escape owner is precisely the bug the ownership rule prevents.
- * 2. `unknown-action` — the action is not in `INPUT_ACTIONS`. Reachable at run
+ * 2. `key-reserved-by-user-agent` — Tab. The same shape as the Escape rule and
+ *    a strictly stronger case for it: Escape's other owner is one this codebase
+ *    chose and could move, while Tab's is the BROWSER, which moves focus on Tab
+ *    whatever this repository does. The only way to make a bound Tab mean one
+ *    thing is `preventDefault()`, and that traps every keyboard user inside the
+ *    canvas with no way out (see `FOCUS_NAVIGATION_OWNER`). So the second owner
+ *    that CAN be refused is refused.
+ * 3. `unknown-action` — the action is not in `INPUT_ACTIONS`. Reachable at run
  *    time from a corrupt persisted settings blob.
- * 3. `key-already-bound` — one key, one action. Silently stealing the key from
+ * 4. `key-already-bound` — one key, one action. Silently stealing the key from
  *    its previous owner leaves the player with an action they can no longer
  *    perform and no indication of why.
  */
@@ -490,6 +519,18 @@ export const remap = (bindings: Bindings, action: InputAction, key: InputCode): 
       },
     }
   }
+  if (key === FOCUS_NAVIGATION_KEY_CODE) {
+    return {
+      kind: 'rejected',
+      rejection: {
+        reason: 'key-reserved-by-user-agent',
+        message:
+          `${FOCUS_NAVIGATION_KEY_CODE} cannot be bound to '${action}': it belongs to the user agent ` +
+          `(FOCUS_NAVIGATION_OWNER = '${FOCUS_NAVIGATION_OWNER}'), which moves keyboard focus with it. ` +
+          'The only way to stop that is preventDefault(), which traps keyboard users inside the canvas.',
+      },
+    }
+  }
   if (!INPUT_ACTIONS.includes(action)) {
     return {
       kind: 'rejected',
@@ -512,15 +553,20 @@ export const remap = (bindings: Bindings, action: InputAction, key: InputCode): 
 }
 
 /**
- * The action an input code triggers, or `undefined`. Never resolves Escape.
+ * The action an input code triggers, or `undefined`. Never resolves Escape and
+ * never resolves Tab.
  *
  * Takes an `InputCode`, so `actionForKey(bindings, 'MouseLeft')` is `'attack'`
  * under the defaults. The name is kept from when only keys existed; buttons
  * live in the same code space precisely so that this function did not need a
  * mouse-shaped twin.
+ *
+ * The two guards are here rather than left to `remap` because `remap` is not
+ * the only way a binding table arrives: a corrupt or an OLD persisted settings
+ * blob — written before either rule existed — reaches this function directly.
  */
 export const actionForKey = (bindings: Bindings, key: InputCode): InputAction | undefined => {
-  if (key === ESCAPE_KEY_CODE) {
+  if (key === ESCAPE_KEY_CODE || key === FOCUS_NAVIGATION_KEY_CODE) {
     return undefined
   }
   const found = Object.entries(bindings).find(([, code]) => code === key)
@@ -662,6 +708,73 @@ export type PointerLockState = (typeof POINTER_LOCK_STATES)[number]
 export const POINTER_LOCK_ACQUIRE_BUTTON: MouseButton = 'MouseLeft'
 
 /**
+ * WHERE an unlocked click landed, as a name.
+ *
+ * The third question `acquiresPointerLock` asks, and the one that closes
+ * DN-16 §5(b): a click on the HUD used to ask for the pointer lock, because the
+ * predicate knew the button and the lock state and nothing at all about the
+ * element under the cursor. `tabindex="-1"` elements focus on click, so the ring
+ * lit; the same `mousedown` bubbled to `window`, became a `uiClick`, and threw
+ * the player into mouselook by clicking their own hotbar — masking the ring they
+ * had just lit.
+ *
+ *   `lock-target` — the element the lock would be GRANTED to. In a browser this
+ *                   is the canvas the host passes as `BrowserInputOptions.canvas`
+ *                   and that `makeBrowserPointerLockPort` calls
+ *                   `requestPointerLock()` on. The rule in one line: **the
+ *                   element that will receive the lock is the element you must
+ *                   click to ask for it.**
+ *   `ui`          — an element in one of the focus groups the host named. A
+ *                   hotbar slot, a settings button: the player is operating a
+ *                   widget, and a widget is not a request for mouselook.
+ *   `elsewhere`   — neither. The letterbox beside a fixed-aspect canvas, the
+ *                   page background, a header the host drew and did not declare.
+ *
+ * `ui` and `elsewhere` DECIDE THE SAME — neither acquires — and they are still
+ * two names rather than one boolean. The reason is diagnosis: if the lock
+ * target's identity ever stops matching (a host hands over a wrapper `<div>`
+ * instead of the canvas, or rebuilds the canvas without rebuilding the input
+ * scope) every click reads `elsewhere`, mouselook silently never engages, and a
+ * boolean would say only "not the canvas" for both that bug and the correct
+ * refusal on a HUD click. With three names a test — and a debug overlay — says
+ * which half broke.
+ */
+export const CLICK_LANDINGS = ['lock-target', 'ui', 'elsewhere'] as const
+
+export type ClickLanding = (typeof CLICK_LANDINGS)[number]
+
+/**
+ * The landing whose click asks for the pointer lock.
+ *
+ * A value rather than a literal in the predicate, for the same reason
+ * `POINTER_LOCK_ACQUIRE_BUTTON` is one: "which click takes the pointer" is a
+ * question with a greppable answer.
+ *
+ * The predicate is `landing === 'lock-target'` and NOT `landing !== 'ui'`, and
+ * the difference is the whole of the choice DN-16 §5(b) left open. `!== 'ui'`
+ * is an OPEN-WORLD rule: it grants the pointer to everything the host failed to
+ * enumerate, and the cost of a forgotten declaration is a player thrown into
+ * mouselook by clicking a link. `=== 'lock-target'` is CLOSED-WORLD: it grants
+ * the pointer only to the one element the host explicitly pointed at, and the
+ * cost of a forgotten declaration is mouselook that does not engage — visible on
+ * the first try, and not disorienting when it happens.
+ *
+ * Two more reasons it is the right side of that trade:
+ *
+ *   - it costs the host NOTHING NEW. The lock target is the canvas the host
+ *     already names in order to be able to lock at all; a host that names none
+ *     already has `UNAVAILABLE_POINTER_LOCK` and could never lock. So no host
+ *     that could lock before has to declare anything, and no host that could not
+ *     changes behaviour. "Not UI" would need a new roster from every host that
+ *     draws UI, and the host that forgot would stay broken and silent.
+ *   - "not UI" can only mean "not FOCUSABLE UI the host listed", because the
+ *     roster exists for focus. A plain `<div>` with a click handler, a letterbox
+ *     bar, a host-drawn header: none are in it, and all of them would take the
+ *     pointer.
+ */
+export const POINTER_LOCK_ACQUIRE_LANDING: ClickLanding = 'lock-target'
+
+/**
  * Whether a UI click (a click that arrived while the pointer was NOT locked)
  * should ask for the pointer lock.
  *
@@ -674,6 +787,135 @@ export const POINTER_LOCK_ACQUIRE_BUTTON: MouseButton = 'MouseLeft'
  * a UI click at all and never reaches here. `refused` IS included, and is the
  * point: a refusal usually means the previous attempt lacked a user gesture,
  * and a click is exactly the gesture that fixes it.
+ *
+ * `landing` is the third argument and is REQUIRED, with no default. A default
+ * would have to be `lock-target` to keep every existing caller compiling, and
+ * that default is exactly the hazard: every dispatcher that had not thought
+ * about where the click landed would go on granting the pointer to HUD clicks,
+ * silently, which is the state this argument exists to leave. Being made to say
+ * where the click landed is the point of the parameter.
  */
-export const acquiresPointerLock = (button: MouseButton, state: PointerLockState): boolean =>
-  button === POINTER_LOCK_ACQUIRE_BUTTON && (state === 'unlocked' || state === 'refused')
+export const acquiresPointerLock = (
+  button: MouseButton,
+  state: PointerLockState,
+  landing: ClickLanding,
+): boolean =>
+  button === POINTER_LOCK_ACQUIRE_BUTTON &&
+  landing === POINTER_LOCK_ACQUIRE_LANDING &&
+  (state === 'unlocked' || state === 'refused')
+
+/**
+ * ---------------------------------------------------------------------------
+ * Keyboard focus: the browser MOVES it, this repository only OBSERVES it
+ * ---------------------------------------------------------------------------
+ *
+ * mx-ui built the other half of this and then stopped, for a reason it states
+ * exactly (mx-ui/docs/design-notes.md DN-UI-13i): making a slot focusable needs
+ * `setAttribute` and styling the ring needs `setProperty`, both of which are in
+ * its DOM vocabulary — but MOVING focus (`focus()`) and OBSERVING it
+ * (`addEventListener`) are input, and input is this repository's (plan.md
+ * §2.3-2). So mx-ui made the hotbar a roving-`tabindex` group with ONE native
+ * tab stop and a dedicated ring element per slot, and left
+ * `HudView.setKeyboardFocus(index | undefined)` for the input owner to call.
+ *
+ * The shape of what is left is decided by a choice mx-ui made deliberately:
+ * **the tab stop and the ring are the same slot.** So the element the browser
+ * focuses when the player presses Tab is, by construction, the element mx-ui
+ * drew the ring on. Nothing here has to implement Tab, choose where focus goes,
+ * or keep an order — the platform already does all three, correctly, including
+ * for the screen reader and the on-screen keyboard.
+ *
+ * What is left is exactly one thing: **NOTICING**. Until something observes the
+ * focus change and reports it, mx-ui does not know the keyboard arrived, so the
+ * player sees the user agent's default ring instead of the palette's. That is
+ * the whole of mc-render's half, and it is why the model below adds an
+ * observation and not a navigation.
+ *
+ * ---------------------------------------------------------------------------
+ * Why `preventDefault()` appears nowhere in this feature
+ * ---------------------------------------------------------------------------
+ *
+ * `suppressesBrowserContextMenu` and `suppressesBrowserScroll` above have a
+ * defensible narrow case: locked, the pointer is captured by the canvas and the
+ * browser default is never what the player meant. Tab has NO such case, at any
+ * lock state, and the asymmetry is not a matter of degree:
+ *
+ *   - a suppressed context menu costs a player "copy" on a chat line;
+ *   - a suppressed scroll costs a player the bottom of a settings screen;
+ *   - a suppressed Tab costs a player EVERY WAY OUT. Focus is how a keyboard
+ *     user reaches the browser's own chrome, the address bar, the next control
+ *     and the next frame. A canvas that eats Tab is a keyboard trap
+ *     (WCAG 2.1 SC 2.1.2), and the player cannot even reach the settings screen
+ *     that would let them rebind their way out of it.
+ *
+ * So there is no `suppressesBrowserFocusNavigation` predicate to go with the
+ * other two. A predicate is a place for the argument to be re-opened, and this
+ * one must not be: the answer is no, at every lock state, forever.
+ * `FOCUS_NAVIGATION_KEY_CODE` and `FOCUS_NAVIGATION_OWNER` record the ownership
+ * as values instead, `remap` refuses to give the key a second owner, and
+ * `FOCUS_NAVIGATION_POLICY` in `application/input-service.ts` states the whole
+ * rule where `ESCAPE_POLICY` states Escape's.
+ */
+
+/**
+ * Where the keyboard is, when it is on UI this repository was told about.
+ *
+ * `group` names a roving-`tabindex` group — one native tab stop, many
+ * programmatically focusable members. `HOTBAR_FOCUS_GROUP` is the first and
+ * currently the only one, but the field is not a boolean because focus landing
+ * on a settings button is not the same event as focus landing on nothing, and a
+ * hotbar told only "not me" would be told the same thing by both.
+ *
+ * `index` is 0-BASED and is the position within the group's own tab order.
+ * mx-ui's `setKeyboardFocus` takes exactly this: 0..8 for its nine hotbar
+ * slots, and it clamps rather than rejecting. The 1-based digit row
+ * (`hotbarSlot1`) is a KEYBOARD fact and deliberately does not agree — see
+ * `INPUT_ACTIONS` on why nine is a fact about the digit row and not about the
+ * hotbar.
+ *
+ * There is no `element` field, and that is the point of the design: this module
+ * is pure, and the adapter resolves the DOM element to a group and an index at
+ * the boundary, exactly as `mouseButtonForIndex` resolves a number to a name.
+ */
+export type FocusTarget = {
+  readonly group: string
+  readonly index: number
+}
+
+/**
+ * The group name mx-ui's hotbar is reported under.
+ *
+ * A value here rather than a string literal in a host, so that the two
+ * repositories agree by import rather than by spelling. mx-ui's own DOM marker
+ * is `data-mx-ui="hotbar"`; nothing in this repository reads that attribute —
+ * see `resolveFocusTarget` in `application/browser-input-adapter.ts` on why the
+ * roster is by identity and not by attribute.
+ */
+export const HOTBAR_FOCUS_GROUP = 'hotbar'
+
+/**
+ * Whether an observed keyboard focus is something to REPORT.
+ *
+ * False while `locked`, and that is the whole rule. It is the same seam
+ * `withButtonDown` already draws for clicks, applied to the keyboard:
+ *
+ *   locked   — the pointer is captured by the canvas, the keys are driving an
+ *              avatar, and the player is looking at a world, not at a widget.
+ *              A ring lit on a hotbar slot then is a lie about what the next
+ *              key press will do. Tab while locked is not focus navigation; it
+ *              is a player who wanted to leave, or a stray press.
+ *   otherwise — `unlocked`, `requested` and `refused` are all "the pointer is
+ *              not captured": DOM UI is live, the keyboard is navigating it,
+ *              and where it is IS what the ring must show. `requested` is
+ *              included because a pending request has captured nothing yet, and
+ *              a ring that blinked out for the round trip would blink back.
+ *
+ * MASKING, not clearing, is what `application/input-service.ts` does with this,
+ * and the distinction is load-bearing: the browser does not move focus when the
+ * pointer is locked, so the focus is still THERE. Forgetting it would mean that
+ * a player who Tabs to slot 3, clicks in to look around, and presses Escape,
+ * gets a ring on nothing while their next Space press activates slot 3. The
+ * report is suppressed for exactly as long as it would be a lie, and the truth
+ * is still underneath it when the lock ends.
+ */
+export const reportsKeyboardFocus = (state: PointerLockState): boolean => state !== 'locked'

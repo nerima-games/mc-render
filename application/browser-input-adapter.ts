@@ -34,13 +34,36 @@
  *   - How many pixels make a wheel notch. `notchesForWheelDelta`, in the domain.
  *   - WHEN to ask for the pointer lock. `acquiresPointerLock` decides and the
  *     `render:input` stage acts; this file only performs the ask.
+ *   - WHETHER a focus change is worth showing. `reportsKeyboardFocus` is the
+ *     predicate and the service applies it; this file reports what the browser
+ *     did and never judges it.
  *
- * ALLOWED, and it is all of the same kind — NUMBER to NAME at the boundary:
+ * ALLOWED, and it is all of the same kind — an OPAQUE THING to a NAME at the
+ * boundary:
  *
  *   - `MouseEvent.button` -> `mouseButtonForIndex`
  *   - `WheelEvent.deltaMode` -> `wheelDeltaModeForIndex`
  *   - the DOM event NAME -> the `InputEvent` case (`mousemove` -> `pointermove`)
  *   - `document.pointerLockElement` -> `locked: boolean`
+ *   - `Event.target` -> `resolveFocusTarget` -> `{ group, index }`
+ *   - `Event.target` -> `resolveClickLanding` -> `'lock-target' | 'ui' | 'elsewhere'`
+ *
+ * The last one is DN-16 §5(b), and it is the same conversion as the one above
+ * it rather than a new kind of thing: an element in, a NAME out, and the policy
+ * that reads the name (`acquiresPointerLock`) stays a pure predicate in the
+ * domain. Whether a click may take the pointer is decided there, not here.
+ *
+ * ---------------------------------------------------------------------------
+ * What this file does NOT do about Tab
+ * ---------------------------------------------------------------------------
+ *
+ * It does not listen for it, does not move focus, and does not suppress it. The
+ * browser already moves focus on Tab, and mx-ui deliberately put its focus ring
+ * and its single tab stop on the SAME slot so that the platform's own answer is
+ * the right one by construction. What was missing was nobody noticing, and
+ * `focusin`/`focusout` are the whole of the fix. See `FOCUS_NAVIGATION_POLICY`
+ * in `input-service.ts` for why suppressing Tab is not an option at any lock
+ * state, and `PREVENT_DEFAULT_EVENTS` below for the list that stays at two.
  *
  * ---------------------------------------------------------------------------
  * Teardown is exact, and it is checkable
@@ -67,6 +90,8 @@ import {
   mouseButtonForIndex,
   wheelDeltaModeForIndex,
   type Bindings,
+  type ClickLanding,
+  type FocusTarget,
   type ListenerTarget,
 } from '../domain/input-bindings'
 import {
@@ -133,15 +158,167 @@ export type InstalledInputListeners = {
 }
 
 /**
+ * One roving-`tabindex` group, as the host names it.
+ *
+ * `targets` is `ReadonlyArray<unknown>` because THE ADAPTER NEVER LOOKS INSIDE
+ * THEM. It compares `event.target` against each by `===` and reports the
+ * position it matched. In a browser these are the nine `HTMLElement`s mx-ui
+ * created; in a test they are nine distinct objects; in both cases the code
+ * that runs is the same code, which is the point.
+ *
+ * ---------------------------------------------------------------------------
+ * Why identity and not an attribute
+ * ---------------------------------------------------------------------------
+ *
+ * mx-ui does mark its slots — `data-mx-ui="slot"` and `data-slot-index="n"` —
+ * and reading those would need no cooperation from a host. It is rejected on
+ * three counts:
+ *
+ *   1. `data-slot-index` is region-LOCAL in mx-ui: an inventory slot 0 and the
+ *      hotbar's slot 0 carry the same value, and telling them apart means
+ *      walking ancestors. `[data-mx-ui="hotbar"] [data-slot-index]` is a
+ *      SELECTOR, and a selector in this file is a copy of mx-ui's DOM structure
+ *      living in a repository that cannot test it against the real thing.
+ *   2. It would put `getAttribute` in `dom-surface.ts`, which breaks the
+ *      assignability proof outright — see `DomInputEvent.target`.
+ *   3. It hard-codes mx-ui as the only possible source of focusable UI. A host
+ *      that draws its own settings screen has groups too, and with a roster it
+ *      simply names them.
+ *
+ * The ORDER of `targets` is the tab order, and the ARRAY POSITION is the index
+ * reported — the same "the position IS the number" arrangement
+ * `MOUSE_BUTTON_BY_INDEX` uses. 0-based, which is what
+ * `HudView.setKeyboardFocus` takes.
+ */
+export type FocusGroupTargets = {
+  readonly group: string
+  readonly targets: ReadonlyArray<unknown>
+}
+
+/**
+ * The group and position of a focused element, or `undefined` for an element in
+ * no group at all.
+ *
+ * PURE and exported, so that "focus outside the hotbar is reported as no focus,
+ * not as slot 0" is a unit test rather than something reachable only by firing
+ * a fake event at a fake document.
+ *
+ * `undefined`, `null` and an element nobody named all resolve the same way, and
+ * that is deliberate rather than lazy: all three mean "the keyboard is not on
+ * UI this host asked about", and `HudView.setKeyboardFocus(undefined)` is the
+ * one right answer to all three. Reporting an unknown element as index 0 —
+ * which is what a bare `indexOf` returning `-1` would become after a careless
+ * clamp — would light the ring on slot 0 whenever the player Tabbed to the
+ * address bar.
+ */
+export const resolveFocusTarget = (
+  groups: ReadonlyArray<FocusGroupTargets>,
+  target: unknown,
+): FocusTarget | undefined => {
+  if (target === undefined || target === null) {
+    return undefined
+  }
+  for (const group of groups) {
+    const index = group.targets.indexOf(target)
+    if (index >= 0) {
+      return { group: group.group, index }
+    }
+  }
+  return undefined
+}
+
+/**
+ * WHERE an unlocked click landed, resolved the only way this repository is
+ * willing to look at an element: by `===`.
+ *
+ * PURE and exported, for the reason `resolveFocusTarget` above is: the three
+ * cases — the lock target, declared UI, and NEITHER — have to be writable as
+ * unit tests rather than reachable only by firing a fake event at a fake
+ * document. `elsewhere` is the case that used not to exist and is the one worth
+ * writing down: a click on the letterbox beside a fixed-aspect canvas, on the
+ * page background, or on a header the host drew and did not declare.
+ *
+ * ---------------------------------------------------------------------------
+ * Why `===` on `event.target` is enough, and why no `contains` was added
+ * ---------------------------------------------------------------------------
+ *
+ * DN-16 §5(b) listed "`dom-surface.ts` grows `contains` or `composedPath`" as
+ * the mc-render-side option, and it turns out neither is needed. `event.target`
+ * is the DEEPEST element the hit test found, and the two shapes that matter both
+ * fall out of that:
+ *
+ *   - a HUD drawn OVER the canvas is the target of a click on it, so the click
+ *     resolves as `ui` (or `elsewhere`) and never as the canvas underneath —
+ *     which is the hazard, closed;
+ *   - a HUD element with `pointer-events: none` is not hit at all, the click
+ *     reaches the canvas, and it also focuses nothing — so there is no ring to
+ *     contradict and locking is right.
+ *
+ * `<canvas>` has no rendered children (its content is FALLBACK and is not hit
+ * tested), so a click on the lock target is a click ON the lock target and
+ * `contains` would have no subtree to walk. The limitation this does leave is
+ * worth stating rather than discovering: a host that makes a CONTAINER its lock
+ * target — `Element.requestPointerLock` exists on any element — gets `elsewhere`
+ * for clicks on that container's children. That host should name the canvas.
+ * Adding `contains` would reopen the DN-15 assignability proof (`EventTarget`
+ * has no `contains`; `Node` does) for a case no host has.
+ *
+ * ---------------------------------------------------------------------------
+ * Precedence
+ * ---------------------------------------------------------------------------
+ *
+ * The lock target is checked FIRST. An element that is both the lock target and
+ * a member of a focus roster is a host contradiction with no safe reading, and
+ * the tie has to be broken somewhere; breaking it toward the lock target says
+ * the true thing, because that IS the element `requestPointerLock` will be
+ * called on. A host must not put its lock target in a focus group — and no host
+ * does by accident, because a roster comes from a query like
+ * `[data-mx-ui="slot"]`, which cannot return the canvas.
+ */
+export const resolveClickLanding = (
+  pointerLockTarget: unknown,
+  groups: ReadonlyArray<FocusGroupTargets>,
+  target: unknown,
+): ClickLanding => {
+  if (target === undefined || target === null) {
+    // A click the host cannot place. NOT the lock target even when the host
+    // named none: `undefined === undefined` would otherwise make every
+    // unplaceable click acquire the pointer in exactly the hosts that declared
+    // nothing, which is the failure this whole predicate exists to prevent.
+    return 'elsewhere'
+  }
+  if (pointerLockTarget !== undefined && pointerLockTarget !== null && target === pointerLockTarget) {
+    return 'lock-target'
+  }
+  return resolveFocusTarget(groups, target) === undefined ? 'elsewhere' : 'ui'
+}
+
+/**
  * Everything the adapter needs from the world outside `dispatch`.
  *
  * `pointerLockHeld` is read from `document.pointerLockElement` and is only
  * consulted for `pointerlockchange` — it is a parameter rather than a second
  * argument of the same type so that `translateDomEvent` stays a pure function of
  * its inputs and can be tested without a document at all.
+ *
+ * `focusGroups` is the host's roster and is consulted only for `focusin`. It is
+ * here for the same reason: the translation from an element to a
+ * `FocusTarget` must be a pure function of its arguments, or the case that
+ * matters — focus on something nobody named — could not be written as a test.
  */
 export type DomEventContext = {
   readonly pointerLockHeld: boolean
+  readonly focusGroups: ReadonlyArray<FocusGroupTargets>
+  /**
+   * The element the pointer lock would be granted to — the host's canvas.
+   *
+   * Consulted only for `mousedown`, and only ever COMPARED, which is why it is
+   * `unknown` for the reason `DomInputEvent.target` is. Optional, and its
+   * absence is a coherent state rather than a degenerate one: a host that named
+   * no canvas has `UNAVAILABLE_POINTER_LOCK` and could not have locked anyway,
+   * so every click resolving as `ui` or `elsewhere` is the truth for it.
+   */
+  readonly pointerLockTarget?: unknown
 }
 
 /**
@@ -225,7 +402,19 @@ export const translateDomEvent = (
     }
     case 'mousedown': {
       const button = event.button === undefined ? undefined : mouseButtonForIndex(event.button)
-      return button === undefined ? undefined : { kind: 'mousedown', button, target: planned.target }
+      // ELEMENT to NAME, at the boundary, exactly as `focusin` below does it and
+      // for the same reason: the decision that follows (`acquiresPointerLock`)
+      // is a pure predicate over names, so it stays testable in Node with fakes
+      // — which matters more here than anywhere, because plan.md §3.10 records
+      // that Playwright cannot do pointer lock at all.
+      return button === undefined
+        ? undefined
+        : {
+            kind: 'mousedown',
+            button,
+            target: planned.target,
+            landing: resolveClickLanding(context.pointerLockTarget, context.focusGroups, event.target),
+          }
     }
     case 'mouseup': {
       const button = event.button === undefined ? undefined : mouseButtonForIndex(event.button)
@@ -271,6 +460,22 @@ export const translateDomEvent = (
       // switch stays pressed forever and the player walks on return (DN-08,
       // reference :155-158 — a user report, not a theory).
       return { kind: 'blur' }
+    case 'focusin':
+      // ELEMENT to NAME, at the boundary, in exactly one place — the same
+      // conversion `mouseButtonForIndex` and `wheelDeltaModeForIndex` are, with
+      // an element where they have a number. An element in no roster resolves
+      // to `undefined`, which is a REPORT ("focus left our UI") and not a drop:
+      // dropping it would leave the ring lit on the slot the player just Tabbed
+      // away from.
+      return { kind: 'focuschange', focus: resolveFocusTarget(context.focusGroups, event.target) }
+    case 'focusout':
+      // Never resolves anything. `focusout` fires on the element being LEFT, so
+      // resolving its target would report the slot the keyboard just departed
+      // as the slot it is on. The browser fires focusout then focusin for a
+      // move, in that order and in the same task, so the arrival overwrites
+      // this before any frame can read it; a departure to nothing has no
+      // arrival, and this is the whole of what says so.
+      return { kind: 'focuschange', focus: undefined }
     default:
       // An event name the plan grew without this switch growing with it. Dropped
       // rather than guessed, and a test asserts the two lists agree so that the
@@ -320,6 +525,31 @@ const suppressionFor = (
 export const installInputListeners = (
   targets: BrowserInputTargets,
   input: InputServiceApi,
+  /**
+   * The focusable UI groups this host wants reported, in tab order.
+   *
+   * Defaults to NONE, which is a coherent state and not a degenerate one: a
+   * host with no roster registers the focus listeners anyway and reports every
+   * focus change as `undefined`. That is the truth for a preview that draws
+   * only a canvas — there is no focusable game UI, so the keyboard is never on
+   * any. It is also what keeps the listener table identical in every host, so
+   * `LISTENER_PLAN` stays the single answer to what is registered.
+   */
+  focusGroups: ReadonlyArray<FocusGroupTargets> = [],
+  /**
+   * The element the pointer lock would be granted to — the canvas.
+   *
+   * The SAME object the `PointerLockPort` asks, and that is the whole rule:
+   * the element that will receive the lock is the element you must click to ask
+   * for it. `browserInputLayer` passes `options.canvas` here automatically, so a
+   * host using it declares nothing new; a host that builds the port itself has
+   * to hand the canvas over twice, and this parameter is where.
+   *
+   * Omitted means "this host has no lock target", which is the same host that
+   * gets `UNAVAILABLE_POINTER_LOCK` — no click resolves as `lock-target`, and
+   * none could have locked anyway.
+   */
+  pointerLockTarget?: unknown,
 ): InstalledInputListeners => {
   const registrations: ReadonlyArray<ListenerRegistration> = LISTENER_PLAN.map((planned) => {
     const suppression = suppressionFor(planned.event, input)
@@ -340,6 +570,8 @@ export const installInputListeners = (
 
       const translated = translateDomEvent(planned, event, {
         pointerLockHeld: readsLockElement && isPointerLockHeld(targets.document),
+        focusGroups,
+        pointerLockTarget,
       })
       if (translated !== undefined) {
         Effect.runSync(input.dispatch(translated))
@@ -391,9 +623,11 @@ export const installInputListeners = (
 export const scopedInputListeners = (
   targets: BrowserInputTargets,
   input: InputServiceApi,
+  focusGroups: ReadonlyArray<FocusGroupTargets> = [],
+  pointerLockTarget?: unknown,
 ): Effect.Effect<InstalledInputListeners, never, Scope.Scope> =>
   Effect.acquireRelease(
-    Effect.sync(() => installInputListeners(targets, input)),
+    Effect.sync(() => installInputListeners(targets, input, focusGroups, pointerLockTarget)),
     (installed) =>
       Effect.sync(() => {
         installed.remove()
@@ -484,12 +718,33 @@ export const makeBrowserPointerLockPort = (options: BrowserPointerLockOptions): 
  * taking the pointer: with no canvas the port is `UNAVAILABLE_POINTER_LOCK`,
  * which answers `refused` at once rather than hanging — the same behaviour Node
  * gets, and for the same reason.
+ *
+ * `canvas` now does TWO things, and they are one thing said twice: it is the
+ * element the lock is asked FOR, and it is the element a click must land ON to
+ * be allowed to ask (DN-16 §5(b)). A host declares it once and gets both, which
+ * is why closing that hazard needed no new field here — and why a host that
+ * declares no canvas is unchanged: it could never lock before either.
  */
 export type BrowserInputOptions = {
   readonly targets: BrowserInputTargets
   readonly canvas?: PointerLockTarget
   readonly allowsPointerLock?: () => boolean
   readonly bindings?: Bindings
+  /**
+   * The focusable UI groups to report, in tab order. Optional, for the same
+   * reason `canvas` is: a preview that draws no focusable UI has none, and
+   * saying so by omission is better than by an empty array a reader has to
+   * interpret.
+   *
+   * A browser host building mx-ui's hotbar passes
+   * `[{ group: HOTBAR_FOCUS_GROUP, targets: slotElements }]`, where
+   * `slotElements` are the nine elements in slot order. mx-ui does not hand
+   * them out — they are reachable as
+   * `document.querySelectorAll('[data-mx-ui="hotbar"] [data-mx-ui="slot"]')`,
+   * and that query belongs to the host because the host is the only place that
+   * knows both repositories are on the page.
+   */
+  readonly focusGroups?: ReadonlyArray<FocusGroupTargets>
 }
 
 const pointerLockPortFor = (options: BrowserInputOptions): PointerLockPort => {
@@ -525,7 +780,12 @@ export const browserInputLayer = (options: BrowserInputOptions): Layer.Layer<Inp
         options.bindings ?? defaultBindings(),
         pointerLockPortFor(options),
       )
-      yield* scopedInputListeners(options.targets, input)
+      // `options.canvas` twice, on purpose and in one place: it is what the port
+      // ASKS and what a click has to LAND ON to be allowed to ask. Deriving the
+      // second from the first is what makes the fix cost a browser host nothing
+      // — the declaration it already had to make now also scopes the
+      // acquisition (DN-16 §5(b)).
+      yield* scopedInputListeners(options.targets, input, options.focusGroups ?? [], options.canvas)
       return input
     }),
   )
@@ -548,4 +808,6 @@ export const TRANSLATED_DOM_EVENTS: ReadonlyArray<string> = [
   'pointerlockchange',
   'pointerlockerror',
   'blur',
+  'focusin',
+  'focusout',
 ]

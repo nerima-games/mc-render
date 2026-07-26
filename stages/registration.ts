@@ -182,11 +182,16 @@ export const makeRenderFrameState = (
       pressed: new Set<string>(),
       justPressed: new Set<string>(),
       uiClicks: new Set<MouseButton>(),
+      uiClickLandings: [],
       pointerDelta: { x: 0, y: 0 },
       wheelNotches: 0,
       wheelSteps: 0,
       pointerLocked: false,
       pointerLockState: 'unlocked',
+      // No keyboard focus until the browser says otherwise. `undefined` and NOT
+      // slot 0: mx-ui hides every ring for `undefined` and lights slot 0 for
+      // `0`, so a frame that has heard nothing must say nothing.
+      keyboardFocus: undefined,
     })
     const visibleChunkCount = yield* Ref.make(0)
     const qualityRef = yield* Ref.make(quality)
@@ -251,12 +256,19 @@ export const renderStages = (
         // and a service that grabbed the pointer by itself would take it from a
         // preview that only wanted to inspect input.
         //
-        // `acquiresPointerLock` is the policy (left button only, and not while
-        // a request is already pending); `requestPointerLock` is idempotent
-        // anyway, so a second click within the same frame costs nothing.
+        // `acquiresPointerLock` is the policy (left button only, ON THE LOCK
+        // TARGET only, and not while a request is already pending);
+        // `requestPointerLock` is idempotent anyway, so a second click within
+        // the same frame costs nothing.
+        //
+        // `uiClickLandings` and not `uiClicks`, and that is DN-16 §5(b): a set
+        // of buttons cannot say that this click was on the canvas and that one
+        // was on a hotbar slot, so the frame used to ask for the pointer on
+        // behalf of a player who had clicked their own HUD — lighting the focus
+        // ring and then masking it in the same frame.
         const lockState = yield* input.pointerLockState
-        const acquiring = [...sampled.uiClicks].some((button) =>
-          acquiresPointerLock(button, lockState),
+        const acquiring = sampled.uiClickLandings.some(({ button, landing }) =>
+          acquiresPointerLock(button, lockState, landing),
         )
         if (acquiring) {
           yield* input.requestPointerLock

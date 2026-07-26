@@ -56,14 +56,19 @@ import {
   defaultBindings,
   ESCAPE_KEY_CODE,
   ESCAPE_OWNER,
+  FOCUS_NAVIGATION_KEY_CODE,
+  FOCUS_NAVIGATION_OWNER,
   GAMEPLAY_LISTENER_TARGET,
   isMouseButton,
   MODAL_LISTENER_TARGET,
   notchesForWheelDelta,
   remap,
+  reportsKeyboardFocus,
   suppressesBrowserContextMenu,
   suppressesBrowserScroll,
   type Bindings,
+  type ClickLanding,
+  type FocusTarget,
   type InputAction,
   type InputCode,
   type KeyCode,
@@ -95,7 +100,29 @@ import {
 export type InputEvent =
   | { readonly kind: 'keydown'; readonly code: KeyCode; readonly target: ListenerTarget }
   | { readonly kind: 'keyup'; readonly code: KeyCode; readonly target: ListenerTarget }
-  | { readonly kind: 'mousedown'; readonly button: MouseButton; readonly target: ListenerTarget }
+  /**
+   * A button went down.
+   *
+   * `landing` is WHERE it went down — the third thing `acquiresPointerLock`
+   * needs and the one the predicate used not to have (DN-16 §5(b)). It rides on
+   * `mousedown` and on nothing else because it is only ever consulted for a
+   * click that arrives UNLOCKED: while locked the pointer is captured by the
+   * lock target, every event goes there by definition, and a release is
+   * unconditional. It is REQUIRED rather than defaulted for the reason
+   * `acquiresPointerLock` states — a permissive default is the hazard.
+   *
+   * `target` and `landing` are different questions and both are needed.
+   * `target` is WHERE THE LISTENER WAS REGISTERED (`window` or `document`) and
+   * carries the modal-shielding rule; `landing` is WHERE THE POINTER WAS when
+   * the button went down. A modal that stopped propagation answers the first
+   * and says nothing about the second.
+   */
+  | {
+      readonly kind: 'mousedown'
+      readonly button: MouseButton
+      readonly target: ListenerTarget
+      readonly landing: ClickLanding
+    }
   | { readonly kind: 'mouseup'; readonly button: MouseButton; readonly target: ListenerTarget }
   /**
    * The browser is about to open its context menu.
@@ -137,6 +164,44 @@ export type InputEvent =
    */
   | { readonly kind: 'pointerlockerror' }
   | { readonly kind: 'blur' }
+  /**
+   * The keyboard moved to a different element — or off every element this host
+   * named.
+   *
+   * ONE case for the DOM's TWO events (`focusin`, `focusout`), which is the one
+   * place this type stops naming cases after the listener that produces them.
+   * The reason is that the browser fires both for a single move — `focusout`
+   * from the old element, then `focusin` on the new one, synchronously, in that
+   * order — so a model with two cases would have an "off everything" state
+   * between them that no frame can ever see and every reader would have to
+   * reason about. One case carrying the RESOLVED answer says the only thing a
+   * consumer wants: the keyboard is now here, or nowhere.
+   *
+   * `focus: undefined` is "nowhere this host named", and it is what `focusout`
+   * always translates to. It is deliberately NOT the same as index 0:
+   * `HudView.setKeyboardFocus(undefined)` hides every ring while
+   * `setKeyboardFocus(0)` lights slot 0, and reporting a departure as slot 0 is
+   * how the ring would follow the player out of the group.
+   *
+   * There is no `target` field and therefore no modal shielding, exactly as for
+   * `pointermove` and `wheel`: `focusin`/`focusout` sit on `document` because
+   * that is where the browser dispatches them, and only the key and button
+   * events participate in the `window`/`document` rule.
+   */
+  | { readonly kind: 'focuschange'; readonly focus: FocusTarget | undefined }
+
+/**
+ * One click that arrived while the pointer was NOT locked, and where it landed.
+ *
+ * The unit `uiClicks` used to be a bare button. It became a pair when
+ * `acquiresPointerLock` grew its third question (DN-16 §5(b)): a set of buttons
+ * cannot say that THIS click was on the canvas and THAT one was on a hotbar
+ * slot, and the whole of the fix is telling those two apart.
+ */
+export type UiClick = {
+  readonly button: MouseButton
+  readonly landing: ClickLanding
+}
 
 /**
  * A snapshot of input state, taken once per frame.
@@ -160,12 +225,33 @@ export type InputSnapshot = {
    * Buttons clicked while the pointer was NOT locked. Cleared by `endFrame`.
    *
    * A click while unlocked is a UI click, not a game action: it is the player
-   * dismissing a menu, or clicking the canvas to re-acquire the lock. It is
-   * kept out of `pressed` / `justPressed` entirely, so `attack` cannot fire
-   * from it, and reported separately so the thing that DOES want it — the
-   * click-to-lock handler — has something to read.
+   * dismissing a menu, clicking a hotbar slot, or clicking the canvas to
+   * re-acquire the lock. It is kept out of `pressed` / `justPressed` entirely,
+   * so `attack` cannot fire from it, and reported separately so the things that
+   * DO want it — a menu, and the click-to-lock handler — have something to read.
+   *
+   * The BUTTONS only, and every one of them whatever it landed on: this is what
+   * a menu asks ("was I clicked at all"). What asks for the pointer needs to
+   * know WHERE, and reads `uiClickLandings` below. DERIVED from that array at
+   * snapshot time rather than stored beside it, so the two cannot drift — the
+   * same arrangement `pointerLocked` has with `pointerLockState`.
    */
   readonly uiClicks: ReadonlySet<MouseButton>
+  /**
+   * Every UI click this frame, with WHERE it landed. Cleared by `endFrame`.
+   *
+   * The reading `acquiresPointerLock` needs, and the reason it is a list of
+   * PAIRS rather than a second set: a player can click their hotbar and then the
+   * canvas inside one frame, and a shape that lost the pairing would let the
+   * first click's landing answer for the second — or the second's for the first,
+   * which is the hazard back again with an extra step.
+   *
+   * Deduplicated on the pair, so a `mousedown` delivered twice for one physical
+   * click is one entry, exactly as `justPressed` is one edge. Two clicks of the
+   * same button on DIFFERENT landings stay two entries, because they are two
+   * different facts.
+   */
+  readonly uiClickLandings: ReadonlyArray<UiClick>
   readonly pointerDelta: { readonly x: number; readonly y: number }
   /**
    * Signed wheel travel accumulated this frame, in notches, possibly
@@ -201,6 +287,22 @@ export type InputSnapshot = {
    * `PointerLockState` in `domain/input-bindings.ts`.
    */
   readonly pointerLockState: PointerLockState
+  /**
+   * Where the keyboard is, on UI this host named. `undefined` is "not on any of
+   * it" and is what `HudView.setKeyboardFocus` must be given to hide the ring.
+   *
+   * A LEVEL, not an edge, and it is grouped with `pressed` and
+   * `pointerLockState` above rather than with `justPressed` and `uiClicks` for
+   * that reason. Focus does not happen; focus IS. It persists until the player
+   * moves it, so `endFrame` leaves it alone — a ring cleared at the frame
+   * boundary would be a ring that flickers at the refresh rate.
+   *
+   * Reported as `undefined` while the pointer is LOCKED, whatever the browser
+   * is actually holding: see `reportsKeyboardFocus`. The observation underneath
+   * survives, so unlocking reports the same slot again without the player
+   * having to Tab back to it.
+   */
+  readonly keyboardFocus: FocusTarget | undefined
 }
 
 /**
@@ -294,7 +396,13 @@ export type InputServiceApi = {
   readonly wasButtonJustPressed: (button: MouseButton) => Effect.Effect<boolean>
   /**
    * True only on the frame `button` was clicked while the pointer was NOT
-   * locked. What the click-to-acquire-pointer-lock handler reads.
+   * locked, WHEREVER it landed. What a menu reads.
+   *
+   * NOT what the click-to-acquire-pointer-lock handler reads any more: that one
+   * needs the landing as well, and takes it from
+   * `InputSnapshot.uiClickLandings`. A boolean per button cannot say whether the
+   * click was on the canvas or on the hotbar, and answering the lock question
+   * from one is DN-16 §5(b).
    */
   readonly wasUiClick: (button: MouseButton) => Effect.Effect<boolean>
   /**
@@ -322,6 +430,26 @@ export type InputServiceApi = {
    * frame-local edge.
    */
   readonly pointerLockState: Effect.Effect<PointerLockState>
+  /**
+   * Where the keyboard is, outside a frame snapshot.
+   *
+   * The read for the stage that drives the HUD: it holds an `HudView`, not the
+   * frame's `InputSnapshot`, and asking the service directly is cheaper than
+   * threading a snapshot to it. Masked by the lock state exactly as
+   * `InputSnapshot.keyboardFocus` is, so the two reads cannot disagree — the
+   * pair `pointerLockState` / `InputSnapshot.pointerLockState` is the same
+   * arrangement for the same reason.
+   *
+   * WHAT MX-UI IS CALLED WITH. `input.keyboardFocus` in, and the value goes
+   * straight to `HudView.setKeyboardFocus`: both are `number | undefined` on
+   * mx-ui's side and `FocusTarget | undefined` here, so the wiring is
+   * `focus?.group === HOTBAR_FOCUS_GROUP ? focus.index : undefined`. The call
+   * is idempotent and diffed on mx-ui's side (re-stating the same focus mutates
+   * no DOM), which is why this repository reports a LEVEL and not a
+   * changed-this-frame edge: an edge would be a second mechanism with no
+   * consumer, and one that could be missed by a frame that skipped a read.
+   */
+  readonly keyboardFocus: Effect.Effect<FocusTarget | undefined>
   /**
    * ASK for the pointer lock, and report the state that leaves us in.
    *
@@ -388,7 +516,12 @@ export class InputService extends Context.Tag('@nerima-games/mc-render/InputServ
 type InputState = {
   readonly pressed: ReadonlySet<InputCode>
   readonly justPressed: ReadonlySet<InputCode>
-  readonly uiClicks: ReadonlySet<MouseButton>
+  /**
+   * The PAIRS. `InputSnapshot.uiClicks` is this projected to buttons, computed
+   * at snapshot time so that the set and the list cannot disagree about whether
+   * a click happened.
+   */
+  readonly uiClicks: ReadonlyArray<UiClick>
   readonly pointerDelta: { readonly x: number; readonly y: number }
   /**
    * Accumulated wheel travel in notches, INCLUDING the sub-notch remainder
@@ -402,16 +535,27 @@ type InputState = {
    * drift apart.
    */
   readonly pointerLockState: PointerLockState
+  /**
+   * What the browser last told us about focus — UNMASKED.
+   *
+   * The lock rule is applied at READ time (`reportsKeyboardFocus`) rather than
+   * stored, so that a locked session hides the ring without destroying the fact
+   * underneath it. Storing the masked value would make the mask irreversible,
+   * and unlocking would then report `undefined` for an element the browser is
+   * still focusing — a ring on nothing while Space activates slot 3.
+   */
+  readonly keyboardFocus: FocusTarget | undefined
   readonly bindings: Bindings
 }
 
 const initialState = (bindings: Bindings): InputState => ({
   pressed: new Set<InputCode>(),
   justPressed: new Set<InputCode>(),
-  uiClicks: new Set<MouseButton>(),
+  uiClicks: [],
   pointerDelta: { x: 0, y: 0 },
   wheelNotches: 0,
   pointerLockState: 'unlocked',
+  keyboardFocus: undefined,
   bindings,
 })
 
@@ -447,6 +591,12 @@ const withCodeUp = (state: InputState, code: InputCode): InputState => ({
  * the lock. It becomes a `uiClick` and touches neither `pressed` nor
  * `justPressed`, so `attack` cannot fire from it.
  *
+ * WHICH of those two it was is `landing`, recorded here and decided by nothing
+ * here. Both are still `uiClicks` — a menu wants the hotbar click as much as the
+ * lock handler wants the canvas one — and `acquiresPointerLock` is the only
+ * thing that reads the difference. Filtering here instead would have hidden the
+ * HUD click from the menu that drew it.
+ *
  * The reference does NOT make this distinction: `handleMouseDown` (:119-123)
  * records every button whatever the lock state, and gameplay is kept off it by
  * a separate `gamePausedRef` check further down the frame
@@ -456,10 +606,25 @@ const withCodeUp = (state: InputState, code: InputCode): InputState => ({
  * it is the same left-click that breaks a block. Deciding here, from the state
  * the service already tracks, removes the coupling.
  */
-const withButtonDown = (state: InputState, button: MouseButton): InputState =>
+const withButtonDown = (
+  state: InputState,
+  button: MouseButton,
+  landing: ClickLanding,
+): InputState =>
   isLocked(state)
     ? withCodeDown(state, button)
-    : { ...state, uiClicks: new Set([...state.uiClicks, button]) }
+    : {
+        ...state,
+        // Deduplicated on the PAIR. Two `mousedown`s for one physical click are
+        // one UI click, for the reason `withCodeDown` guards the `justPressed`
+        // edge; two clicks on two different landings are two facts and both
+        // survive.
+        uiClicks: state.uiClicks.some(
+          (click) => click.button === button && click.landing === landing,
+        )
+          ? state.uiClicks
+          : [...state.uiClicks, { button, landing }],
+      }
 
 /**
  * Losing the pointer lock releases every held button.
@@ -553,7 +718,7 @@ export const makeInputService = (
               // `window` — see LISTENER_PLAN.
               return event.target === MODAL_LISTENER_TARGET
                 ? current
-                : withButtonDown(current, event.button)
+                : withButtonDown(current, event.button, event.landing)
             case 'mouseup':
               // Released whatever the lock state. A button that went down while
               // unlocked is not in `pressed` anyway, so this is a no-op for it;
@@ -620,6 +785,20 @@ export const makeInputService = (
                     ...withoutAnalogueState(withoutHeldButtons(current)),
                     pointerLockState: 'unlocked',
                   }
+            case 'focuschange':
+              // Recorded UNCONDITIONALLY, whatever the lock state, and the
+              // masking happens at read time. Dropping the event while locked
+              // would be the same class of bug as storing the masked value: the
+              // browser really did move focus, and a report built on an
+              // observation we declined to make would be stale for the rest of
+              // the session.
+              //
+              // Also deliberately not an edge and not additive: focus is
+              // single-valued, so the last thing the browser said IS the state.
+              // `focusout` then `focusin` for one move therefore settles on the
+              // arrival rather than leaving a hole, because the second
+              // assignment overwrites the first within the same DOM task.
+              return { ...current, keyboardFocus: event.focus }
             case 'pointerlockerror':
               // Only the lock state changes. A refused request never held the
               // pointer, so there is no delta to drop and no button to release
@@ -657,9 +836,22 @@ export const makeInputService = (
               // to ask. An existing `refused` therefore survives a blur — it is
               // documented as sticky until something ASKS again, and a blur is
               // not an ask.
+              //
+              // `keyboardFocus` is the one thing a blur does NOT clear, and it
+              // is carried over explicitly rather than by omission so that the
+              // exception is visible next to the rule. A window losing focus
+              // does not move the DOM focus INSIDE it: the browser remembers
+              // which element was focused and restores it when the player comes
+              // back, usually without re-announcing it. Clearing here would
+              // therefore hide the ring on a tab switch and never bring it back
+              // — mc-render's report and the browser's actual focus would
+              // disagree, which is the single failure this whole feature exists
+              // to prevent. A `focusout` that really did leave the element
+              // clears it, and that event arrives on its own.
               return {
                 ...initialState(current.bindings),
                 pointerLockState: current.pointerLockState === 'refused' ? 'refused' : 'unlocked',
+                keyboardFocus: current.keyboardFocus,
               }
             default:
               return current
@@ -672,7 +864,11 @@ export const makeInputService = (
         Effect.map((current) => ({
           pressed: current.pressed,
           justPressed: current.justPressed,
-          uiClicks: current.uiClicks,
+          // PROJECTED from the pairs, never stored beside them. A set and a
+          // list that both claimed to know whether a click happened would be
+          // two answers to one question.
+          uiClicks: new Set(current.uiClicks.map((click) => click.button)),
+          uiClickLandings: current.uiClicks,
           pointerDelta: current.pointerDelta,
           wheelNotches: current.wheelNotches,
           // Truncated TOWARD ZERO, so a partial notch is never a step and the
@@ -680,6 +876,12 @@ export const makeInputService = (
           wheelSteps: Math.trunc(current.wheelNotches),
           pointerLocked: isLocked(current),
           pointerLockState: current.pointerLockState,
+          // MASKED, never cleared. `reportsKeyboardFocus` is the policy and
+          // `InputState.keyboardFocus` says why the mask is applied here rather
+          // than at dispatch.
+          keyboardFocus: reportsKeyboardFocus(current.pointerLockState)
+            ? current.keyboardFocus
+            : undefined,
         })),
       ),
 
@@ -694,7 +896,13 @@ export const makeInputService = (
       wasButtonJustPressed: (button) =>
         Ref.get(state).pipe(Effect.map((current) => current.justPressed.has(button))),
 
-      wasUiClick: (button) => Ref.get(state).pipe(Effect.map((current) => current.uiClicks.has(button))),
+      // Whatever it landed ON. A menu asks "was I clicked", not "was the canvas
+      // clicked"; the landing is `acquiresPointerLock`'s question and is read
+      // through `InputSnapshot.uiClickLandings`.
+      wasUiClick: (button) =>
+        Ref.get(state).pipe(
+          Effect.map((current) => current.uiClicks.some((click) => click.button === button)),
+        ),
 
       shouldSuppressContextMenu: Ref.get(state).pipe(
         Effect.map((current) => suppressesBrowserContextMenu(isLocked(current))),
@@ -705,6 +913,12 @@ export const makeInputService = (
       ),
 
       pointerLockState: Ref.get(state).pipe(Effect.map((current) => current.pointerLockState)),
+
+      keyboardFocus: Ref.get(state).pipe(
+        Effect.map((current) =>
+          reportsKeyboardFocus(current.pointerLockState) ? current.keyboardFocus : undefined,
+        ),
+      ),
 
       requestPointerLock: Effect.gen(function* () {
         // Claim the transition BEFORE asking, in one atomic step. Two stages
@@ -740,7 +954,7 @@ export const makeInputService = (
         Ref.update(state, (current) => ({
           ...current,
           justPressed: new Set<InputCode>(),
-          uiClicks: new Set<MouseButton>(),
+          uiClicks: [],
           pointerDelta: { x: 0, y: 0 },
           // Whole notches are consumed; the SUB-NOTCH REMAINDER is kept. This
           // is the one deliberate difference from `pointerDelta`, which is
@@ -757,9 +971,14 @@ export const makeInputService = (
           wheelNotches: current.wheelNotches - consumableSteps(frame, current),
         })),
 
+      // `keyboardFocus` survives, on the same argument the `blur` case makes:
+      // this drops HELD input and ANALOGUE state, and focus is neither. The
+      // browser has not moved it, so forgetting it would only make the report
+      // wrong.
       clearHeld: Ref.update(state, (current) => ({
         ...initialState(current.bindings),
         pointerLockState: current.pointerLockState,
+        keyboardFocus: current.keyboardFocus,
       })),
 
       bindings: Ref.get(state).pipe(Effect.map((current) => current.bindings)),
@@ -856,6 +1075,30 @@ export const LISTENER_PLAN: ReadonlyArray<{
     target: GAMEPLAY_LISTENER_TARGET,
     note: 'clears held input; the browser sends no keyup while unfocused (stuck-controls report)',
   },
+  // The focus pair. On `document` because `focusin`/`focusout` BUBBLE and
+  // `focus`/`blur` do not — which is the whole reason these two event names are
+  // the ones registered. A `focus` listener would have to be installed on every
+  // slot mx-ui creates, i.e. this repository would need to know about elements
+  // it does not own and re-install listeners whenever the HUD rebuilt.
+  //
+  // Note also what is NOT here: no `keydown` entry for Tab. The browser moves
+  // focus; these two listeners find out where it went. Anything else would be
+  // reimplementing the platform's focus order, badly, and would then need
+  // `preventDefault()` to stop the platform's own version running as well.
+  {
+    event: 'focusin',
+    target: 'document',
+    note:
+      'bubbles (unlike `focus`), so ONE listener covers every slot mx-ui ever creates; the event ' +
+      "target is resolved against the host's focus roster and reported as a FocusTarget",
+  },
+  {
+    event: 'focusout',
+    target: 'document',
+    note:
+      'the departure half. Always reports NO focus: a move fires focusout then focusin in the same ' +
+      'DOM task, so the arrival overwrites this, and a departure to nothing correctly leaves it',
+  },
 ]
 
 /**
@@ -872,4 +1115,38 @@ export const ESCAPE_POLICY = {
     'Two owners means one press both closes the modal and opens the pause menu. ' +
     'The reference has exactly one frame-level handler ' +
     '(ts-minecraft/packages/app/application/frame/stages/input-stage-menu.ts:6, called only from input-stage.ts:33).',
+} as const
+
+/**
+ * Everything about Tab, in one exported value — the counterpart to
+ * `ESCAPE_POLICY`, and the place a test can assert that nothing has quietly
+ * started suppressing the browser's focus navigation.
+ *
+ * `preventDefault: false` is the field that matters. It is stated as a value
+ * rather than left implicit in the absence of a listener, because "we do not
+ * suppress Tab" is a promise that is broken by ADDING something, and a promise
+ * that lives only in an absence has nothing for CI to check.
+ *
+ * The distinction from `ESCAPE_POLICY` is worth reading twice. Escape's owner
+ * is one this codebase chose: the frame-level handler, and it could be moved.
+ * Tab's owner is the user agent, and it cannot be moved — only overridden, with
+ * `preventDefault()`, which is precisely the keyboard trap the whole feature is
+ * built to avoid (WCAG 2.1 SC 2.1.2). So the two policies have opposite
+ * shapes: Escape names an owner INSIDE the app and forbids a second one;
+ * Tab names an owner OUTSIDE it and forbids the app from becoming one.
+ */
+export const FOCUS_NAVIGATION_POLICY = {
+  key: FOCUS_NAVIGATION_KEY_CODE,
+  owner: FOCUS_NAVIGATION_OWNER,
+  preventDefault: false,
+  registeredBy:
+    'nobody — the browser moves focus, and `focusin`/`focusout` on document report where it went',
+  rationale:
+    'Suppressing Tab traps a keyboard user inside the canvas with no way to reach the browser ' +
+    'chrome, the next control, or the settings screen that would let them rebind their way out ' +
+    '(WCAG 2.1 SC 2.1.2). Unlike the context menu and the page scroll, which are narrowed to the ' +
+    'locked state by suppressesBrowserContextMenu / suppressesBrowserScroll, focus navigation has ' +
+    'no lock state in which suppressing it is defensible — so there is no predicate for it, only ' +
+    'this record. `remap` refuses to bind Tab for the same reason: the owner that cannot be ' +
+    'removed must not be given a second.',
 } as const

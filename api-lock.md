@@ -13,7 +13,7 @@
 <!-- ------------------------------------------------------------------------- -->
 
 format: 1
-exported declarations: 123
+exported declarations: 136
 supporting declarations: 17
 
 ## Exported
@@ -32,6 +32,7 @@ type BrowserInputOptions = {
     readonly canvas?: PointerLockTarget;
     readonly allowsPointerLock?: () => boolean;
     readonly bindings?: Bindings;
+    readonly focusGroups?: ReadonlyArray<FocusGroupTargets>;
 };
 ```
 
@@ -53,6 +54,12 @@ type BrowserPointerLockOptions = {
 };
 ```
 
+### CLICK_LANDINGS  `const`
+
+```ts
+const CLICK_LANDINGS: readonly ["lock-target", "ui", "elsewhere"];
+```
+
 ### COMPOSITE_SUBSUMES  `const`
 
 ```ts
@@ -66,6 +73,12 @@ type ChainViolation = {
     readonly rule: 'out-of-order' | 'missing-mandatory' | 'duplicate' | 'composite-conflict' | 'trailing-pass';
     readonly message: string;
 };
+```
+
+### ClickLanding  `type`
+
+```ts
+type ClickLanding = (typeof CLICK_LANDINGS)[number];
 ```
 
 ### DEFAULT_BINDINGS  `const`
@@ -87,6 +100,8 @@ type DomDocument = DomEventTarget & {
 ```ts
 type DomEventContext = {
     readonly pointerLockHeld: boolean;
+    readonly focusGroups: ReadonlyArray<FocusGroupTargets>;
+    readonly pointerLockTarget?: unknown;
 };
 ```
 
@@ -110,6 +125,7 @@ type DomInputEvent = {
     readonly movementY?: number;
     readonly deltaY?: number;
     readonly deltaMode?: number;
+    readonly target?: unknown;
 };
 ```
 
@@ -157,6 +173,48 @@ const ESCAPE_POLICY: {
 const EXPERIENCE_MODULE_STAGE_PREFIXES: readonly ["gameplay:", "redstone:", "ui:", "multiplayer:"];
 ```
 
+### FOCUS_NAVIGATION_KEY_CODE  `const`
+
+```ts
+const FOCUS_NAVIGATION_KEY_CODE: KeyCode;
+```
+
+### FOCUS_NAVIGATION_OWNER  `const`
+
+```ts
+const FOCUS_NAVIGATION_OWNER: "user-agent";
+```
+
+### FOCUS_NAVIGATION_POLICY  `const`
+
+```ts
+const FOCUS_NAVIGATION_POLICY: {
+    readonly key: string;
+    readonly owner: "user-agent";
+    readonly preventDefault: false;
+    readonly registeredBy: "nobody — the browser moves focus, and `focusin`/`focusout` on document report where it went";
+    readonly rationale: string;
+};
+```
+
+### FocusGroupTargets  `type`
+
+```ts
+type FocusGroupTargets = {
+    readonly group: string;
+    readonly targets: ReadonlyArray<unknown>;
+};
+```
+
+### FocusTarget  `type`
+
+```ts
+type FocusTarget = {
+    readonly group: string;
+    readonly index: number;
+};
+```
+
 ### FrameScratch  `type`
 
 ```ts
@@ -184,6 +242,12 @@ type GraphicsQuality = {
     readonly smaaEnabled: boolean;
     readonly useCompositePass: boolean;
 };
+```
+
+### HOTBAR_FOCUS_GROUP  `const`
+
+```ts
+const HOTBAR_FOCUS_GROUP = "hotbar";
 ```
 
 ### INPUT_ACTIONS  `const`
@@ -219,6 +283,7 @@ type InputEvent = {
     readonly kind: 'mousedown';
     readonly button: MouseButton;
     readonly target: ListenerTarget;
+    readonly landing: ClickLanding;
 } | {
     readonly kind: 'mouseup';
     readonly button: MouseButton;
@@ -241,6 +306,9 @@ type InputEvent = {
     readonly kind: 'pointerlockerror';
 } | {
     readonly kind: 'blur';
+} | {
+    readonly kind: 'focuschange';
+    readonly focus: FocusTarget | undefined;
 };
 ```
 
@@ -265,6 +333,7 @@ type InputServiceApi = {
     readonly shouldSuppressContextMenu: Effect.Effect<boolean>;
     readonly shouldSuppressWheelScroll: Effect.Effect<boolean>;
     readonly pointerLockState: Effect.Effect<PointerLockState>;
+    readonly keyboardFocus: Effect.Effect<FocusTarget | undefined>;
     readonly requestPointerLock: Effect.Effect<PointerLockState>;
     readonly endFrame: (frame?: InputSnapshot | undefined) => Effect.Effect<void>;
     readonly clearHeld: Effect.Effect<void>;
@@ -287,6 +356,7 @@ type InputSnapshot = {
     readonly pressed: ReadonlySet<InputCode>;
     readonly justPressed: ReadonlySet<InputCode>;
     readonly uiClicks: ReadonlySet<MouseButton>;
+    readonly uiClickLandings: ReadonlyArray<UiClick>;
     readonly pointerDelta: {
         readonly x: number;
         readonly y: number;
@@ -295,6 +365,7 @@ type InputSnapshot = {
     readonly wheelSteps: number;
     readonly pointerLocked: boolean;
     readonly pointerLockState: PointerLockState;
+    readonly keyboardFocus: FocusTarget | undefined;
 };
 ```
 
@@ -442,6 +513,12 @@ const OWN_STAGE_PREFIX = "render:";
 const POINTER_LOCK_ACQUIRE_BUTTON: MouseButton;
 ```
 
+### POINTER_LOCK_ACQUIRE_LANDING  `const`
+
+```ts
+const POINTER_LOCK_ACQUIRE_LANDING: ClickLanding;
+```
+
 ### POINTER_LOCK_STATES  `const`
 
 ```ts
@@ -552,7 +629,7 @@ type RemapOutcome = {
 
 ```ts
 type RemapRejection = {
-    readonly reason: 'escape-is-not-bindable' | 'key-already-bound' | 'unknown-action';
+    readonly reason: 'escape-is-not-bindable' | 'key-reserved-by-user-agent' | 'key-already-bound' | 'unknown-action';
     readonly message: string;
 };
 ```
@@ -630,6 +707,15 @@ const UPSTREAM_STAGE_IDS: {
 };
 ```
 
+### UiClick  `type`
+
+```ts
+type UiClick = {
+    readonly button: MouseButton;
+    readonly landing: ClickLanding;
+};
+```
+
 ### ViewOffset  `type`
 
 ```ts
@@ -679,7 +765,7 @@ type WheelDeltaMode = (typeof WHEEL_DELTA_MODES)[number];
 ### acquiresPointerLock  `const`
 
 ```ts
-const acquiresPointerLock: (button: MouseButton, state: PointerLockState) => boolean;
+const acquiresPointerLock: (button: MouseButton, state: PointerLockState, landing: ClickLanding) => boolean;
 ```
 
 ### actionForKey  `const`
@@ -748,7 +834,7 @@ const forwardVector: (snapshot: CameraPoseSnapshot) => Position;
 ### installInputListeners  `const`
 
 ```ts
-const installInputListeners: (targets: BrowserInputTargets, input: InputServiceApi) => InstalledInputListeners;
+const installInputListeners: (targets: BrowserInputTargets, input: InputServiceApi, focusGroups?: ReadonlyArray<FocusGroupTargets>, pointerLockTarget?: unknown) => InstalledInputListeners;
 ```
 
 ### isCanonicalChain  `const`
@@ -892,16 +978,34 @@ const renderModule: (quality?: GraphicsQuality, pointerLock?: PointerLockPort) =
 const renderStages: (state: RenderFrameState, input: InputServiceApi) => ReadonlyArray<StageRegistration>;
 ```
 
+### reportsKeyboardFocus  `const`
+
+```ts
+const reportsKeyboardFocus: (state: PointerLockState) => boolean;
+```
+
 ### requiresForceSinglePass  `const`
 
 ```ts
 const requiresForceSinglePass: (material: MaterialSpec) => boolean;
 ```
 
+### resolveClickLanding  `const`
+
+```ts
+const resolveClickLanding: (pointerLockTarget: unknown, groups: ReadonlyArray<FocusGroupTargets>, target: unknown) => ClickLanding;
+```
+
+### resolveFocusTarget  `const`
+
+```ts
+const resolveFocusTarget: (groups: ReadonlyArray<FocusGroupTargets>, target: unknown) => FocusTarget | undefined;
+```
+
 ### scopedInputListeners  `const`
 
 ```ts
-const scopedInputListeners: (targets: BrowserInputTargets, input: InputServiceApi) => Effect.Effect<InstalledInputListeners, never, Scope.Scope>;
+const scopedInputListeners: (targets: BrowserInputTargets, input: InputServiceApi, focusGroups?: ReadonlyArray<FocusGroupTargets>, pointerLockTarget?: unknown) => Effect.Effect<InstalledInputListeners, never, Scope.Scope>;
 ```
 
 ### snapshotAgeSecs  `const`

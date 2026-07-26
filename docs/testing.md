@@ -339,6 +339,44 @@ DOM は**偽物**で駆動している。§5.2 の「ブラウザを要するテ
 | `a real Window, Document and HTMLCanvasElement satisfy the adapter without a cast` | `test/fixtures/dom-surface.ts` を**本物の `lib.dom.d.ts`** に対してコンパイルし、診断 0 件を assert する。狭い構造的型が実物の部分集合であること |
 | `the shipped project still compiles with NO DOM at all` | `tsconfig.build.json` の `lib` / `types` が後から緩められていないこと |
 
+### 8.2 キーボードフォーカス（DN-16）
+
+`test/input.test.ts` に 3 describe、`test/browser-input-adapter.test.ts` に 2 describe。
+全表は [design-notes.md](./design-notes.md) DN-16 にある。**この 3 本が要**である。
+
+| テスト | 何を守るか |
+| --- | --- |
+| `REGRESSION: no focus handler EVER calls preventDefault` | Tab を奪えばキーボードトラップ（WCAG 2.1 SC 2.1.2）。実リスナ越しに、ロック中でも 0 件であることを assert する |
+| `REGRESSION: the lock MASKS the focus, it does not forget it` | ロック中に消すと、明けたときリングとブラウザのフォーカスがずれる |
+| `endFrame does NOT clear it: focus is a LEVEL, like pressed and unlike justPressed` | フレーム境界の一貫性。エッジ扱いにするとリングがリフレッシュレートで点滅する |
+
+`focusin` / `focusout` も偽 DOM で駆動している。フォーカスは Playwright なら実在するが、
+**ロック中の分岐は相変わらず届かない**（§3.2）ので、
+「ロック中はリングを出さない」は node 側でしか押さえられない。
+
+**このうち 1 つには意図的にテストが無い**（[design-notes.md](./design-notes.md) DN-16 §5(a)）。
+無いのは実装が無いからであり、テストの穴ではない。ここに書いておくのは、
+§8.2 の表を「フォーカスまわりは全部押さえてある」と読まれないようにするためである。
+
+| 未実装 | なぜ今テストが無いか |
+| --- | --- |
+| 矢印キーでグループ**内**を移動する | `focus()` を呼ぶ主体がまだ無い。入れるには `dom-surface.ts` に動詞が 1 つ増え、DN-15 の代入可能性の証明をやり直すことになる。どのキーが移動するか、ロック中はどう振る舞うかは mx-ui と一緒に決める |
+
+**もう 1 つ（HUD の上のクリックがロック要求になる）は閉じた**（DN-16 §5(b)）。
+`acquiresPointerLock` は `(button, state, landing)` になり、`landing` は
+`resolveClickLanding` がアダプタの境界で `event.target` を `===` 照合して付ける。
+テストは 3 つの層に分かれていて、名前が**どちらの半分が壊れたか**を言うようにしてある:
+
+| 層 | 何を押さえるか | 場所 |
+| --- | --- | --- |
+| 述語 | 3 つの着地 × 4 状態 × 3 ボタン。第 3 の場合（`elsewhere`）を含む | `test/input.test.ts` |
+| 境界 | 要素 → 着地の解決。同一性、ロスタ、どちらでもない、宣言なしホスト、優先順位 | `test/browser-input-adapter.test.ts` |
+| フレーム | `render:input` が実際に要求する / しない。リングがマスクされない | `test/stage-registration.test.ts` |
+
+**DOM 面は増えていない**ので `a real Window, Document and HTMLCanvasElement satisfy the adapter
+without a cast` はそのまま通る。フィクスチャには「ロック対象を `===` でしか触らない」ハンドラを
+1 つ足してあり、`contains` に手を伸ばした瞬間にそこが落ちる。
+
 前者はフィクスチャを `ts.createProgram` で**テストの中からコンパイル**する
 （`typescript` は既に devDependency で、`test/api-lock.test.ts` と同じ手である）。
 フィクスチャは `tsconfig.json` / `tsconfig.test.json` から `test/fixtures/**` として除外してある。

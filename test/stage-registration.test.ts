@@ -3,6 +3,7 @@ import { Effect, Ref } from 'effect'
 import { isMirrorStale, mirrorLagSecs } from '../domain/camera-mirror'
 import {
   GAMEPLAY_LISTENER_TARGET,
+  HOTBAR_FOCUS_GROUP,
   MODAL_LISTENER_TARGET,
 } from '../domain/input-bindings'
 import {
@@ -222,7 +223,7 @@ describe('render:input', () => {
     withStagesUsingPointerLock('sent', (stages, _state, input, asked) =>
       Effect.gen(function* () {
         // Unlocked, so this is a UI click and not an attack (DN-12).
-        yield* input.dispatch({ kind: 'mousedown', button: 'MouseLeft', target: GAMEPLAY_LISTENER_TARGET })
+        yield* input.dispatch({ kind: 'mousedown', button: 'MouseLeft', target: GAMEPLAY_LISTENER_TARGET, landing: 'lock-target' })
         expect(yield* input.pointerLockState).toBe('unlocked')
 
         yield* stageById(stages, RENDER_STAGE_IDS.input).run(dt).pipe(Effect.provide(FRAME_SERVICES))
@@ -238,10 +239,130 @@ describe('render:input', () => {
     ),
   )
 
+  // ---------------------------------------------------------------------------
+  // DN-16 §5(b): WHERE the click landed
+  // ---------------------------------------------------------------------------
+  //
+  // The frame is where the hazard was reachable, because the frame is what
+  // ASKS. `acquiresPointerLock` was `(button, state)`, so every unlocked left
+  // click looked identical to it — including the one the player aimed at their
+  // own hotbar. Each of the three landings gets its own test, so a failure
+  // names the case that broke rather than "pointer lock".
+
+  it.effect('DN-16 §5(b): a click on a REGISTERED UI ELEMENT does not ask for the lock', () =>
+    withStagesUsingPointerLock('sent', (stages, _state, input, asked) =>
+      Effect.gen(function* () {
+        // The hazard, exactly: `tabindex="-1"` focuses on click, so the ring
+        // lights — and the same `mousedown` bubbles to `window`.
+        yield* input.dispatch({ kind: 'mousedown', button: 'MouseLeft', target: GAMEPLAY_LISTENER_TARGET, landing: 'ui' })
+
+        yield* stageById(stages, RENDER_STAGE_IDS.input).run(dt).pipe(Effect.provide(FRAME_SERVICES))
+
+        expect(yield* Ref.get(asked)).toBe(0)
+        expect(yield* input.pointerLockState).toBe('unlocked')
+      }),
+    ),
+  )
+
+  it.effect('DN-16 §5(b): the same click IS still a uiClick — the menu that drew the slot wants it', () =>
+    withStagesUsingPointerLock('sent', (stages, state, input, asked) =>
+      Effect.gen(function* () {
+        yield* input.dispatch({ kind: 'mousedown', button: 'MouseLeft', target: GAMEPLAY_LISTENER_TARGET, landing: 'ui' })
+
+        // Read BEFORE the stage, because `endFrame` clears the edge.
+        expect(yield* input.wasUiClick('MouseLeft')).toBe(true)
+
+        yield* stageById(stages, RENDER_STAGE_IDS.input).run(dt).pipe(Effect.provide(FRAME_SERVICES))
+
+        // The frame saw it as a UI click, and it carries where it landed.
+        const sampled = yield* Ref.get(state.input)
+        expect([...sampled.uiClicks]).toStrictEqual(['MouseLeft'])
+        expect(sampled.uiClickLandings).toStrictEqual([{ button: 'MouseLeft', landing: 'ui' }])
+        // Filtering the click out of `uiClicks` instead would have hidden it
+        // from the very UI that drew the element it landed on.
+        expect(yield* Ref.get(asked)).toBe(0)
+      }),
+    ),
+  )
+
+  it.effect('DN-16 §5(b): a click on the LOCK TARGET does ask — the fix did not break mouselook', () =>
+    withStagesUsingPointerLock('sent', (stages, _state, input, asked) =>
+      Effect.gen(function* () {
+        yield* input.dispatch({ kind: 'mousedown', button: 'MouseLeft', target: GAMEPLAY_LISTENER_TARGET, landing: 'lock-target' })
+
+        yield* stageById(stages, RENDER_STAGE_IDS.input).run(dt).pipe(Effect.provide(FRAME_SERVICES))
+
+        expect(yield* Ref.get(asked)).toBe(1)
+        expect(yield* input.pointerLockState).toBe('requested')
+      }),
+    ),
+  )
+
+  it.effect('DN-16 §5(b): a click on NEITHER asks for nothing — the rule is "on the lock target"', () =>
+    withStagesUsingPointerLock('sent', (stages, _state, input, asked) =>
+      Effect.gen(function* () {
+        // The third case, and the one that decides which predicate this is. The
+        // letterbox beside a fixed-aspect canvas, the page background, a header
+        // the host drew and did not declare: none of them are UI this
+        // repository was told about, and `landing !== 'ui'` would have granted
+        // the pointer to every one of them.
+        yield* input.dispatch({ kind: 'mousedown', button: 'MouseLeft', target: GAMEPLAY_LISTENER_TARGET, landing: 'elsewhere' })
+
+        yield* stageById(stages, RENDER_STAGE_IDS.input).run(dt).pipe(Effect.provide(FRAME_SERVICES))
+
+        expect(yield* Ref.get(asked)).toBe(0)
+        expect(yield* input.pointerLockState).toBe('unlocked')
+      }),
+    ),
+  )
+
+  it.effect('DN-16 §5(b): the ring survives a HUD click, and only a canvas click masks it', () =>
+    withStagesUsingPointerLock('sent', (stages, state, input, asked) =>
+      Effect.gen(function* () {
+        // The visible half of the hazard. The player Tabs to slot 3, the ring
+        // lights, they click that slot — and used to be thrown into mouselook,
+        // which masked the ring the click had just lit. Two symptoms, one
+        // cause, and this is the one the player actually sees.
+        yield* input.dispatch({
+          kind: 'focuschange',
+          focus: { group: HOTBAR_FOCUS_GROUP, index: 3 },
+        })
+        yield* input.dispatch({ kind: 'mousedown', button: 'MouseLeft', target: GAMEPLAY_LISTENER_TARGET, landing: 'ui' })
+
+        yield* stageById(stages, RENDER_STAGE_IDS.input).run(dt).pipe(Effect.provide(FRAME_SERVICES))
+
+        expect(yield* Ref.get(asked)).toBe(0)
+        expect((yield* Ref.get(state.input)).keyboardFocus).toStrictEqual({
+          group: HOTBAR_FOCUS_GROUP,
+          index: 3,
+        })
+
+        // And the mask is not broken either: a click that SHOULD lock still
+        // masks it, so this test cannot pass by the report having stopped
+        // following the lock state at all.
+        yield* input.dispatch({ kind: 'mousedown', button: 'MouseLeft', target: GAMEPLAY_LISTENER_TARGET, landing: 'lock-target' })
+        yield* stageById(stages, RENDER_STAGE_IDS.input).run(dt).pipe(Effect.provide(FRAME_SERVICES))
+        yield* input.dispatch({ kind: 'pointerlockchange', locked: true })
+        yield* stageById(stages, RENDER_STAGE_IDS.input).run(dt).pipe(Effect.provide(FRAME_SERVICES))
+
+        expect(yield* Ref.get(asked)).toBe(1)
+        expect((yield* Ref.get(state.input)).keyboardFocus).toBeUndefined()
+
+        // Masked, not forgotten (DN-16 §3): unlocking reports slot 3 again.
+        yield* input.dispatch({ kind: 'pointerlockchange', locked: false })
+        yield* stageById(stages, RENDER_STAGE_IDS.input).run(dt).pipe(Effect.provide(FRAME_SERVICES))
+        expect((yield* Ref.get(state.input)).keyboardFocus).toStrictEqual({
+          group: HOTBAR_FOCUS_GROUP,
+          index: 3,
+        })
+      }),
+    ),
+  )
+
   it.effect('a REFUSED request is still refused on the next frame, for the UI to draw', () =>
     withStagesUsingPointerLock('sent', (stages, state, input, asked) =>
       Effect.gen(function* () {
-        yield* input.dispatch({ kind: 'mousedown', button: 'MouseLeft', target: GAMEPLAY_LISTENER_TARGET })
+        yield* input.dispatch({ kind: 'mousedown', button: 'MouseLeft', target: GAMEPLAY_LISTENER_TARGET, landing: 'lock-target' })
         yield* stageById(stages, RENDER_STAGE_IDS.input).run(dt).pipe(Effect.provide(FRAME_SERVICES))
 
         yield* input.dispatch({ kind: 'pointerlockerror' })
@@ -259,7 +380,7 @@ describe('render:input', () => {
     withStagesUsingPointerLock('sent', (stages, _state, input, asked) =>
       Effect.gen(function* () {
         yield* input.dispatch({ kind: 'pointerlockchange', locked: true })
-        yield* input.dispatch({ kind: 'mousedown', button: 'MouseLeft', target: GAMEPLAY_LISTENER_TARGET })
+        yield* input.dispatch({ kind: 'mousedown', button: 'MouseLeft', target: GAMEPLAY_LISTENER_TARGET, landing: 'lock-target' })
 
         yield* stageById(stages, RENDER_STAGE_IDS.input).run(dt).pipe(Effect.provide(FRAME_SERVICES))
 
@@ -271,7 +392,7 @@ describe('render:input', () => {
   it.effect('an unlocked RIGHT click does not grab the pointer out from under a menu', () =>
     withStagesUsingPointerLock('sent', (stages, _state, input, asked) =>
       Effect.gen(function* () {
-        yield* input.dispatch({ kind: 'mousedown', button: 'MouseRight', target: GAMEPLAY_LISTENER_TARGET })
+        yield* input.dispatch({ kind: 'mousedown', button: 'MouseRight', target: GAMEPLAY_LISTENER_TARGET, landing: 'lock-target' })
 
         yield* stageById(stages, RENDER_STAGE_IDS.input).run(dt).pipe(Effect.provide(FRAME_SERVICES))
 

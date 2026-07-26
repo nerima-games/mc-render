@@ -23,6 +23,7 @@ plan.md §3.9「設計注意（参照実装の実測知見）」の全項目を�
 | DN-13 | ホイールはエッジでもレベルでもなくデルタ。単位はドメインで正規化する | 済 |
 | DN-14 | ポインタロックは要求であり、拒否されうる。`unlocked` と `refused` は別 | 済 |
 | DN-15 | DOM は `lib` ではなく**狭い構造的インターフェース**で受ける。`lib.DOM` を入れない | 済 |
+| DN-16 | キーボードフォーカスは**観測**。Tab はユーザーエージェントのもので、決して奪わない | 済 |
 
 ---
 
@@ -1062,3 +1063,323 @@ DN-15 が言えるのは「1 つのアダプタのために全ファイルから
 | --- | --- |
 | `a real Window, Document and HTMLCanvasElement satisfy the adapter without a cast` | `test/browser-input-adapter.test.ts` |
 | `the shipped project still compiles with NO DOM at all` | 同上 |
+
+---
+
+## DN-16 キーボードフォーカスは**観測**である。Tab は奪わない
+
+plan.md には無い。**mx-ui が半分だけ作って止めた**ところである
+（mx-ui/docs/design-notes.md DN-UI-13i、`mx-ui/application/slot-element.ts`）。
+
+公開モデルの決定（`FocusTarget`、`focusin`/`focusout`、ロック中のマスク、
+同一性による解決）は [public-api.md](./public-api.md) §2.10 にある。
+ここに書くのは**設計注意**の側、すなわち「知らないと必ず踏む」4 つと、
+**まだ閉じていない 2 点**（§5）である。
+
+### 証跡
+
+**参照実装には対応物が無い。** DN-04 が引いている
+`ts-minecraft/packages/presentation/input/input-service.ts:178-190` のリスナ列は
+`keydown` / `keyup` / `mousemove` / `pointerlockchange` / `pointerlockerror` / `wheel` /
+`contextmenu` / `blur` の 8 本で、**フォーカス系は 1 本も無い**。
+参照実装の HUD にリングもロービングタブストップも無いからで、
+つまりこの項目は移植ではなく**こちら側で新規に決めたもの**である。
+したがって証跡は兄弟リポジトリ側にある。
+
+| 事実 | どこ |
+| --- | --- |
+| ホットバーは roving `tabindex` の**1 タブストップ**。`'0'` / `'-1'` は `root` に書かれる | `mx-ui/application/slot-element.ts` `setSlotTabStop`（`tabStop: attributeCell(root, 'tabindex')`） |
+| リングは**スロットごとの専用要素**（`data-mx-ui="slot-focus-ring"`）で、`hidden` 1 属性で切り替わる | 同 `createSlotElement` / `setSlotKeyboardFocus` |
+| 受け口は `HudView.setKeyboardFocus(index: number \| undefined)`。`undefined` は全リング消灯、`0` はスロット 0 点灯 | `mx-ui/application/hud-view.ts` `applyKeyboardFocus`（`DEFAULT_TAB_STOP_INDEX = 0`） |
+| mx-ui は**リスナを 1 本も持たない**。`addEventListener` も `focus()` も、向こうの `dom-surface.ts` に**無い** | `mx-ui/application/hud-view.ts` ヘッダ、`mx-ui/application/dom-surface.ts` |
+| 「このリポジトリだけでは閉じられない唯一の点。閉じるにはキーストロークに**気づく**必要がある」 | `mx-ui/docs/design-notes.md` DN-UI-13i |
+| 向こうがそれを回帰テストで固定している | `REGRESSION: making a slot focusable did not add a listener or a way to move focus` |
+
+`tabindex` が `slot.root` に載っていることは配線上の要点である——
+`focusin` の `event.target` は**スロットの root 要素そのもの**になるので、
+ホストが渡すロスタは `[data-mx-ui="slot"]` の root 群でよい
+（[public-api.md](./public-api.md) §2.10.6）。
+
+### 1. Tab を `preventDefault` するとキーボードトラップになる
+
+これが一番踏みやすい。入力を所有する側は「Tab を取って自前でフォーカスを動かす」に手が伸びる——
+`contextmenu` も `wheel` も既にそうしているからである。**この 3 つは同じではない。**
+
+| 既定動作 | 飲み込むと失うもの | 絞り込み |
+| --- | --- | --- |
+| コンテキストメニュー | チャット行の「コピー」、テキスト欄のスペルチェック | ロック中のみ（`suppressesBrowserContextMenu`） |
+| ページスクロール | 設定画面の下端 | ロック中のみ（`suppressesBrowserScroll`） |
+| **フォーカス移動（Tab）** | **出口が全部**。ブラウザのクロム、次のコントロール、次のフレーム、そして「縛り直して脱出する」ための設定画面 | **無し。どのロック状態でもしない** |
+
+WCAG 2.1 SC 2.1.2（No Keyboard Trap）そのものである。
+しかも自己修復不能なのが効く: 縛り直せば直る類の不具合ではない、
+**縛り直す画面に到達できない**からである。
+
+だから対になる述語を**作っていない**。`suppressesBrowserFocusNavigation(pointerLocked)` は
+恒偽の関数であり、恒偽の述語は「いつか true になる分岐がある」という誤った合図である。
+代わりに `FOCUS_NAVIGATION_POLICY`（`application/input-service.ts`、`ESCAPE_POLICY` の隣）に
+`preventDefault: false` を**値として**置いた。
+「抑止しない」は**何かを足すことで破られる**約束であり、
+不在としてしか存在しない約束は CI が見張れない。
+
+### 2. Escape の規則と Tab の規則は**形が逆**である
+
+同じ「1 キー 1 所有者」に見えて、非対称である。
+
+| | Escape | Tab |
+| --- | --- | --- |
+| 所有者 | フレーム級の単一ハンドラ（DN-05） | ユーザーエージェント |
+| 所有者はどこに居るか | **アプリの中** | **アプリの外** |
+| 動かせるか | 動かせる（設計判断） | **動かせない。上書きできるだけ** |
+| 規則の向き | 中の所有者を 1 人に固定し、2 人目を禁じる | 外の所有者を認め、**アプリが 2 人目になることを禁じる** |
+
+`remap` は Tab を `key-reserved-by-user-agent` で拒否する。
+縛れてしまうと、その 1 押しは**必ず 2 つのことをする**——アクションが走り、同時にフォーカスが動く。
+1 つにする方法は `preventDefault` しかなく、それが上の 1 である。
+除去できない所有者に 2 人目を足さない。
+
+バニラの Tab はプレイヤーリストである。ブラウザはバニラではない。
+プレイヤーリストは他のどのキーにでも縛れるが、**両方の意味を持つ Tab は縛れない**。
+`actionForKey` にも同じガードを置いてある: `remap` は書き込みを止めるだけで、
+規則が存在する前に書かれた永続設定 blob はこの関数に直接届く。
+
+### 3. ロック中に**消す**と、ロックが明けたときリングとフォーカスがずれる
+
+ロック中に報告しないこと自体は素直である（キーはアバターを動かしており、
+そのときのリングは次のキーが何をするかについての嘘である）。
+踏むのはその**実装のしかた**である。
+
+`dispatch` でイベントを捨てる／状態を `undefined` にする、のどちらでも同じ壊れ方をする:
+
+```
+Tab でスロット 3 → クリックしてロック取得 → Escape でロック解除
+  消していた場合: リングはどこにも無い。しかしブラウザのフォーカスはスロット 3 のままなので、
+                  次の Space はスロット 3 を叩く。**見えているものと起きることが違う**
+```
+
+ポインタロックは**キーボードに触らない**。だからフォーカスは本当にまだそこに在る。
+生の観測を `InputState.keyboardFocus` に保持し、**読み出しで** `reportsKeyboardFocus` を掛ける。
+マスクは可逆で、消去は不可逆である。
+
+同じ理由で `blur` と `clearHeld` も `keyboardFocus` だけは**明示的に持ち越す**。
+DN-08 の「blur で保持キーを消す」は、**ブラウザが keyup を送ってこない**から必要なのであって、
+フォーカスは事情が逆である——ウィンドウが非アクティブになっても中の DOM フォーカスは動かず、
+ブラウザは戻ってきたときに同じ要素へ復帰させ、たいてい再通知しない。
+ここで消すと、タブを切り替えただけでリングが消えて二度と戻らない。
+本当に離れたときは `focusout` が来る。
+
+### 4. `focus` ではなく `focusin`、属性ではなく**同一性**
+
+2 つとも「動くように見えるがスケールしない」選択肢がある。
+
+**`focus` / `blur` はバブルしない。** スロットごとにリスナを付けることになり、
+このリポジトリが所有しない要素を知り、HUD が組み直されるたびに登録し直すことになる
+（DN-04 の「登録は 1 箇所」が壊れ、`LISTENER_PLAN` がホストごとに変わる）。
+`focusin` / `focusout` は `document` の 1 本で、**まだ存在しないスロットも覆う**。
+
+**`data-slot-index` を読むと 2 通りに壊れる。**
+1 つは領域ローカルであること（ホットバーのスロット 0 とインベントリのスロット 0 は同じ値）。
+もう 1 つが効く方で、`getAttribute` を `dom-surface.ts` に入れると
+**DN-15 の代入可能性の証明が壊れる**: 実物の `Event.target` は `EventTarget | null` で
+`getAttribute` を持たず、全省略可能なオブジェクト型は weak type なので TypeScript が即座に拒否する。
+`Event` が `DomInputEvent` に代入できなくなり、リスナ引数は反変なので
+`Window` が `DomEventTarget` に代入できなくなる。そして `pnpm typecheck` は**何も言わない**。
+
+だから `target?: unknown` の 1 フィールドだけを足し、
+`resolveFocusTarget` は `===` で照合して配列位置を返す。
+`unknown` を選んだ理由は `pointerLockElement` が `unknown` である理由と同じ——
+**比較しかしないから**である。
+`application/dom-surface.ts` に増えたのは `DomInputEvent` の省略可能フィールド **1 つだけ**で、
+型宣言も述語も 1 つも増えていない（`index.ts` 経由の公開エントリは 7 つのまま）。
+
+### 5. 観測の外に残った 2 点。**どちらも観測の欠陥ではなく、決定が要った**
+
+（(b) は閉じた。(a) は依然 mx-ui と一緒に決める。）
+
+入っているのは**観測**であり、それは mx-ui が名指しで待っていたもの
+（DN-UI-13i「閉じるにはキーストロークに気づく必要がある」）そのものである。
+一方で `setSlotTabStop` のコメントは「`'-1'` にして**消さない**のは、
+入力を所有する側がグループ**内**でフォーカスを動かせるようにするためだ」と書いている。
+その動詞はまだ無い。書いておかないと、次に読む人が観測の側を疑い始める。
+
+**(a) グループ内の移動（矢印キー）が無い。** ホットバーはタブストップが 1 つなので、
+Tab で入れるのは常に `DEFAULT_TAB_STOP_INDEX`（= スロット 0）だけである。
+`focus()` を呼ぶ主体が居ないので、キーボードだけでスロット 1..8 に**リングを動かす手段は無い**。
+
+これを欠陥と呼ばない理由が 2 つある。
+1 つは、キーボードのスロット選択は既に `hotbarSlot1..9`（`Digit1`..`Digit9`）で閉じており、
+リング（キーボードの居場所）と選択（ゲームが使っているスロット）は
+mx-ui のパレットが**意図的に別々の問い**として持っているものだからである
+（`FOCUS_RING` と `SLOT_SELECTED`、別要素・同時点灯可）。
+もう 1 つは、閉じるには**この 1 リポジトリでは決められないこと**が要るからである:
+`dom-surface.ts` に `focus()` を足す（DN-15 の代入可能性の証明をやり直す）、
+どのキーが移動するかを決める（矢印か、Home/End か、循環するのか）、
+そして**ロック中はそのキーが移動してはならない**——
+ロック中は同じ矢印がプレイヤーを動かすかもしれないからである。
+述語 1 つでは済まず、`FOCUS_NAVIGATION_POLICY` の隣にもう 1 つ方針が要る。
+**採るなら mx-ui と一緒に決める。** それまで観測だけで正しく閉じているのは
+「Tab で入る / Tab で出る / リングが正しいスロットに出る」までである。
+
+**(b) HUD の上のクリックが、ポインタロック要求になる。—— 閉じた。**
+これは DN-12 / DN-14 から来ていた既存の穴で、
+**フォーカス可能な DOM UI が実在するようになったことで初めて手が届く**ようになった。
+
+```
+非ロック中、プレイヤーがホットバーのスロットをマウスでクリックする
+  → tabindex="-1" の要素はクリックでフォーカスされる → focusin → リング点灯（正しい）
+  → 同じ mousedown が window に届く → uiClicks に入る
+  → render:input が acquiresPointerLock('MouseLeft', 'unlocked') = true を見る
+  → requestPointerLock → 許可されると locked → reportsKeyboardFocus が false
+  → リングが消え、プレイヤーは視点操作に放り込まれる
+```
+
+`acquiresPointerLock` は `(button, state)` の純粋述語で、
+**クリックがどこに落ちたかを知らなかった**。
+そして知る手段が当てにできないのが当時の判断だった:
+DN-04 の遮蔽規則は「モーダルが `document` で `stopPropagation()` する」ことを前提にしているが、
+**mx-ui はリスナを 1 本も持たない**（上の証跡表）ので、`stopPropagation()` を呼ぶ主体が居ない。
+だから選択肢は 3 つあり、どれも境界をまたぐ、と書いていた:
+
+| 案 | 誰が変わるか | 判定 |
+| --- | --- | --- |
+| mx-ui が消費したクリックを `document` で `stopPropagation()` する | mx-ui（`addEventListener` を持つことになる。DN-UI-4 が明示的に拒否してきた方向） | 不採用 |
+| ホストが HUD の下に canvas を置き、ロック要求を canvas スコープの `mousedown` に限る | ホスト（`LISTENER_PLAN` の `mousedown` は `window` のままなので、要求の判断だけを分ける） | 不採用 |
+| `acquiresPointerLock` に「クリックが UI に落ちたか」を渡す | mc-render（`dom-surface.ts` に `contains` か `composedPath` が要る。DN-15 の面が増える） | 不採用（下記のとおり `contains` は要らなかった） |
+| **`acquiresPointerLock` に「クリックがどこに落ちたか」を名前で渡す** | **mc-render だけ。DOM 面は 1 バイトも増えない** | **採用** |
+
+**4 番目が在ることに気づいていなかった。** アダプタは既に `event.target` を読んでおり
+（フォーカス解決のために `target?: unknown` を 1 つだけ足してある）、
+`resolveFocusTarget` は既にそれを**要素の同一性**でロスタと照合している。
+つまり mc-render は「クリックがどこに落ちたか」を**もう知っている**。
+足りなかったのは、その答えを述語まで運ぶ 1 語だけだった。
+
+### 採った述語 —— 「ロック対象に落ちた」であって「UI に落ちなかった」ではない
+
+`ClickLanding = 'lock-target' | 'ui' | 'elsewhere'`（`domain/input-bindings.ts`）。
+`acquiresPointerLock(button, state, landing)` は
+`landing === POINTER_LOCK_ACQUIRE_LANDING`（= `'lock-target'`）を要求する。
+
+2 つの述語は**どちらにも落ちなかったクリック**で分岐する。理由は 3 つ:
+
+1. **開世界 vs 閉世界。** 「UI ではない」はホストが列挙し忘れたもの**全部**にポインタを与える。
+   「ロック対象である」はホストが名指しした 1 要素にだけ与える。
+   宣言を忘れたときの代償が、前者は「リンクをクリックしたらマウスルックに放り込まれる」、
+   後者は「マウスルックに入れない」である。後者は最初の 1 回で見え、しかも人を混乱させない。
+   ポインタを奪う操作は**カーソルが消え、リングもマスクされる**——
+   自分で自分を隠す失敗なので、既定は「与えない」でなければならない。
+2. **ホストの宣言が 1 つも増えない。** ロック対象とは
+   `BrowserInputOptions.canvas`、すなわち `makeBrowserPointerLockPort` が
+   `requestPointerLock()` を呼ぶ当の要素である。**ロックできるホストは既にそれを名指ししている**し、
+   名指ししていないホストは `UNAVAILABLE_POINTER_LOCK` で最初からロックできない。
+   規則を 1 行で言えば **「ロックを受け取る要素が、ロックを要求するために押すべき要素である」**。
+   一方「UI ではない」は、UI を描く**すべての**ホストに新しいロスタを要求し、
+   忘れたホストは壊れたまま・しかも静かに残る。
+3. **「UI」はロスタの語彙では言えない。** ロスタは**フォーカス**のために在るので、
+   `onclick` だけの `<div>`、レターボックスの帯、ホストが描いたヘッダは入っていない。
+   「UI ではない」はそれら全部にポインタを与える。
+
+### 第 3 の場合（`elsewhere`）はどうなるか
+
+**要求しない。** 固定アスペクト canvas の脇の黒帯、ページ背景、ホストが描いて宣言しなかったヘッダ
+——どれも「ゲームのビューポート」ではなく、クリックの既定の意味がマウスルックであってはならない。
+
+`ui` と `elsewhere` は**判定が同じなのに 2 つの名前のまま**にしてある。診断のためである:
+ロック対象の同一性が壊れたとき（ホストが canvas ではなくラッパ `<div>` を渡した、
+HUD を建て直したのに入力スコープを建て直していない）**全クリックが `elsewhere` になり、
+マウスルックが静かに動かなくなる**。boolean だとこのバグと「HUD クリックを正しく断った」が
+同じ値になる。3 値なら、テストもデバッグオーバーレイも**どちらの半分が壊れたか**を言える。
+
+### DOM 面は増えていない。`contains` は要らなかった
+
+`event.target` は**ヒットテストが見つけた最も深い要素**である。だから:
+
+- canvas の**上に**描かれた DOM HUD は、そこへのクリックの `target` そのものになる
+  → `ui` / `elsewhere` に解決され、下の canvas にはならない。**これが穴の閉じ方である**
+- `pointer-events: none` の HUD 要素はそもそもヒットせず、クリックは canvas に届き、
+  同時に何もフォーカスしない → ロックしてよい。矛盾しない
+
+`<canvas>` に**描画される子要素は無い**（中身はフォールバックでヒットテストされない）ので、
+`contains` が歩く部分木が存在しない。よって `dom-surface.ts` は**1 メンバも増えていない**
+（`target?: unknown` は前回の観測導入で既に在る）。
+`test/fixtures/dom-surface.ts` には**証明を 1 つ足した**:
+`scopesTheLockToAnElementItOnlyCompares` —— ロック対象を `===` でしか触らないハンドラが
+本物の `lib.dom.d.ts` に対して診断 0 でコンパイルすること。
+`contains` を足していたら `EventTarget` には無く `Node` にしかないので
+**`Event` が `DomInputEvent` に代入できなくなり、反変性で `Window` が `DomEventTarget` に
+代入できなくなる**（DN-15 §「採ったかたち」）。フィクスチャのコメントに
+「ここが落ちたら `contains` に手を伸ばすのではなく、比較に留まれ」と書いてある。
+
+**残る限界を明示しておく。** ホストが canvas ではなく**コンテナ要素**をロック対象にすると
+（`Element.requestPointerLock` は任意の要素に在る）、その子へのクリックは `elsewhere` になる。
+そのホストは canvas を名指しするべきである。この 1 ケースのために
+DN-15 の代入可能性の証明をやり直す価値は無い。
+
+### 誰がまだ必要か —— **誰も要らない**
+
+**mx-ui は変わらない。** リスナも `stopPropagation()` も要らず、
+DN-UI-4 の「`addEventListener` を持たない」は無傷である。
+**ホストも新しい宣言をしない。** `browserInputLayer` が `options.canvas` を
+ロック要求の宛先とクリックのスコープの**両方**に渡す。
+`installInputListeners` を直に呼ぶホスト（Port を自前で組む場合）だけが
+第 4 引数で canvas をもう一度渡す必要がある。
+残っているのは §5(a)（グループ内の矢印キー移動）だけで、そちらは**依然 mx-ui と一緒に決める**。
+
+### 書くべき回帰テスト
+
+`test/input.test.ts` の 3 つの describe と `test/browser-input-adapter.test.ts` の 2 つ。
+
+| テスト名 | 内容 | 場所 |
+| --- | --- | --- |
+| `a focus change is visible in the snapshot — the half mx-ui was waiting for` | 穴そのもの | input |
+| `focus leaving the group is undefined and NOT slot zero` | mx-ui の `undefined` / `0` の非対称 | input |
+| `endFrame does NOT clear it: focus is a LEVEL, like pressed and unlike justPressed` | フレーム境界の一貫性 | input |
+| `blur PRESERVES it — the browser does not move focus when the window loses it` | 上記 3。DN-08 との差 | input |
+| `clearHeld preserves it too, for the same reason` | 同上 | input |
+| `focus is NOT reported while the pointer is LOCKED — Tab then is not navigation` | ロック規則 | input |
+| `REGRESSION: the lock MASKS the focus, it does not forget it` | **上記 3 の本体** | input |
+| ``the mask is exactly `locked`: requested and refused still report`` | 4 状態のうちどれか | input |
+| `NOTHING suppresses Tab: the preventDefault list stays at wheel and contextmenu` | **上記 1** | input |
+| `Tab cannot be bound to an action — the owner that cannot be removed gets no second` | 上記 2 | input |
+| `actionForKey never resolves Tab, even from a corrupt persisted blob` | もう 1 つの入口 | input |
+| `a Tab keydown still reaches the service as an ordinary held code` | 飲み込んでいないこと | input |
+| `Escape and Tab have OPPOSITE policy shapes, and that is the design` | 上記 2 | input |
+| `they are focusIN and focusOUT, because only those two BUBBLE` | 上記 4 | input |
+| `an element in the roster becomes its group and its 0-based position` | 境界の変換 | adapter |
+| `an element NOBODY named reports no focus — never slot zero` | `indexOf` の `-1` を丸めない | adapter |
+| `focusout ALWAYS reports no focus, whatever element it came from` | 離脱側を解決しない | adapter |
+| `resolution is by IDENTITY, so an equal-looking element is not the same slot` | 上記 4 | adapter |
+| `a move within the group settles on the ARRIVAL, not on the departure` | focusout→focusin の順序 | adapter |
+| `REGRESSION: no focus handler EVER calls preventDefault` | **上記 1 を実リスナ越しに** | adapter |
+| `the focus listeners make NO preventDefault claim — no passive: false on either` | 上記 1 を登録オプションの側から。`passive: false` は「既定を抑止しうる」の宣言であり、フォーカスのハンドラが名乗ってはならない | adapter |
+| `a real Window, Document and HTMLCanvasElement satisfy the adapter without a cast` | `target` を足しても DN-15 が成立。**ロック対象を `===` でしか触らないハンドラも含む**（§5(b)） | adapter |
+
+§5(b) の分（**実装済**。名前は「どちらの半分が壊れたか」を言うようにしてある）:
+
+| テスト名 | 内容 | 場所 |
+| --- | --- | --- |
+| `DN-16 §5(b): only a click on the LOCK TARGET asks — a HUD click does not` | 述語の真理値表。旧 `(button, state)` では全行 true | input |
+| `DN-16 §5(b): a click on NEITHER asks for nothing — the rule is "on the lock target", not "not on UI"` | **第 3 の場合**。2 つの述語が分岐する唯一の点 | input |
+| `DN-16 §5(b): the landing does not decide whether it is a uiClick — every unlocked click is one` | HUD クリックを `uiClicks` から落とさないこと（落とすと、その要素を描いたメニューに届かない） | input |
+| `DN-16 §5(b): two clicks in ONE frame keep their own landings` | 対の列である理由 | input |
+| `DN-16 §5(b): one physical click delivered twice is ONE ui click, landing and all` | 重複排除は対の単位 | input |
+| `DN-16 §5(b): endFrame clears the landings with the clicks, because both are the same edge` | フレーム境界 | input |
+| `DN-16 §5(b): a HUD click does NOT mask the focus ring, and a canvas click does` | **プレイヤーが見る症状**。後半が無いと「マスク自体が壊れた」でも通ってしまう | input |
+| `the LOCK TARGET is recognised by identity, and only by identity` | 同一性。構造的に等しい別要素は別物 | adapter |
+| `a REGISTERED UI element is \`ui\`, which is the landing that never asks` | ロスタ側 | adapter |
+| `an element in NEITHER is \`elsewhere\`, and that is a third answer and not a \`ui\`` | 第 3 の場合を名前として持つこと | adapter |
+| `a click on NOTHING is \`elsewhere\`, even when the host named no lock target` | `undefined === undefined` の罠。宣言なしホストで全クリックがロックを取る失敗 | adapter |
+| `the lock target WINS over a roster that also names it, so the tie is not silent` | 優先順位の明示 | adapter |
+| `the translation puts the landing on the event, and on mousedown only` | `mouseup` は無条件解放なので持たない | adapter |
+| `a click on a HOTBAR SLOT is a uiClick that does NOT ask for the lock` | **穴そのもの**を実リスナ越しに | adapter |
+| `the ring the click LIT is still reported, because nothing locked` | 同上の見える側 | adapter |
+| `a click on the CANVAS does ask, so mouselook still works` | 直さないことを直していないこと | adapter |
+| `a click on NEITHER does not ask — the third case, through the real listener` | 第 3 の場合を実リスナ越しに | adapter |
+| `browserInputLayer scopes the click to the canvas it was ALREADY given` | ホストの宣言が増えないこと | adapter |
+| `a host with NO canvas resolves every click as elsewhere, and could never lock anyway` | 後方互換 | adapter |
+| `a click while LOCKED is a game action, and the landing decides nothing` | ロック中は参照しないこと | adapter |
+| `no click handler EVER calls preventDefault, whatever it landed on` | 着地は**観測**であること。抑止すればフォーカス移動そのものを壊す | adapter |
+| `DN-16 §5(b): a click on a REGISTERED UI ELEMENT does not ask for the lock` | フレーム段（`render:input`）が実際に要求しないこと | stage |
+| `DN-16 §5(b): the same click IS still a uiClick — the menu that drew the slot wants it` | 同上 | stage |
+| `DN-16 §5(b): a click on the LOCK TARGET does ask — the fix did not break mouselook` | 同上 | stage |
+| `DN-16 §5(b): a click on NEITHER asks for nothing — the rule is "on the lock target"` | 同上 | stage |
+| `DN-16 §5(b): the ring survives a HUD click, and only a canvas click masks it` | マスクの可逆性まで含めた往復 | stage |

@@ -29,12 +29,20 @@
  * two events that a test happens to issue in the other order.
  */
 import type { InputEvent } from '../../application/input-service'
-import type { WheelDeltaMode } from '../../domain/input-bindings'
+import { HOTBAR_FOCUS_GROUP, type WheelDeltaMode } from '../../domain/input-bindings'
 
 /** Something the driver does that is not an `InputEvent`. */
 export type Command =
-  /** Ask for the pointer lock, as `stages/registration.ts` does on a UI click. */
+  /** Ask for the pointer lock UNCONDITIONALLY — the raw service call. */
   | { readonly kind: 'requestLock' }
+  /**
+   * Run `render:input`'s pointer-lock decision: read the snapshot, apply
+   * `acquiresPointerLock` to every UI click WITH ITS LANDING, and ask only if it
+   * says so. The frame's gate, which `requestLock` deliberately bypasses — the
+   * two together are how a scenario can show that the ask did not go out
+   * because the CLICK was wrong rather than because the STATE was.
+   */
+  | { readonly kind: 'frameAsk' }
   /** Read a frame snapshot, as a frame stage would. Recorded, so ordering is visible. */
   | { readonly kind: 'readSnapshot' }
   /** End the frame. The frame loop calls this exactly once per frame. */
@@ -92,7 +100,7 @@ const HAPPY_PATH: Scenario = {
     'thing standing between one Escape and two consequences.',
   ],
   steps: [
-    at(0, 'the player clicks the canvas while unlocked: a UI click, not an attack', ev({ kind: 'mousedown', button: 'MouseLeft', target: 'window' })),
+    at(0, 'the player clicks the canvas while unlocked: a UI click, not an attack', ev({ kind: 'mousedown', button: 'MouseLeft', target: 'window', landing: 'lock-target' })),
     at(1, 'the frame sees the UI click and asks', cmd({ kind: 'requestLock' })),
     at(2, 'the browser grants it', ev({ kind: 'pointerlockchange', locked: true })),
     at(3, 'walk forward', ev({ kind: 'keydown', code: 'KeyW', target: 'window' })),
@@ -100,7 +108,7 @@ const HAPPY_PATH: Scenario = {
     at(5, 'frame boundary: justPressed clears, pressed does not', cmd({ kind: 'endFrame' })),
     at(6, 'auto-repeat. NOT a second edge — holding E must not toggle a menu 30x/s', ev({ kind: 'keydown', code: 'KeyW', target: 'window' })),
     at(7, 'mouselook', ev({ kind: 'pointermove', deltaX: 12, deltaY: -4 })),
-    at(8, 'break a block: locked, so MouseLeft joins the ordinary code space', ev({ kind: 'mousedown', button: 'MouseLeft', target: 'window' })),
+    at(8, 'break a block: locked, so MouseLeft joins the ordinary code space', ev({ kind: 'mousedown', button: 'MouseLeft', target: 'window', landing: 'lock-target' })),
     at(9, 'the browser wants its menu; the adapter suppresses it while locked', ev({ kind: 'contextmenu', target: 'document' })),
     at(10, 'read', cmd({ kind: 'readSnapshot' })),
     at(11, 'end', cmd({ kind: 'endFrame' })),
@@ -140,13 +148,13 @@ const STRANDED_REQUEST: Scenario = {
     'step 4 reach the port a second time.',
   ],
   steps: [
-    at(0, 'a UI click', ev({ kind: 'mousedown', button: 'MouseLeft', target: 'window' })),
+    at(0, 'a UI click', ev({ kind: 'mousedown', button: 'MouseLeft', target: 'window', landing: 'lock-target' })),
     at(1, 'the ask goes out; the port says `sent`', cmd({ kind: 'requestLock' })),
     at(2, 'the user alt-tabs before the browser answers', ev({ kind: 'blur' })),
-    at(3, 'back at the tab. Click to look around again', ev({ kind: 'mousedown', button: 'MouseLeft', target: 'window' })),
+    at(3, 'back at the tab. Click to look around again', ev({ kind: 'mousedown', button: 'MouseLeft', target: 'window', landing: 'lock-target' })),
     at(4, 'the frame asks, and this time the ask reaches the port', cmd({ kind: 'requestLock' })),
     at(5, 'end', cmd({ kind: 'endFrame' })),
-    at(6, 'and again', ev({ kind: 'mousedown', button: 'MouseLeft', target: 'window' })),
+    at(6, 'and again', ev({ kind: 'mousedown', button: 'MouseLeft', target: 'window', landing: 'lock-target' })),
     at(7, 'and again', cmd({ kind: 'requestLock' })),
     at(8, 'a keypress still works — the keyboard never needed the lock', ev({ kind: 'keydown', code: 'KeyW', target: 'window' })),
     at(9, 'read: pointerLocked false, and a way out', cmd({ kind: 'readSnapshot' })),
@@ -217,12 +225,12 @@ const BLUR_WHILE_LOCKED: Scenario = {
   ],
   steps: [
     at(0, 'in the game', ev({ kind: 'pointerlockchange', locked: true })),
-    at(1, 'holding left to break a block', ev({ kind: 'mousedown', button: 'MouseLeft', target: 'window' })),
+    at(1, 'holding left to break a block', ev({ kind: 'mousedown', button: 'MouseLeft', target: 'window', landing: 'lock-target' })),
     at(2, 'and walking', ev({ kind: 'keydown', code: 'KeyW', target: 'window' })),
     at(3, 'read: attack held, moveForward held', cmd({ kind: 'readSnapshot' })),
     at(4, 'alt-tab', ev({ kind: 'blur' })),
     at(5, 'read: everything released, INCLUDING the locked session', cmd({ kind: 'readSnapshot' })),
-    at(6, 'the click that refocuses the window', ev({ kind: 'mousedown', button: 'MouseLeft', target: 'window' })),
+    at(6, 'the click that refocuses the window', ev({ kind: 'mousedown', button: 'MouseLeft', target: 'window', landing: 'lock-target' })),
     at(7, 'read: a uiClick. It asks for the lock; it does not break a block', cmd({ kind: 'readSnapshot' })),
     at(8, 'the browser gets around to telling us the lock ended', ev({ kind: 'pointerlockchange', locked: false })),
     at(9, 'read: still unlocked. The event told us nothing new', cmd({ kind: 'readSnapshot' })),
@@ -289,11 +297,52 @@ const REBINDING: Scenario = {
   ],
 }
 
+/**
+ * The HUD click that took the pointer. DN-16 §5(b).
+ *
+ * `acquiresPointerLock` was `(button, state)` and knew nothing about where the
+ * click landed. mx-ui's hotbar slots carry `tabindex`, and a `tabindex="-1"`
+ * element FOCUSES ON CLICK, so clicking one lit the focus ring — and the same
+ * `mousedown` bubbled to `window`, became a `uiClick`, and asked for the
+ * pointer. The grant then made `reportsKeyboardFocus` false, which masked the
+ * ring the click had just lit, and the player was in mouselook.
+ *
+ * The predicate now takes the landing, and only `lock-target` asks.
+ */
+const HUD_CLICK: Scenario = {
+  name: 'hud-click',
+  headline: 'clicking your own hotbar must not throw you into mouselook',
+  detail: [
+    'Steps 0-3 are the hazard as it was: a click on a hotbar slot lights the',
+    'focus ring and, one frame later, takes the pointer — which masks the ring',
+    'again. The click on the slot is still a uiClick, because the menu that drew',
+    'the slot wants it; what changed is that acquiresPointerLock now sees WHERE',
+    'it landed and declines. Steps 4-5 are the third case, a click on neither',
+    'the canvas nor any declared UI: it declines too, because the rule is "on',
+    'the lock target" and not "not on UI". Step 6 is the canvas, and it asks.',
+  ],
+  steps: [
+    at(0, 'Tab moves the browser focus onto hotbar slot 3, and mc-render notices', ev({ kind: 'focuschange', focus: { group: HOTBAR_FOCUS_GROUP, index: 3 } })),
+    at(1, 'the player clicks that slot. tabindex="-1" focuses on click; the ring is lit', ev({ kind: 'mousedown', button: 'MouseLeft', target: 'window', landing: 'ui' })),
+    at(2, 'read: a uiClick (the menu still gets it) and the focus still reported', cmd({ kind: 'readSnapshot' })),
+    at(3, 'the frame decides — and nothing goes out, because the click was on UI', cmd({ kind: 'frameAsk' })),
+    at(4, 'a click on the letterbox beside the canvas: neither UI nor lock target', ev({ kind: 'mousedown', button: 'MouseLeft', target: 'window', landing: 'elsewhere' })),
+    at(5, 'the frame decides: still nothing. `elsewhere` is not `not-ui`', cmd({ kind: 'frameAsk' })),
+    at(6, 'now the canvas itself', ev({ kind: 'mousedown', button: 'MouseLeft', target: 'window', landing: 'lock-target' })),
+    at(7, 'the frame decides, and this time the ask goes out', cmd({ kind: 'frameAsk' })),
+    at(8, 'granted', ev({ kind: 'pointerlockchange', locked: true })),
+    at(9, 'read: locked, and NOW the focus is masked — it is not forgotten', cmd({ kind: 'readSnapshot' })),
+    at(10, 'Escape', ev({ kind: 'pointerlockchange', locked: false })),
+    at(11, 'read: slot 3 is reported again. The mask was reversible', cmd({ kind: 'readSnapshot' })),
+  ],
+}
+
 export const SCENARIOS: ReadonlyArray<Scenario> = [
   HAPPY_PATH,
   STRANDED_REQUEST,
   LOST_NOTCH,
   BLUR_WHILE_LOCKED,
+  HUD_CLICK,
   MIRROR_STALENESS,
   REBINDING,
 ]
@@ -303,6 +352,7 @@ export const SCENARIO_NAMES = [
   'stranded-request',
   'lost-notch',
   'blur-while-locked',
+  'hud-click',
   'mirror-staleness',
   'rebinding',
 ] as const

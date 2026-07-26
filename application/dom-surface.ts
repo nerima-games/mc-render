@@ -123,6 +123,38 @@ export type DomInputEvent = {
   readonly deltaY?: number
   /** `WheelEvent.deltaMode`: 0 pixel, 1 line, 2 page. Named by `wheelDeltaModeForIndex`. */
   readonly deltaMode?: number
+  /**
+   * `Event.target` — the element a `focusin` landed on.
+   *
+   * `unknown`, and for the same reason `DomDocument.pointerLockElement` is:
+   * **the adapter only ever COMPARES it.** `resolveFocusTarget` in
+   * `browser-input-adapter.ts` looks for it, by `===`, in the roster of
+   * elements the host named, and reports the group and position it found. It
+   * never reads a property off it, so no element type is needed and none is
+   * declared.
+   *
+   * That is a design decision and not a shortcut. The alternative — declaring
+   * `target?: { getAttribute?: (name: string) => string | null }` and reading
+   * mx-ui's `data-slot-index` — fails twice over, and the second failure is the
+   * one this file exists to catch:
+   *
+   *   1. `data-slot-index` is region-LOCAL in mx-ui. The hotbar's slot 0 and
+   *      the inventory's slot 0 carry the same attribute value, so the answer
+   *      would depend on an ancestor this type cannot see.
+   *   2. The real `Event.target` is `EventTarget | null`, and `EventTarget` has
+   *      no `getAttribute`. An all-optional object type is a "weak type", so
+   *      TypeScript rejects a source with no overlapping members outright:
+   *      `Event` would stop being assignable to `DomInputEvent`, listener
+   *      parameters are contravariant under `strictFunctionTypes`, and a real
+   *      `Window` would stop being assignable to `DomEventTarget` — silently,
+   *      because `pnpm typecheck` has no DOM to be assignable from. The first
+   *      person to notice would reach for `as unknown as`.
+   *
+   * `unknown` accepts `EventTarget | null` trivially and keeps the proof in
+   * `test/fixtures/dom-surface.ts` green, which is exactly the property the
+   * header claims for every other member here.
+   */
+  readonly target?: unknown
 }
 
 /** What `addEventListener` is given. */

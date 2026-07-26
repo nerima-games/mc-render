@@ -57,9 +57,14 @@ mc-playground-kit は devDependency 専用で出荷ビルドに入らないた�
 | 入力の window/document 遮蔽と Escape 単一所有 | `domain/input-bindings.ts` / `application/input-service.ts` | DN-04 / DN-05 |
 | クリック・ホイール・ポインタロック要求 | 同上 | DN-12 / DN-13 / DN-14 |
 | `window` 入力アダプタ（登録 / 解除 / 変換 / ロック要求） | `application/browser-input-adapter.ts` / `application/dom-surface.ts` | DN-04 / DN-12 / DN-13 / DN-14 / DN-15 |
+| キーボードフォーカスの**観測**（Tab は奪わない。ロック中はマスクし、忘れない） | 同上 + `domain/input-bindings.ts` | DN-16 |
 | カメラのミラー（書き戻し無し） | `domain/camera-mirror.ts` | DN-06 |
 
 まだ無いもの: **THREE.js アダプタ一式**（`WorldRenderer` / マテリアル / パーティクル / 水面 /
-テクスチャ）、ゲームパッド / タッチ入力、ワーカープール実装、内蔵 fixture ビューア、
+テクスチャ）、**キーボードフォーカスの「移動」側**（観測は入った。矢印キーでグループ内を動かす
+手段は無く、閉じるには mx-ui と一緒に決める必要がある —— [design-notes.md](./design-notes.md) DN-16 §5(a)。
+なお §5(b) の「HUD の上のクリックがロック要求になる」は閉じた ——
+[public-api.md](./public-api.md) §2.11）、
+ゲームパッド / タッチ入力、ワーカープール実装、内蔵 fixture ビューア、
 グラフィックス品質プリセットの残り半分（レンダースケール・影解像度・視界距離）。
 `three` / `@types/three` は**まだ依存に入れていない**（[versioning.md](./versioning.md) §5）。
