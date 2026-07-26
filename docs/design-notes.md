@@ -19,6 +19,7 @@ plan.md §3.9「設計注意（参照実装の実測知見）」の全項目を�
 | DN-09 | ポインタロック解除時にデルタを捨てる | 済 |
 | DN-10 | ワーカープールは Port と実装を分ける | 要 |
 | DN-11 | `Date.now()` を使わない | 済 |
+| DN-12 | クリックはロック状態で意味が変わる。`contextmenu` はロック中のみ抑止 | 済 |
 
 ---
 
@@ -423,6 +424,18 @@ packages/presentation/input/input-service.ts:172-177
 さらに、イベント自体が `target` を持つ（`InputEvent`）。`MODAL_LISTENER_TARGET` 由来の
 キーイベントはサービスが**無視する**——モーダル経路で届いたキーはゲームプレイ入力ではない。
 
+### `mousedown` / `mouseup` は `document` ではなく `window`（参照実装からの意図的な逸脱）
+
+参照実装は両方を `document` に登録している（:181-182）。ボタンが**ゲームプレイのアクションを
+1 つも運んでいなかった**間はそれで安全だった。DN-12 で左右クリックが `attack` / `use` に
+なった以上、ボタンはキーと同じ遮蔽に従わなければならない。そして `document` の
+リスナは、同じ `document` で `stopPropagation()` するモーダルからは**遮蔽されない**
+——遮蔽されるかどうかが登録順に依存する、という最悪の形になる。
+
+`mousedown` / `mouseup` はどちらも `window` までバブルするので、移動のコストはゼロである。
+`mousemove` / `wheel` / `pointerlock*` / `contextmenu` は `document` のまま——
+これらはゲームプレイのコードを運ばず、遮蔽規則に参加しない。
+
 ### 書くべき回帰テスト
 
 `test/input.test.ts` の `describe('REGRESSION: modal shielding via the window/document bubble path')`。
@@ -434,7 +447,9 @@ packages/presentation/input/input-service.ts:172-177
 | `swapping the two targets breaks the shielding — which is why they are constants` | 逆にすると壊れることの明示 |
 | `a key the modal did not consume still reaches gameplay` | 遮蔽が過剰でないこと |
 | `key listeners sit on window in the adapter plan; keydown and keyup agree` | keydown と keyup が違う先だとキーが刺さる |
+| `mousedown and mouseup register on the same target, or a held button sticks` | 上の逸脱。両方 `window` |
 | `an event tagged as arriving at the modal target is not gameplay input` | |
+| `a click a modal consumed NEVER reaches gameplay` | ボタンにも同じ遮蔽が効くこと |
 | **（要追加）** `the window adapter registers exactly LISTENER_PLAN` | アダプタ実装時 |
 | **（要追加）** `every listener is removed on finalizer` | 参照実装 :191- 相当。kit の 2 枚並列でリークする |
 
@@ -613,6 +628,7 @@ packages/presentation/input/input-service.ts:155-158
 | テスト名 | 場所 |
 | --- | --- |
 | `REGRESSION: blur clears held input — the browser sends no keyup while unfocused` | `test/input.test.ts` |
+| `REGRESSION: blur releases held buttons — the browser sends no mouseup while unfocused` | 同上。参照実装のコメントは keys/**buttons** と両方を名指ししている |
 | **（要追加）** `blur clears gamepad and touch state too` | それらの実装時 |
 
 ---
@@ -635,6 +651,8 @@ packages/presentation/input/input-service.ts:155-158
 | `pointer motion is ignored while the pointer is NOT locked` | `test/input.test.ts` |
 | `losing the pointer lock zeroes the delta, so the view does not spin` | 同上 |
 | `endFrame clears the edge and the accumulated pointer delta, not the held keys` | 同上 |
+| `losing the lock releases held buttons, so breaking stops when the pause menu opens` | 同上。DN-12 |
+| `losing the lock does NOT release held keys — chat and the frame handler still need them` | 同上。捨てすぎないこと |
 
 **ヘッドレスでは検証できないこと**: 実ブラウザのポインタロックは Playwright（SwiftShader）で
 使えない（plan.md §3.10）。だからこそ、この挙動は**ポート越しの単体テストで押さえる**必要がある。
@@ -694,3 +712,93 @@ oxlint 0.12 は `no-restricted-syntax` も `no-restricted-properties` も実装�
 | `catches all three raw clock reads, with line numbers` | `test/check-dependency-whitelist.test.ts` |
 | `ignores the same text inside a comment or a string` | 同上 |
 | `the escape hatch exempts exactly the line that carries it` | 同上 |
+
+---
+
+## DN-12 クリックはロック状態で意味が変わる
+
+plan.md には無い。**縦切りスパイクが見つけた穴**である。
+スパイクは「プレイヤーがブロックを壊す」を表現できず、破壊を `KeyB` に縛って回避した。
+`InputEvent` にマウスボタンの場合が無く、`INPUT_ACTIONS` に `attack` / `use` が無かった。
+一方 `LISTENER_PLAN` は `contextmenu` を「右クリックでブロックを置けるように」という注記付きで
+既に登録していた——**リスナは計画済みで、それを運ぶイベント型とアクションだけが無かった。**
+
+公開モデルの決定（番号ではなく名前、`InputCode` の単一空間）は
+[public-api.md](./public-api.md) §2.5 にある。ここに書くのは**設計注意**の側、
+すなわち「知らないと必ず踏む」2 つである。
+
+### 1. ロック中のクリックはゲーム操作、非ロック中のクリックは UI 操作
+
+参照実装は区別しない。`handleMouseDown`（`input-service.ts:119-123`）は
+ロック状態に関係なく全ボタンを記録し、ゲームプレイ側は
+`interaction-stage-snapshot.ts:56-62` の `gamePausedRef` で止めている。
+
+```
+const paused = yield* Ref.get(deps.gamePausedRef)
+if (paused) { return createPausedInteractionStageSnapshot(...) }
+const leftClick = yield* services.inputService.consumeMouseClick(0)
+```
+
+これは「非ロック状態は必ずポーズ状態でもある」という不変条件に依存している。
+**ポインタロックを取り直すクリックが反例**である。それはフレームが状態変化を知る前に届き、
+しかもブロックを壊すのと同じ左クリックである。
+
+新実装は `dispatch` の時点で判定する。サービスは `pointerlockchange` を既に追っており、
+判定に必要な状態は全部手元にある。非ロック中のクリックは `uiClicks` にだけ入り、
+`pressed` / `justPressed` には**入らない**——`pressed` の中身は
+「ゲームプレイに使ってよいコード」である、という不変条件を保つため。
+捨てないのは、それがロックを取り直すクリックそのものだからである。
+
+対になる規則: **ロックを失ったら保持中のボタンを離す。**
+左ボタン押しっぱなしで破壊中に Escape を押すとブラウザはロックを解除し、次のクリックは
+メニューに行くので `mouseup` は来ない。DN-09 でデルタを捨てるのと同型の理由である。
+キーは離さない。チャット入力もフレームハンドラの Escape も非ロック中に届く必要がある。
+
+### 2. `contextmenu` は抑止しなければならないが、無条件ではない
+
+抑止しないと、ブロックを置くたびにブラウザのメニューが開き、ポインタロックも持って行かれる。
+参照実装は無条件に `preventDefault()` する（:140-142、登録は :183）。
+本実装は `suppressesBrowserContextMenu(pointerLocked)` でロック中のみに絞る——
+非ロック中は DOM UI が動いている場面であり、そこで既定動作を飲み込むと
+チャット行のコピーもテキスト欄のスペルチェックも消える。
+
+抑止判定を純粋関数にしてある理由は DN-09 と同じで、しかもより強い:
+plan.md §3.10 のとおり Playwright（SwiftShader）はヘッドレスでポインタロックを扱えないので、
+**ロック中の分岐を通るブラウザテストは存在しえない。**
+
+参照実装が :137-139 に残している罠も機構化してある。
+
+```
+// Do NOT add to justClickedButtons here — handleMouseDown already captures button 2.
+// Adding it here would cause a spurious second right-click if consumeMouseClick(2)
+// is called between the mousedown and contextmenu events.
+```
+
+`contextmenu` は `InputEvent` の 1 ケースとして受け、**ボタン状態を一切変えない**。
+イベントとして受けるのは「何もしない」をテストで assert できる性質にするためである。
+なお本実装のエッジは consume 型ではなく `endFrame` クリア型なので、
+参照実装の警告が想定する「誰が先に読んだかで結果が変わる」競合はそもそも成立しない。
+
+### 書くべき回帰テスト
+
+`test/input.test.ts` の 3 つの describe（計 24 テスト）。
+
+| テスト名 | 内容 |
+| --- | --- |
+| `left click is attack and right click is use — the two the spike could not express` | 穴そのもの |
+| `MouseEvent.button numbers are translated to names in exactly one place` | 0/1/2 と、3 が `undefined` |
+| `no KeyboardEvent.code begins with Mouse, which is what makes ONE code space safe` | 単一コード空間の前提 |
+| `REGRESSION: a click is an edge for exactly ONE frame — one click breaks one block` | エッジと `endFrame` |
+| `a held button stays down across frames, so hold-to-break keeps breaking` | レベル側 |
+| `a second mousedown within one frame does not produce a second edge` | |
+| `attack fires from the LEFT button and use from the RIGHT, not the other way round` | |
+| `attack can be rebound to a KEY — which is what the spike had to hack in` | 単一空間の見返り |
+| `one code one action applies across the key/button boundary` | `remap` の重複検査 |
+| `a click while UNLOCKED never fires attack — a menu click must not break a block` | 上記 1 |
+| `an unlocked click IS reported as a UI click — it is what re-acquires the lock` | 捨てないこと |
+| `losing the lock releases held buttons, so breaking stops when the pause menu opens` | |
+| `is suppressed while the pointer is locked, or right-click opens a menu mid-place` | 上記 2 |
+| `is NOT suppressed while unlocked, where the browser menu is the platform behaviour` | 参照実装との差 |
+| `the contextmenu event adds NO second right-button edge — one click, one placement` | :137-139 |
+| **（要追加）** `the window adapter calls preventDefault exactly when shouldSuppressContextMenu says so` | アダプタ実装時 |
+| **（要追加）** `a UI click acquires the pointer lock` | `requestPointerLock` 実装時（public-api.md §2.2 で未実装） |

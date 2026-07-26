@@ -19,7 +19,7 @@ plan.md §2.3-1 の分類でいう **名詞**。「どう見えるか」の仕�
 | カメラ | mc-sim のスナップショットを THREE カメラへミラー、視錐台カリング | ミラーは実装済 `domain/camera-mirror.ts` |
 | パーティクル | インスタンス化パーティクルプール | 未実装 |
 | 水面 | 水マテリアル・屈折 | 未実装 |
-| `WorldRenderer` | chunk ダーティ購読 → メッシュ更新 | **未実装（最重要の欠落）** |
+| `WorldRenderer` | chunk ダーティ購読 → メッシュ更新 | **未実装。ただし購読先は決まった**（`mc-worldgen` の `ChunkStore.subscribeDirty`。[public-api.md §3.1](./public-api.md)） |
 | ワーカープール**実装** | 地形ワーカー / メッシングワーカーのプール（Port は各所有者） | 未実装 |
 | **実行時入力サービス** | キーボード / マウス / ポインタロック / タッチ / キーリマッピング | ポート越しに実装済 `application/input-service.ts`（`window` アダプタは未） |
 | **フレーム stage 登録** | `render:input` / `render:camera-mirror` / `render:chunk-sync` / `render:draw` / `render:post-fx` | 登録位置は確定済 `stages/`。本体は FIRST CUT |
@@ -86,10 +86,10 @@ mc-render 側の実装が要る可能性が高い。**未決。** 実装時に�
 | --- | --- | --- |
 | `mc-kernel` | 語彙全般（`CameraPoseSnapshot`、座標、`GameModule`、Clock Port） | `domain/kernel-vocabulary.ts` に暫定ミラー |
 | `mc-meshing` | `mesh(chunk, neighbors, config) → {opaque, water, transparentSolid}` | 未使用 |
-| `mc-sim` | `CameraPoseSnapshot`、チャンクダーティ購読、描画対象の状態 | 未使用（`domain/camera-mirror.ts` は構造ミラーのみ） |
+| `mc-sim` | `CameraPoseSnapshot`、描画対象の状態（**チャンクダーティ購読はここではない** — `mc-worldgen`） | 未使用（`domain/camera-mirror.ts` は構造ミラーのみ） |
 | `mc-worldgen` | `Chunk` データ、ライトグリッド | 未使用 |
 
-**mc-sim のチャンクダーティ通知が未設計であることが、`WorldRenderer` を書けない直接の原因である**
+~~**mc-sim のチャンクダーティ通知が未設計であることが、`WorldRenderer` を書けない直接の原因である**~~ → 解消。購読先は **mc-worldgen** の `ChunkStore` である（mc-sim ではない）。[public-api.md §3.1](./public-api.md)
 （mc-sim の `docs/public-api.md` §5 参照）。
 
 ### 子（mc-render に依存する）

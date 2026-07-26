@@ -85,30 +85,51 @@ const isCanonicalChain: (chain) => boolean
 
 ```typescript
 // domain/input-bindings.ts
-type InputAction = 'moveForward' | ... | 'escape'
-const DEFAULT_BINDINGS: Record<Exclude<InputAction, 'escape'>, KeyCode>
+type InputAction = 'moveForward' | ... | 'attack' | 'use' | 'pickBlock' | 'escape'
+type KeyCode = string                       // KeyboardEvent.code
+type MouseButton = 'MouseLeft' | 'MouseMiddle' | 'MouseRight'
+type InputCode = KeyCode | MouseButton      // バインドできるものすべて
+const MOUSE_BUTTONS / MOUSE_BUTTON_BY_INDEX
+const mouseButtonForIndex: (index: number) => MouseButton | undefined
+const isMouseButton: (code: InputCode) => code is MouseButton
+const DEFAULT_BINDINGS: Record<Exclude<InputAction, 'escape'>, InputCode>
 const ESCAPE_OWNER: 'frame-handler'
 const ESCAPE_KEY_CODE: 'Escape'
 const GAMEPLAY_LISTENER_TARGET: 'window'
 const MODAL_LISTENER_TARGET: 'document'
 const bindingFor / actionForKey / remap / modalConsumedKeyReachesGameplay
+const suppressesBrowserContextMenu: (pointerLocked: boolean) => boolean
 
 // application/input-service.ts
 type InputEvent =
   | { kind: 'keydown' | 'keyup'; code: KeyCode; target: ListenerTarget }
+  | { kind: 'mousedown' | 'mouseup'; button: MouseButton; target: ListenerTarget }
+  | { kind: 'contextmenu'; target: ListenerTarget }
   | { kind: 'pointermove'; deltaX: number; deltaY: number }
   | { kind: 'pointerlockchange'; locked: boolean }
   | { kind: 'blur' }
+
+type InputSnapshot = {
+  readonly pressed: ReadonlySet<InputCode>       // キー + ロック中に押されたボタン
+  readonly justPressed: ReadonlySet<InputCode>   // 同じエッジ集合。endFrame でクリア
+  readonly uiClicks: ReadonlySet<MouseButton>    // 非ロック中のクリック。endFrame でクリア
+  readonly pointerDelta: { x: number; y: number }
+  readonly pointerLocked: boolean
+}
 
 type InputServiceApi = {
   readonly dispatch: (event: InputEvent) => Effect.Effect<void>
   readonly snapshot: Effect.Effect<InputSnapshot>
   readonly isActionActive: (action: InputAction) => Effect.Effect<boolean>
   readonly wasActionJustTriggered: (action: InputAction) => Effect.Effect<boolean>
+  readonly isButtonDown: (button: MouseButton) => Effect.Effect<boolean>
+  readonly wasButtonJustPressed: (button: MouseButton) => Effect.Effect<boolean>
+  readonly wasUiClick: (button: MouseButton) => Effect.Effect<boolean>
+  readonly shouldSuppressContextMenu: Effect.Effect<boolean>
   readonly endFrame: Effect.Effect<void>
   readonly clearHeld: Effect.Effect<void>
   readonly bindings: Effect.Effect<Bindings>
-  readonly rebind: (action, key) => Effect.Effect<RemapOutcome>
+  readonly rebind: (action, key: InputCode) => Effect.Effect<RemapOutcome>
   readonly resetBindings: Effect.Effect<void>
 }
 
@@ -129,6 +150,9 @@ const ESCAPE_POLICY
 | 押下エッジ | `justPressedKeysRef` を別に持つ（:161） | `justPressed`。同じ設計 |
 | blur クリア | `handleBlur`（:159-168） | `clearHeld` / `dispatch({kind:'blur'})` |
 | ポインタロック | `requestPointerLock`（:252-269）、`pointerlockchange`（:184） | `pointerlockchange` イベントのみ。**要求側**（`requestPointerLock`）は未実装 |
+| マウスボタン | `HashMap<number, boolean>` + `HashSet<number>`（:46-48）。`isMouseDown(2)` のように**番号で**読む | 名前（`MouseLeft` / `MouseMiddle` / `MouseRight`）でキーと**同じコード空間**に入れる。§2.5 |
+| クリックのエッジ | `consumeMouseClick`（:286）。**読んだら消える** | `wasButtonJustPressed`。`justPressed` と同じで `endFrame` が消す。§2.5 |
+| `contextmenu` | 無条件 `preventDefault`（:140-142） | ロック中のみ抑止。`suppressesBrowserContextMenu`。§2.6 |
 | ゲームパッド | `gamepad-input-state.ts`（152 LOC） | 未実装 |
 | タッチ / 仮想入力 | `virtual-input-state.ts`（64 LOC） | 未実装 |
 | スクリーンショット | `screenshot-service.ts`（50 LOC） | 未実装。**mc-render に置くか要検討**（QA API は mc-compose の責務） |
@@ -153,17 +177,132 @@ const ESCAPE_POLICY
 `code` はレイアウト非依存なので、AZERTY でも Dvorak でも WASD は同じ指の下にある。
 `.key` をバインドすると、フランス語配列のプレイヤーは前に進めなくなる。
 
+## 2.5 マウスボタン — 公開モデルは番号ではなく名前
+
+縦切りスパイクが「プレイヤーがブロックを壊す」を表現できず、破壊を `KeyB` に縛って回避した。
+`InputEvent` にボタンの場合が無く、`INPUT_ACTIONS` に `attack` / `use` が無かったためである。
+意図は半分実装されていた——`LISTENER_PLAN` は `contextmenu` を
+「右クリックでブロックを置けるように」という注記付きで既に登録していた。
+
+### 決定: `'MouseLeft' | 'MouseMiddle' | 'MouseRight'`
+
+DOM はボタンを番号で渡す（`MouseEvent.button`: 0 左 / 1 中 / 2 右）。参照実装はその番号を
+最後まで運び（`HashMap<number, boolean>`、`input-service.ts:46`）、呼び出し側は
+`isMouseDown(2)`（`.../frame/stages/interaction-stage.ts:76`）と書く。
+`camera-stage.ts:52` がその結果を `rightClickHeld` という名前に受け直しているのは、
+名前があれば要らなかった注釈である。
+
+名前を選んだ決め手はアダプタの都合ではなく、**バインドが永続化され、リマップされる**ことである。
+
+- `{"attack": 2}` という設定 blob はキーコードと区別がつかず、人間が編集できない
+- `remap` の重複検査が「番号の空間」と「文字列の空間」の 2 つを跨ぐことになる
+
+名前にするとボタンはキーと**同じコード空間**（`InputCode`）に入り、キーボード経路が既に持っている
+機構——1 コード 1 アクション、`justPressed` エッジ、`blur` クリア、`endFrame`——が
+そのままボタンに効く。並行機構を作らない、が最も重要な性質である。
+`InputCode` が 1 つで済むのは `KeyboardEvent.code` に `Mouse` で始まる値が**無い**からで、
+`isMouseButton` はその前提の上でコードを見るだけで種別を判定できる。
+
+番号→名前の変換は `mouseButtonForIndex` **1 箇所だけ**が知っている。
+3 / 4（親指ボタン）は `undefined` を返して境界で落とす。参照実装は
+`event.button` をそのまま記録していた（:120）ので、何にも読まれない状態が溜まっていた。
+
+### ロック状態がクリックの意味を変える
+
+ロック中のクリックはゲーム操作、非ロック中のクリックは UI 操作である。
+サービスは既に `pointerlockchange` を追っているので、`dispatch` の時点で判定できる。
+
+| 状態 | `mousedown` の行き先 | 読み口 |
+| --- | --- | --- |
+| ロック中 | `pressed` / `justPressed`（キーと同じ） | `isActionActive('attack')` / `wasButtonJustPressed` |
+| 非ロック中 | `uiClicks` のみ | `wasUiClick` |
+
+非ロック中のクリックを**捨てない**のは、ポインタロックを取り直すクリックがまさにそれであり、
+かつ 1 フレーム後にブロックを壊すのと同じ左クリックだからである。
+`pressed` に入れないのは、`pressed` の中身が「ゲームプレイに使ってよいコード」であるという
+不変条件を保つため。
+
+参照実装はこの区別を持たない。`handleMouseDown`（:119-123）はロック状態に関係なく全部記録し、
+ゲームプレイ側は `gamePausedRef`（`interaction-stage-snapshot.ts:56-62`）で止めている。
+それは「非ロック = ポーズ」が常に成り立つ間だけ正しい。ロックを**取り直す**クリックが反例で、
+フレームが状態変化を知る前に届く。
+
+### ロックを失うと保持中のボタンは離される
+
+DN-09（デルタを捨てる）と同型の理由。左ボタンを押しっぱなしで破壊中に Escape を押すと
+ブラウザはロックを解除し、次のクリックはメニューに行くので `mouseup` は**来ない**。
+キーは離さない——チャット入力もフレームハンドラの Escape も非ロック中に届く必要がある。
+
+## 2.6 `contextmenu` の抑止
+
+右クリックが `use` である以上、抑止しないとブロックを置くたびにブラウザのメニューが開き、
+ポインタロックも持って行かれる。
+
+参照実装は**無条件**に `preventDefault()` する（`input-service.ts:140-142`、登録は :183）。
+本実装は `suppressesBrowserContextMenu(pointerLocked)` で**ロック中のみ**に絞る。
+非ロック中は DOM UI（チャット行のコピー、テキスト欄のスペルチェック）が動いている場面であり、
+そこでブラウザの既定動作を飲み込むのはプラットフォームの挙動を壊すことである。
+
+抑止判定を純粋関数にしてあるのは、これが `environment: 'node'` でしか押さえられないためである。
+plan.md §3.10 のとおり Playwright（SwiftShader）はヘッドレスでポインタロックを扱えないので、
+**ロック中の分岐を通るブラウザテストは存在しえない**。
+
+もう 1 つ、参照実装が :137-139 に残している罠を機構化してある:
+
+```
+// Do NOT add to justClickedButtons here — handleMouseDown already captures button 2.
+// Adding it here would cause a spurious second right-click if consumeMouseClick(2)
+// is called between the mousedown and contextmenu events.
+```
+
+`contextmenu` は `InputEvent` の 1 ケースとして受けるが、**ボタン状態を一切変えない**。
+イベントとして受けるのは、「何もしない」がテストで assert できる性質になるからである
+（省略は誰にも見えない）。
+なお本実装のエッジは consume 型ではなく `endFrame` クリア型なので、参照実装のような
+「誰が先に読んだかで結果が変わる」競合はそもそも成立しない。
+
 ## 3. WorldRenderer — **未設計。最優先**
 
 plan.md §3.9 の筆頭 API であり、**まだ 1 行も無い。**
 
-### 3.1 なぜ書けないか
+### 3.1 購読先は決まった — mc-sim ではなく mc-worldgen
 
-`WorldRenderer` の主機能は「chunk ダーティ購読 → メッシュ更新」である。
-その購読先（mc-sim のチャンクダーティ通知）が**まだ設計されていない**
-（mc-sim の `docs/public-api.md` §5 が最優先項目として挙げている）。
+これは長らく「購読先が設計されていないから書けない」と書かれていた。**その障害は無くなった。**
 
-界面が決まっていない相手を購読する API は書けない。**mc-sim 側が先。**
+購読先は `ChunkStore`（`@nerima-games/mc-worldgen/ChunkStore`、
+`mc-worldgen/application/chunk-store.ts`）である。mc-sim ではない:
+plan.md はブロック書き込み経路の所有者を §3.7 と §3.8 の間で決めておらず、
+mc-worldgen に決着した。根拠は `mc-worldgen/docs/public-api.md` §6-0。
+
+`render → worldgen` は plan.md §2.1 に既にあるエッジなので、
+**依存グラフの変更は要らない。**
+
+```typescript
+// render:chunk-sync stage の骨格
+const subscription = yield* chunkStore.subscribeDirtyScoped   // 登録時に一度だけ
+// ...毎フレーム:
+const { changed, removed } = yield* subscription.drain
+for (const coord of removed) { /* BufferGeometry を dispose */ }
+for (const coord of changed) {
+  const chunk = yield* chunkStore.peek(coord)
+  const neighbours = yield* chunkStore.neighbours(coord)   // mc-meshing の ChunkNeighbours に構造的に適合
+  // → ワーカープールへ mesh(chunk, neighbours, config)
+}
+```
+
+3 点、設計が答えている:
+
+- **push か pull か**（下記 §3.3 の問い）: **購読者ごとに集合を溜める pull**。
+  コストは push と同じ O(変更量) で、かつ mc-worldgen が消費者を知らなくてよい
+  （worldgen は render も sim も import できない）。
+- **重複排除**: 落下する砂の柱は 1 tick に同じチャンクを 32 回汚す。集合なので drain は 1 座標であり、
+  メッシュは 1 回である。Stream / `PubSub` なら 32 回メッシュしていた。
+- **`changed` と `removed` が別**: 要求される動作が正反対（メッシュする / dispose する）だから。
+  同じ窓で変更されてからアンロードされたチャンクは `removed` にだけ現れる。
+
+`ChunkStore.neighbours(coord)` は `mc-meshing` の `ChunkNeighbours` に**構造的に**適合する
+（4 つの optional な `{ blocks }`、`yPos`/`yNeg` は無し）。mc-worldgen は mc-meshing を import できないので
+名前的な適合ではない。両方に依存する本リポジトリがそのまま渡す。
 
 ### 3.2 参照実装の該当箇所
 
@@ -177,9 +316,9 @@ plan.md §3.9 の筆頭 API であり、**まだ 1 行も無い。**
 
 ### 3.3 設計時に決めること
 
-- ダーティ通知は push（mc-sim が発行）か pull（mc-render が問い合わせ）か
-  → **push であるべき**。pull は毎フレーム全チャンク走査であり、plan.md §3.11 が
-  落下ブロックについて記録している「O(chunks×blocks) の惨事」と同型
+- ~~ダーティ通知は push か pull か~~ → **決着済み。§3.1 を見よ。**
+  「毎フレーム全チャンク走査になるから pull は不可」という指摘はそのまま正しく、
+  採用された設計はその指摘を満たしている（購読者ごとの集合を drain するので O(変更量)）
 - メッシュ生成をワーカーに投げる境界（mc-meshing は純粋関数、実行はワーカープール）
 - ジオメトリの破棄タイミング（THREE の `BufferGeometry` は明示 dispose が要る）
 
@@ -335,6 +474,37 @@ plan.md §3.8 が参照実装の最悪の構造バグとして記録している
 
 ## 8. APIロック
 
-plan.md §6 Step 0-3。ツール未選定（§9 未決）。
+plan.md §6 Step 0-3。**実装済みで、§9 のツール選定も決着している。**
 mc-render の下流は kit のみだが、kit は全プレビューの土台なので実質的な影響範囲は広い。
-publish 開始（plan.md §6 Step 3）までに必須。
+
+| 項目 | 内容 |
+| --- | --- |
+| 生成物 | リポジトリ直下の `api-lock.md`（公開宣言 81 件 + 参照されている非 export 宣言 17 件。コミット対象） |
+| 生成器 | `scripts/api-lock.ts`（16 リポジトリに byte-identical で vendor。`scripts/check-dependency-whitelist.ts` と同じ方式で、編集してよいのは `REPOSITORY_POLICY` だけ） |
+| 検査 | `pnpm api:check` — `api-lock.md` が実際の公開 API と食い違えば非ゼロ終了 |
+| 更新 | `pnpm api:update` |
+| 配線 | `pnpm verify` の `check:deps` と `test` の間、および CI の `API lock` ステップ |
+| 追加依存 | **なし**（`typescript` は既に devDependency） |
+
+`@microsoft/api-extractor` を先に試して却下した経緯・実測・仕組み・限界は
+mc-kernel の `docs/versioning.md` §7 が正本。ここでは mc-render にとっての意味だけ書く。
+
+**この選定は本書 §6 の `RRegister` 議論と同じものを守っている。** api-extractor は
+`Context.Tag` のサービスクラスを「forgotten export」として落とし、Tag 識別子文字列と
+束ねられた service 型を捨てる。mc-render の `api-lock.md` にはそれが残っている:
+
+```ts
+const InputService_base: Context.TagClass<InputService, "@nerima-games/mc-render/InputService", InputServiceApi>;
+```
+
+`InputService` は §6 が言う通り `ROut` にも `RRegister` にも現れ、`RIn` には現れないサービスである。
+この Tag 文字列は mc-compose がステージを合成するときの解決鍵であり、
+黙って変わると mc-render 単体では型検査を通ったまま、合成した瞬間に実行時で壊れる。
+`GameModule<ROut, E, RIn, RRegister = never>` の型引数と既定値がロックにそのまま写るのも同じ理由で重要である
+（生成器が `checker.typeToString` ではなく declaration emit を使っているのはこのため）。
+
+捕まえないもの: **挙動**（THREE のアダプタが何を描くかはこのファイルに出ない。テストの仕事）と、
+**interface / 型リテラルのメンバ順**（ソース順を保つので並べ替えは API 変更でなくても diff になる）。
+
+公開面を変える PR は `pnpm api:update` の結果を**同じ PR に**含めること。
+§7 の `WorldRenderer` が入るときが、このロックの最初の大きな diff になる。

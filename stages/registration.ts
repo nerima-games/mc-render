@@ -59,6 +59,7 @@ import {
   type InputServiceApi,
   type InputSnapshot,
 } from '../application/input-service'
+import type { MouseButton } from '../domain/input-bindings'
 import {
   mirroredCameraState,
   mirrorLagSecs,
@@ -171,6 +172,7 @@ export const makeRenderFrameState = (
     const input = yield* Ref.make<InputSnapshot>({
       pressed: new Set<string>(),
       justPressed: new Set<string>(),
+      uiClicks: new Set<MouseButton>(),
       pointerDelta: { x: 0, y: 0 },
       pointerLocked: false,
     })

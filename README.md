@@ -22,7 +22,8 @@ mc-playground-kit は devDependency 専用で出荷ビルドに入らないた�
 | --- | --- |
 | `mc-kernel` | 共有語彙。どのリポジトリからも import 可（許可リストに書かずに import できる） |
 | `mc-meshing` | `mesh(chunk, neighbors, config) → {opaque, water, transparentSolid}` |
-| `mc-sim` | `CameraPoseSnapshot`、チャンクダーティ購読、描画すべき状態 |
+| `mc-sim` | `CameraPoseSnapshot`、描画すべき状態 |
+| `mc-worldgen` | チャンクデータ、**チャンクダーティ購読**（`ChunkStore.subscribeDirty`）、隣接チャンク |
 | `mc-worldgen` | `Chunk` データ、ライトグリッド（計算は worldgen、**適用**がこちら） |
 
 `mc-physics` と `mc-save` は **import できない**（`mc-sim` 経由の推移依存に過ぎない）。
@@ -109,7 +110,9 @@ Nix を使わない場合は Node.js 22 以上と pnpm 9.15.0（`corepack` 推�
 | `pnpm test:watch` | vitest watch |
 | `pnpm test:coverage` | カバレッジ計測（閾値は未設定。後述） |
 | `pnpm check:deps` | 依存ホワイトリスト + 循環検査 + `Date.now()` 禁止の検査 |
-| `pnpm verify` | `typecheck && lint && check:deps && test`。CI と同じ内容 |
+| `pnpm api:check` | `api-lock.md` が実際の公開 API と食い違えば非ゼロ終了（[`docs/public-api.md`](./docs/public-api.md) §8） |
+| `pnpm api:update` | `api-lock.md` を書き直す。公開面を変える PR は結果を同じ PR に含める |
+| `pnpm verify` | `typecheck && lint && check:deps && api:check && test`。CI と同じ内容 |
 
 ## 現状
 
@@ -130,6 +133,8 @@ Nix を使わない場合は Node.js 22 以上と pnpm 9.15.0（`corepack` 推�
 | どのイベントをどこに登録するか | `LISTENER_PLAN` + `GAMEPLAY_LISTENER_TARGET` / `MODAL_LISTENER_TARGET` |
 | フレーム毎の一時オブジェクト再利用 | `withScratch`（フレームを跨いだ参照漏れを実行時検出） |
 | Escape キーの所有者 | `ESCAPE_OWNER = 'frame-handler'`（grep できる値） |
+| `MouseEvent.button` の 0/1/2 が何を指すか | `MouseButton`（名前）+ 変換は `mouseButtonForIndex` 1 箇所 |
+| ロック中のクリックとUIクリックの違い | `pressed` / `justPressed` と `uiClicks` の分離 |
 
 | 領域 | 実装 | 設計注意 |
 | --- | --- | --- |
@@ -139,6 +144,7 @@ Nix を使わない場合は Node.js 22 以上と pnpm 9.15.0（`corepack` 推�
 | フレーム毎スクラッチの再利用 | `domain/frame-scratch.ts` | DN-03 |
 | 入力の window/document 遮蔽 | `domain/input-bindings.ts` / `application/input-service.ts` | DN-04 |
 | Escape の単一所有 | 同上 | DN-05 |
+| マウスボタン、ロック状態でのクリックの意味、`contextmenu` 抑止 | 同上 | DN-12 |
 | カメラのミラー（書き戻し無し） | `domain/camera-mirror.ts` | DN-06 |
 
 各 DN の参照実装証跡（file:line）と書くべき回帰テスト一覧は
@@ -148,10 +154,12 @@ Nix を使わない場合は Node.js 22 以上と pnpm 9.15.0（`corepack` 推�
 
 - **THREE.js アダプタ一式。** マテリアル / パーティクル / 水面 / テクスチャ / シーン。
 - **`WorldRenderer`。** plan.md §3.9 の筆頭 API でありながら 1 行も無い。
-  **mc-sim のチャンクダーティ通知が未設計**なため書けない
+  購読先は決まった（**mc-worldgen** の `ChunkStore.subscribeDirty`。mc-sim ではない）。
+  [docs/public-api.md](./docs/public-api.md) §3.1 に骨格がある
   （[`docs/public-api.md`](./docs/public-api.md) §3）。
 - **`window` 入力アダプタ。** 現在は注入された `InputEvent` を受けるだけ。
-  ゲームパッド / タッチ / ポインタロック要求も未実装。
+  ゲームパッド / タッチ / ポインタロック**要求**（`requestPointerLock`）も未実装——
+  非ロック中のクリックは `uiClicks` として見えるが、それを受けてロックを取る側がまだ無い。
 - **ワーカープール実装。** 参照実装 `packages/worker` の 1,373 LOC 相当。
 - **内蔵 fixture ビューア。** plan.md §6 Step 2 の完了条件の半分。
 - **グラフィックス品質プリセットの残り半分。** レンダースケール・影解像度・視界距離・

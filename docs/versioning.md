@@ -40,19 +40,24 @@ mc-sim が `1.0.0` を出せるのは、以下がすべて満たされたとき�
    テスト green **かつ**内蔵 fixture ビューアが操作可能。
    ビューアには THREE.js アダプタが要るので、これが最大の関門である。
 2. **APIロックファイルが 4 週間変更されていない**（plan.md §6 Step 3）。
-   ツールは未選定（plan.md §9 未決: api-extractor 相当の Effect-TS 互換手段）。
+   ツール選定（plan.md §9 の未決事項「api-extractor 相当の Effect-TS 互換手段」）は決着し、
+   `api-lock.md` / `scripts/api-lock.ts` / `pnpm api:check` として実装済み
+   （[public-api.md](./public-api.md) §8）。**計測の起点は `api-lock.md` が最後に変わったコミット。**
 3. **mc-playground-kit が実際に消費して契約を確認している。**
    使われていない界面に「壊さない」と約束しても意味がない。
 4. **[public-api.md](./public-api.md) §7 の未設計 API が埋まっている。**
    特に **`WorldRenderer`**。plan.md §3.9 の筆頭 API でありながら 1 行も無い。
-   ただしこれは mc-sim のチャンクダーティ通知が決まるまで書けない（§3.1）。
+   ダーティ通知は決まった —— `mc-worldgen` の `ChunkStore.subscribeDirty` である
+   （plan.md §3.8 は mc-sim の API としているが、フラグを持つのは §3.7 により
+   worldgen 側で、sim 経由にすると毎フレーム全チャンクのポーリングになる）。
+   §2.1 に `render → worldgen` のエッジは既にあるので、購読に新しい依存は要らない。
 5. `domain/kernel-vocabulary.ts` が削除され、`@nerima-games/mc-kernel` を
    `dependencies` から参照している（§5 参照）。
 
 ### 3.1 ブロッカーの連鎖
 
 ```
-mc-sim のチャンクダーティ通知が決まる
+mc-worldgen の ChunkStore.subscribeDirty（決定済み）
   → mc-render の WorldRenderer が書ける
     → THREE.js アダプタが完成する
       → 内蔵 fixture ビューアが動く
@@ -160,9 +165,14 @@ kernel の語彙を取ると真実の出所が 2 つになり、上記の削除�
 | changesets | plan.md §6 Step 3。bump とチェンジログの運用 |
 | publish ワークフロー | `.github/workflows/` に追加。タグ or changeset 起点 |
 | カバレッジ 99% ゲート | `vitest.config.ts` + CI（[testing.md](./testing.md) §5） |
-| APIロックの diff チェック | CI ジョブとして追加 |
 
 `.gitignore` は既に `dist/` `build/` `out/` を無視するようにしてある。
+
+**APIロックの diff チェックはこの表から外れた。** 完了条件を待たずに済ませてあり、
+`pnpm api:check` が `pnpm verify` の `check:deps` と `test` の間で、また CI の
+`API lock` ステップとして走る（[public-api.md](./public-api.md) §8）。
+採用した生成器は declaration emit をメモリ上で走らせるので、上の「ビルド」行が
+埋まるのを待つ必要が無かった。
 
 **mc-render 固有の追加項目**: テクスチャアセットの同梱（plan.md §5.3
 「アセットは消費者に同梱（テクスチャ→render、音声→audio）」）。

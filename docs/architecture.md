@@ -107,7 +107,7 @@ npm 公開・バージョン bump 運用は界面安定（APIロック 4 週間�
 | --- | --- |
 | `mc-kernel` | 共有語彙。**どのリポジトリからも import 可**。ただし `package.json` の `dependencies` への記載は必要 |
 | `mc-meshing` | `mesh(chunk, neighbors, config) → {opaque, water, transparentSolid}` |
-| `mc-sim` | `CameraPoseSnapshot`、チャンクダーティ購読、描画すべき状態 |
+| `mc-sim` | `CameraPoseSnapshot`、描画すべき状態（チャンクダーティ購読は mc-worldgen） |
 | `mc-worldgen` | `Chunk` データ、ライトグリッド（BFS光伝播の結果。**適用**がこちらの責務） |
 
 ### 3.2 子（mc-render に依存するもの）

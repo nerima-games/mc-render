@@ -74,16 +74,17 @@ DOM を import せず `InputEvent` を注入で受ける。
 
 ## 4. 現在のテスト
 
-`vitest run`。7 ファイル / 112 テスト。すべて `environment: 'node'`。
+`vitest run`。8 ファイル / 160 テスト。すべて `environment: 'node'`。
 
 | ファイル | テスト数 | 対応 |
 | --- | ---: | --- |
 | `test/post-processing.test.ts` | 20 | DN-01 / DN-07 |
-| `test/input.test.ts` | 25 | DN-04 / DN-05 / DN-08 / DN-09 |
+| `test/input.test.ts` | 49 | DN-04 / DN-05 / DN-08 / DN-09 / DN-12 |
 | `test/camera-mirror.test.ts` | 13 | DN-06 |
 | `test/frame-scratch.test.ts` | 12 | DN-03 |
 | `test/material-policy.test.ts` | 10 | DN-02 |
-| `test/kernel-mirror.test.ts` | 4 | `domain/kernel-vocabulary.ts` が mc-kernel と同形であること（§4.1） |
+| `test/stage-registration.test.ts` | 16 | `stages/` のフレーム位置と順序制約（public-api.md §6-2） |
+| `test/kernel-mirror.test.ts` | 12 | `domain/kernel-vocabulary.ts` が mc-kernel と同形であること（§4.1） |
 | `test/check-dependency-whitelist.test.ts` | 28 | DN-11 + 依存ホワイトリスト本体 |
 
 ### 4.1 `test/kernel-mirror.test.ts` が守っているもの
@@ -193,9 +194,13 @@ GPU を要するコードは Node のカバレッジ計測から漏れる。
 typecheck (build + test の 2 プロジェクト)
   → lint (oxlint)
   → check:deps (依存ホワイトリスト + 循環 + Date.now() 禁止)  ← ハードゲート
+  → api:check (api-lock.md が公開 API と一致するか)          ← ハードゲート
   → test
   → coverage (閾値なし、アーティファクト化)
 ```
+
+`API lock` を `verify` 経由だけでなく独立ステップにしてあるのは、ステップ名を見ただけで
+落ちた理由が分かるようにするため（[public-api.md](./public-api.md) §8）。
 
 スクリーンショット比較を入れる際は、**SwiftShader の非決定性**に注意すること。
 参照実装の `playwright.config.ts` は `retries: 1` を全体に入れており、その理由をコメントしている:
@@ -220,8 +225,13 @@ typecheck (build + test の 2 プロジェクト)
 | `no source file in this repository reads camera.position` | DN-06 | アダプタ実装時。走査テストで |
 | `blur clears gamepad and touch state too` | DN-08 | それらの実装時 |
 | ワーカープールの Port 適合 / 死んだワーカーの置き換え | DN-10 | プール実装時 |
-| APIロックの diff テスト | plan.md §6 Step 0-3 | publish 開始前（必須） |
 | 参照実装の入力テスト 1,261 LOC の移植 | — | 入力アダプタ実装時（[porting.md](./porting.md) §6） |
+
+**APIロックの diff はこの表から外れた。** 実装済みで、しかも vitest のテストではない。
+「コミット済みの `api-lock.md` が現在の公開面と一致するか」は `pnpm api:check` が見る。
+vitest 側の `test/api-lock.test.ts` が見ているのは生成器 `scripts/api-lock.ts` の機構そのもの
+（並びのロケール非依存性、可搬性ガード、スナップショットの往復、失敗時の diff）であり、
+16 リポジトリに byte-identical で vendor されている。詳細は [public-api.md](./public-api.md) §8。
 
 ## 9. 既知のギャップ: `pnpm lint` が `stages/` を見ていない
 
