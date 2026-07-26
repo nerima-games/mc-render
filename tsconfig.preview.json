@@ -1,0 +1,29 @@
+{
+  // The dev preview under apps/preview-render.
+  //
+  // A SEPARATE project on purpose. tsconfig.build.json proves that the shipped
+  // renderer is platform-free — it inherits `types: []` and a `lib` WITHOUT
+  // "DOM", so a browser type leaking into `domain/`, `application/` or
+  // `stages/` fails the build. That proof is what makes the post-FX ordering,
+  // the wheel model and the four-value pointer-lock machine testable in Node,
+  // and it is the reason plan.md §3.10's warning about Playwright and pointer
+  // lock is survivable at all.
+  //
+  // NOTE what this file does NOT do: it does not add "DOM" to `lib`, and it
+  // does not add `three`. The preview renders to a terminal. When a THREE
+  // adapter exists it will need both, and it will need mc-playground-kit; that
+  // is a different app, and adding it here is the moment to re-read
+  // apps/preview-render/main.ts.
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "types": ["node"]
+  },
+  "include": [
+    "apps/**/*.ts",
+    "index.ts",
+    "domain/**/*.ts",
+    "application/**/*.ts",
+    "stages/**/*.ts"
+  ],
+  "exclude": ["node_modules", "coverage", "dist"]
+}

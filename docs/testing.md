@@ -11,29 +11,82 @@
 | --- | --- | --- |
 | fixture 描画 | 固定チャンクが描ける | 未実装（THREE.js アダプタが要る） |
 | スクリーンショット比較 | 見た目が変わっていない | 未実装 |
-| **内蔵ビューア** | **人間が操作して確かめられること** | 未実装 |
+| **内蔵プレビュー** | **人間が操作して確かめられること** | 実装済（[`apps/preview-render/`](../apps/preview-render/README.md)） |
+| ── うち固定チャンクの目視 | マテリアル / ポストFX の**絵**を見る | **GPU が要る。§2.2 を見ること** |
 
-現在あるのはこの 3 つの**手前**、GPU を必要としない部分の単体テストだけである。
-それが少ない話ではなく、§3 で述べるとおり**意図的にそこを厚くしている**。
+GPU を必要としない部分の単体テストは、§3 で述べるとおり**意図的に厚くしてある**。
+内蔵プレビューはその厚みの上に立っており、同じ理由で端末に描く。
 
 ## 2. 完了条件（plan.md §6 Step 2）
 
 > 各リポジトリの完了条件: ユニット/シナリオテスト green + **内蔵プレビューが操作可能**
 
-mc-render の場合、内蔵ビューアで固定チャンクを読み込み、マテリアルとポストFXを目視確認できること。
-`apps/preview-*/` に置く。モジュール契約には含めない（plan.md §4.1 末尾）。
+プレビューは `apps/preview-<name>/` に置く。モジュール契約には含めない（plan.md §4.1 末尾）。
+本リポジトリのそれは [`apps/preview-render/`](../apps/preview-render/README.md) であり、
+`pnpm preview` で起動する。`pnpm verify` には入らないが、`pnpm typecheck`
+（`tsconfig.preview.json`）と `pnpm lint` と `pnpm check:deps` の対象には入っている。
 
 ### 2.1 順序の都合
 
 構築順は `worldgen → sim → render → kit`（plan.md §6 Step 2）。
-mc-render のビューアは kit の**前**に作る必要がある——kit が mc-render に依存するので、
-kit を待っていると永遠に始まらない。つまり mc-render のビューアだけは kit 無しで書く。
-これは重複ではなく、kit の設計に対する最初のフィードバックになる。
+mc-render のプレビューは kit の**前**に作る必要がある——kit が mc-render に依存するので、
+kit を待っていると永遠に始まらない。つまり mc-render のプレビューだけは kit 無しで書く。
+これは重複ではなく、kit の設計に対する最初のフィードバックになる。**そうした。**
 
-### 2.2 fixture の入手元
+### 2.2 「固定チャンクの目視」がまだ無い理由と、代わりに何を見せているか
+
+§3 の方針の直接の帰結である。**現在のソースには THREE.js が 1 行も無く、
+`tsconfig.base.json` の `lib` に `"DOM"` も無い。**
+固定チャンクを描くにはそのどちらも要る。プレビューにだけ THREE を足すことは、
+ポストFXの順序・ホイールのモデル・ポインタロックの 4 値状態機械が Node で検証できる
+という**機構的保証を、どこかの tsconfig が守る約束に格下げする**ことである。
+
+そこで `apps/preview-render/` は、**実際にデータとしてモデル化されているもの**を出す。
+6 つのビューがある —— `input` / `postfx` / `material` / `mirror` / `scratch` / `stages`。
+
+**主役は入力状態機械である。** plan.md §3.10 は Playwright が SwiftShader 上で動き
+**ポインタロックを一切扱えない**と記録しており、`application/input-service.ts:209-214` は
+そこから「サービス内の `requestPointerLock()` は何にもテストできない挙動になる」と結論している。
+帰結はもっと鋭い: ロック状態は 4 値の機械で、その遷移が**すべてのボタン押下について
+ゲーム操作か UI クリックかを決める**。ブラウザテストはこれを駆動できず、
+`test/input.test.ts` は 1 つの fiber の中で、テスト作者が思いついた順序で駆動する。
+
+ステップ可能なプレビューは、**イベント順序がつまみになる唯一の場所**である。
+だから `readSnapshot` と `endFrame` もイベントと同格のステップになっている。
+下の RND-1 / RND-2 はどちらも、テストがたまたま逆順で発行している 2 つのイベントを
+入れ替えただけで出てくる。
+
+`--stats` は数値レポートで、**8 件の発見**に file:line と再現コマンドを付けて出す。
+
+| # | 内容 | 場所 |
+| --- | --- | --- |
+| RND-1 | `requested` は吸収状態。`blur` が保存し `requestPointerLock` は再送しない | `application/input-service.ts:581-585`, `:634-642` |
+| RND-2 | `endFrame` がどのフレームにも報告していないホイール段を消費する | `application/input-service.ts:600`, `:672` |
+| RND-3 | `blur` が `pointerLocked` を残すので、復帰クリックが `attack` になる | `application/input-service.ts:581-585` |
+| RND-4 | ミラーの初期状態が自己矛盾（`UNSET` のポーズに `mirrorLagSecs = 0`） | `stages/registration.ts:170-173` |
+| RND-5 | `MIRROR_LAG_WARNING_SECS` の doc が「Milliseconds」と書いている | `domain/camera-mirror.ts:160` |
+| RND-6 | `RenderRegistrationLayer` が `renderModule` の引数を捨てる | `stages/registration.ts:410` |
+| RND-7 | `withScratch` が捕まえるのは同一性エスケープだけ | `domain/frame-scratch.ts:167-196` |
+| RND-8 | `buildPostProcessingChain` が `high` と `ultra` に同一の配列を返す | `domain/post-processing.ts:235-266` |
+
+全件の詳細は [`apps/preview-render/README.md`](../apps/preview-render/README.md)。
+
+### 2.3 fixture の入手元（THREE アダプタ着手時）
 
 参照実装の fixture を資産として移植する（plan.md §6 Step 2）。
 チャンク fixture は `packages/rendering/test/` および mc-meshing 側のゴールデンテスト用と共通化できる。
+そのときの目視テストは mc-playground-kit を要する。**現在のプレビューはその代わりではない。**
+GPU 無しで確かめられる半分であり、入力状態機械にいたっては他に置き場所が無い。
+
+### 2.4 プレビューの依存
+
+`apps/preview-render/` は**このリポジトリ自身のモジュールと `effect` しか import しない**。
+org パッケージも新規 npm 依存も THREE も無い。
+`scripts/check-dependency-whitelist.ts` の `SCAN_ROOTS` に `'apps'` が入っており、
+`isToolingOrTestPath` が `apps/` を tooling 扱いする
+（`index.ts` / `domain/` / `application/` / `stages/` 以外はすべて tooling）。
+`Date.now()` 禁止も `apps/` に効く —— ミラーの陳腐化は注入した
+`MonotonicTimeSecs` を操作者が動かして測るので抵触しない。
 
 ## 3. GPU を必要としないテストを厚くする方針
 
