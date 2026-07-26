@@ -7,6 +7,7 @@
  * documentation wearing a gate's clothes. These tests assert that the gate
  * still says no.
  */
+import { readFileSync } from 'node:fs'
 import { describe, expect, it } from '@effect/vitest'
 import { Effect } from 'effect'
 import {
@@ -21,6 +22,7 @@ import {
   isToolingOrTestPath,
   parseImports,
   REPOSITORY_POLICY,
+  SCAN_ROOTS,
   TIME_SOURCE_ESCAPE_HATCH,
   type DeclaredDependencies,
 } from '../scripts/check-dependency-whitelist'
@@ -349,6 +351,51 @@ describe('banned time sources', () => {
 
       expect(violations).toHaveLength(1)
       expect(violations[0]?.line).toBe(2)
+    }),
+  )
+})
+
+// ---------------------------------------------------------------------------
+// What the gate calls "shipped" and what npm actually ships must be one set.
+//
+// These are two hand-maintained lists that describe the same thing and could
+// not see each other, and both halves of that have now gone wrong in this
+// organisation, in opposite directions:
+//
+//   - mx-multiplayer had `stages` in SCAN_ROOTS but NOT in isToolingOrTestPath,
+//     so its first stage registration would have been classified as tooling --
+//     and tooling may import a devDependency. That is rule 6, the same hole
+//     that left the shipped build with no input stage at all.
+//   - THIS repository had the mirror image: `stages/` was correctly shipped
+//     source to the gate, and `files` omitted it, so `npm publish` would have
+//     produced a package with none of the five stage registrations in it. Every
+//     other stage-registering sibling listed `stages`.
+//
+// Neither is visible from inside its own half. So the test derives one from the
+// other rather than restating either.
+// ---------------------------------------------------------------------------
+describe('the published package and the dependency gate agree on what ships', () => {
+  it.effect('every shipped source root the gate scans is in package.json `files`', () =>
+    Effect.sync(() => {
+      const shipped = SCAN_ROOTS.filter((root) => !isToolingOrTestPath(`${root}/probe.ts`))
+      const files: ReadonlyArray<string> = JSON.parse(
+        readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
+      ).files
+
+      // `index.ts` is a file rather than a directory; the rest are roots.
+      const missing = shipped.filter((root) => !files.includes(root))
+      expect(missing, `these roots ship code but npm would not include them: ${missing.join(', ')}`).toStrictEqual(
+        [],
+      )
+    }),
+  )
+
+  it.effect('and `stages` is one of them — the registrations are the point of the repository', () =>
+    Effect.sync(() => {
+      // Named explicitly as well as derived, because the derivation above would
+      // also pass if `stages` stopped being scanned at all.
+      expect(SCAN_ROOTS).toContain('stages')
+      expect(isToolingOrTestPath('stages/registration.ts')).toBe(false)
     }),
   )
 })
