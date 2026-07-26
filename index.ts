@@ -36,6 +36,14 @@ export * from './domain/post-processing'
 // --- Application: Effect services ------------------------------------------
 export * from './application/input-service'
 
+// --- Stages: this repository's contribution to the frame --------------------
+// `renderModule` is a full `GameModule` (plan.md §4.1): a Layer plus an
+// Effect-valued `frameStages`. It is what closes the hole recorded in
+// mc-compose/docs/architecture.md §5 — nothing in the roster could reach the
+// renderer, so the shipped build had no input stage at all.
+export * from './stages/registration'
+export * from './stages/stage-ids'
+
 // --- Provisional -------------------------------------------------------------
 // `domain/kernel-vocabulary.ts` is a temporary local mirror of
 // @nerima-games/mc-kernel and is NOT re-exported: consumers must take that

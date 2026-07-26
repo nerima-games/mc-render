@@ -222,3 +222,33 @@ typecheck (build + test の 2 プロジェクト)
 | ワーカープールの Port 適合 / 死んだワーカーの置き換え | DN-10 | プール実装時 |
 | APIロックの diff テスト | plan.md §6 Step 0-3 | publish 開始前（必須） |
 | 参照実装の入力テスト 1,261 LOC の移植 | — | 入力アダプタ実装時（[porting.md](./porting.md) §6） |
+
+## 9. 既知のギャップ: `pnpm lint` が `stages/` を見ていない
+
+`package.json` の `lint` スクリプトは
+
+```
+oxlint --deny-warnings index.ts domain application scripts test
+```
+
+であり、**`stages` が入っていない**。`stages/` を足したコミットは `package.json` を触れる立場に
+なかったので、ここに記録して次の編集者に渡す。
+
+影響範囲は lint だけである。
+
+- `pnpm typecheck` は `stages/` を見る。`tsconfig.build.json` / `tsconfig.test.json` の
+  `include` に足してあり、加えて `index.ts` が `stages/registration.ts` を re-export しているので、
+  `include` が無くても tsc のプログラムには入る。
+- `pnpm check:deps` は `stages/` を見る。`scripts/check-dependency-whitelist.ts` の
+  `SCAN_ROOTS` に足してあり、`isToolingOrTestPath` は `stages/` を**出荷ソース**として分類する
+  （これが「mc-playground-kit を出荷ソースから import してはならない」を stage 登録にも効かせている）。
+- `pnpm test` は `stages/` を `test/stage-registration.test.ts` 経由で実行する。
+
+現時点で `stages/` は oxlint を手で走らせて 0 warning / 0 error である。**必要な差分は 1 語**:
+
+```diff
+-"lint": "oxlint --deny-warnings index.ts domain application scripts test",
++"lint": "oxlint --deny-warnings index.ts domain application stages scripts test",
+```
+
+`lint:fix` も同様。mx-* の 3 リポジトリは `stages` を含む形で既に書かれている。

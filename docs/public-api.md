@@ -236,6 +236,80 @@ const mirrorLagSecs / isMirrorStale
 **`CameraPoseSnapshot` を受け取る口しかない。書き戻す口は無く、作ってはならない**
 （[design-notes.md](./design-notes.md) DN-06）。
 
+## 6-2. フレーム stage 登録（`stages/`）
+
+```typescript
+const RENDER_STAGE_IDS: {
+  input: StageId          // 'render:input'
+  cameraMirror: StageId   // 'render:camera-mirror'
+  chunkSync: StageId      // 'render:chunk-sync'
+  draw: StageId           // 'render:draw'
+  postFx: StageId         // 'render:post-fx'
+}
+
+const renderModule: (quality?) => GameModule<InputService, never, never, InputService>
+const renderStages: (state, input) => ReadonlyArray<StageRegistration>
+const makeRenderFrameState: (quality?) => Effect<RenderFrameState>
+const makeRenderStagesForPreview: (quality?) => Effect<{state, stages}, never, InputService>
+```
+
+### なぜここに置いたのか
+
+縦切りスパイクが「描画 stage をどこに置くか」を決めた。候補は「新しい体験モジュール」と
+「mc-render」で、3 つの根拠で mc-render になった。
+
+1. 描画 stage の完全な import 集合は `mc-kernel` + `mc-sim`(読み取りのみ) + `mc-render` +
+   `mc-meshing` で、**これは既に mc-render の行そのもの**である。
+2. 描画 stage には**ゲームルールが 1 つも無い**。体験モジュール（plan.md §2.2）が所有するのは
+   VERB であり、これらを抱えたモジュールは VERB を 1 つも所有しない。
+3. **mc-render はどのみち stage を登録しなければならない。** `InputService.endFrame` は
+   フレーム毎にちょうど 1 回呼ばれなければならず、それは定義上 stage である。
+   それまでロスター全体で登録されていた入力 stage は `mc-playground-kit` の `input:sample` だけで、
+   kit は開発時専用だった。つまり**出荷ビルドには入力 stage が存在しなかった** —
+   `justPressed` が永久にクリアされず、インベントリキーを 1 回押すと押しっぱなしのフレーム全部で
+   再発火する。plan.md §2.3-2 が防ぐために書かれた失敗そのものである。
+
+### id はすべて `render:` 接頭辞
+
+骨格の phase 名と同じ裸の名前（`camera-mirror` / `chunk-sync` / `post-fx`）ではなく、
+plan.md §4.1 の `<owning-repo-suffix>:<stage>` 規約に従っている。
+mx-ui が phase 名 `hud-sync` に対して `ui:hud-sync` を登録しているのと同じである。理由は 2 つ:
+
+- `mc-compose/domain/modding.ts` が裸の名前を mod に対して**予約**している。
+  一次モジュールが裸の名前を登録するのは合法だが、予約 id を無駄に消費する。
+- 解決済みのフレーム順序を読んだレビュアが、どのリポジトリを開けばよいかを一目で判断できる。
+
+mc-compose の phase membership は id の**名前側**（最後のコロン以降）で照合するので、
+`render:camera-mirror` は `camera-mirror` phase に、`render:draw` は `render` phase に落ちる。
+`render:input` は複数 phase に一致しうるが、mc-compose の `domain/stage-order.ts` が
+「複数一致した stage は**最も早い** phase に属する」と定めており、意図どおり input になる。
+
+### `frameStages` が Effect である理由は、このリポジトリが作った
+
+`renderModule` の型引数がその議論そのものである。
+
+```
+ROut      = InputService   — mc-render が提供する
+RIn       = never          — その Layer を組むのに与えられる必要のあるものは無い
+RRegister = InputService   — しかし render:input を登録するには必要
+```
+
+`InputService` は `ROut` にあり `RRegister` にもあり、**どちらの場合も `RIn` には無い**。
+`RRegister` を `RIn` に畳むと「自分が出荷するサービスをホストが供給しろ」と言うことになる。
+経緯は mc-kernel `docs/freeze-checklist.md` (b)。
+
+### FIRST CUT の範囲
+
+**フレーム位置と順序制約は確定**である。mc-compose が必要とするのはそれであり、
+本体が埋まっても変わらない。
+
+本体のうち、まだ到達できないサービスを要するものは FIRST CUT として最小限のことをする
+（`mx-gameplay/stages/registration.ts` と同じ書き方）。
+mc-sim と mc-meshing は mc-render の宣言済みの親だが未 publish なので、
+それらを読むはずの箇所はプレビューやテストが埋める `Ref` を読む。
+ローカルポートを発明していないのは、それが「カメラ姿勢を所有するのは誰か」への 2 つ目の答えになり、
+plan.md §3.8 が参照実装の最悪の構造バグとして記録している逆転そのものだからである。
+
 ## 7. まだ設計していない公開API
 
 **着手前に本書へ追記すること。**

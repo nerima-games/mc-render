@@ -73,6 +73,7 @@ graph BT
   compose --> redstone
   compose --> ui
   compose --> multiplayer
+  compose --> render
 
   style render fill:#ffd,stroke:#a80,stroke-width:3px
 ```
@@ -111,10 +112,19 @@ npm 公開・バージョン bump 運用は界面安定（APIロック 4 週間�
 
 ### 3.2 子（mc-render に依存するもの）
 
-`mc-playground-kit` のみ（`mc-compose` は推移的）。plan.md §2.1 の実線を数えると、
-mc-render を実行時依存に持つのは kit だけである。
+`mc-playground-kit` と **`mc-compose`**。
 
-**これは「界面が安定しなくてよい」という意味ではない。** kit は全プレビューの土台であり、
+compose のエッジは縦切りスパイクで足されたものである。それ以前は kit だけが mc-render を
+依存に持ち、kit は devDependency 専用なので実行時エッジを作らない。つまり
+**mc-render は動いているゲームからどこからも到達できなかった**。
+
+それは抽象的な問題ではなかった。`InputService.endFrame` はフレーム毎にちょうど 1 回
+呼ばれなければならず、それは定義上 stage である。ところがロスター全体で登録されていた入力 stage は
+kit の `input:sample` だけで、**出荷ビルドには入力 stage が存在しなかった**。
+plan.md §2.3-2 が防ぐために書かれた失敗そのものである。詳細は
+`mc-compose/docs/architecture.md` §5 と、本リポジトリの `stages/stage-ids.ts`。
+
+kit のほうも「界面が安定しなくてよい」という意味ではない。kit は全プレビューの土台であり、
 kit が壊れると 15 リポジトリの完了条件（「内蔵プレビューが操作可能」）が全部止まる。
 
 ### 3.3 推移閉包は禁止

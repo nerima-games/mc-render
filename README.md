@@ -133,6 +133,7 @@ Nix を使わない場合は Node.js 22 以上と pnpm 9.15.0（`corepack` 推�
 
 | 領域 | 実装 | 設計注意 |
 | --- | --- | --- |
+| フレーム stage 登録 | `stages/registration.ts` / `stages/stage-ids.ts` | 位置は確定、本体は FIRST CUT |
 | ポストFXの確定順序 | `domain/post-processing.ts` | DN-01 |
 | `forceSinglePass` 規則 | `domain/material-policy.ts` | DN-02 |
 | フレーム毎スクラッチの再利用 | `domain/frame-scratch.ts` | DN-03 |

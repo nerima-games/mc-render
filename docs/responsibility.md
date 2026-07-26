@@ -22,6 +22,7 @@ plan.md §2.3-1 の分類でいう **名詞**。「どう見えるか」の仕�
 | `WorldRenderer` | chunk ダーティ購読 → メッシュ更新 | **未実装（最重要の欠落）** |
 | ワーカープール**実装** | 地形ワーカー / メッシングワーカーのプール（Port は各所有者） | 未実装 |
 | **実行時入力サービス** | キーボード / マウス / ポインタロック / タッチ / キーリマッピング | ポート越しに実装済 `application/input-service.ts`（`window` アダプタは未） |
+| **フレーム stage 登録** | `render:input` / `render:camera-mirror` / `render:chunk-sync` / `render:draw` / `render:post-fx` | 登録位置は確定済 `stages/`。本体は FIRST CUT |
 | フレーム毎スクラッチ | 一時 `Map` の事前確保と再利用 | 実装済 `domain/frame-scratch.ts` |
 | グラフィックス品質プリセット適用 | low / medium / high / ultra | ポストFX部分のみ `domain/post-processing.ts` |
 | テクスチャアセット | アトラス画像を同梱（plan.md §5.3「独立アセットリポジトリは作らない」） | 未実装 |

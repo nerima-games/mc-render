@@ -184,6 +184,14 @@ export const REPOSITORY_POLICY = {
         '@nerima-games/mx-redstone',
         '@nerima-games/mx-ui',
         '@nerima-games/mx-multiplayer',
+        // Added by the vertical-slice spike. mc-render registers the frame's
+        // input, camera-mirror, chunk-sync, draw and post-fx stages, and NOTHING
+        // in the roster previously declared a runtime edge to it — so the
+        // shipped build had no input stage at all (plan.md §2.3-2). Registering
+        // another module's stages is wiring, not a rule; rule 3 still blocks
+        // compose from reaching mc-meshing or mc-sim behind it.
+        // See mc-compose/docs/architecture.md §5.
+        '@nerima-games/mc-render',
       ]),
     ],
 
@@ -232,10 +240,11 @@ export const BANNED_TIME_SOURCES: ReadonlyArray<{ readonly pattern: RegExp; read
 ]
 
 /** Directories and files scanned for imports and banned time sources. */
-export const SCAN_ROOTS: ReadonlyArray<string> = ['apps', 
+export const SCAN_ROOTS: ReadonlyArray<string> = ['apps',
   'index.ts',
   'domain',
   'application',
+  'stages',
   'scripts',
   'test',
 ]
@@ -863,11 +872,21 @@ const relativeFromRoot = (absolutePath: string): string => toPosix(path.relative
 const isTypeScriptSource = (filePath: string): boolean =>
   filePath.endsWith('.ts') && !filePath.endsWith('.d.ts')
 
-/** Shipped source is `index.ts` and everything under `domain/` and `application/`. */
+/**
+ * Shipped source is `index.ts` and everything under `domain/`, `application/`
+ * and `stages/`.
+ *
+ * `stages/` is shipped, and that classification is load-bearing rather than
+ * bookkeeping: it is what makes "mc-playground-kit may not be imported from
+ * shipped source" (rule 6) apply to the frame registrations. Registering the
+ * input stage from kit is exactly the mistake that left the shipped build with
+ * no input stage at all — see `stages/stage-ids.ts`.
+ */
 export const isToolingOrTestPath = (relativePath: string): boolean =>
   !(relativePath === 'index.ts' ||
     relativePath.startsWith('domain/') ||
-    relativePath.startsWith('application/'))
+    relativePath.startsWith('application/') ||
+    relativePath.startsWith('stages/'))
 
 const collectFrom = async (absolutePath: string): Promise<ReadonlyArray<string>> => {
   const entries = await readdir(absolutePath, { withFileTypes: true }).catch(() => undefined)

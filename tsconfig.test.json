@@ -10,6 +10,7 @@
     "index.ts",
     "domain/**/*.ts",
     "application/**/*.ts",
+    "stages/**/*.ts",
     "test/**/*.ts",
     "scripts/**/*.ts",
     "vitest.config.ts"

@@ -16,17 +16,30 @@
  * failures a type checker is structurally unable to catch, which is why they
  * are asserted here instead.
  *
- * mc-render's mirror carries no Port, so what there is to pin is the brands and
- * the snapshot shape.
+ * mc-render's mirror carries the brands, the snapshot shape, the Clock Port
+ * WHOLE, and the frame contract — because `stages/` registers frame stages and
+ * `FrameServices` is `ClockPort`. See the mirror's own header on why a narrower
+ * `ClockService` would be a runtime hazard rather than merely less vocabulary.
  */
 import { describe, expect, it } from '@effect/vitest'
-import { Effect } from 'effect'
+import { Effect, Layer } from 'effect'
 import {
+  ClockPort,
   DeltaTimeSecs,
+  EpochMillis,
+  FixedClockLayer,
+  fixedClock,
+  monotonicSecs,
   MonotonicTimeSecs,
   position,
   snapshotAgeSecs,
+  StageId,
+  wallClockEpochMillis,
   type CameraPoseSnapshot,
+  type ClockService,
+  type FrameServices,
+  type GameModule,
+  type StageRegistration,
 } from '../domain/kernel-vocabulary'
 
 describe('the mirrored brands are kernel’s brands', () => {
@@ -96,6 +109,143 @@ describe('the mirrored CameraPoseSnapshot is kernel’s', () => {
     Effect.sync(() => {
       expect(snapshotAgeSecs(pose, MonotonicTimeSecs(12))).toBe(2)
       expect(snapshotAgeSecs(pose, MonotonicTimeSecs(8))).toBe(-2)
+    }),
+  )
+})
+
+describe('the mirrored Clock Port is kernel’s', () => {
+  const FIXED_AT = {
+    monotonicSecs: MonotonicTimeSecs(1_234.5),
+    wallClockEpochMillis: EpochMillis(1_700_000_000_000),
+  }
+
+  // REGRESSION — the exact failure mc-sim's mirror once had. Effect resolves a
+  // Tag by its TEXTUAL KEY, so a Layer built against a one-field mirror
+  // satisfies kernel's two-field tag and the missing field reads `undefined` in
+  // a repository that never saw this file. `tsc` cannot see it; this can.
+  it.effect('carries kernel’s tag string, so it IS kernel’s service at runtime', () =>
+    Effect.sync(() => {
+      expect(ClockPort.key).toBe('@nerima-games/mc-kernel/ClockPort')
+    }),
+  )
+
+  it.effect('REGRESSION: ClockService has BOTH readings, not just the one mc-render uses', () =>
+    Effect.gen(function* () {
+      /** Kernel's shape, restated from `mc-kernel/domain/clock.ts`. */
+      type KernelClockService = {
+        readonly monotonicSecs: Effect.Effect<MonotonicTimeSecs>
+        readonly wallClockEpochMillis: Effect.Effect<EpochMillis>
+      }
+
+      const asKernel: KernelClockService = fixedClock(FIXED_AT)
+      const asMirror: ClockService = {
+        monotonicSecs: Effect.succeed(MonotonicTimeSecs(0)),
+        wallClockEpochMillis: Effect.succeed(EpochMillis(0)),
+      }
+
+      const fields = ['monotonicSecs', 'wallClockEpochMillis']
+      expect(Object.keys(asKernel).sort()).toStrictEqual(fields)
+      expect(Object.keys(asMirror).sort()).toStrictEqual(fields)
+
+      expect(yield* monotonicSecs.pipe(Effect.provide(FixedClockLayer(FIXED_AT)))).toBe(1_234.5)
+      expect(yield* wallClockEpochMillis.pipe(Effect.provide(FixedClockLayer(FIXED_AT)))).toBe(
+        1_700_000_000_000,
+      )
+    }),
+  )
+
+  it.effect('EpochMillis is a safe integer, as kernel refines it', () =>
+    Effect.sync(() => {
+      expect(EpochMillis(0)).toBe(0)
+      expect(() => EpochMillis(1.5)).toThrow()
+    }),
+  )
+
+  it.effect('StageId refuses a blank id, as kernel refines it', () =>
+    Effect.sync(() => {
+      expect(StageId('render:draw')).toBe('render:draw')
+      expect(() => StageId('   ')).toThrow()
+      expect(() => StageId('')).toThrow()
+    }),
+  )
+})
+
+describe('the mirrored frame contract is kernel’s', () => {
+  // REGRESSION: kernel froze `FrameServices = ClockPort` after the vertical
+  // slice spike. A mirror that drifted narrow would let a stage compile here
+  // and fail to assign against the published kernel; one that drifted wide
+  // would demand something no host supplies. `Exclude` both ways is what makes
+  // this an equality rather than a containment.
+  it.effect('FrameServices is exactly ClockPort — no wider, no narrower', () =>
+    Effect.sync(() => {
+      type NoWider = Exclude<FrameServices, ClockPort>
+      type NoNarrower = Exclude<ClockPort, FrameServices>
+      const widerIsEmpty: NoWider extends never ? true : false = true
+      const narrowerIsEmpty: NoNarrower extends never ? true : false = true
+
+      expect(widerIsEmpty).toBe(true)
+      expect(narrowerIsEmpty).toBe(true)
+    }),
+  )
+
+  // REGRESSION: `GameModule.frameStages` is an EFFECT, not an array. That is
+  // the change the vertical-slice spike forced, and mc-render is the repository
+  // that forced it — `render:input` cannot be built without first acquiring an
+  // InputService. A mirror that kept the array would compile against nothing
+  // this repository actually ships.
+  it.effect('GameModule.frameStages is an Effect, with its own requirement parameter', () =>
+    Effect.gen(function* () {
+      class Needed extends Effect.Tag('test/Needed')<Needed, { readonly value: number }>() {}
+
+      const module: GameModule<never, never, never, Needed> = {
+        layers: Layer.empty,
+        frameStages: Effect.map(Needed, (needed) => [
+          {
+            id: StageId('render:draw'),
+            run: () => Effect.asVoid(Effect.succeed(needed.value)),
+          } satisfies StageRegistration,
+        ]),
+      }
+
+      const stages = yield* module.frameStages.pipe(
+        Effect.provideService(Needed, { value: 1 }),
+      )
+      expect(stages).toHaveLength(1)
+    }),
+  )
+
+  // The default is what keeps every three-parameter module in the roster
+  // compiling. If it were removed, every mirror would have to change in the
+  // same commit.
+  it.effect('RRegister defaults to never, so a module needing nothing writes three parameters', () =>
+    Effect.sync(() => {
+      const threeParams: GameModule<never, never, never> = {
+        layers: Layer.empty,
+        frameStages: Effect.succeed([]),
+      }
+      const fourParams: GameModule<never, never, never, never> = threeParams
+      expect(fourParams.layers).toBe(Layer.empty)
+    }),
+  )
+
+  it.effect('`after` is optional, and a stage runs against FrameServices', () =>
+    Effect.gen(function* () {
+      const standalone: StageRegistration = {
+        id: StageId('render:draw'),
+        run: () => Effect.asVoid(monotonicSecs),
+      }
+
+      expect(standalone.after).toBeUndefined()
+      yield* standalone
+        .run(DeltaTimeSecs(0))
+        .pipe(
+          Effect.provide(
+            FixedClockLayer({
+              monotonicSecs: MonotonicTimeSecs(0),
+              wallClockEpochMillis: EpochMillis(0),
+            }),
+          ),
+        )
     }),
   )
 })
