@@ -15,7 +15,12 @@ import {
   type StageRegistration,
 } from '../domain/kernel-vocabulary'
 import { QUALITY_PRESETS } from '../domain/post-processing'
-import { InputService, InputServiceLayer } from '../application/input-service'
+import {
+  InputService,
+  InputServiceLayer,
+  type PointerLockPort,
+  type PointerLockRequestOutcome,
+} from '../application/input-service'
 import {
   makeRenderStagesForPreview,
   renderModule,
@@ -49,6 +54,35 @@ const withStages = <A>(
     const { state, stages } = yield* makeRenderStagesForPreview()
     return yield* use(stages, state, input)
   }).pipe(Effect.provide(InputServiceLayer()))
+
+/**
+ * The same, with a pointer-lock port whose asks are counted.
+ *
+ * The port is how the request leaves this repository at all: mc-render ships no
+ * `lib.DOM`, so `canvas.requestPointerLock()` cannot be called from here — and
+ * Playwright cannot test pointer lock anyway (plan.md §3.10), which is what
+ * makes a port the only shape this behaviour can be tested in.
+ */
+const withStagesUsingPointerLock = <A>(
+  outcome: PointerLockRequestOutcome,
+  use: (
+    stages: ReadonlyArray<StageRegistration>,
+    state: RenderFrameState,
+    input: InputService['Type'],
+    asked: Ref.Ref<number>,
+  ) => Effect.Effect<A>,
+): Effect.Effect<A> =>
+  Effect.gen(function* () {
+    const asked = yield* Ref.make(0)
+    const port: PointerLockPort = {
+      request: Ref.update(asked, (count) => count + 1).pipe(Effect.as(outcome)),
+    }
+    return yield* Effect.gen(function* () {
+      const input = yield* InputService
+      const { state, stages } = yield* makeRenderStagesForPreview()
+      return yield* use(stages, state, input, asked)
+    }).pipe(Effect.provide(InputServiceLayer(undefined, port)))
+  })
 
 const stageById = (
   stages: ReadonlyArray<StageRegistration>,
@@ -173,6 +207,75 @@ describe('render:input', () => {
         // Second frame, key still down: no new edge.
         yield* stageById(stages, RENDER_STAGE_IDS.input).run(dt).pipe(Effect.provide(FRAME_SERVICES))
         expect([...(yield* Ref.get(state.input)).justPressed]).toStrictEqual([])
+      }),
+    ),
+  )
+
+  // The other half of DN-12. `uiClicks` recorded the click that re-acquires the
+  // pointer lock and NOTHING acted on it, so a preview could show the world and
+  // never enter mouselook. The frame is where the click is acted on: `dispatch`
+  // runs inside a DOM event handler and must only record, and a service that
+  // grabbed the pointer by itself would take it from a preview that only wanted
+  // to read input.
+  it.effect('a UI click ASKS for the pointer lock — the consumer uiClicks never had', () =>
+    withStagesUsingPointerLock('sent', (stages, _state, input, asked) =>
+      Effect.gen(function* () {
+        // Unlocked, so this is a UI click and not an attack (DN-12).
+        yield* input.dispatch({ kind: 'mousedown', button: 'MouseLeft', target: GAMEPLAY_LISTENER_TARGET })
+        expect(yield* input.pointerLockState).toBe('unlocked')
+
+        yield* stageById(stages, RENDER_STAGE_IDS.input).run(dt).pipe(Effect.provide(FRAME_SERVICES))
+
+        expect(yield* Ref.get(asked)).toBe(1)
+        // ASKED, not granted. The browser answers with an event.
+        expect(yield* input.pointerLockState).toBe('requested')
+        expect((yield* input.snapshot).pointerLocked).toBe(false)
+
+        yield* input.dispatch({ kind: 'pointerlockchange', locked: true })
+        expect((yield* input.snapshot).pointerLocked).toBe(true)
+      }),
+    ),
+  )
+
+  it.effect('a REFUSED request is still refused on the next frame, for the UI to draw', () =>
+    withStagesUsingPointerLock('sent', (stages, state, input, asked) =>
+      Effect.gen(function* () {
+        yield* input.dispatch({ kind: 'mousedown', button: 'MouseLeft', target: GAMEPLAY_LISTENER_TARGET })
+        yield* stageById(stages, RENDER_STAGE_IDS.input).run(dt).pipe(Effect.provide(FRAME_SERVICES))
+
+        yield* input.dispatch({ kind: 'pointerlockerror' })
+        yield* stageById(stages, RENDER_STAGE_IDS.input).run(dt).pipe(Effect.provide(FRAME_SERVICES))
+
+        // The frame that draws the "click to look around" hint reads this.
+        expect((yield* Ref.get(state.input)).pointerLockState).toBe('refused')
+        // ...and the frame with no click in it did not ask again.
+        expect(yield* Ref.get(asked)).toBe(1)
+      }),
+    ),
+  )
+
+  it.effect('a click while ALREADY locked is a game action and asks for nothing', () =>
+    withStagesUsingPointerLock('sent', (stages, _state, input, asked) =>
+      Effect.gen(function* () {
+        yield* input.dispatch({ kind: 'pointerlockchange', locked: true })
+        yield* input.dispatch({ kind: 'mousedown', button: 'MouseLeft', target: GAMEPLAY_LISTENER_TARGET })
+
+        yield* stageById(stages, RENDER_STAGE_IDS.input).run(dt).pipe(Effect.provide(FRAME_SERVICES))
+
+        expect(yield* Ref.get(asked)).toBe(0)
+      }),
+    ),
+  )
+
+  it.effect('an unlocked RIGHT click does not grab the pointer out from under a menu', () =>
+    withStagesUsingPointerLock('sent', (stages, _state, input, asked) =>
+      Effect.gen(function* () {
+        yield* input.dispatch({ kind: 'mousedown', button: 'MouseRight', target: GAMEPLAY_LISTENER_TARGET })
+
+        yield* stageById(stages, RENDER_STAGE_IDS.input).run(dt).pipe(Effect.provide(FRAME_SERVICES))
+
+        expect(yield* Ref.get(asked)).toBe(0)
+        expect(yield* input.pointerLockState).toBe('unlocked')
       }),
     ),
   )

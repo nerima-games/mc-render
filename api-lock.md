@@ -13,7 +13,7 @@
 <!-- ------------------------------------------------------------------------- -->
 
 format: 1
-exported declarations: 81
+exported declarations: 98
 supporting declarations: 17
 
 ## Exported
@@ -106,7 +106,7 @@ type GraphicsQuality = {
 ### INPUT_ACTIONS  `const`
 
 ```ts
-const INPUT_ACTIONS: readonly ["moveForward", "moveBackward", "moveLeft", "moveRight", "jump", "sneak", "sprint", "openInventory", "openChat", "attack", "use", "pickBlock", "escape"];
+const INPUT_ACTIONS: readonly ["moveForward", "moveBackward", "moveLeft", "moveRight", "jump", "sneak", "sprint", "openInventory", "openChat", "attack", "use", "pickBlock", "hotbarSlot1", "hotbarSlot2", "hotbarSlot3", "hotbarSlot4", "hotbarSlot5", "hotbarSlot6", "hotbarSlot7", "hotbarSlot8", "hotbarSlot9", "escape"];
 ```
 
 ### InputAction  `type`
@@ -148,8 +148,14 @@ type InputEvent = {
     readonly deltaX: number;
     readonly deltaY: number;
 } | {
+    readonly kind: 'wheel';
+    readonly deltaY: number;
+    readonly deltaMode: WheelDeltaMode;
+} | {
     readonly kind: 'pointerlockchange';
     readonly locked: boolean;
+} | {
+    readonly kind: 'pointerlockerror';
 } | {
     readonly kind: 'blur';
 };
@@ -174,6 +180,9 @@ type InputServiceApi = {
     readonly wasButtonJustPressed: (button: MouseButton) => Effect.Effect<boolean>;
     readonly wasUiClick: (button: MouseButton) => Effect.Effect<boolean>;
     readonly shouldSuppressContextMenu: Effect.Effect<boolean>;
+    readonly shouldSuppressWheelScroll: Effect.Effect<boolean>;
+    readonly pointerLockState: Effect.Effect<PointerLockState>;
+    readonly requestPointerLock: Effect.Effect<PointerLockState>;
     readonly endFrame: Effect.Effect<void>;
     readonly clearHeld: Effect.Effect<void>;
     readonly bindings: Effect.Effect<Bindings>;
@@ -185,7 +194,7 @@ type InputServiceApi = {
 ### InputServiceLayer  `const`
 
 ```ts
-const InputServiceLayer: (bindings?: Bindings) => Layer.Layer<InputService>;
+const InputServiceLayer: (bindings?: Bindings, pointerLock?: PointerLockPort) => Layer.Layer<InputService>;
 ```
 
 ### InputSnapshot  `type`
@@ -199,7 +208,10 @@ type InputSnapshot = {
         readonly x: number;
         readonly y: number;
     };
+    readonly wheelNotches: number;
+    readonly wheelSteps: number;
     readonly pointerLocked: boolean;
+    readonly pointerLockState: PointerLockState;
 };
 ```
 
@@ -321,10 +333,42 @@ const NO_VIEW_OFFSET: ViewOffset;
 const OWN_STAGE_PREFIX = "render:";
 ```
 
+### POINTER_LOCK_ACQUIRE_BUTTON  `const`
+
+```ts
+const POINTER_LOCK_ACQUIRE_BUTTON: MouseButton;
+```
+
+### POINTER_LOCK_STATES  `const`
+
+```ts
+const POINTER_LOCK_STATES: readonly ["unlocked", "requested", "locked", "refused"];
+```
+
 ### POST_PROCESSING_PASS_ORDER  `const`
 
 ```ts
 const POST_PROCESSING_PASS_ORDER: readonly ["render", "gtao", "godRays", "bloom", "bokeh", "composite", "smaa", "output"];
+```
+
+### PointerLockPort  `type`
+
+```ts
+type PointerLockPort = {
+    readonly request: Effect.Effect<PointerLockRequestOutcome>;
+};
+```
+
+### PointerLockRequestOutcome  `type`
+
+```ts
+type PointerLockRequestOutcome = 'sent' | 'unavailable';
+```
+
+### PointerLockState  `type`
+
+```ts
+type PointerLockState = (typeof POINTER_LOCK_STATES)[number];
 ```
 
 ### PostProcessingPass  `type`
@@ -431,6 +475,12 @@ type ScratchViolation = {
 };
 ```
 
+### UNAVAILABLE_POINTER_LOCK  `const`
+
+```ts
+const UNAVAILABLE_POINTER_LOCK: PointerLockPort;
+```
+
 ### UNSET_CAMERA_POSE  `const`
 
 ```ts
@@ -453,6 +503,48 @@ type ViewOffset = {
     readonly up: number;
     readonly rollRadians: number;
 };
+```
+
+### WHEEL_DELTA_MODES  `const`
+
+```ts
+const WHEEL_DELTA_MODES: readonly ["pixel", "line", "page"];
+```
+
+### WHEEL_DELTA_MODE_BY_INDEX  `const`
+
+```ts
+const WHEEL_DELTA_MODE_BY_INDEX: ReadonlyArray<WheelDeltaMode>;
+```
+
+### WHEEL_LINES_PER_NOTCH  `const`
+
+```ts
+const WHEEL_LINES_PER_NOTCH = 3;
+```
+
+### WHEEL_PAGES_PER_NOTCH  `const`
+
+```ts
+const WHEEL_PAGES_PER_NOTCH = 1;
+```
+
+### WHEEL_PIXELS_PER_NOTCH  `const`
+
+```ts
+const WHEEL_PIXELS_PER_NOTCH = 100;
+```
+
+### WheelDeltaMode  `type`
+
+```ts
+type WheelDeltaMode = (typeof WHEEL_DELTA_MODES)[number];
+```
+
+### acquiresPointerLock  `const`
+
+```ts
+const acquiresPointerLock: (button: MouseButton, state: PointerLockState) => boolean;
 ```
 
 ### actionForKey  `const`
@@ -539,7 +631,7 @@ const makeFrameScratch: () => FrameScratch;
 ### makeInputService  `const`
 
 ```ts
-const makeInputService: (bindings?: Bindings) => Effect.Effect<InputServiceApi>;
+const makeInputService: (bindings?: Bindings, pointerLock?: PointerLockPort) => Effect.Effect<InputServiceApi>;
 ```
 
 ### makeRenderFrameState  `const`
@@ -587,6 +679,12 @@ const modalConsumedKeyReachesGameplay: (modalTarget: ListenerTarget, gameplayTar
 const mouseButtonForIndex: (index: number) => MouseButton | undefined;
 ```
 
+### notchesForWheelDelta  `const`
+
+```ts
+const notchesForWheelDelta: (deltaY: number, mode: WheelDeltaMode) => number;
+```
+
 ### passOrderIndex  `const`
 
 ```ts
@@ -602,7 +700,7 @@ const remap: (bindings: Bindings, action: InputAction, key: InputCode) => RemapO
 ### renderModule  `const`
 
 ```ts
-const renderModule: (quality?: GraphicsQuality) => GameModule<InputService, never, never, InputService>;
+const renderModule: (quality?: GraphicsQuality, pointerLock?: PointerLockPort) => GameModule<InputService, never, never, InputService>;
 ```
 
 ### renderStages  `const`
@@ -635,6 +733,12 @@ const snapshotScratch: <K, V>(buffer: ReadonlyMap<K, V>) => ReadonlyMap<K, V>;
 const suppressesBrowserContextMenu: (pointerLocked: boolean) => boolean;
 ```
 
+### suppressesBrowserScroll  `const`
+
+```ts
+const suppressesBrowserScroll: (pointerLocked: boolean) => boolean;
+```
+
 ### takesTwoPassPath  `const`
 
 ```ts
@@ -647,10 +751,22 @@ const takesTwoPassPath: (material: MaterialSpec) => boolean;
 const validatePostProcessingChain: (chain: ReadonlyArray<PostProcessingPass>) => ReadonlyArray<ChainViolation>;
 ```
 
+### wheelDeltaModeForIndex  `const`
+
+```ts
+const wheelDeltaModeForIndex: (index: number) => WheelDeltaMode | undefined;
+```
+
 ### withScratch  `const`
 
 ```ts
 const withScratch: <K, V, A>(scratch: ScratchMap<K, V>, use: (buffer: Map<K, V>) => A) => A;
+```
+
+### wrapHotbarSelection  `const`
+
+```ts
+const wrapHotbarSelection: (current: number, steps: number, size: number) => number;
 ```
 
 ## Supporting declarations

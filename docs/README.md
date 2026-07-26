@@ -51,6 +51,7 @@ mc-playground-kit は devDependency 専用で出荷ビルドに入らないた�
 | `forceSinglePass` 規則 | `domain/material-policy.ts` | DN-02 |
 | フレーム毎スクラッチの再利用 | `domain/frame-scratch.ts` | DN-03 |
 | 入力の window/document 遮蔽と Escape 単一所有 | `domain/input-bindings.ts` / `application/input-service.ts` | DN-04 / DN-05 |
+| クリック・ホイール・ポインタロック要求 | 同上 | DN-12 / DN-13 / DN-14 |
 | カメラのミラー（書き戻し無し） | `domain/camera-mirror.ts` | DN-06 |
 
 まだ無いもの: **THREE.js アダプタ一式**（`WorldRenderer` / マテリアル / パーティクル / 水面 /

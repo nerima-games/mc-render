@@ -14,8 +14,9 @@
  * something pointer-lock behaviour cannot be tested against.
  */
 import { describe, expect, it } from '@effect/vitest'
-import { Effect } from 'effect'
+import { Effect, Ref } from 'effect'
 import {
+  acquiresPointerLock,
   actionForKey,
   bindingFor,
   defaultBindings,
@@ -28,10 +29,26 @@ import {
   modalConsumedKeyReachesGameplay,
   MOUSE_BUTTONS,
   mouseButtonForIndex,
+  notchesForWheelDelta,
+  POINTER_LOCK_ACQUIRE_BUTTON,
+  POINTER_LOCK_STATES,
   remap,
   suppressesBrowserContextMenu,
+  suppressesBrowserScroll,
+  WHEEL_DELTA_MODES,
+  wheelDeltaModeForIndex,
+  WHEEL_LINES_PER_NOTCH,
+  WHEEL_PIXELS_PER_NOTCH,
+  wrapHotbarSelection,
 } from '../domain/input-bindings'
-import { ESCAPE_POLICY, LISTENER_PLAN, makeInputService } from '../application/input-service'
+import {
+  ESCAPE_POLICY,
+  LISTENER_PLAN,
+  makeInputService,
+  UNAVAILABLE_POINTER_LOCK,
+  type PointerLockPort,
+  type PointerLockRequestOutcome,
+} from '../application/input-service'
 
 describe('REGRESSION: Escape has exactly one owner', () => {
   it.effect('the owner is the frame-level handler, recorded as a value not a comment', () =>
@@ -648,6 +665,517 @@ describe('REGRESSION: the browser context menu', () => {
       expect(entry).toBeDefined()
       expect(entry?.note).toContain('preventDefault()')
       expect(entry?.note).toContain('shouldSuppressContextMenu')
+    }),
+  )
+})
+
+/** One notch of a classic mouse wheel, as Chrome reports it. */
+const oneNotchDown = { kind: 'wheel', deltaY: WHEEL_PIXELS_PER_NOTCH, deltaMode: 'pixel' } as const
+
+describe('the wheel is a DELTA — not an edge, not a level', () => {
+  it.effect('a flick ACCUMULATES within one frame: the frame sees the SUM of its events', () =>
+    Effect.gen(function* () {
+      // The browser delivers one `wheel` event per notch (several per notch on
+      // a trackpad). A snapshot that showed only the last one would turn every
+      // fast flick into a single slot — which is what the reference does, by
+      // reducing the accumulated delta to its sign
+      // (<reference-impl>/packages/inventory/application/hotbar-service.ts:76).
+      const input = yield* lockedInput
+
+      yield* input.dispatch(oneNotchDown)
+      yield* input.dispatch(oneNotchDown)
+
+      const snapshot = yield* input.snapshot
+      expect(snapshot.wheelNotches).toBe(2)
+      expect(snapshot.wheelSteps).toBe(2)
+    }),
+  )
+
+  it.effect('endFrame clears the accumulated notches, so one flick cycles the hotbar once', () =>
+    Effect.gen(function* () {
+      const input = yield* lockedInput
+
+      yield* input.dispatch(oneNotchDown)
+      yield* input.dispatch(oneNotchDown)
+      expect((yield* input.snapshot).wheelSteps).toBe(2)
+
+      yield* input.endFrame
+
+      const after = yield* input.snapshot
+      expect(after.wheelNotches).toBe(0)
+      expect(after.wheelSteps).toBe(0)
+    }),
+  )
+
+  it.effect('scrolling UP is negative, scrolling DOWN is positive — the DOM and vanilla sign', () =>
+    Effect.gen(function* () {
+      const input = yield* lockedInput
+
+      yield* input.dispatch({ kind: 'wheel', deltaY: -WHEEL_PIXELS_PER_NOTCH, deltaMode: 'pixel' })
+
+      expect((yield* input.snapshot).wheelSteps).toBe(-1)
+    }),
+  )
+
+  it.effect('deltaMode is NORMALISED: 100 pixels, 3 lines and 1 page are each one notch', () =>
+    Effect.sync(() => {
+      // The same physical detent, in the three units browsers report it in.
+      // Divide by the wrong one and the hotbar either never moves (pixels
+      // treated as lines) or jumps 33 slots (lines treated as pixels).
+      expect(notchesForWheelDelta(WHEEL_PIXELS_PER_NOTCH, 'pixel')).toBe(1)
+      expect(notchesForWheelDelta(WHEEL_LINES_PER_NOTCH, 'line')).toBe(1)
+      expect(notchesForWheelDelta(1, 'page')).toBe(1)
+      expect(notchesForWheelDelta(-WHEEL_PIXELS_PER_NOTCH, 'pixel')).toBe(-1)
+    }),
+  )
+
+  it.effect('normalisation applies at DISPATCH, so mixed units can be added at all', () =>
+    Effect.gen(function* () {
+      // A trackpad (pixels) and a wheel (lines) can both deliver inside one
+      // frame. Summing the raw numbers would add 3 to 100 and mean nothing.
+      const input = yield* lockedInput
+
+      yield* input.dispatch(oneNotchDown)
+      yield* input.dispatch({ kind: 'wheel', deltaY: WHEEL_LINES_PER_NOTCH, deltaMode: 'line' })
+
+      expect((yield* input.snapshot).wheelSteps).toBe(2)
+    }),
+  )
+
+  it.effect('WheelEvent.deltaMode numbers are translated to names in exactly one place', () =>
+    Effect.sync(() => {
+      // DOM_DELTA_PIXEL 0, DOM_DELTA_LINE 1, DOM_DELTA_PAGE 2 — the same
+      // number→name boundary `mouseButtonForIndex` is.
+      expect(wheelDeltaModeForIndex(0)).toBe('pixel')
+      expect(wheelDeltaModeForIndex(1)).toBe('line')
+      expect(wheelDeltaModeForIndex(2)).toBe('page')
+      expect(wheelDeltaModeForIndex(3)).toBeUndefined()
+      expect(wheelDeltaModeForIndex(-1)).toBeUndefined()
+      expect(WHEEL_DELTA_MODES).toStrictEqual(['pixel', 'line', 'page'])
+    }),
+  )
+
+  it.effect('a sub-notch trackpad scroll CARRIES across frames instead of being lost', () =>
+    Effect.gen(function* () {
+      // A trackpad emits a few pixels per event. If endFrame zeroed the
+      // accumulator outright, every frame would round to zero notches and the
+      // hotbar would be unreachable on a laptop.
+      const input = yield* lockedInput
+
+      for (let frame = 0; frame < 4; frame += 1) {
+        yield* input.dispatch({ kind: 'wheel', deltaY: 20, deltaMode: 'pixel' })
+        expect((yield* input.snapshot).wheelSteps).toBe(0)
+        yield* input.endFrame
+      }
+
+      // The fifth 0.2 completes the notch.
+      yield* input.dispatch({ kind: 'wheel', deltaY: 20, deltaMode: 'pixel' })
+      expect((yield* input.snapshot).wheelSteps).toBe(1)
+
+      // ...and only the whole notch is consumed.
+      yield* input.endFrame
+      expect((yield* input.snapshot).wheelNotches).toBe(0)
+    }),
+  )
+
+  it.effect('the carried remainder is under one notch, so it cannot become a phantom step', () =>
+    Effect.gen(function* () {
+      const input = yield* lockedInput
+
+      yield* input.dispatch({ kind: 'wheel', deltaY: 250, deltaMode: 'pixel' })
+      expect((yield* input.snapshot).wheelSteps).toBe(2)
+
+      yield* input.endFrame
+
+      expect((yield* input.snapshot).wheelNotches).toBeCloseTo(0.5, 10)
+      expect((yield* input.snapshot).wheelSteps).toBe(0)
+    }),
+  )
+
+  it.effect('scrolling back cancels the carried remainder rather than banking it', () =>
+    Effect.gen(function* () {
+      const input = yield* lockedInput
+
+      yield* input.dispatch({ kind: 'wheel', deltaY: 50, deltaMode: 'pixel' })
+      yield* input.endFrame
+      yield* input.dispatch({ kind: 'wheel', deltaY: -50, deltaMode: 'pixel' })
+
+      expect((yield* input.snapshot).wheelNotches).toBe(0)
+      expect((yield* input.snapshot).wheelSteps).toBe(0)
+    }),
+  )
+
+  it.effect('the wheel NEVER touches pressed or justPressed — an edge cannot say "two"', () =>
+    Effect.gen(function* () {
+      const input = yield* lockedInput
+
+      yield* input.dispatch(oneNotchDown)
+
+      const snapshot = yield* input.snapshot
+      expect(snapshot.pressed.size).toBe(0)
+      expect(snapshot.justPressed.size).toBe(0)
+    }),
+  )
+
+  it.effect('a wheel event is IGNORED while unlocked — that scroll belongs to the DOM', () =>
+    Effect.gen(function* () {
+      // Symmetric with `pointer motion is ignored while the pointer is NOT
+      // locked`: an unlocked wheel is scrolling the chat log or the settings
+      // list, not cycling the hotbar.
+      const input = yield* makeInputService()
+
+      yield* input.dispatch(oneNotchDown)
+
+      expect((yield* input.snapshot).wheelNotches).toBe(0)
+    }),
+  )
+
+  it.effect('losing the lock drops the wheel travel, so the hotbar does not jump on return', () =>
+    Effect.gen(function* () {
+      // DN-09, generalised: analogue state belongs to the locked session that
+      // produced it. Half a flick left over from before the pause menu opened
+      // must not cycle the hotbar afterwards.
+      const input = yield* lockedInput
+
+      yield* input.dispatch(oneNotchDown)
+      yield* input.dispatch({ kind: 'pointerlockchange', locked: false })
+
+      expect((yield* input.snapshot).wheelNotches).toBe(0)
+    }),
+  )
+
+  it.effect('blur drops the wheel travel too — the reference clears it in handleBlur', () =>
+    Effect.gen(function* () {
+      // <reference-impl>/packages/presentation/input/input-service.ts:167
+      // (`MutableRef.set(wheelDeltaRef, 0)` inside handleBlur).
+      const input = yield* lockedInput
+
+      yield* input.dispatch(oneNotchDown)
+      yield* input.dispatch({ kind: 'blur' })
+
+      expect((yield* input.snapshot).wheelNotches).toBe(0)
+    }),
+  )
+
+  it.effect('a non-finite delta cannot poison the accumulator for the rest of the session', () =>
+    Effect.gen(function* () {
+      const input = yield* lockedInput
+
+      yield* input.dispatch({ kind: 'wheel', deltaY: Number.NaN, deltaMode: 'pixel' })
+      yield* input.dispatch({ kind: 'wheel', deltaY: Number.POSITIVE_INFINITY, deltaMode: 'line' })
+      yield* input.dispatch(oneNotchDown)
+
+      expect((yield* input.snapshot).wheelSteps).toBe(1)
+    }),
+  )
+
+  it.effect('browser scrolling is suppressed while locked and NOT while unlocked', () =>
+    Effect.gen(function* () {
+      // Unconditional preventDefault on a passive:false wheel listener means an
+      // unlocked player cannot scroll their own settings screen.
+      const input = yield* makeInputService()
+
+      expect(suppressesBrowserScroll(false)).toBe(false)
+      expect(yield* input.shouldSuppressWheelScroll).toBe(false)
+
+      yield* input.dispatch({ kind: 'pointerlockchange', locked: true })
+
+      expect(suppressesBrowserScroll(true)).toBe(true)
+      expect(yield* input.shouldSuppressWheelScroll).toBe(true)
+    }),
+  )
+
+  it.effect('the adapter plan registers wheel with passive:false and says when to preventDefault', () =>
+    Effect.sync(() => {
+      const entry = LISTENER_PLAN.find((planned) => planned.event === 'wheel')
+
+      expect(entry).toBeDefined()
+      expect(entry?.note).toContain('passive: false')
+      expect(entry?.note).toContain('shouldSuppressWheelScroll')
+      expect(entry?.note).toContain('wheelDeltaModeForIndex')
+    }),
+  )
+})
+
+describe('hotbar selection', () => {
+  it.effect('the digit row selects a slot directly, as an ordinary bound edge', () =>
+    Effect.gen(function* () {
+      // <reference-impl>/packages/entity/domain/key-mappings.ts:22-30.
+      const input = yield* makeInputService()
+
+      expect(defaultBindings()['hotbarSlot1']).toBe('Digit1')
+      expect(defaultBindings()['hotbarSlot9']).toBe('Digit9')
+      expect(INPUT_ACTIONS).toContain('hotbarSlot5')
+
+      yield* input.dispatch({ kind: 'keydown', code: 'Digit5', target: GAMEPLAY_LISTENER_TARGET })
+
+      expect(yield* input.wasActionJustTriggered('hotbarSlot5')).toBe(true)
+      expect(yield* input.wasActionJustTriggered('hotbarSlot4')).toBe(false)
+    }),
+  )
+
+  it.effect('wrapping FORWARD past the last slot returns to the first', () =>
+    Effect.sync(() => {
+      expect(wrapHotbarSelection(8, 1, 9)).toBe(0)
+      expect(wrapHotbarSelection(8, 2, 9)).toBe(1)
+    }),
+  )
+
+  it.effect('wrapping BACKWARD past the first slot returns to the last', () =>
+    Effect.sync(() => {
+      expect(wrapHotbarSelection(0, -1, 9)).toBe(8)
+      expect(wrapHotbarSelection(0, -2, 9)).toBe(7)
+    }),
+  )
+
+  it.effect('REGRESSION: a MULTI-notch step wraps too — the reference formula returns -3 here', () =>
+    Effect.sync(() => {
+      // `(cur + direction + HOTBAR_SIZE) % HOTBAR_SIZE`
+      // (<reference-impl>/packages/inventory/application/hotbar-service.ts:77-79)
+      // is correct only because `direction` is clamped to ±1. JavaScript's `%`
+      // keeps the sign of the dividend, so with a step of -3 that expression
+      // yields a NEGATIVE slot index. This model carries the full magnitude of
+      // the flick, so it would meet that on the first fast scroll.
+      expect((0 + -3 + 9) % 9).toBe(6)
+      expect((0 + -12 + 9) % 9).toBe(-3)
+
+      expect(wrapHotbarSelection(0, -3, 9)).toBe(6)
+      expect(wrapHotbarSelection(0, -12, 9)).toBe(6)
+      expect(wrapHotbarSelection(0, 21, 9)).toBe(3)
+    }),
+  )
+
+  it.effect('a step of zero selects nothing new', () =>
+    Effect.sync(() => {
+      expect(wrapHotbarSelection(4, 0, 9)).toBe(4)
+    }),
+  )
+
+  it.effect('the SIZE is the consumer’s: this repository never assumes nine slots', () =>
+    Effect.sync(() => {
+      // The hotbar's length belongs to whoever owns the inventory. Only the
+      // arithmetic lives here, so a five-slot hotbar needs no new code.
+      expect(wrapHotbarSelection(4, 1, 5)).toBe(0)
+      expect(wrapHotbarSelection(0, -1, 5)).toBe(4)
+    }),
+  )
+
+  it.effect('a degenerate size selects slot 0 rather than throwing in an event handler', () =>
+    Effect.sync(() => {
+      expect(wrapHotbarSelection(3, 1, 0)).toBe(0)
+      expect(wrapHotbarSelection(3, 1, -1)).toBe(0)
+      expect(wrapHotbarSelection(3, 1, Number.NaN)).toBe(0)
+      expect(wrapHotbarSelection(Number.NaN, Number.NaN, 9)).toBe(0)
+    }),
+  )
+})
+
+/** A port that records how many times the lock was asked for. */
+const countingPointerLock = (
+  outcome: PointerLockRequestOutcome,
+): Effect.Effect<{ readonly port: PointerLockPort; readonly asked: Ref.Ref<number> }> =>
+  Effect.map(Ref.make(0), (asked) => ({
+    asked,
+    port: { request: Ref.update(asked, (count) => count + 1).pipe(Effect.as(outcome)) },
+  }))
+
+describe('REGRESSION: pointer lock is a REQUEST, and a request can be refused', () => {
+  it.effect('never having asked is a different state from having been refused', () =>
+    Effect.gen(function* () {
+      // Both are "not locked", and only one of them is something to tell the
+      // player about. The reference has a console.warn between them
+      // (<reference-impl>/packages/presentation/input/input-service.ts:150-153).
+      const input = yield* makeInputService()
+
+      expect(yield* input.pointerLockState).toBe('unlocked')
+      expect((yield* input.snapshot).pointerLocked).toBe(false)
+
+      yield* input.dispatch({ kind: 'pointerlockerror' })
+
+      expect(yield* input.pointerLockState).toBe('refused')
+      expect((yield* input.snapshot).pointerLockState).toBe('refused')
+      expect((yield* input.snapshot).pointerLocked).toBe(false)
+    }),
+  )
+
+  it.effect('the four states are the whole vocabulary, and pointerLocked is derived from it', () =>
+    Effect.gen(function* () {
+      expect(POINTER_LOCK_STATES).toStrictEqual(['unlocked', 'requested', 'locked', 'refused'])
+
+      const input = yield* lockedInput
+      const snapshot = yield* input.snapshot
+
+      expect(snapshot.pointerLockState).toBe('locked')
+      expect(snapshot.pointerLocked).toBe(true)
+    }),
+  )
+
+  it.effect('REQUEST → GRANTED: the ask reports `requested`, and the EVENT is what locks', () =>
+    Effect.gen(function* () {
+      // The service must not assume the lock succeeded. The browser answers
+      // later, and asking is not being granted.
+      const { port, asked } = yield* countingPointerLock('sent')
+      const input = yield* makeInputService(defaultBindings(), port)
+
+      expect(yield* input.requestPointerLock).toBe('requested')
+      expect(yield* Ref.get(asked)).toBe(1)
+      expect((yield* input.snapshot).pointerLocked).toBe(false)
+
+      yield* input.dispatch({ kind: 'pointerlockchange', locked: true })
+
+      expect(yield* input.pointerLockState).toBe('locked')
+      expect((yield* input.snapshot).pointerLocked).toBe(true)
+    }),
+  )
+
+  it.effect('REQUEST → REFUSED: pointerlockerror answers the ask, and the state says so', () =>
+    Effect.gen(function* () {
+      const { port } = yield* countingPointerLock('sent')
+      const input = yield* makeInputService(defaultBindings(), port)
+
+      expect(yield* input.requestPointerLock).toBe('requested')
+
+      yield* input.dispatch({ kind: 'pointerlockerror' })
+
+      expect(yield* input.pointerLockState).toBe('refused')
+      expect((yield* input.snapshot).pointerLocked).toBe(false)
+    }),
+  )
+
+  it.effect('a REFUSAL is sticky, so the UI can still draw it several frames later', () =>
+    Effect.gen(function* () {
+      const input = yield* makeInputService()
+
+      yield* input.dispatch({ kind: 'pointerlockerror' })
+      yield* input.endFrame
+      yield* input.endFrame
+
+      expect(yield* input.pointerLockState).toBe('refused')
+    }),
+  )
+
+  it.effect('an ordinary unlock does NOT read as refused — Escape is not a browser refusal', () =>
+    Effect.gen(function* () {
+      // Collapsing the two would make every pause menu look like a failure.
+      const input = yield* lockedInput
+
+      yield* input.dispatch({ kind: 'pointerlockchange', locked: false })
+
+      expect(yield* input.pointerLockState).toBe('unlocked')
+    }),
+  )
+
+  it.effect('a second request while one is PENDING does not ask the browser twice', () =>
+    Effect.gen(function* () {
+      // A request sent while another is pending is one of the ways the browser
+      // refuses the next one.
+      const { port, asked } = yield* countingPointerLock('sent')
+      const input = yield* makeInputService(defaultBindings(), port)
+
+      expect(yield* input.requestPointerLock).toBe('requested')
+      expect(yield* input.requestPointerLock).toBe('requested')
+
+      expect(yield* Ref.get(asked)).toBe(1)
+    }),
+  )
+
+  it.effect('requesting while ALREADY locked asks nothing and reports locked', () =>
+    Effect.gen(function* () {
+      const { port, asked } = yield* countingPointerLock('sent')
+      const input = yield* makeInputService(defaultBindings(), port)
+
+      yield* input.dispatch({ kind: 'pointerlockchange', locked: true })
+
+      expect(yield* input.requestPointerLock).toBe('locked')
+      expect(yield* Ref.get(asked)).toBe(0)
+    }),
+  )
+
+  it.effect('a platform with NO pointer lock refuses at once rather than hanging in requested', () =>
+    Effect.gen(function* () {
+      // `unavailable` means no event will ever arrive to answer the request —
+      // no canvas, no DOM, or a feature policy that forbids it
+      // (<reference-impl>/packages/presentation/input/input-service.ts:258-266).
+      // Leaving the machine in `requested` would strand it for the session.
+      const input = yield* makeInputService(defaultBindings(), UNAVAILABLE_POINTER_LOCK)
+
+      expect(yield* input.requestPointerLock).toBe('refused')
+      expect(yield* input.pointerLockState).toBe('refused')
+    }),
+  )
+
+  it.effect('the default port is the unavailable one, so an un-injected service never hangs', () =>
+    Effect.gen(function* () {
+      const input = yield* makeInputService()
+
+      expect(yield* input.requestPointerLock).toBe('refused')
+    }),
+  )
+
+  it.effect('a refusal can be RETRIED — a click is the user gesture the browser wanted', () =>
+    Effect.gen(function* () {
+      const { port, asked } = yield* countingPointerLock('sent')
+      const input = yield* makeInputService(defaultBindings(), port)
+
+      yield* input.dispatch({ kind: 'pointerlockerror' })
+      expect(yield* input.requestPointerLock).toBe('requested')
+
+      expect(yield* Ref.get(asked)).toBe(1)
+    }),
+  )
+
+  it.effect('pointerlockerror touches nothing but the lock state', () =>
+    Effect.gen(function* () {
+      // A refused request never held the pointer, so there is no delta to drop
+      // and no button to release. Anything else it cleared would be state
+      // invented out of a failure.
+      const input = yield* makeInputService()
+
+      yield* input.dispatch({ kind: 'keydown', code: 'KeyW', target: GAMEPLAY_LISTENER_TARGET })
+      yield* input.dispatch({ kind: 'pointerlockerror' })
+
+      expect(yield* input.isActionActive('moveForward')).toBe(true)
+    }),
+  )
+
+  it.effect('only the LEFT button asks for the lock, and only while it is askable', () =>
+    Effect.sync(() => {
+      // Right-click while unlocked is the platform's context menu and middle is
+      // a paste or an autoscroll; grabbing the pointer from either takes away
+      // the menu the player was trying to use.
+      expect(POINTER_LOCK_ACQUIRE_BUTTON).toBe('MouseLeft')
+      expect(acquiresPointerLock('MouseLeft', 'unlocked')).toBe(true)
+      // A refusal usually means the last attempt lacked a user gesture; a click
+      // is exactly the gesture that fixes it.
+      expect(acquiresPointerLock('MouseLeft', 'refused')).toBe(true)
+      expect(acquiresPointerLock('MouseLeft', 'requested')).toBe(false)
+      expect(acquiresPointerLock('MouseLeft', 'locked')).toBe(false)
+      expect(acquiresPointerLock('MouseRight', 'unlocked')).toBe(false)
+      expect(acquiresPointerLock('MouseMiddle', 'unlocked')).toBe(false)
+    }),
+  )
+
+  it.effect('the UI click that asks for the lock is still not a gameplay click', () =>
+    Effect.gen(function* () {
+      // The whole point of DN-12: the click that re-acquires the lock must not
+      // also break a block.
+      const input = yield* makeInputService()
+
+      yield* input.dispatch({ kind: 'mousedown', button: 'MouseLeft', target: GAMEPLAY_LISTENER_TARGET })
+
+      expect(yield* input.wasUiClick('MouseLeft')).toBe(true)
+      expect(yield* input.wasActionJustTriggered('attack')).toBe(false)
+      expect(acquiresPointerLock('MouseLeft', yield* input.pointerLockState)).toBe(true)
+    }),
+  )
+
+  it.effect('the adapter plan registers pointerlockerror and says what it answers', () =>
+    Effect.sync(() => {
+      const entry = LISTENER_PLAN.find((planned) => planned.event === 'pointerlockerror')
+
+      expect(entry).toBeDefined()
+      expect(entry?.target).toBe('document')
+      expect(entry?.note).toContain('requestPointerLock')
     }),
   )
 })

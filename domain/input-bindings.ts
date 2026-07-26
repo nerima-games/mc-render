@@ -117,6 +117,34 @@ export const INPUT_ACTIONS = [
    */
   'pickBlock',
   /**
+   * Direct hotbar selection, `Digit1` … `Digit9`.
+   *
+   * In the reference as `KeyMappings.HOTBAR_SLOT_1` … `_9`
+   * (<reference-impl>/packages/entity/domain/key-mappings.ts:22-30), read by
+   * <reference-impl>/packages/inventory/application/hotbar-service.ts:56-72.
+   *
+   * NINE of them, and no more, because NINE IS A KEYBOARD FACT: the digit row
+   * has nine non-zero keys and vanilla binds exactly those. The hotbar's LENGTH
+   * is NOT a fact of this repository — it belongs to whoever owns the inventory
+   * (the reference's `HOTBAR_SIZE = 9`,
+   * <reference-impl>/packages/inventory/application/inventory-service.config.ts:3),
+   * which is why `wrapHotbarSelection` below takes the size as an argument and
+   * why nothing here stores a selected slot. A consumer with five slots simply
+   * never acts on `hotbarSlot6`.
+   *
+   * These are EDGES — one press selects one slot — so they are ordinary bound
+   * actions and need nothing new. Cycling is not: see `notchesForWheelDelta`.
+   */
+  'hotbarSlot1',
+  'hotbarSlot2',
+  'hotbarSlot3',
+  'hotbarSlot4',
+  'hotbarSlot5',
+  'hotbarSlot6',
+  'hotbarSlot7',
+  'hotbarSlot8',
+  'hotbarSlot9',
+  /**
    * NOT a gameplay action. Listed so that the type system knows Escape exists,
    * and rejected by `bindingFor` — see `ESCAPE_OWNER`.
    */
@@ -211,6 +239,146 @@ export const isMouseButton = (code: InputCode): code is MouseButton =>
   (MOUSE_BUTTONS as ReadonlyArray<string>).includes(code)
 
 /**
+ * ---------------------------------------------------------------------------
+ * The wheel: NOTCHES in the model, browser units only at the boundary
+ * ---------------------------------------------------------------------------
+ *
+ * The wheel is the one input in this repository that is NOT an `InputCode`, and
+ * that is the whole design decision. A wheel is a DELTA: "the player moved the
+ * selection two slots this frame". `pressed` cannot say that (a wheel is never
+ * held) and `justPressed` cannot either (an edge has no magnitude). Encoding it
+ * as `WheelUp` / `WheelDown` codes would fit the existing machinery and would
+ * collapse two notches into one edge — which is exactly the reference's bug:
+ * <reference-impl>/packages/inventory/application/hotbar-service.ts:76 reduces
+ * the accumulated delta to `wheelDelta > 0 ? 1 : -1`, so a fast flick of three
+ * notches moves the selection by one slot.
+ *
+ * So the wheel is analogue state, alongside `pointerDelta`, and the unit it is
+ * carried in is the NOTCH — one physical detent of a mouse wheel, one hotbar
+ * slot.
+ *
+ * ---------------------------------------------------------------------------
+ * Why normalisation is HERE and not in the adapter
+ * ---------------------------------------------------------------------------
+ *
+ * `WheelEvent.deltaY` is reported in one of three units and `deltaMode` says
+ * which: pixels (Chrome, Safari, and every trackpad), lines (Firefox on
+ * Windows for a classic wheel), or pages. The same physical notch is therefore
+ * `100`, `3` or `1` depending on the browser, and a hotbar that divides by the
+ * wrong one either never moves or jumps nine slots.
+ *
+ * The adapter does exactly what it does for `MouseEvent.button`: it translates
+ * the DOM's NUMBER into this module's NAME (`wheelDeltaModeForIndex`) and hands
+ * both numbers on. The arithmetic — how many pixels make a notch — stays here
+ * for the same reason `suppressesBrowserContextMenu` does: it is a POLICY with
+ * a value that will be argued about and tuned, and policy in an adapter is
+ * policy that `environment: 'node'` cannot test. plan.md §3.10 makes that
+ * decisive rather than merely tidy: Playwright runs on SwiftShader and cannot
+ * do pointer lock, so there is no browser test that could cover the locked
+ * branch where the wheel means anything at all.
+ *
+ * The reference does not normalise. It accumulates raw `event.deltaY`
+ * (<reference-impl>/packages/presentation/input/input-service.ts:130-133) and
+ * gets away with it only because its single consumer throws the magnitude away.
+ */
+export const WHEEL_DELTA_MODES = ['pixel', 'line', 'page'] as const
+
+export type WheelDeltaMode = (typeof WHEEL_DELTA_MODES)[number]
+
+/**
+ * Indexed by `WheelEvent.deltaMode`. The array position IS the DOM number
+ * (`DOM_DELTA_PIXEL` 0, `DOM_DELTA_LINE` 1, `DOM_DELTA_PAGE` 2), exactly as
+ * `MOUSE_BUTTON_BY_INDEX` is indexed by `MouseEvent.button`.
+ */
+export const WHEEL_DELTA_MODE_BY_INDEX: ReadonlyArray<WheelDeltaMode> = WHEEL_DELTA_MODES
+
+/**
+ * The named delta mode for a `WheelEvent.deltaMode`, or `undefined`.
+ *
+ * The only function in this repository that knows what `1` means. Total, and
+ * `undefined` rather than a throw for an unknown mode, because it runs inside a
+ * DOM event handler — the one place that must not throw. An event the adapter
+ * cannot name is dropped at the boundary rather than guessed at, on the same
+ * rule as `mouseButtonForIndex`: mis-scaling a scroll by 33x is worse than
+ * ignoring it.
+ */
+export const wheelDeltaModeForIndex = (index: number): WheelDeltaMode | undefined =>
+  WHEEL_DELTA_MODE_BY_INDEX[index]
+
+/**
+ * One wheel notch, in each of the three units.
+ *
+ * `100` is what Chrome, Edge and Safari report per detent; `3` is the line
+ * count Firefox reports for the same detent. They are the de-facto values, not
+ * standardised ones, which is the second reason they are named constants in the
+ * domain rather than literals in an adapter — when a device turns up that needs
+ * a different number, this is the file the argument happens in.
+ */
+export const WHEEL_PIXELS_PER_NOTCH = 100
+export const WHEEL_LINES_PER_NOTCH = 3
+export const WHEEL_PAGES_PER_NOTCH = 1
+
+const NOTCHES_PER_UNIT: Readonly<Record<WheelDeltaMode, number>> = {
+  pixel: WHEEL_PIXELS_PER_NOTCH,
+  line: WHEEL_LINES_PER_NOTCH,
+  page: WHEEL_PAGES_PER_NOTCH,
+}
+
+/**
+ * A raw `WheelEvent.deltaY` as a signed, possibly FRACTIONAL number of notches.
+ *
+ * Fractional on purpose: a trackpad emits a stream of small pixel deltas and
+ * never a whole notch at a time. Rounding each event to a whole notch would
+ * make a trackpad either dead (always rounds to 0) or wild (always rounds to
+ * 1); the service accumulates these fractions instead and takes whole steps out
+ * of the total. See `InputSnapshot.wheelSteps`.
+ *
+ * SIGN: positive is scroll-down / scroll-away, which selects the NEXT hotbar
+ * slot — the DOM's sign convention and the reference's
+ * (<reference-impl>/packages/inventory/application/hotbar-service.ts:76,
+ * `wheelDelta > 0 ? 1 : -1`) and vanilla's.
+ *
+ * Total: a non-finite delta from a misbehaving device yields 0 rather than
+ * poisoning the accumulator with `NaN`, which would silently disable the wheel
+ * for the rest of the session.
+ */
+export const notchesForWheelDelta = (deltaY: number, mode: WheelDeltaMode): number =>
+  Number.isFinite(deltaY) ? deltaY / NOTCHES_PER_UNIT[mode] : 0
+
+/**
+ * Move a wrapping selection by `steps`, given how many slots there are.
+ *
+ * WHERE THE WRAP LIVES, and why it is here rather than in the consumer: the
+ * SIZE is the consumer's (the hotbar's length is the inventory's fact, and this
+ * repository must not become a second answer to how long a hotbar is), but the
+ * ARITHMETIC is not — it is a trap, and every consumer would re-derive it.
+ *
+ * The reference writes it as
+ *
+ *   (SlotIndex.toNumber(cur) + direction + HOTBAR_SIZE) % HOTBAR_SIZE
+ *   <reference-impl>/packages/inventory/application/hotbar-service.ts:77-79
+ *
+ * which is correct only because `direction` is clamped to ±1. JavaScript's `%`
+ * keeps the sign of the dividend, so a single `+ size` is enough for one step
+ * and NOT enough for two: with `cur = 0` and `steps = -3` that expression
+ * yields `-3`, a negative slot index, silently. This implementation carries the
+ * full magnitude the wheel produces, so it would have hit that on the first
+ * fast flick. `((x % size) + size) % size` is right for any step.
+ *
+ * Total for any input: a size below 1 selects slot 0, because there is nothing
+ * else it could mean and an event handler must not throw.
+ */
+export const wrapHotbarSelection = (current: number, steps: number, size: number): number => {
+  if (!Number.isFinite(size) || size < 1) {
+    return 0
+  }
+  const slots = Math.trunc(size)
+  const from = Number.isFinite(current) ? Math.trunc(current) : 0
+  const by = Number.isFinite(steps) ? Math.trunc(steps) : 0
+  return (((from + by) % slots) + slots) % slots
+}
+
+/**
  * Default bindings. Keys are `KeyboardEvent.code`, not `.key`: `code` is
  * layout-independent, so WASD stays under the same fingers on AZERTY and
  * Dvorak. Binding `.key` is how a French player ends up unable to walk forward.
@@ -230,6 +398,19 @@ export const DEFAULT_BINDINGS: Readonly<Record<Exclude<InputAction, 'escape'>, I
   attack: 'MouseLeft',
   use: 'MouseRight',
   pickBlock: 'MouseMiddle',
+  // The digit row, as in the reference
+  // (<reference-impl>/packages/entity/domain/key-mappings.ts:22-30). `Digit1`
+  // and not `Numpad1`: `code` is layout-independent but not keypad-independent,
+  // and vanilla binds the row.
+  hotbarSlot1: 'Digit1',
+  hotbarSlot2: 'Digit2',
+  hotbarSlot3: 'Digit3',
+  hotbarSlot4: 'Digit4',
+  hotbarSlot5: 'Digit5',
+  hotbarSlot6: 'Digit6',
+  hotbarSlot7: 'Digit7',
+  hotbarSlot8: 'Digit8',
+  hotbarSlot9: 'Digit9',
 }
 
 /**
@@ -418,3 +599,81 @@ export const modalConsumedKeyReachesGameplay = (
  * in `dispatch`.
  */
 export const suppressesBrowserContextMenu = (pointerLocked: boolean): boolean => pointerLocked
+
+/**
+ * Whether the browser's own scrolling must be suppressed (`preventDefault()`)
+ * for a `wheel` event.
+ *
+ * The same shape as `suppressesBrowserContextMenu`, the same reason, and the
+ * same narrowing. `LISTENER_PLAN` registers `wheel` with `passive: false`
+ * precisely so that the handler MAY call `preventDefault()`; what it must not
+ * do is call it unconditionally. Locked, the wheel cycles the hotbar and the
+ * page must not scroll under the canvas. Unlocked, the wheel is scrolling the
+ * chat log, the settings list or the page itself, and swallowing it means a
+ * player who cannot reach the bottom of their own settings screen.
+ *
+ * It is the same predicate as the context menu's TODAY. It is a separate
+ * function anyway, because they are separate decisions about separate browser
+ * defaults, and collapsing them would mean that narrowing one silently narrows
+ * the other.
+ */
+export const suppressesBrowserScroll = (pointerLocked: boolean): boolean => pointerLocked
+
+/**
+ * ---------------------------------------------------------------------------
+ * Pointer lock is a REQUEST, and a request can be refused
+ * ---------------------------------------------------------------------------
+ *
+ * A boolean cannot express what a UI needs to say. "Not locked" is at least
+ * three different situations:
+ *
+ *   `unlocked`  — nobody has asked. The player is in a menu. Nothing to show.
+ *   `requested` — we asked and the browser has not answered yet. Do not ask
+ *                 again: a second request while one is pending is itself one of
+ *                 the ways the browser refuses.
+ *   `locked`    — granted. Mouselook is live and clicks are game actions.
+ *   `refused`   — we asked and the browser said no (`pointerlockerror`): the
+ *                 request did not come from a user gesture, another request was
+ *                 pending, the document is sandboxed without
+ *                 `allow-pointer-lock`, or the user dismissed the prompt. THIS
+ *                 is the state a UI must surface — "click again to look
+ *                 around", not silence.
+ *
+ * The reference collapses all four. `handlePointerLockError`
+ * (<reference-impl>/packages/presentation/input/input-service.ts:150-153)
+ * clears a fallback flag and `console.warn`s, so the only trace of a refusal is
+ * in the developer console — a place no player has ever looked.
+ *
+ * `refused` is STICKY: it survives until something asks again. A transient
+ * state would be gone by the time the frame that draws the UI ran.
+ */
+export const POINTER_LOCK_STATES = ['unlocked', 'requested', 'locked', 'refused'] as const
+
+export type PointerLockState = (typeof POINTER_LOCK_STATES)[number]
+
+/**
+ * The button whose UNLOCKED click asks for the pointer lock.
+ *
+ * Left only. Right-click while unlocked is the platform's context menu (see
+ * `suppressesBrowserContextMenu`) and middle-click is a paste or an autoscroll;
+ * grabbing the pointer out from under either is how a player loses the menu
+ * they were trying to use.
+ */
+export const POINTER_LOCK_ACQUIRE_BUTTON: MouseButton = 'MouseLeft'
+
+/**
+ * Whether a UI click (a click that arrived while the pointer was NOT locked)
+ * should ask for the pointer lock.
+ *
+ * This is the consumer of `InputSnapshot.uiClicks`, which until now had none —
+ * the click that re-acquires the lock was modelled and then acted on by
+ * nothing, so a preview could enter the game and never enter mouselook.
+ *
+ * `requested` is excluded because a click during a pending request must not
+ * send a second one. `locked` is excluded because a click while locked is not
+ * a UI click at all and never reaches here. `refused` IS included, and is the
+ * point: a refusal usually means the previous attempt lacked a user gesture,
+ * and a click is exactly the gesture that fixes it.
+ */
+export const acquiresPointerLock = (button: MouseButton, state: PointerLockState): boolean =>
+  button === POINTER_LOCK_ACQUIRE_BUTTON && (state === 'unlocked' || state === 'refused')

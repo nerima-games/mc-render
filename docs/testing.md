@@ -47,6 +47,8 @@ kit を待っていると永遠に始まらない。つまり mc-render のビ�
 | `forceSinglePass` の要否 | 3 箇所のコメント | 目視 | `requiresForceSinglePass` 述語 | 単体テスト |
 | イベント登録先の遮蔽関係 | `addEventListener` 2 行 + コメント | 目視 | `modalConsumedKeyReachesGameplay` | 単体テスト |
 | フレーム毎バッファの寿命 | コメント | 目視 | `withScratch` の実行時検査 | 単体テスト |
+| ホイールの単位（`deltaMode`） | どこにも無い（生の `deltaY` を加算） | 検査不能 | `notchesForWheelDelta` + 定数 3 つ | 単体テスト |
+| ポインタロック要求の失敗 | `console.warn` と boolean | コンソールを見る | `PointerLockState` の 4 状態 | 単体テスト |
 
 ポストFXの順序バグは、参照実装では
 「ultra プリセットの誰かのマシンで god rays が光らなくなった」という形でしか観測できない。
@@ -72,20 +74,28 @@ DN-09（ロック解除時にデルタを捨てる）のような知見は、
 **ポート越しの単体テストで押さえるしかない**。だから入力サービスは
 DOM を import せず `InputEvent` を注入で受ける。
 
+**ロックの「要求」側（DN-14）はこの論法が最も強く効く箇所である。**
+`canvas.requestPointerLock()` をサービスから直接呼べば、その挙動は
+E2E でも（ポインタロックが使えないので）単体でも（DOM が無いので）検査できない——
+**この世のどのテストからも押さえられなくなる。** だから要求は `PointerLockPort` から出す。
+拒否（`pointerlockerror`）も同じ理由でイベントとして注入する。
+ホイールの単位正規化（DN-13）がアダプタではなくドメインにあるのも同じ論法である。
+
 ## 4. 現在のテスト
 
-`vitest run`。8 ファイル / 160 テスト。すべて `environment: 'node'`。
+`vitest run`。9 ファイル / 228 テスト。すべて `environment: 'node'`。
 
 | ファイル | テスト数 | 対応 |
 | --- | ---: | --- |
 | `test/post-processing.test.ts` | 20 | DN-01 / DN-07 |
-| `test/input.test.ts` | 49 | DN-04 / DN-05 / DN-08 / DN-09 / DN-12 |
+| `test/input.test.ts` | 87 | DN-04 / DN-05 / DN-08 / DN-09 / DN-12 / DN-13 / DN-14 |
 | `test/camera-mirror.test.ts` | 13 | DN-06 |
 | `test/frame-scratch.test.ts` | 12 | DN-03 |
 | `test/material-policy.test.ts` | 10 | DN-02 |
-| `test/stage-registration.test.ts` | 16 | `stages/` のフレーム位置と順序制約（public-api.md §6-2） |
+| `test/stage-registration.test.ts` | 20 | `stages/` のフレーム位置と順序制約（public-api.md §6-2）+ クリック→ロック要求（DN-14） |
 | `test/kernel-mirror.test.ts` | 12 | `domain/kernel-vocabulary.ts` が mc-kernel と同形であること（§4.1） |
 | `test/check-dependency-whitelist.test.ts` | 28 | DN-11 + 依存ホワイトリスト本体 |
+| `test/api-lock.test.ts` | 26 | APIロック生成器 `scripts/api-lock.ts` の機構（§8 / public-api.md §8） |
 
 ### 4.1 `test/kernel-mirror.test.ts` が守っているもの
 
@@ -222,6 +232,9 @@ typecheck (build + test の 2 プロジェクト)
 | `a full frame allocates no new Map` | DN-03 | 同上 |
 | `the window adapter registers exactly LISTENER_PLAN` | DN-04 | `window` アダプタ実装時 |
 | `every listener is removed on finalizer` | DN-04 | 同上（kit の 2 枚並列でリークする） |
+| `the window adapter passes deltaMode through wheelDeltaModeForIndex` | DN-13 | 同上 |
+| `the wheel handler calls preventDefault exactly when shouldSuppressWheelScroll says so` | DN-13 | 同上 |
+| `the browser port calls canvas.requestPointerLock exactly once per ask` | DN-14 | 同上 |
 | `no source file in this repository reads camera.position` | DN-06 | アダプタ実装時。走査テストで |
 | `blur clears gamepad and touch state too` | DN-08 | それらの実装時 |
 | ワーカープールの Port 適合 / 死んだワーカーの置き換え | DN-10 | プール実装時 |
@@ -233,18 +246,13 @@ vitest 側の `test/api-lock.test.ts` が見ているのは生成器 `scripts/ap
 （並びのロケール非依存性、可搬性ガード、スナップショットの往復、失敗時の diff）であり、
 16 リポジトリに byte-identical で vendor されている。詳細は [public-api.md](./public-api.md) §8。
 
-## 9. 既知のギャップ: `pnpm lint` が `stages/` を見ていない
+## 9. 解消済みのギャップ: `pnpm lint` は `stages/` を見る
 
-`package.json` の `lint` スクリプトは
+かつてここには「`package.json` の `lint` スクリプトに `stages` が入っていない」と書かれていた。
+**現在の `package.json` は入っている**（`lint` / `lint:fix` の両方）ので、記録だけ残す。
 
-```
-oxlint --deny-warnings index.ts domain application scripts test
-```
-
-であり、**`stages` が入っていない**。`stages/` を足したコミットは `package.json` を触れる立場に
-なかったので、ここに記録して次の編集者に渡す。
-
-影響範囲は lint だけである。
+以下は当時の影響範囲の分析であり、`stages/` が他のゲートに掛かっていることの説明として
+なお有用なので残してある。
 
 - `pnpm typecheck` は `stages/` を見る。`tsconfig.build.json` / `tsconfig.test.json` の
   `include` に足してあり、加えて `index.ts` が `stages/registration.ts` を re-export しているので、
@@ -254,11 +262,11 @@ oxlint --deny-warnings index.ts domain application scripts test
   （これが「mc-playground-kit を出荷ソースから import してはならない」を stage 登録にも効かせている）。
 - `pnpm test` は `stages/` を `test/stage-registration.test.ts` 経由で実行する。
 
-現時点で `stages/` は oxlint を手で走らせて 0 warning / 0 error である。**必要な差分は 1 語**:
+当時必要だった差分は 1 語で、**適用済み**である:
 
 ```diff
 -"lint": "oxlint --deny-warnings index.ts domain application scripts test",
 +"lint": "oxlint --deny-warnings index.ts domain application stages scripts test",
 ```
 
-`lint:fix` も同様。mx-* の 3 リポジトリは `stages` を含む形で既に書かれている。
+`lint:fix` も同様。mx-* の 3 リポジトリも `stages` を含む形で書かれている。

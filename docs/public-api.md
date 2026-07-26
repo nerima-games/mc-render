@@ -85,7 +85,10 @@ const isCanonicalChain: (chain) => boolean
 
 ```typescript
 // domain/input-bindings.ts
-type InputAction = 'moveForward' | ... | 'attack' | 'use' | 'pickBlock' | 'escape'
+type InputAction =
+  | 'moveForward' | ... | 'attack' | 'use' | 'pickBlock'
+  | 'hotbarSlot1' | ... | 'hotbarSlot9'     // Digit1..Digit9
+  | 'escape'
 type KeyCode = string                       // KeyboardEvent.code
 type MouseButton = 'MouseLeft' | 'MouseMiddle' | 'MouseRight'
 type InputCode = KeyCode | MouseButton      // バインドできるものすべて
@@ -99,6 +102,21 @@ const GAMEPLAY_LISTENER_TARGET: 'window'
 const MODAL_LISTENER_TARGET: 'document'
 const bindingFor / actionForKey / remap / modalConsumedKeyReachesGameplay
 const suppressesBrowserContextMenu: (pointerLocked: boolean) => boolean
+const suppressesBrowserScroll: (pointerLocked: boolean) => boolean
+
+// ホイール（§2.7）——InputCode ではない。デルタである
+type WheelDeltaMode = 'pixel' | 'line' | 'page'
+const WHEEL_DELTA_MODES / WHEEL_DELTA_MODE_BY_INDEX
+const wheelDeltaModeForIndex: (index: number) => WheelDeltaMode | undefined
+const WHEEL_PIXELS_PER_NOTCH: 100 / WHEEL_LINES_PER_NOTCH: 3 / WHEEL_PAGES_PER_NOTCH: 1
+const notchesForWheelDelta: (deltaY: number, mode: WheelDeltaMode) => number
+const wrapHotbarSelection: (current: number, steps: number, size: number) => number
+
+// ポインタロック（§2.8）
+type PointerLockState = 'unlocked' | 'requested' | 'locked' | 'refused'
+const POINTER_LOCK_STATES
+const POINTER_LOCK_ACQUIRE_BUTTON: 'MouseLeft'
+const acquiresPointerLock: (button: MouseButton, state: PointerLockState) => boolean
 
 // application/input-service.ts
 type InputEvent =
@@ -106,7 +124,9 @@ type InputEvent =
   | { kind: 'mousedown' | 'mouseup'; button: MouseButton; target: ListenerTarget }
   | { kind: 'contextmenu'; target: ListenerTarget }
   | { kind: 'pointermove'; deltaX: number; deltaY: number }
+  | { kind: 'wheel'; deltaY: number; deltaMode: WheelDeltaMode }
   | { kind: 'pointerlockchange'; locked: boolean }
+  | { kind: 'pointerlockerror' }
   | { kind: 'blur' }
 
 type InputSnapshot = {
@@ -114,8 +134,16 @@ type InputSnapshot = {
   readonly justPressed: ReadonlySet<InputCode>   // 同じエッジ集合。endFrame でクリア
   readonly uiClicks: ReadonlySet<MouseButton>    // 非ロック中のクリック。endFrame でクリア
   readonly pointerDelta: { x: number; y: number }
-  readonly pointerLocked: boolean
+  readonly wheelNotches: number                  // 端数込みの累積ノッチ
+  readonly wheelSteps: number                    // 整数ノッチ。ホットバーが読むのはこれ
+  readonly pointerLocked: boolean                // pointerLockState === 'locked' の派生
+  readonly pointerLockState: PointerLockState
 }
+
+// ポインタロックの「要求」の出口。DOM 型は使わない（§2.8）
+type PointerLockRequestOutcome = 'sent' | 'unavailable'
+type PointerLockPort = { readonly request: Effect.Effect<PointerLockRequestOutcome> }
+const UNAVAILABLE_POINTER_LOCK: PointerLockPort
 
 type InputServiceApi = {
   readonly dispatch: (event: InputEvent) => Effect.Effect<void>
@@ -126,12 +154,18 @@ type InputServiceApi = {
   readonly wasButtonJustPressed: (button: MouseButton) => Effect.Effect<boolean>
   readonly wasUiClick: (button: MouseButton) => Effect.Effect<boolean>
   readonly shouldSuppressContextMenu: Effect.Effect<boolean>
+  readonly shouldSuppressWheelScroll: Effect.Effect<boolean>
+  readonly pointerLockState: Effect.Effect<PointerLockState>
+  readonly requestPointerLock: Effect.Effect<PointerLockState>
   readonly endFrame: Effect.Effect<void>
   readonly clearHeld: Effect.Effect<void>
   readonly bindings: Effect.Effect<Bindings>
   readonly rebind: (action, key: InputCode) => Effect.Effect<RemapOutcome>
   readonly resetBindings: Effect.Effect<void>
 }
+
+const makeInputService: (bindings?: Bindings, pointerLock?: PointerLockPort) => Effect<InputServiceApi>
+const InputServiceLayer: (bindings?: Bindings, pointerLock?: PointerLockPort) => Layer<InputService>
 
 const LISTENER_PLAN: ReadonlyArray<{ event: string; target: ListenerTarget; note: string }>
 const ESCAPE_POLICY
@@ -149,7 +183,10 @@ const ESCAPE_POLICY
 | 状態の保持 | `MutableRef` + `HashSet` / `HashMap`（`packages/entity/...` と同じ流儀） | `Ref` + 素の `Set`。**フレーム毎の一時集合ではない**ので永続構造の必要が無い |
 | 押下エッジ | `justPressedKeysRef` を別に持つ（:161） | `justPressed`。同じ設計 |
 | blur クリア | `handleBlur`（:159-168） | `clearHeld` / `dispatch({kind:'blur'})` |
-| ポインタロック | `requestPointerLock`（:252-269）、`pointerlockchange`（:184） | `pointerlockchange` イベントのみ。**要求側**（`requestPointerLock`）は未実装 |
+| ポインタロック | `requestPointerLock`（:252-269）、`pointerlockchange`（:184）、`pointerlockerror`（:185, :150-153 は `console.warn` のみ） | `PointerLockPort` 越しに要求し、`pointerlockchange` / `pointerlockerror` の 2 つで答えを受ける 4 状態機械。§2.8 |
+| ロック要求の失敗 | `pointerLockFallbackRef`（:52）。feature policy が拒否したら**ロック済みと嘘をつく**（:263-266, :282-284） | `refused` 状態。嘘をつかない。**未移植**（§2.8） |
+| ホイール | 生の `event.deltaY` を累積（:130-133）。`deltaMode` を見ない | ノッチに正規化して累積。`endFrame` でクリア、端数は持ち越し。§2.7 |
+| ホットバー | 1-9 キーは `KeyMappings.HOTBAR_SLOT_*`、循環は `hotbar-service.ts:74-80` が符号だけ見る | `hotbarSlot1`..`9` は普通のバインド。循環幅は `wheelSteps`、剰余は `wrapHotbarSelection`。§2.7 |
 | マウスボタン | `HashMap<number, boolean>` + `HashSet<number>`（:46-48）。`isMouseDown(2)` のように**番号で**読む | 名前（`MouseLeft` / `MouseMiddle` / `MouseRight`）でキーと**同じコード空間**に入れる。§2.5 |
 | クリックのエッジ | `consumeMouseClick`（:286）。**読んだら消える** | `wasButtonJustPressed`。`justPressed` と同じで `endFrame` が消す。§2.5 |
 | `contextmenu` | 無条件 `preventDefault`（:140-142） | ロック中のみ抑止。`suppressesBrowserContextMenu`。§2.6 |
@@ -260,6 +297,134 @@ plan.md §3.10 のとおり Playwright（SwiftShader）はヘッドレスでポ�
 （省略は誰にも見えない）。
 なお本実装のエッジは consume 型ではなく `endFrame` クリア型なので、参照実装のような
 「誰が先に読んだかで結果が変わる」競合はそもそも成立しない。
+
+## 2.7 ホイール — エッジでもレベルでもなく**デルタ**
+
+`LISTENER_PLAN` は `wheel` を「ホットバー循環のため `passive: false`」という注記付きで
+登録していた。しかし `InputEvent` に `wheel` の場合が無く、`INPUT_ACTIONS` にホットバーの
+アクションも無かった——**§2.5 のマウスボタンとまったく同じ形の穴**である
+（リスナは計画済み、それを運ぶイベント型が無い）。
+
+### 決定 1: ホイールは `InputCode` に**しない**
+
+ホイールは押されない（`pressed` に入らない）し、エッジでもない（`justPressed` に入らない）。
+`WheelUp` / `WheelDown` という擬似コードを作れば既存機構にそのまま乗るが、
+**2 ノッチが 1 エッジに潰れる**。それは参照実装のバグそのもので、
+`hotbar-service.ts:76` が累積デルタを `wheelDelta > 0 ? 1 : -1` に落としているため、
+素早く 3 ノッチ回しても 1 スロットしか動かない。
+
+したがってホイールは `pointerDelta` と同じ**アナログ状態**であり、
+蓄積して `endFrame` でクリアする。`pointerDelta` との整合は 3 点で取ってある。
+
+| 規則 | `pointerDelta` | `wheelNotches` |
+| --- | --- | --- |
+| 非ロック中は無視 | する（DN-09） | する。非ロック中のホイールはチャット欄のスクロールである |
+| ロック喪失で捨てる | する（DN-09） | する。ポーズ前の半回転が復帰後にホットバーを動かしてはならない |
+| `endFrame` でクリア | 全部 0 に | **整数ノッチだけ**。端数は持ち越す（下記） |
+
+端数の持ち越しだけが差分である。トラックパッドは 1 イベント数ピクセルしか送らないので、
+毎フレーム全部捨てると常に 0 ノッチに丸まり、**ノート PC でホットバーが操作不能になる**。
+持ち越す端数は必ず 1 ノッチ未満で、ロック喪失・`blur` で消え、逆回しで相殺されるので、
+幻のステップにはならない。
+
+### 決定 2: 正規化は**ドメイン**で行う
+
+`WheelEvent.deltaY` の単位は `deltaMode` で決まる（ピクセル / 行 / ページ）。
+同じ 1 ノッチが Chrome では `100`、Firefox（Windows・クラシックホイール）では `3` になる。
+アダプタがやるのは `MouseEvent.button` と同じ**番号→名前**の変換
+（`wheelDeltaModeForIndex`）だけで、「何ピクセルが 1 ノッチか」という**方針**は
+`notchesForWheelDelta` に置く。理由は `suppressesBrowserContextMenu` と同じで、
+plan.md §3.10 によりロック中の分岐を通るブラウザテストが存在しえない以上、
+アダプタに置いた方針は**どのテストからも押さえられない**。
+
+正規化は**dispatch の時点**で効かせる。トラックパッド（ピクセル）とホイール（行）は
+同一フレーム内に両方届きうるので、生の値を足すと `3 + 100` になって意味を失う。
+
+### 決定 3: 循環の**剰余算**はここ、**スロット数**は消費側
+
+`wrapHotbarSelection(current, steps, size)` は `size` を引数に取る。
+ホットバーの長さはインベントリを所有する側の事実であり、このリポジトリが
+2 つ目の答えになってはならない。一方で剰余算は罠なので、ここに 1 つだけ置く。
+
+```
+参照実装: (SlotIndex.toNumber(cur) + direction + HOTBAR_SIZE) % HOTBAR_SIZE
+          <reference-impl>/packages/inventory/application/hotbar-service.ts:77-79
+```
+
+JavaScript の `%` は被除数の符号を保つので、`+ HOTBAR_SIZE` 1 回で足りるのは
+`direction` が ±1 に潰されているからである。本実装はフリックの大きさをそのまま運ぶので、
+`steps = -12` で**負のスロット番号**を返す。`((x % size) + size) % size` なら任意の歩幅で正しい。
+
+`hotbarSlot1`..`hotbarSlot9` は `Digit1`..`Digit9` に**普通のバインドとして**入れた。
+9 という数はキーボードの事実（数字段は 9 個）であって、ホットバーの長さではない。
+消費側が 5 スロットなら `hotbarSlot6` を無視するだけでよい。
+`hotbarNext` / `hotbarPrev` は**作っていない**——循環は `wheelSteps` が既に表現しており、
+アクションとしても持つと 1 つの意図に 2 つの機構ができる。
+
+## 2.8 ポインタロックは**要求**であり、拒否されうる
+
+§2.2 が「要求側（`requestPointerLock`）は未実装」と書いていた穴。
+`uiClicks`（§2.5）は「ロックを取り直すクリック」を記録するのに、それを受ける側が無かったので、
+**プレビューはマウスルックに入れなかった。**
+
+### 状態は boolean ではなく 4 つ
+
+| 状態 | 意味 | UI |
+| --- | --- | --- |
+| `unlocked` | 誰も要求していない | 何も出さない |
+| `requested` | 要求済み、返事待ち | **二重に要求しない**（保留中の要求は拒否理由の 1 つ） |
+| `locked` | 許可された | マウスルック中。クリックはゲーム操作（§2.5） |
+| `refused` | `pointerlockerror` が来た | 「クリックで視点操作」を**出す**。これが boolean では言えない |
+
+`pointerlockchange { locked: false }` は `unlocked` に落とす。`refused` にはしない——
+Escape でロックが切れるたびに「ブラウザに拒否された」と表示することになる。
+`refused` は sticky で、次に要求するまで残る（描画フレームが読めなければ意味が無い）。
+
+参照実装は 4 つを 1 つの boolean に潰し、拒否は `console.warn` に出すだけである
+（`input-service.ts:150-153`）。プレイヤーが開いたことのない場所である。
+
+### 要求は `PointerLockPort` から出す
+
+```typescript
+type PointerLockPort = { readonly request: Effect.Effect<'sent' | 'unavailable'> }
+```
+
+`canvas.requestPointerLock()` をここで呼ばないのは、このリポジトリが `lib.DOM` を持たないからで、
+それこそが入力モデルを `environment: 'node'` で検査可能にしている当のものである。
+しかも plan.md §3.10 のとおり **Playwright はポインタロックを扱えない**ので、
+DOM を直接叩けばそれは「どのテストからも押さえられない挙動」になる。
+
+`request` が返すのは「**要求が出たか**」だけである。許可されたかは返せない——
+ブラウザもまだ知らないからで、答えは後から `pointerlockchange` / `pointerlockerror` として
+`dispatch` に届く。要求を答えのように扱えないことが、この Port 形状の目的である。
+
+`unavailable` が別値なのは、**答えが永久に来ない**場合があるからである
+（canvas が無い、`requestPointerLock` が無い、feature policy が禁じている:
+参照実装 :258-266）。これを `requested` のまま放置すると状態機械がセッション中ずっと固まる。
+サービスは即座に `refused` に落とす。
+
+参照実装は同じ状況で `pointerLockFallbackRef` を立てて**ロック済みだと嘘をつく**（:263-266, :282-284）。
+DN-12 のクリック判定はすべてその boolean の上に建っているので、**移植しない**。
+
+### 誰がいつ要求するか
+
+- **どのクリックか**: `acquiresPointerLock(button, state)`。左ボタンのみ、`unlocked` / `refused` のみ。
+  非ロック中の右クリックはブラウザのコンテキストメニュー（§2.6）、中クリックはペーストや
+  オートスクロールであり、そこからポインタを奪うとプレイヤーは開こうとしていたメニューを失う。
+  `refused` を含めるのが要点で、拒否の典型的な原因はユーザジェスチャの欠如であり、
+  クリックはまさにそれを満たす。
+- **どこで**: `render:input` stage（`stages/registration.ts`）。サンプル後・`endFrame` 前。
+  `dispatch` ではない——`dispatch` は DOM イベントハンドラの中で走る記録係であり、
+  ロックを取るのは判断である。サービスが勝手にポインタを掴むと、
+  入力を覗きたいだけのプレビューからポインタを奪うことになる。
+
+```
+unlocked ──requestPointerLock──▶ requested ──pointerlockchange(true)──▶ locked
+   ▲                                │                                      │
+   │                                └──pointerlockerror──▶ refused         │
+   └──────────────pointerlockchange(false)──────────────────────────────────┘
+                          （refused からもクリックで再要求できる）
+```
 
 ## 3. WorldRenderer — **未設計。最優先**
 
@@ -479,7 +644,7 @@ mc-render の下流は kit のみだが、kit は全プレビューの土台な�
 
 | 項目 | 内容 |
 | --- | --- |
-| 生成物 | リポジトリ直下の `api-lock.md`（公開宣言 81 件 + 参照されている非 export 宣言 17 件。コミット対象） |
+| 生成物 | リポジトリ直下の `api-lock.md`（公開宣言 98 件 + 参照されている非 export 宣言 17 件。コミット対象） |
 | 生成器 | `scripts/api-lock.ts`（16 リポジトリに byte-identical で vendor。`scripts/check-dependency-whitelist.ts` と同じ方式で、編集してよいのは `REPOSITORY_POLICY` だけ） |
 | 検査 | `pnpm api:check` — `api-lock.md` が実際の公開 API と食い違えば非ゼロ終了 |
 | 更新 | `pnpm api:update` |

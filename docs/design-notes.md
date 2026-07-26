@@ -20,6 +20,8 @@ plan.md §3.9「設計注意（参照実装の実測知見）」の全項目を�
 | DN-10 | ワーカープールは Port と実装を分ける | 要 |
 | DN-11 | `Date.now()` を使わない | 済 |
 | DN-12 | クリックはロック状態で意味が変わる。`contextmenu` はロック中のみ抑止 | 済 |
+| DN-13 | ホイールはエッジでもレベルでもなくデルタ。単位はドメインで正規化する | 済 |
+| DN-14 | ポインタロックは要求であり、拒否されうる。`unlocked` と `refused` は別 | 済 |
 
 ---
 
@@ -629,6 +631,7 @@ packages/presentation/input/input-service.ts:155-158
 | --- | --- |
 | `REGRESSION: blur clears held input — the browser sends no keyup while unfocused` | `test/input.test.ts` |
 | `REGRESSION: blur releases held buttons — the browser sends no mouseup while unfocused` | 同上。参照実装のコメントは keys/**buttons** と両方を名指ししている |
+| `blur drops the wheel travel too — the reference clears it in handleBlur` | 参照実装 :167。DN-13 |
 | **（要追加）** `blur clears gamepad and touch state too` | それらの実装時 |
 
 ---
@@ -640,6 +643,8 @@ packages/presentation/input/input-service.ts:155-158
 
 参照実装は `handlePointerLockChange` / `handlePointerLockError`（:150-153, :184-185）を持つ。
 新実装では `pointerlockchange` で `locked: false` になったときに蓄積デルタをゼロにする。
+`pointerlockerror` のほうは**状態の区別**として別に扱う（DN-14）。捨てるものは無い——
+拒否された要求はポインタを掴んでいないので、デルタも押下ボタンも存在しない。
 
 あわせて、**ロックされていない間のポインタ移動は無視する**。ロックされていないときの
 `movementX/Y` はウィンドウ内のカーソル移動であって視点操作ではない。
@@ -653,6 +658,7 @@ packages/presentation/input/input-service.ts:155-158
 | `endFrame clears the edge and the accumulated pointer delta, not the held keys` | 同上 |
 | `losing the lock releases held buttons, so breaking stops when the pause menu opens` | 同上。DN-12 |
 | `losing the lock does NOT release held keys — chat and the frame handler still need them` | 同上。捨てすぎないこと |
+| `losing the lock drops the wheel travel, so the hotbar does not jump on return` | 同上。DN-13（アナログ状態はロックしたセッションのもの） |
 
 **ヘッドレスでは検証できないこと**: 実ブラウザのポインタロックは Playwright（SwiftShader）で
 使えない（plan.md §3.10）。だからこそ、この挙動は**ポート越しの単体テストで押さえる**必要がある。
@@ -800,5 +806,159 @@ plan.md §3.10 のとおり Playwright（SwiftShader）はヘッドレスでポ�
 | `is suppressed while the pointer is locked, or right-click opens a menu mid-place` | 上記 2 |
 | `is NOT suppressed while unlocked, where the browser menu is the platform behaviour` | 参照実装との差 |
 | `the contextmenu event adds NO second right-button edge — one click, one placement` | :137-139 |
+| `a UI click ASKS for the pointer lock — the consumer uiClicks never had` | `test/stage-registration.test.ts`。DN-14 |
 | **（要追加）** `the window adapter calls preventDefault exactly when shouldSuppressContextMenu says so` | アダプタ実装時 |
-| **（要追加）** `a UI click acquires the pointer lock` | `requestPointerLock` 実装時（public-api.md §2.2 で未実装） |
+
+---
+
+## DN-13 ホイールはエッジでもレベルでもなく**デルタ**
+
+plan.md には無い。**DN-12 と同じ形の穴**である。
+`LISTENER_PLAN` は `wheel` を「ホットバー循環のため `passive: false`」という注記付きで
+既に登録していたのに、`InputEvent` に `wheel` の場合が無く、`INPUT_ACTIONS` にホットバーの
+アクションも無かった——リスナは計画済みで、それを運ぶイベント型とアクションだけが無かった。
+
+公開モデルの決定（`InputCode` にしない、ノッチ単位、剰余算の置き場所）は
+[public-api.md](./public-api.md) §2.7 にある。ここに書くのは**知らないと必ず踏む** 3 つ。
+
+### 1. `deltaMode` を見ないと、ブラウザによって 33 倍ずれる
+
+参照実装は生の `event.deltaY` を足す。
+
+```
+packages/presentation/input/input-service.ts:130-133
+  const handleWheel = (event: WheelEvent) => {
+    event.preventDefault()
+    MutableRef.set(wheelDeltaRef, MutableRef.get(wheelDeltaRef) + event.deltaY)
+  }
+```
+
+`deltaMode` を見ていない。同じ 1 ノッチが Chrome では `100`（ピクセル）、
+Firefox（Windows・クラシックホイール）では `3`（行）である。
+それで動いているように見えるのは、唯一の消費者が**符号しか使っていない**からで
+（`hotbar-service.ts:76`）、大きさを使った瞬間に破綻する。
+
+本実装は `notchesForWheelDelta` で**ドメインの**定数（`100` / `3` / `1`）を使って
+ノッチに正規化し、**dispatch の時点で**効かせる。トラックパッド（ピクセル）と
+ホイール（行）は同一フレーム内に両方届きうるので、蓄積器の単位は 1 つでなければならない。
+
+### 2. エッジにすると、素早いフリックが 1 スロットになる
+
+`WheelUp` / `WheelDown` を `InputCode` にすれば既存機構（`justPressed`・`endFrame`・`remap`）に
+そのまま乗る。乗せてはならない。**エッジは大きさを持てない**ので 3 ノッチが 1 になる。
+それは参照実装が実際にやっていることである（`wheelDelta > 0 ? 1 : -1`）。
+
+ホイールは `pointerDelta` と同じアナログ状態として蓄積する。DN-09 の規則がそのまま効く:
+非ロック中は無視、ロック喪失で破棄、`endFrame` でクリア。
+
+**1 点だけ差がある。`endFrame` は整数ノッチだけを消し、1 ノッチ未満の端数を持ち越す。**
+トラックパッドは 1 イベント数ピクセルしか送らないので、毎フレーム全部捨てると
+どのフレームも 0 ノッチに丸まり、**ノート PC でホットバーが操作不能になる**。
+持ち越しは 1 ノッチ未満に有界で、ロック喪失と `blur` で消え、逆回しで相殺される。
+
+### 3. 循環の剰余算は、参照実装の式が**歩幅 2 以上で壊れる**
+
+```
+packages/inventory/application/hotbar-service.ts:77-79
+  SlotIndex.make((SlotIndex.toNumber(cur) + direction + HOTBAR_SIZE) % HOTBAR_SIZE)
+```
+
+JavaScript の `%` は被除数の符号を保つ。`+ HOTBAR_SIZE` 1 回で足りるのは
+`direction` が ±1 に潰されているからで、`steps = -12` を渡すと**負のスロット番号**が
+黙って返る。大きさを運ぶ本実装は最初の速いフリックでそこに当たる。
+`wrapHotbarSelection` が `((x % size) + size) % size` を 1 箇所に置いている。
+`size` は引数である——ホットバーの長さはインベントリ所有者の事実であり、
+このリポジトリが 2 つ目の答えになってはならない。
+
+### 書くべき回帰テスト
+
+| テスト名 | 内容 |
+| --- | --- |
+| `a flick ACCUMULATES within one frame: the frame sees the SUM of its events` | 蓄積 |
+| `endFrame clears the accumulated notches, so one flick cycles the hotbar once` | クリア |
+| `deltaMode is NORMALISED: 100 pixels, 3 lines and 1 page are each one notch` | 上記 1 |
+| `normalisation applies at DISPATCH, so mixed units can be added at all` | 同上 |
+| `WheelEvent.deltaMode numbers are translated to names in exactly one place` | 境界 1 箇所 |
+| `a sub-notch trackpad scroll CARRIES across frames instead of being lost` | 上記 2 の端数 |
+| `the carried remainder is under one notch, so it cannot become a phantom step` | 有界性 |
+| `the wheel NEVER touches pressed or justPressed — an edge cannot say "two"` | 上記 2 |
+| `a wheel event is IGNORED while unlocked — that scroll belongs to the DOM` | DN-09 と同型 |
+| `losing the lock drops the wheel travel, so the hotbar does not jump on return` | 同上 |
+| `browser scrolling is suppressed while locked and NOT while unlocked` | §2.6 と同型 |
+| `REGRESSION: a MULTI-notch step wraps too — the reference formula returns -3 here` | 上記 3 |
+| **（要追加）** `the window adapter passes deltaMode through wheelDeltaModeForIndex` | アダプタ実装時 |
+
+---
+
+## DN-14 ポインタロックは**要求**であり、拒否されうる
+
+plan.md には無い。[public-api.md](./public-api.md) §2.2 が
+「要求側（`requestPointerLock`）は未実装」と自分で記録していた穴である。
+DN-12 が `uiClicks`（ロックを取り直すクリック）をモデル化したが、
+**それを受ける側が無かったので、プレビューはマウスルックに入れなかった。**
+
+決定（4 状態、`PointerLockPort`、誰がいつ要求するか）は
+[public-api.md](./public-api.md) §2.8。ここに書くのは踏む側の 3 つ。
+
+### 1. 「ロックしていない」は 3 つある
+
+`unlocked`（誰も要求していない）・`requested`（返事待ち）・`refused`（拒否された）。
+プレイヤーに見せる必要があるのは 3 つ目だけであり、boolean ではそれが言えない。
+
+参照実装は 3 つを 1 つの boolean に潰し、拒否は開発者コンソールに出す。
+
+```
+packages/presentation/input/input-service.ts:150-153
+  const handlePointerLockError = () => {
+    MutableRef.set(pointerLockFallbackRef, false)
+    console.warn('Pointer Lock request failed')
+  }
+```
+
+`pointerlockchange { locked: false }` を `refused` にしないこと。
+Escape でロックが切れるのは通常動作であり、そこで「ブラウザに拒否された」と出したら
+毎回のポーズが障害報告になる。
+
+### 2. 答えの来ない要求は、状態機械をセッション中固める
+
+要求を出せない場合がある——canvas が無い、`requestPointerLock` が無い、
+feature policy が禁じている（参照実装 :258-266 が実際に検査している）。
+このとき `pointerlockchange` も `pointerlockerror` も**永久に来ない**。
+`requested` のまま放置すれば、以後クリックしても
+「保留中の要求があるので二重に要求しない」規則に永久に引っかかる。
+
+だから `PointerLockPort.request` は `'sent' | 'unavailable'` を返し、
+`unavailable` はその場で `refused` に落ちる。
+
+参照実装は同じ場面で `pointerLockFallbackRef` を立てて**ロック済みだと嘘をつく**
+（:263-266、読み出しは :282-284）。MCP 駆動環境を動かすための細工だが、
+DN-12 のクリック判定はすべてその boolean の上に建っている。**移植しない。**
+
+### 3. 要求は Port から出す。DOM を直接叩かない
+
+`canvas.requestPointerLock()` をサービスから呼べば、このリポジトリは `lib.DOM` を必要とし、
+入力モデル全体が `environment: 'node'` で検査できなくなる。
+しかも plan.md §3.10 のとおり Playwright（SwiftShader）はポインタロックを扱えないので、
+**DOM を直接叩いた瞬間、その挙動を検査できるテストはこの世に無くなる。**
+DN-09 と同じ論法で、こちらのほうが強い。
+
+要求を出す場所は `render:input` stage であって `dispatch` ではない。
+`dispatch` は DOM イベントハンドラの中で走る記録係であり、ロックを取るのは判断である。
+サービスが勝手に掴むと、入力を覗きたいだけのプレビューからポインタを奪う。
+
+### 書くべき回帰テスト
+
+| テスト名 | 内容 |
+| --- | --- |
+| `never having asked is a different state from having been refused` | 上記 1。穴そのもの |
+| `REQUEST → GRANTED: the ask reports 'requested', and the EVENT is what locks` | 要求≠許可 |
+| `REQUEST → REFUSED: pointerlockerror answers the ask, and the state says so` | |
+| `a REFUSAL is sticky, so the UI can still draw it several frames later` | |
+| `an ordinary unlock does NOT read as refused — Escape is not a browser refusal` | 上記 1 |
+| `a second request while one is PENDING does not ask the browser twice` | |
+| `a platform with NO pointer lock refuses at once rather than hanging in requested` | 上記 2 |
+| `a refusal can be RETRIED — a click is the user gesture the browser wanted` | |
+| `only the LEFT button asks for the lock, and only while it is askable` | `acquiresPointerLock` |
+| `a UI click ASKS for the pointer lock — the consumer uiClicks never had` | `test/stage-registration.test.ts` |
+| `a click while ALREADY locked is a game action and asks for nothing` | 同上 |
+| **（要追加）** `the browser port calls canvas.requestPointerLock exactly once per ask` | アダプタ実装時 |

@@ -135,6 +135,8 @@ Nix を使わない場合は Node.js 22 以上と pnpm 9.15.0（`corepack` 推�
 | Escape キーの所有者 | `ESCAPE_OWNER = 'frame-handler'`（grep できる値） |
 | `MouseEvent.button` の 0/1/2 が何を指すか | `MouseButton`（名前）+ 変換は `mouseButtonForIndex` 1 箇所 |
 | ロック中のクリックとUIクリックの違い | `pressed` / `justPressed` と `uiClicks` の分離 |
+| ホイールの `deltaY` が何単位か | `WheelDeltaMode` + `notchesForWheelDelta`（1 ノッチ = 100px / 3 行 / 1 ページ） |
+| ロック要求が拒否されたのか未要求なのか | `PointerLockState`（`unlocked` / `requested` / `locked` / `refused`） |
 
 | 領域 | 実装 | 設計注意 |
 | --- | --- | --- |
@@ -145,6 +147,8 @@ Nix を使わない場合は Node.js 22 以上と pnpm 9.15.0（`corepack` 推�
 | 入力の window/document 遮蔽 | `domain/input-bindings.ts` / `application/input-service.ts` | DN-04 |
 | Escape の単一所有 | 同上 | DN-05 |
 | マウスボタン、ロック状態でのクリックの意味、`contextmenu` 抑止 | 同上 | DN-12 |
+| ホイールはデルタ。単位の正規化とホットバー循環 | 同上 | DN-13 |
+| ポインタロックの要求と拒否（`PointerLockPort`） | 同上 | DN-14 |
 | カメラのミラー（書き戻し無し） | `domain/camera-mirror.ts` | DN-06 |
 
 各 DN の参照実装証跡（file:line）と書くべき回帰テスト一覧は
@@ -158,8 +162,11 @@ Nix を使わない場合は Node.js 22 以上と pnpm 9.15.0（`corepack` 推�
   [docs/public-api.md](./docs/public-api.md) §3.1 に骨格がある
   （[`docs/public-api.md`](./docs/public-api.md) §3）。
 - **`window` 入力アダプタ。** 現在は注入された `InputEvent` を受けるだけ。
-  ゲームパッド / タッチ / ポインタロック**要求**（`requestPointerLock`）も未実装——
-  非ロック中のクリックは `uiClicks` として見えるが、それを受けてロックを取る側がまだ無い。
+  ゲームパッドとタッチも未実装。
+  ポインタロックの**要求**は入った（`PointerLockPort` + `requestPointerLock`、
+  非ロック中の左クリックを `render:input` stage が受けて要求する）が、
+  その Port を `canvas.requestPointerLock()` に繋ぐブラウザ実装はアダプタ側でまだ書かれていない
+  （[`docs/design-notes.md`](./docs/design-notes.md) DN-14）。
 - **ワーカープール実装。** 参照実装 `packages/worker` の 1,373 LOC 相当。
 - **内蔵 fixture ビューア。** plan.md §6 Step 2 の完了条件の半分。
 - **グラフィックス品質プリセットの残り半分。** レンダースケール・影解像度・視界距離・

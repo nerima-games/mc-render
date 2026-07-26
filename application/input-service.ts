@@ -59,15 +59,19 @@ import {
   GAMEPLAY_LISTENER_TARGET,
   isMouseButton,
   MODAL_LISTENER_TARGET,
+  notchesForWheelDelta,
   remap,
   suppressesBrowserContextMenu,
+  suppressesBrowserScroll,
   type Bindings,
   type InputAction,
   type InputCode,
   type KeyCode,
   type ListenerTarget,
   type MouseButton,
+  type PointerLockState,
   type RemapOutcome,
+  type WheelDeltaMode,
 } from '../domain/input-bindings'
 
 /**
@@ -105,7 +109,33 @@ export type InputEvent =
    */
   | { readonly kind: 'contextmenu'; readonly target: ListenerTarget }
   | { readonly kind: 'pointermove'; readonly deltaX: number; readonly deltaY: number }
+  /**
+   * The wheel turned.
+   *
+   * `deltaY` is the browser's RAW number and `deltaMode` says what unit it is
+   * in; `domain/input-bindings.ts` converts to notches and explains why that
+   * conversion is domain policy rather than adapter arithmetic. The adapter's
+   * only job is `wheelDeltaModeForIndex(event.deltaMode)` — the same
+   * number→name translation it already does for `MouseEvent.button`.
+   *
+   * No `deltaX`. Horizontal scroll exists on trackpads and nothing reads it;
+   * recording it would repeat the reference's mistake of storing every
+   * `event.button` a device reports (:120) and never reading most of them.
+   * There is also no `target`: `wheel` sits on `document` like the other
+   * pointer events and does not participate in the modal-shielding rule.
+   */
+  | { readonly kind: 'wheel'; readonly deltaY: number; readonly deltaMode: WheelDeltaMode }
   | { readonly kind: 'pointerlockchange'; readonly locked: boolean }
+  /**
+   * The pointer lock request was REFUSED.
+   *
+   * Distinct from `pointerlockchange { locked: false }`, which says "the lock
+   * ended" — and the distinction is the point. Never having asked and having
+   * been told no are different states with different UI, and the reference has
+   * only a `console.warn` between them
+   * (<reference-impl>/packages/presentation/input/input-service.ts:150-153).
+   */
+  | { readonly kind: 'pointerlockerror' }
   | { readonly kind: 'blur' }
 
 /**
@@ -137,7 +167,97 @@ export type InputSnapshot = {
    */
   readonly uiClicks: ReadonlySet<MouseButton>
   readonly pointerDelta: { readonly x: number; readonly y: number }
+  /**
+   * Signed wheel travel accumulated this frame, in notches, possibly
+   * fractional. The analogue reading, for anything that wants smooth travel
+   * (a zoom, a scroll bar). A hotbar wants `wheelSteps`.
+   *
+   * Accumulate-and-clear, exactly like `pointerDelta` — and for the same
+   * reason. A wheel event is a delta and the browser delivers several per
+   * frame; a snapshot that showed only the last one would silently drop the
+   * rest of a fast flick.
+   */
+  readonly wheelNotches: number
+  /**
+   * WHOLE notches this frame: `+2` is "the player scrolled two notches down".
+   * This is what a hotbar reads, and `wrapHotbarSelection` is what it does
+   * with it.
+   *
+   * `Math.trunc` of `wheelNotches`, and `endFrame` keeps the sub-notch
+   * remainder rather than dropping it — see `endFrame`. So `wheelSteps` is
+   * never a partial slot, and a trackpad that emits 0.2 notches per frame
+   * still advances one slot every fifth frame instead of never advancing.
+   */
+  readonly wheelSteps: number
+  /**
+   * True only in `pointerLockState === 'locked'`. Kept as its own field
+   * because "is mouselook live" is what most readers actually ask, and derived
+   * from the state so the two cannot disagree.
+   */
   readonly pointerLocked: boolean
+  /**
+   * The full lock state. `unlocked` (never asked) and `refused` (asked, told
+   * no) are both "not locked" and are not the same thing to a player — see
+   * `PointerLockState` in `domain/input-bindings.ts`.
+   */
+  readonly pointerLockState: PointerLockState
+}
+
+/**
+ * How the service ASKS for the pointer lock.
+ *
+ * A port, not a DOM call, on the rule this whole file is built on: this
+ * repository ships no `lib.DOM`, and that is what keeps the input model
+ * testable under `environment: 'node'` — which matters more for pointer lock
+ * than for anything else, because plan.md §3.10 records that Playwright runs on
+ * SwiftShader and cannot do pointer lock at all. A `canvas.requestPointerLock()`
+ * in here would be a behaviour NOTHING could test.
+ *
+ * The browser adapter's implementation is the reference's `requestPointerLock`
+ * (<reference-impl>/packages/presentation/input/input-service.ts:252-272)
+ * minus its `pointerLockFallbackRef`: it finds the canvas, checks
+ * `document.featurePolicy?.allowsFeature('pointer-lock')` (:258-262), and calls
+ * the DOM method.
+ *
+ * `request` yields only whether the ASK went out. It cannot yield whether the
+ * lock was granted, because the browser does not know yet either: the answer
+ * arrives later, as a `pointerlockchange` or a `pointerlockerror` event through
+ * `dispatch`. Modelling the ask as if it were the answer is the bug this port
+ * shape exists to make unwritable.
+ */
+export type PointerLockPort = {
+  readonly request: Effect.Effect<PointerLockRequestOutcome>
+}
+
+/**
+ * `sent` — the ask went to the platform; an event will answer it.
+ *
+ * `unavailable` — there is nothing to ask: no canvas, no `requestPointerLock`,
+ * or a feature policy that forbids it. This is NOT a refusal by the browser and
+ * no event will ever arrive, which is exactly why it needs its own value: a
+ * request that can never be answered would otherwise leave the state machine in
+ * `requested` for the rest of the session. The service resolves it to `refused`
+ * immediately.
+ *
+ * The reference instead sets `pointerLockFallbackRef` and reports itself as
+ * LOCKED when the feature policy denies the lock
+ * (<reference-impl>/packages/presentation/input/input-service.ts:263-266,
+ * :282-284), so that its MCP-driven environment keeps working. That makes
+ * `isPointerLocked()` lie, and every click-means-different-things rule in
+ * DN-12 is built on that boolean. Not carried over.
+ */
+export type PointerLockRequestOutcome = 'sent' | 'unavailable'
+
+/**
+ * The default port: a platform with no pointer lock, which is precisely what
+ * Node is.
+ *
+ * `makeInputService()` with no arguments therefore has coherent behaviour
+ * rather than a hang — asking yields `refused` at once, which is the true
+ * answer for the environment the tests run in.
+ */
+export const UNAVAILABLE_POINTER_LOCK: PointerLockPort = {
+  request: Effect.succeed<PointerLockRequestOutcome>('unavailable'),
 }
 
 export type InputServiceApi = {
@@ -185,7 +305,46 @@ export type InputServiceApi = {
    * the lock state it needs applied to it.
    */
   readonly shouldSuppressContextMenu: Effect.Effect<boolean>
-  /** Clear per-frame edges. The frame loop calls this exactly once per frame. */
+  /**
+   * Whether the adapter's `wheel` handler must call `preventDefault()`.
+   *
+   * Read synchronously inside that handler, exactly like
+   * `shouldSuppressContextMenu`. The decision is `suppressesBrowserScroll`;
+   * this applies the lock state to it. `LISTENER_PLAN` registers the listener
+   * with `passive: false` so that the call is legal at all.
+   */
+  readonly shouldSuppressWheelScroll: Effect.Effect<boolean>
+  /**
+   * The current lock state, outside a frame snapshot.
+   *
+   * The click-to-lock path reads this, and so does any UI that wants to say
+   * "your browser refused the pointer lock" — which is a thing to draw, not a
+   * frame-local edge.
+   */
+  readonly pointerLockState: Effect.Effect<PointerLockState>
+  /**
+   * ASK for the pointer lock, and report the state that leaves us in.
+   *
+   * `requested` — the ask went out; `pointerlockchange` or `pointerlockerror`
+   * will answer it. `refused` — there was nothing to ask (the port said
+   * `unavailable`). `locked` — we already had it, and no second request was
+   * sent.
+   *
+   * Idempotent while a request is pending: a second call returns `requested`
+   * without asking again, because an already-pending request is one of the
+   * documented ways a browser refuses the next one.
+   *
+   * This is what `uiClicks` was missing. `acquiresPointerLock` in
+   * `domain/input-bindings.ts` decides WHICH unlocked click calls it, and
+   * `stages/registration.ts` is where the frame does so.
+   */
+  readonly requestPointerLock: Effect.Effect<PointerLockState>
+  /**
+   * Clear per-frame edges. The frame loop calls this exactly once per frame.
+   *
+   * Clears `justPressed`, `uiClicks`, the pointer delta and the WHOLE wheel
+   * notches. See the implementation for the one thing it deliberately keeps.
+   */
   readonly endFrame: Effect.Effect<void>
   /** Drop every held code and analogue value. Wired to `blur`. */
   readonly clearHeld: Effect.Effect<void>
@@ -204,7 +363,18 @@ type InputState = {
   readonly justPressed: ReadonlySet<InputCode>
   readonly uiClicks: ReadonlySet<MouseButton>
   readonly pointerDelta: { readonly x: number; readonly y: number }
-  readonly pointerLocked: boolean
+  /**
+   * Accumulated wheel travel in notches, INCLUDING the sub-notch remainder
+   * carried over from previous frames. The single source of wheel truth;
+   * `wheelSteps` is a view of it.
+   */
+  readonly wheelNotches: number
+  /**
+   * The single source of lock truth. `pointerLocked` is derived from it at
+   * snapshot time rather than stored, so there is no pair of fields that can
+   * drift apart.
+   */
+  readonly pointerLockState: PointerLockState
   readonly bindings: Bindings
 }
 
@@ -213,9 +383,13 @@ const initialState = (bindings: Bindings): InputState => ({
   justPressed: new Set<InputCode>(),
   uiClicks: new Set<MouseButton>(),
   pointerDelta: { x: 0, y: 0 },
-  pointerLocked: false,
+  wheelNotches: 0,
+  pointerLockState: 'unlocked',
   bindings,
 })
+
+/** Mouselook is live. The one question most readers of the lock state ask. */
+const isLocked = (state: InputState): boolean => state.pointerLockState === 'locked'
 
 const withCodeDown = (state: InputState, code: InputCode): InputState => {
   // An auto-repeating keydown must not re-fire the `justPressed` edge: holding
@@ -256,7 +430,7 @@ const withCodeUp = (state: InputState, code: InputCode): InputState => ({
  * the service already tracks, removes the coupling.
  */
 const withButtonDown = (state: InputState, button: MouseButton): InputState =>
-  state.pointerLocked
+  isLocked(state)
     ? withCodeDown(state, button)
     : { ...state, uiClicks: new Set([...state.uiClicks, button]) }
 
@@ -279,7 +453,31 @@ const withoutHeldButtons = (state: InputState): InputState => ({
   justPressed: new Set([...state.justPressed].filter((code) => !isMouseButton(code))),
 })
 
-export const makeInputService = (bindings: Bindings = defaultBindings()): Effect.Effect<InputServiceApi> =>
+/**
+ * Losing the lock, or being refused it, ends the analogue session.
+ *
+ * The delta must go (DN-09: the pointer jumps to its pre-lock position and
+ * feeding that jump to the camera spins the view) and the accumulated wheel
+ * travel must go with it, for the reason DN-09 generalises to: analogue state
+ * belongs to the locked session that produced it. Half a flick of the wheel,
+ * left over from before the pause menu opened, must not cycle the hotbar when
+ * the player comes back.
+ */
+const withoutAnalogueState = (state: InputState): InputState => ({
+  ...state,
+  pointerDelta: { x: 0, y: 0 },
+  wheelNotches: 0,
+})
+
+export const makeInputService = (
+  bindings: Bindings = defaultBindings(),
+  /**
+   * How to ask for the pointer lock. Defaults to "this platform has none",
+   * which is the truth in Node and makes an un-injected service answer
+   * `refused` rather than hang in `requested`.
+   */
+  pointerLock: PointerLockPort = UNAVAILABLE_POINTER_LOCK,
+): Effect.Effect<InputServiceApi> =>
   Effect.map(Ref.make(initialState(bindings)), (state) => {
     const resolveHeld = (action: InputAction, held: ReadonlySet<InputCode>) =>
       Ref.get(state).pipe(
@@ -293,7 +491,7 @@ export const makeInputService = (bindings: Bindings = defaultBindings()): Effect
 
     return {
       dispatch: (event) =>
-        Ref.update(state, (current) => {
+        Ref.update(state, (current): InputState => {
           switch (event.kind) {
             case 'keydown':
               return event.target === MODAL_LISTENER_TARGET ? current : withCodeDown(current, event.code)
@@ -324,7 +522,7 @@ export const makeInputService = (bindings: Bindings = defaultBindings()): Effect
               // reads in the handler — it is a decision, not a state change.
               return current
             case 'pointermove':
-              return current.pointerLocked
+              return isLocked(current)
                 ? {
                     ...current,
                     pointerDelta: {
@@ -333,22 +531,57 @@ export const makeInputService = (bindings: Bindings = defaultBindings()): Effect
                     },
                   }
                 : current
-            case 'pointerlockchange':
-              // Losing the lock also zeroes the accumulated delta: the pointer
-              // jumps when the lock is released, and feeding that jump to the
-              // camera spins the view. It releases the held buttons for the
-              // matching reason — see `withoutHeldButtons`.
-              return event.locked
-                ? { ...current, pointerLocked: true }
-                : {
-                    ...withoutHeldButtons(current),
-                    pointerLocked: false,
-                    pointerDelta: { x: 0, y: 0 },
+            case 'wheel':
+              // Accumulated, not replaced: the browser delivers several wheel
+              // events per frame and a fast flick is their SUM. This is the
+              // same accumulate-and-clear `pointerDelta` uses in the case
+              // above, and deliberately NOT the `justPressed` edge mechanism —
+              // an edge cannot say "two notches" (see the wheel section of
+              // `domain/input-bindings.ts`).
+              //
+              // Ignored while unlocked, exactly as `pointermove` is, and for
+              // the same reason: an unlocked wheel is scrolling the chat log or
+              // the settings list, not cycling the hotbar. `shouldSuppressWheelScroll`
+              // is the other half of that rule — unlocked, the adapter does not
+              // call `preventDefault()` either, so the scroll reaches the DOM
+              // element the player is actually looking at.
+              //
+              // Normalised HERE, at dispatch, so the accumulator holds one unit.
+              // A trackpad (pixels) and a wheel (lines) can both deliver inside
+              // one frame; summing raw `deltaY` across them would add 3 to 100
+              // and mean nothing.
+              return isLocked(current)
+                ? {
+                    ...current,
+                    wheelNotches:
+                      current.wheelNotches + notchesForWheelDelta(event.deltaY, event.deltaMode),
                   }
+                : current
+            case 'pointerlockchange':
+              // Losing the lock drops the accumulated analogue state (DN-09)
+              // and releases the held buttons (`withoutHeldButtons`).
+              //
+              // `locked: false` resolves to `unlocked` and NOT to `refused`:
+              // this event means a lock ENDED (or a request quietly failed to
+              // produce one), while `refused` is only ever what
+              // `pointerlockerror` says. Collapsing them would make every
+              // ordinary Escape look to the UI like a browser refusal.
+              return event.locked
+                ? { ...current, pointerLockState: 'locked' }
+                : {
+                    ...withoutAnalogueState(withoutHeldButtons(current)),
+                    pointerLockState: 'unlocked',
+                  }
+            case 'pointerlockerror':
+              // Only the lock state changes. A refused request never held the
+              // pointer, so there is no delta to drop and no button to release
+              // — anything else this touched would be state invented out of a
+              // failure.
+              return { ...current, pointerLockState: 'refused' }
             case 'blur':
               return {
                 ...initialState(current.bindings),
-                pointerLocked: current.pointerLocked,
+                pointerLockState: current.pointerLockState,
               }
             default:
               return current
@@ -361,7 +594,12 @@ export const makeInputService = (bindings: Bindings = defaultBindings()): Effect
           justPressed: current.justPressed,
           uiClicks: current.uiClicks,
           pointerDelta: current.pointerDelta,
-          pointerLocked: current.pointerLocked,
+          wheelNotches: current.wheelNotches,
+          // Truncated TOWARD ZERO, so a partial notch is never a step and the
+          // sign is never flipped by rounding. `endFrame` keeps what is left.
+          wheelSteps: Math.trunc(current.wheelNotches),
+          pointerLocked: isLocked(current),
+          pointerLockState: current.pointerLockState,
         })),
       ),
 
@@ -379,19 +617,64 @@ export const makeInputService = (bindings: Bindings = defaultBindings()): Effect
       wasUiClick: (button) => Ref.get(state).pipe(Effect.map((current) => current.uiClicks.has(button))),
 
       shouldSuppressContextMenu: Ref.get(state).pipe(
-        Effect.map((current) => suppressesBrowserContextMenu(current.pointerLocked)),
+        Effect.map((current) => suppressesBrowserContextMenu(isLocked(current))),
       ),
+
+      shouldSuppressWheelScroll: Ref.get(state).pipe(
+        Effect.map((current) => suppressesBrowserScroll(isLocked(current))),
+      ),
+
+      pointerLockState: Ref.get(state).pipe(Effect.map((current) => current.pointerLockState)),
+
+      requestPointerLock: Effect.gen(function* () {
+        // Claim the transition BEFORE asking, in one atomic step. Two stages
+        // that both see a UI click in the same frame would otherwise both send
+        // a request, and a request sent while another is pending is one of the
+        // ways the browser refuses.
+        const asked = yield* Ref.modify(state, (current): [boolean, InputState] =>
+          current.pointerLockState === 'unlocked' || current.pointerLockState === 'refused'
+            ? [true, { ...current, pointerLockState: 'requested' }]
+            : [false, current],
+        )
+        if (!asked) {
+          // Already `locked` or already `requested`. Report which, ask nothing.
+          return yield* Ref.get(state).pipe(Effect.map((current) => current.pointerLockState))
+        }
+
+        const outcome = yield* pointerLock.request
+        return yield* Ref.modify(state, (current): [PointerLockState, InputState] => {
+          // Resolve `unavailable` to `refused` only if we are still waiting.
+          // The answer to a `sent` request comes as an event, and by the time
+          // we get here that event may already have landed — overwriting a
+          // `locked` we have just been granted would be a lie the next frame
+          // would draw.
+          const next: PointerLockState =
+            outcome === 'unavailable' && current.pointerLockState === 'requested'
+              ? 'refused'
+              : current.pointerLockState
+          return [next, { ...current, pointerLockState: next }]
+        })
+      }),
 
       endFrame: Ref.update(state, (current) => ({
         ...current,
         justPressed: new Set<InputCode>(),
         uiClicks: new Set<MouseButton>(),
         pointerDelta: { x: 0, y: 0 },
+        // Whole notches are consumed; the SUB-NOTCH REMAINDER is kept. This is
+        // the one deliberate difference from `pointerDelta`, which is zeroed
+        // outright, and the reason is the trackpad: it emits a few pixels per
+        // event, so every frame's total rounds to zero notches and a
+        // clear-everything rule would make the hotbar unreachable on a laptop.
+        // The remainder is bounded by one notch, is dropped whenever the lock
+        // is lost or the window blurs, and cancels itself out when the player
+        // scrolls back — so it cannot accumulate into a phantom step.
+        wheelNotches: current.wheelNotches - Math.trunc(current.wheelNotches),
       })),
 
       clearHeld: Ref.update(state, (current) => ({
         ...initialState(current.bindings),
-        pointerLocked: current.pointerLocked,
+        pointerLockState: current.pointerLockState,
       })),
 
       bindings: Ref.get(state).pipe(Effect.map((current) => current.bindings)),
@@ -408,8 +691,10 @@ export const makeInputService = (bindings: Bindings = defaultBindings()): Effect
     }
   })
 
-export const InputServiceLayer = (bindings: Bindings = defaultBindings()): Layer.Layer<InputService> =>
-  Layer.effect(InputService, makeInputService(bindings))
+export const InputServiceLayer = (
+  bindings: Bindings = defaultBindings(),
+  pointerLock: PointerLockPort = UNAVAILABLE_POINTER_LOCK,
+): Layer.Layer<InputService> => Layer.effect(InputService, makeInputService(bindings, pointerLock))
 
 /**
  * What the browser adapter must register, as data.
@@ -453,9 +738,26 @@ export const LISTENER_PLAN: ReadonlyArray<{
   // key and button events participate in that rule, and only they use the named
   // constants.
   { event: 'mousemove', target: 'document', note: 'pointer delta; only meaningful while locked' },
-  { event: 'pointerlockchange', target: 'document', note: 'document-only event' },
-  { event: 'pointerlockerror', target: 'document', note: 'document-only event' },
-  { event: 'wheel', target: 'document', note: 'passive: false — hotbar cycling calls preventDefault' },
+  {
+    event: 'pointerlockchange',
+    target: 'document',
+    note: 'document-only event; the GRANT half of the answer to requestPointerLock',
+  },
+  {
+    event: 'pointerlockerror',
+    target: 'document',
+    note:
+      'document-only event; the REFUSAL half of the answer to requestPointerLock. Without it a ' +
+      'refused request is indistinguishable from never having asked, and the player is told nothing',
+  },
+  {
+    event: 'wheel',
+    target: 'document',
+    note:
+      'passive: false, so the handler MAY call preventDefault() — but only when ' +
+      'shouldSuppressWheelScroll says so, or an unlocked player cannot scroll their own settings ' +
+      'screen; deltaMode is translated by wheelDeltaModeForIndex and normalised to notches in the domain',
+  },
   {
     event: 'contextmenu',
     target: 'document',

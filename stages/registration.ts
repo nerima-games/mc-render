@@ -56,10 +56,12 @@ import { Effect, Layer, Ref } from 'effect'
 import {
   InputService,
   InputServiceLayer,
+  UNAVAILABLE_POINTER_LOCK,
   type InputServiceApi,
   type InputSnapshot,
+  type PointerLockPort,
 } from '../application/input-service'
-import type { MouseButton } from '../domain/input-bindings'
+import { acquiresPointerLock, defaultBindings, type MouseButton } from '../domain/input-bindings'
 import {
   mirroredCameraState,
   mirrorLagSecs,
@@ -174,7 +176,10 @@ export const makeRenderFrameState = (
       justPressed: new Set<string>(),
       uiClicks: new Set<MouseButton>(),
       pointerDelta: { x: 0, y: 0 },
+      wheelNotches: 0,
+      wheelSteps: 0,
       pointerLocked: false,
+      pointerLockState: 'unlocked',
     })
     const visibleChunkCount = yield* Ref.make(0)
     const qualityRef = yield* Ref.make(quality)
@@ -224,7 +229,32 @@ export const renderStages = (
         // never depending on where the scheduler put it. Keeping them adjacent
         // makes "exactly once per frame" a property of one function body rather
         // than of the stage order.
-        yield* Ref.set(state.input, yield* input.snapshot)
+        const sampled = yield* input.snapshot
+        yield* Ref.set(state.input, sampled)
+
+        // The consumer `uiClicks` did not have. A click that arrives while the
+        // pointer is unlocked is the player asking to look around again, and
+        // until this line the service recorded it and nothing acted on it — so
+        // a preview could start, show the world, and never enter mouselook.
+        //
+        // In the FRAME, between sampling and `endFrame`, because that is where
+        // the edge is still readable and where it is guaranteed to be read
+        // exactly once. Not in `dispatch`: `dispatch` runs inside a DOM event
+        // handler and asking for the lock is a decision, not an event record —
+        // and a service that grabbed the pointer by itself would take it from a
+        // preview that only wanted to inspect input.
+        //
+        // `acquiresPointerLock` is the policy (left button only, and not while
+        // a request is already pending); `requestPointerLock` is idempotent
+        // anyway, so a second click within the same frame costs nothing.
+        const lockState = yield* input.pointerLockState
+        const acquiring = [...sampled.uiClicks].some((button) =>
+          acquiresPointerLock(button, lockState),
+        )
+        if (acquiring) {
+          yield* input.requestPointerLock
+        }
+
         yield* input.endFrame
       }),
   },
@@ -337,8 +367,17 @@ export const renderStages = (
  */
 export const renderModule = (
   quality: GraphicsQuality = QUALITY_PRESETS.high,
+  /**
+   * How the host asks for the pointer lock. The default is "this platform has
+   * none", which is true in Node and in any preview that has not wired a
+   * canvas yet; a browser host passes a port that calls
+   * `canvas.requestPointerLock()`. It is a parameter rather than a DOM call
+   * inside the service for the reason `PointerLockPort` documents — this
+   * repository ships no `lib.DOM`.
+   */
+  pointerLock: PointerLockPort = UNAVAILABLE_POINTER_LOCK,
 ): GameModule<InputService, never, never, InputService> => ({
-  layers: InputServiceLayer(),
+  layers: InputServiceLayer(defaultBindings(), pointerLock),
   frameStages: Effect.gen(function* () {
     const input = yield* InputService
     const state = yield* makeRenderFrameState(quality)
