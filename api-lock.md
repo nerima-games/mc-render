@@ -13,7 +13,7 @@
 <!-- ------------------------------------------------------------------------- -->
 
 format: 1
-exported declarations: 136
+exported declarations: 147
 supporting declarations: 17
 
 ## Exported
@@ -33,6 +33,7 @@ type BrowserInputOptions = {
     readonly allowsPointerLock?: () => boolean;
     readonly bindings?: Bindings;
     readonly focusGroups?: ReadonlyArray<FocusGroupTargets>;
+    readonly touchControls?: ReadonlyArray<TouchControlTarget>;
 };
 ```
 
@@ -102,6 +103,7 @@ type DomEventContext = {
     readonly pointerLockHeld: boolean;
     readonly focusGroups: ReadonlyArray<FocusGroupTargets>;
     readonly pointerLockTarget?: unknown;
+    readonly touchControls?: ReadonlyArray<TouchControlTarget>;
 };
 ```
 
@@ -309,6 +311,14 @@ type InputEvent = {
 } | {
     readonly kind: 'focuschange';
     readonly focus: FocusTarget | undefined;
+} | {
+    readonly kind: 'touchpress';
+    readonly action: InputAction;
+    readonly target: ListenerTarget;
+} | {
+    readonly kind: 'touchrelease';
+    readonly action: InputAction;
+    readonly target: ListenerTarget;
 };
 ```
 
@@ -681,10 +691,63 @@ type ScratchViolation = {
 };
 ```
 
+### TOUCH_LOOK_IDLE  `const`
+
+```ts
+const TOUCH_LOOK_IDLE: TouchLookState;
+```
+
+### TOUCH_LOOK_PHASES  `const`
+
+```ts
+const TOUCH_LOOK_PHASES: readonly ["press", "move", "release"];
+```
+
 ### TRANSLATED_DOM_EVENTS  `const`
 
 ```ts
 const TRANSLATED_DOM_EVENTS: ReadonlyArray<string>;
+```
+
+### TouchControlTarget  `type`
+
+```ts
+type TouchControlTarget = {
+    readonly action: InputAction;
+    readonly target: unknown;
+};
+```
+
+### TouchLookPhase  `type`
+
+```ts
+type TouchLookPhase = (typeof TOUCH_LOOK_PHASES)[number];
+```
+
+### TouchLookState  `type`
+
+```ts
+type TouchLookState = {
+    readonly anchor: TouchPoint | undefined;
+};
+```
+
+### TouchLookStep  `type`
+
+```ts
+type TouchLookStep = {
+    readonly state: TouchLookState;
+    readonly delta: TouchPoint;
+};
+```
+
+### TouchPoint  `type`
+
+```ts
+type TouchPoint = {
+    readonly x: number;
+    readonly y: number;
+};
 ```
 
 ### UNAVAILABLE_POINTER_LOCK  `const`
@@ -813,6 +876,12 @@ const chainEffects: (chain: ReadonlyArray<PostProcessingStep>) => ReadonlyArray<
 const chainPasses: (chain: ReadonlyArray<PostProcessingStep>) => ReadonlyArray<PostProcessingPass>;
 ```
 
+### codeForTouchAction  `const`
+
+```ts
+const codeForTouchAction: (bindings: Bindings, action: InputAction) => InputCode | undefined;
+```
+
 ### defaultBindings  `const`
 
 ```ts
@@ -834,7 +903,7 @@ const forwardVector: (snapshot: CameraPoseSnapshot) => Position;
 ### installInputListeners  `const`
 
 ```ts
-const installInputListeners: (targets: BrowserInputTargets, input: InputServiceApi, focusGroups?: ReadonlyArray<FocusGroupTargets>, pointerLockTarget?: unknown) => InstalledInputListeners;
+const installInputListeners: (targets: BrowserInputTargets, input: InputServiceApi, focusGroups?: ReadonlyArray<FocusGroupTargets>, pointerLockTarget?: unknown, touchControls?: ReadonlyArray<TouchControlTarget>) => InstalledInputListeners;
 ```
 
 ### isCanonicalChain  `const`
@@ -1002,10 +1071,16 @@ const resolveClickLanding: (pointerLockTarget: unknown, groups: ReadonlyArray<Fo
 const resolveFocusTarget: (groups: ReadonlyArray<FocusGroupTargets>, target: unknown) => FocusTarget | undefined;
 ```
 
+### resolveTouchControl  `const`
+
+```ts
+const resolveTouchControl: (controls: ReadonlyArray<TouchControlTarget>, target: unknown) => InputAction | undefined;
+```
+
 ### scopedInputListeners  `const`
 
 ```ts
-const scopedInputListeners: (targets: BrowserInputTargets, input: InputServiceApi, focusGroups?: ReadonlyArray<FocusGroupTargets>, pointerLockTarget?: unknown) => Effect.Effect<InstalledInputListeners, never, Scope.Scope>;
+const scopedInputListeners: (targets: BrowserInputTargets, input: InputServiceApi, focusGroups?: ReadonlyArray<FocusGroupTargets>, pointerLockTarget?: unknown, touchControls?: ReadonlyArray<TouchControlTarget>) => Effect.Effect<InstalledInputListeners, never, Scope.Scope>;
 ```
 
 ### snapshotAgeSecs  `const`
@@ -1038,10 +1113,22 @@ const suppressesBrowserScroll: (pointerLocked: boolean) => boolean;
 const takesTwoPassPath: (material: MaterialSpec) => boolean;
 ```
 
+### touchLookStep  `const`
+
+```ts
+const touchLookStep: (state: TouchLookState, phase: TouchLookPhase, point: TouchPoint) => TouchLookStep;
+```
+
 ### translateDomEvent  `const`
 
 ```ts
 const translateDomEvent: (planned: PlannedListener, event: DomInputEvent, context: DomEventContext) => InputEvent | undefined;
+```
+
+### unboundTouchActions  `const`
+
+```ts
+const unboundTouchActions: (bindings: Bindings, actions: ReadonlyArray<InputAction>) => ReadonlyArray<InputAction>;
 ```
 
 ### validatePostProcessingChain  `const`

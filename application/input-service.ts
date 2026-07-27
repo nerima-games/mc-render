@@ -53,6 +53,7 @@
  */
 import { Context, Effect, Layer, Ref } from 'effect'
 import {
+  codeForTouchAction,
   defaultBindings,
   ESCAPE_KEY_CODE,
   ESCAPE_OWNER,
@@ -189,6 +190,32 @@ export type InputEvent =
    * events participate in the `window`/`document` rule.
    */
   | { readonly kind: 'focuschange'; readonly focus: FocusTarget | undefined }
+  /**
+   * An on-screen control was pressed, or released.
+   *
+   * Carries the ACTION and not a code, and that is the whole of triage row #35
+   * ("a tap binds to the same intent a key does"). The roster the host declares
+   * says which control means which action; `codeForTouchAction` turns that into
+   * the code the player currently has bound, AT DISPATCH TIME rather than at
+   * install time — see `withTouchDown`. The adapter cannot do the resolution
+   * itself: the bindings live in this service's `Ref`, and an adapter that
+   * cached them would go on pressing `KeyE` after the player rebound the
+   * inventory to `KeyI`.
+   *
+   * `target` is here for the same reason it is on `keydown`: a modal that
+   * consumed the tap stopped it at `document`, and an event that still says
+   * `document` is one the modal did not want either. Touch registers on
+   * `window` with the keys and the buttons, so the shielding rule covers all
+   * three devices with one mechanism.
+   *
+   * TWO cases rather than one with a phase, matching `keydown`/`keyup` and
+   * `mousedown`/`mouseup`. A press that is held IS a held control — a
+   * touch d-pad's forward button is `pressed` for as long as the finger is on
+   * it — so the release half is not optional, and a single case carrying a
+   * boolean would have made it look like it was.
+   */
+  | { readonly kind: 'touchpress'; readonly action: InputAction; readonly target: ListenerTarget }
+  | { readonly kind: 'touchrelease'; readonly action: InputAction; readonly target: ListenerTarget }
 
 /**
  * One click that arrived while the pointer was NOT locked, and where it landed.
@@ -627,6 +654,56 @@ const withButtonDown = (
       }
 
 /**
+ * An on-screen control going down, resolved through the CURRENT bindings.
+ *
+ * `withCodeDown` and not a mechanism of its own, and that is the point rather
+ * than a saving: the tap lands in the same `pressed` set, takes the same
+ * `justPressed` edge, is cleared by the same `endFrame`, and is dropped by the
+ * same `blur`. Row #35's claim is not that touch is supported, it is that a tap
+ * and a key press are the same event by the time anything reads them, and
+ * reusing this function is what makes that true rather than nearly true.
+ *
+ * A control bound to nothing does NOTHING — no state change, no throw. The host
+ * is expected to have asked `unboundTouchActions` at setup; by the time a finger
+ * is on the glass the only options are to drop it or to guess, and this
+ * repository drops what it cannot name (`mouseButtonForIndex`,
+ * `wheelDeltaModeForIndex`, `translateDomEvent`).
+ *
+ * ---------------------------------------------------------------------------
+ * Why this does NOT go through `withButtonDown`, even for `attack`
+ * ---------------------------------------------------------------------------
+ *
+ * A touch control for `attack` resolves to `MouseLeft` under the defaults, and
+ * routing that through `withButtonDown` would gate it on the pointer lock:
+ * unlocked, it would become a `uiClick` instead of a press. On a touch device
+ * the pointer is NEVER locked — pointer lock is a mouse feature and a phone has
+ * no mouse to capture — so the attack button would be dead on every device it
+ * was drawn for.
+ *
+ * The gate that replaces it is the ROSTER. A control only exists while the host
+ * has drawn it, and a host draws its touch HUD when the game is live, so
+ * "should this tap be a game action" is answered by whether the widget is on
+ * screen at all. That is a stronger gate than the lock state, because the host
+ * can see the pause menu and the lock state cannot.
+ *
+ * It also means a tap can never become a `UiClick`, and therefore can never
+ * reach `acquiresPointerLock`, which reads `InputSnapshot.uiClickLandings` and
+ * nothing else. That is deliberate and is checked by a test: DN-16 §5(b) was a
+ * live defect in which clicking the HUD took the pointer, and adding a second
+ * input source is exactly the occasion to reopen it.
+ */
+const withTouchDown = (state: InputState, action: InputAction): InputState => {
+  const code = codeForTouchAction(state.bindings, action)
+  return code === undefined ? state : withCodeDown(state, code)
+}
+
+/** The release half. Same resolution, same code space, same `withCodeUp`. */
+const withTouchUp = (state: InputState, action: InputAction): InputState => {
+  const code = codeForTouchAction(state.bindings, action)
+  return code === undefined ? state : withCodeUp(state, code)
+}
+
+/**
  * Losing the pointer lock releases every held button.
  *
  * Symmetric with dropping the accumulated pointer delta (DN-09) and for the
@@ -799,6 +876,23 @@ export const makeInputService = (
               // arrival rather than leaving a hole, because the second
               // assignment overwrites the first within the same DOM task.
               return { ...current, keyboardFocus: event.focus }
+            case 'touchpress':
+              // The same shielding rule as `keydown` and `mousedown`, applied
+              // to the third device. A modal that consumed the tap stopped it at
+              // `document`; one that still says `document` was never meant for
+              // gameplay.
+              return event.target === MODAL_LISTENER_TARGET
+                ? current
+                : withTouchDown(current, event.action)
+            case 'touchrelease':
+              // Released whatever the lock state, exactly as `mouseup` is, and
+              // for the reason `touchcancel` exists at all: if a release can go
+              // missing the control sticks, and a stuck on-screen forward button
+              // is the touch spelling of the stuck-key report `clearHeld` was
+              // written for.
+              return event.target === MODAL_LISTENER_TARGET
+                ? current
+                : withTouchUp(current, event.action)
             case 'pointerlockerror':
               // Only the lock state changes. A refused request never held the
               // pointer, so there is no delta to drop and no button to release
@@ -1074,6 +1168,31 @@ export const LISTENER_PLAN: ReadonlyArray<{
     event: 'blur',
     target: GAMEPLAY_LISTENER_TARGET,
     note: 'clears held input; the browser sends no keyup while unfocused (stuck-controls report)',
+  },
+  // The touch trio. On `window` with the keys and the mouse buttons, and NOT on
+  // `document` where the other pointer events sit: a tap is gameplay input that
+  // a modal must be able to shield, which is the same argument that moved
+  // `mousedown`/`mouseup` off `document`. A touch listener on `document` could
+  // not be shielded by a modal that also stops propagation at `document` —
+  // whether it was shielded would depend on registration order.
+  {
+    event: 'touchstart',
+    target: GAMEPLAY_LISTENER_TARGET,
+    note:
+      'an on-screen control was pressed; the roster resolves the ELEMENT to an action and ' +
+      'codeForTouchAction resolves the action to whatever the player has bound (triage #35)',
+  },
+  {
+    event: 'touchend',
+    target: GAMEPLAY_LISTENER_TARGET,
+    note: 'same target as touchstart, or a held control sticks — the stuck-key report, on glass',
+  },
+  {
+    event: 'touchcancel',
+    target: GAMEPLAY_LISTENER_TARGET,
+    note:
+      'the platform took the gesture (system edge-swipe, incoming call) and NO touchend will ' +
+      'follow. Without this entry the control stays pressed for the rest of the session',
   },
   // The focus pair. On `document` because `focusin`/`focusout` BUBBLE and
   // `focus`/`blur` do not — which is the whole reason these two event names are

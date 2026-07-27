@@ -144,6 +144,49 @@ export const scopesTheLockToAnElementItOnlyCompares = (): void => {
   browserWindow.removeEventListener('mousedown', clickLandingHandler, { capture: false })
 }
 
+/**
+ * TOUCH, and the point of this block is what it does NOT need.
+ *
+ * Adding an input device is the classic occasion for a DOM surface to grow, and
+ * the obvious growth is a position: `TouchList`, `changedTouches`, `clientX`.
+ * None of it is here, because a tap is resolved by the IDENTITY of the control
+ * it landed on, exactly as a focus and a click landing already are. So
+ * `DomInputEvent` is byte-identical before and after touch support, and the
+ * three assertions this file makes about `Window` and `Document` did not have to
+ * be re-argued.
+ *
+ * `TouchEvent` is deliberately not named below either. It never has to be
+ * assignable to `DomInputEvent`: listener parameters are contravariant, so what
+ * `addEventListener` requires is that `Event` — the parameter of the real
+ * `EventListener` — be assignable, and every event type is delivered through
+ * that one signature. Naming `TouchEvent` here would prove nothing and would
+ * make the fixture fail to compile in a lib.DOM vintage that lacks it.
+ *
+ * If this file ever stops compiling here, the fix is NOT to model a touch
+ * position — it is to keep resolving the control by identity.
+ */
+export const registersTheTouchTrio = (): void => {
+  const touchHandler: DomListener = (event: DomInputEvent) => {
+    const target: unknown = event.target
+    // The only operation, on the only member: `===` against the elements the
+    // host declared as controls. `resolveTouchControl` does exactly this.
+    for (const slot of browserSlots) {
+      if (target === slot) {
+        return
+      }
+    }
+  }
+  // Passive by default and left that way. Suppressing `touchstart` would take
+  // page scrolling and pinch-zoom away from the player, and `PREVENT_DEFAULT_EVENTS`
+  // records why touch is not on the list that may call `preventDefault()`.
+  browserWindow.addEventListener('touchstart', touchHandler, { capture: false })
+  browserWindow.addEventListener('touchend', touchHandler, { capture: false })
+  browserWindow.addEventListener('touchcancel', touchHandler, { capture: false })
+  browserWindow.removeEventListener('touchcancel', touchHandler, { capture: false })
+  browserWindow.removeEventListener('touchend', touchHandler, { capture: false })
+  browserWindow.removeEventListener('touchstart', touchHandler, { capture: false })
+}
+
 export const observesFocusAndGivesItBack = (): void => {
   // `focusin` / `focusout` rather than `focus` / `blur`, because only the first
   // pair bubbles — one listener on `document` therefore covers every slot mx-ui

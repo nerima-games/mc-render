@@ -919,3 +919,238 @@ export const HOTBAR_FOCUS_GROUP = 'hotbar'
  * is still underneath it when the lock ends.
  */
 export const reportsKeyboardFocus = (state: PointerLockState): boolean => state !== 'locked'
+
+/**
+ * ---------------------------------------------------------------------------
+ * TOUCH: a tap is a DEVICE, and it is deliberately not a second vocabulary
+ * ---------------------------------------------------------------------------
+ *
+ * mc-compose/docs/e2e-triage.md §3.5 row #35 states the claim this section has
+ * to make true: **a tap binds to the same intent a key does.** Not "a tap works
+ * too" — the same intent, through the same table, with the same edge.
+ *
+ * The mouse got into this file by being given NAMES in the key space
+ * (`MOUSE_BUTTONS`, and the `Mouse` prefix that keeps the two namespaces from
+ * colliding). The obvious move is to do it again — `TouchJump`, `TouchAttack` —
+ * and it is wrong, for a reason that is visible the moment the names are
+ * written down: `TouchJump` already contains the answer. A code named for the
+ * action it performs is not a code, it is a binding with the table deleted, and
+ * `remap` would have nothing to say about it.
+ *
+ * The asymmetry with the mouse is real and is what decides this:
+ *
+ *   - A MOUSE BUTTON is a physical thing that exists before any meaning is
+ *     attached. The player owns it and may rebind it, which is exactly the
+ *     argument `MOUSE_BUTTONS` makes for naming buttons instead of numbering
+ *     them: bindings are persisted and remappable, so buttons must be in the
+ *     same code space as keys.
+ *   - AN ON-SCREEN CONTROL is a widget THE HOST DREW, and the host drew it
+ *     already knowing what it is for. There is no remapping question to answer:
+ *     you do not rebind a button labelled "jump", you relabel it, and relabelling
+ *     is a host-side edit to the roster. A settings screen offering "rebind the
+ *     on-screen jump button" would be offering to make the picture lie.
+ *
+ * So a touch control carries an `InputAction` and the tap is resolved through
+ * `Bindings` at the moment it happens. `Bindings` therefore needs NO second
+ * source and does not change shape: it stays `Record<action, InputCode>`, one
+ * key per action, and `remap`'s conflict check still runs over one value space.
+ * That is the whole of the answer to "does this file's shape admit a second
+ * input source" — it admits it by not being asked to.
+ *
+ * What falls out for free is the part row #35 actually cares about. Rebind
+ * `openInventory` from `KeyE` to `KeyI` and the on-screen inventory button
+ * follows, because it never knew about `KeyE` in the first place: it knows
+ * `openInventory`, and so does the table. A parallel touch vocabulary would
+ * have had to be remapped separately, and the first player to rebind anything
+ * would have found the two halves disagreeing.
+ */
+
+/**
+ * The code a tap on a control for `action` presses.
+ *
+ * `undefined` means the control is DEAD — nothing is bound, so the widget is a
+ * picture of a button. `unboundTouchActions` is how a host finds that out at
+ * setup time instead of finding it out from a player who cannot open their
+ * inventory.
+ *
+ * ESCAPE IS THE ONE SPECIAL CASE, and it is a special case that PRESERVES the
+ * ownership rule rather than bending it. `bindingFor` refuses Escape, correctly:
+ * no binding may map to it, because a second binding is a second owner and one
+ * press would both close the modal and open the pause menu. But row #35's other
+ * half is "pause is operable without a keyboard", and a touch device has no
+ * Escape key at all.
+ *
+ * The resolution is that OWNERSHIP IS ABOUT WHO ACTS, NOT ABOUT WHO PRESSES. A
+ * touch pause control emits `ESCAPE_KEY_CODE` — the same code the keyboard
+ * emits, into the same `pressed`/`justPressed` sets, read by the same single
+ * frame-level handler `ESCAPE_OWNER` names. Downstream of `dispatch` the two are
+ * indistinguishable, which is the strongest form row #35's claim can take:
+ * a tap does not merely bind to the same intent as the key, it is the same
+ * event. `actionForKey` still resolves `Escape` to no action and `remap` still
+ * refuses to bind it, so the code stays inert to everything except the one
+ * handler that owns it.
+ *
+ * The alternative — a `touchEscape` action, or a second Escape channel — is
+ * precisely the second owner the whole rule exists to prevent.
+ */
+export const codeForTouchAction = (
+  bindings: Bindings,
+  action: InputAction,
+): InputCode | undefined => (action === 'escape' ? ESCAPE_KEY_CODE : bindingFor(bindings, action))
+
+/**
+ * The controls in a roster that would do NOTHING if tapped.
+ *
+ * This is the half of triage row #34 (`controls fit the safe viewport`) that can
+ * be answered without a browser, and it is worth being exact about which half
+ * that is. #34's own words are about LAYOUT — a 48px hit target, and controls
+ * inside the safe-area inset — and neither is answerable here: this repository
+ * ships no `lib.DOM`, `dom-surface.ts` contains no geometry by design, and a
+ * `getBoundingClientRect` in Node returns zeroes. A test that measured that
+ * would be measuring the fake.
+ *
+ * What IS answerable is the failure UNDERNEATH the layout one, and it is the
+ * worse of the two: a control that is 48px, correctly inset, and bound to
+ * nothing. The player can reach it, press it, see it depress, and the game does
+ * not respond — which reads as a broken game rather than as a cramped one. A
+ * roster is data the host writes by hand, so this is the check that catches a
+ * typo'd action or an action whose binding was removed.
+ *
+ * Returns the offending actions rather than a boolean, for the reason
+ * `RemapRejection` carries a message: "some control is dead" sends a host
+ * looking through the whole roster.
+ */
+export const unboundTouchActions = (
+  bindings: Bindings,
+  actions: ReadonlyArray<InputAction>,
+): ReadonlyArray<InputAction> =>
+  actions.filter((action) => codeForTouchAction(bindings, action) === undefined)
+
+/**
+ * ---------------------------------------------------------------------------
+ * The look gesture: a drag is a DELTA, and the anchor is the whole problem
+ * ---------------------------------------------------------------------------
+ *
+ * WHOSE TEST THIS IS NOT. Triage row #36 (`look gesture rotates the camera and
+ * releases cleanly`) is NEEDS-PUBLISH to mc-compose, and it stays there: it
+ * asserts that a drag reaches the CAMERA, and this repository is forbidden from
+ * being the authority on the camera (see `index.ts` and `domain/camera-mirror.ts`
+ * — mc-sim owns the pose and the reverse direction is a dependency cycle).
+ *
+ * What belongs here is the ARITHMETIC, on the rule this file has already applied
+ * twice. `notchesForWheelDelta` states it in full: a policy in an adapter is a
+ * policy `environment: 'node'` cannot test, and plan.md §3.10 makes that
+ * decisive rather than tidy. `wrapHotbarSelection` is the closer precedent —
+ * it takes the size as an argument, stores no selection, and exists purely so
+ * that a consumer elsewhere does not re-derive a trap.
+ *
+ * The trap here is that a mouse and a finger report different things.
+ * `MouseEvent.movementX` is ALREADY a delta, which is why `translateDomEvent`
+ * can hand `mousemove` straight through. A `Touch` reports `clientX` — an
+ * ABSOLUTE screen coordinate. Feeding that to a camera that expects a delta
+ * rotates the view by the pixel position of the finger, so the first touch
+ * anywhere on the right of the screen spins the player most of the way round.
+ *
+ * So the delta has to be computed against an ANCHOR, and the anchor is where
+ * the second bug lives — the one row #36 names as "releases cleanly". A drag
+ * that ends must forget where it was. If the anchor survives the release, the
+ * NEXT touch computes its first delta from the last position of the PREVIOUS
+ * drag, and the camera snaps across the whole distance between them in one
+ * frame. That is DN-09 exactly, in a different device: analogue state belongs to
+ * the gesture that produced it, and losing the pointer lock drops the
+ * accumulated delta for the same reason.
+ */
+
+/** A touch position, in whatever units the host reports. Absolute, not a delta. */
+export type TouchPoint = {
+  readonly x: number
+  readonly y: number
+}
+
+/**
+ * The three things a finger does. Named for the DOM events a host would feed
+ * them from (`touchstart` / `touchmove` / `touchend`), so there is no question
+ * which produces which — the same convention `InputEvent` follows.
+ *
+ * `touchcancel` is a `release`, not a fourth phase. The browser fires it when
+ * the platform takes the gesture away (a system edge-swipe, an incoming call),
+ * and the gesture is over either way; giving it its own phase would only offer
+ * somewhere to forget to handle it.
+ */
+export const TOUCH_LOOK_PHASES = ['press', 'move', 'release'] as const
+
+export type TouchLookPhase = (typeof TOUCH_LOOK_PHASES)[number]
+
+/**
+ * Where the finger was last seen, or `undefined` between gestures.
+ *
+ * `undefined` is the state that makes the release safe, and it is a value rather
+ * than a flag beside a stale point so that "released" and "released but the
+ * coordinates are still lying around" cannot be different states.
+ */
+export type TouchLookState = {
+  readonly anchor: TouchPoint | undefined
+}
+
+/** No gesture in progress. What a host starts with, and what a release yields. */
+export const TOUCH_LOOK_IDLE: TouchLookState = { anchor: undefined }
+
+export type TouchLookStep = {
+  readonly state: TouchLookState
+  /** The rotation this step asks for. ZERO whenever there is nothing to subtract. */
+  readonly delta: TouchPoint
+}
+
+const NO_TOUCH_DELTA: TouchPoint = { x: 0, y: 0 }
+
+/** A point the arithmetic is willing to anchor on, or `undefined`. */
+const finiteTouchPoint = (point: TouchPoint): TouchPoint | undefined =>
+  Number.isFinite(point.x) && Number.isFinite(point.y) ? point : undefined
+
+/**
+ * Advance a look gesture by one event.
+ *
+ * A REDUCER over an explicit state rather than a mutable anchor in an adapter,
+ * for the reason the header gives: the release rule is the behaviour worth
+ * testing and an adapter-local variable is the one place `environment: 'node'`
+ * cannot reach it.
+ *
+ *   `press`   — anchors, and emits ZERO. The touch that STARTS a look must not
+ *               rotate anything: there is nothing to subtract from yet, and the
+ *               only number available is the absolute position of the finger.
+ *   `move`    — emits the difference from the anchor and re-anchors. With no
+ *               anchor it emits zero, which is what makes a `move` that arrives
+ *               after a `release` — a stray event, a second finger, a host that
+ *               dropped the release — cost nothing instead of snapping the view.
+ *   `release` — returns to `TOUCH_LOOK_IDLE` and emits zero. This is row #36's
+ *               "releases cleanly", as a property of the reducer rather than as
+ *               a promise about a call order.
+ *
+ * Total, and emits zero rather than `NaN` for a non-finite coordinate: this
+ * feeds a camera, and one `NaN` in a rotation poisons the pose for the rest of
+ * the session — the same failure `notchesForWheelDelta` and `finiteOrUndefined`
+ * each guard on their own side.
+ */
+export const touchLookStep = (
+  state: TouchLookState,
+  phase: TouchLookPhase,
+  point: TouchPoint,
+): TouchLookStep => {
+  if (phase === 'release') {
+    return { state: TOUCH_LOOK_IDLE, delta: NO_TOUCH_DELTA }
+  }
+  const current = finiteTouchPoint(point)
+  if (current === undefined) {
+    // A coordinate that cannot be used, and the anchor is LEFT ALONE rather than
+    // replaced. Anchoring on a NaN would end the gesture in all but name: every
+    // later `move` would subtract from it and emit NaN forever.
+    return { state, delta: NO_TOUCH_DELTA }
+  }
+  if (phase === 'press') {
+    return { state: { anchor: current }, delta: NO_TOUCH_DELTA }
+  }
+  const anchor = state.anchor
+  return anchor === undefined
+    ? { state, delta: NO_TOUCH_DELTA }
+    : { state: { anchor: current }, delta: { x: current.x - anchor.x, y: current.y - anchor.y } }
+}

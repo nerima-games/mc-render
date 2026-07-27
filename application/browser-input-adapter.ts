@@ -92,6 +92,7 @@ import {
   type Bindings,
   type ClickLanding,
   type FocusTarget,
+  type InputAction,
   type ListenerTarget,
 } from '../domain/input-bindings'
 import {
@@ -294,6 +295,74 @@ export const resolveClickLanding = (
 }
 
 /**
+ * One on-screen control, as the host names it.
+ *
+ * `target` is `unknown` for the reason `FocusGroupTargets.targets` is: THE
+ * ADAPTER NEVER LOOKS INSIDE IT. It compares by `===` and reports the action the
+ * host attached. In a browser this is the `<button>` the host drew; in a test it
+ * is an object; the code that runs is the same either way.
+ *
+ * ---------------------------------------------------------------------------
+ * Why this needed NOTHING new in `dom-surface.ts`
+ * ---------------------------------------------------------------------------
+ *
+ * `DomInputEvent.target` already exists, already is `unknown`, and already is
+ * only ever compared — it was added for `focusin` and reused for
+ * `resolveClickLanding`. A tap is the third reader of the same member, so the
+ * DOM surface this repository depends on is UNCHANGED by touch support: no
+ * `TouchList`, no `changedTouches`, no `clientX`, and therefore nothing new for
+ * the assignability proof in `test/fixtures/dom-surface.ts` to survive. That is
+ * not luck. It is the consequence of resolving the ELEMENT rather than the
+ * POSITION, which is possible because a control is a widget with an identity and
+ * not a region with coordinates.
+ *
+ * `TouchEvent.target` is the element the touch STARTED on, for every event in
+ * the sequence including `touchend` and `touchcancel` — it does not follow the
+ * finger. So a press and its release resolve to the SAME control even if the
+ * finger slid off the button first, which is the behaviour a player expects and
+ * the one that cannot leave a control stuck.
+ *
+ * SINGULAR, unlike `FocusGroupTargets`, which holds an array. A focus group is a
+ * roving-`tabindex` set whose ORDER is the reported index; a touch control is
+ * one widget with one meaning, and a d-pad is four controls rather than one
+ * control with four positions.
+ */
+export type TouchControlTarget = {
+  readonly action: InputAction
+  readonly target: unknown
+}
+
+/**
+ * The action a tapped element stands for, or `undefined` for an element in no
+ * roster.
+ *
+ * PURE and exported, for the reason `resolveFocusTarget` and
+ * `resolveClickLanding` are: the case that matters — a tap on something the host
+ * never declared — has to be writable as a unit test rather than reachable only
+ * by firing a fake event at a fake window.
+ *
+ * `undefined` is a DROP and not a report, which is the opposite of what
+ * `focusin` does with the same non-answer. The asymmetry is deliberate: "focus
+ * left our UI" is news a HUD must act on, while "the player touched the
+ * background" is not an input at all. Reporting it would mean inventing an
+ * action for a tap on empty screen.
+ *
+ * FIRST MATCH WINS, and a host that declares one element twice gets the first
+ * declaration. There is no rejection for it, because there is no reading in
+ * which the second is more true than the first, and an event handler is the one
+ * place that must not throw.
+ */
+export const resolveTouchControl = (
+  controls: ReadonlyArray<TouchControlTarget>,
+  target: unknown,
+): InputAction | undefined => {
+  if (target === undefined || target === null) {
+    return undefined
+  }
+  return controls.find((control) => control.target === target)?.action
+}
+
+/**
  * Everything the adapter needs from the world outside `dispatch`.
  *
  * `pointerLockHeld` is read from `document.pointerLockElement` and is only
@@ -319,6 +388,16 @@ export type DomEventContext = {
    * so every click resolving as `ui` or `elsewhere` is the truth for it.
    */
   readonly pointerLockTarget?: unknown
+  /**
+   * The on-screen controls this host drew, consulted only for the touch trio.
+   *
+   * OPTIONAL, and its absence is the ordinary case rather than a degenerate one:
+   * a desktop host draws no touch controls, registers the listeners anyway
+   * (`LISTENER_PLAN` is the single answer to what is registered, in every host),
+   * and every tap resolves to `undefined` and is dropped. That is the truth for
+   * it — a stray touch on a laptop trackpad is not a game action.
+   */
+  readonly touchControls?: ReadonlyArray<TouchControlTarget>
 }
 
 /**
@@ -339,6 +418,25 @@ export type DomEventContext = {
  * one that does not strictly need the flag costs nothing to state: an explicit
  * `passive: false` on a listener that is already non-passive changes no
  * behaviour and no frame time.
+ *
+ * TOUCH IS DELIBERATELY NOT HERE, and the omission is a decision rather than an
+ * oversight. `touchstart` is passive by default at `window` precisely because
+ * suppressing it is expensive, and what it suppresses is the platform: page
+ * scrolling, pinch-zoom, and the synthesised `mousedown`/`click` pair. Taking
+ * all three away is the touch-device equivalent of suppressing Tab — it removes
+ * the player's ability to scroll their own settings screen and to operate any
+ * DOM UI the host draws, and this repository has no predicate that could narrow
+ * it, because a tap has no lock state to narrow by (pointer lock is a mouse
+ * feature; a phone has no pointer to capture).
+ *
+ * The synthesised `mousedown` that this leaves alive was checked rather than
+ * assumed, because it is the one that could have reopened DN-16 §5(b): it
+ * carries the CONTROL as its target, so `resolveClickLanding` answers `ui` or
+ * `elsewhere` for it, and `acquiresPointerLock` requires `lock-target`. A tap
+ * therefore cannot take the pointer. See `resolveClickLanding` for why the
+ * closed-world form is what makes that true — under `landing !== 'ui'` an
+ * undeclared touch control would have read "not UI" and grabbed the pointer on
+ * every single tap.
  */
 export const PREVENT_DEFAULT_EVENTS: ReadonlyArray<string> = ['wheel', 'contextmenu']
 
@@ -468,6 +566,36 @@ export const translateDomEvent = (
       // dropping it would leave the ring lit on the slot the player just Tabbed
       // away from.
       return { kind: 'focuschange', focus: resolveFocusTarget(context.focusGroups, event.target) }
+    case 'touchstart': {
+      // ELEMENT to NAME, at the boundary, in exactly one place — the third
+      // reader of `event.target` and the same conversion `focusin` and
+      // `mousedown` already perform. What comes out is an ACTION and not a
+      // code, because the code depends on the player's current bindings and
+      // those live in the service (`withTouchDown`), not here. An adapter that
+      // resolved the code would keep pressing `KeyE` after a rebind.
+      const action = resolveTouchControl(context.touchControls ?? [], event.target)
+      return action === undefined
+        ? undefined
+        : { kind: 'touchpress', action, target: planned.target }
+    }
+    case 'touchend':
+    case 'touchcancel': {
+      // ONE case for two events, and it is the only place this switch collapses
+      // two DOM names — for the reason `focuschange` collapses `focusin` and
+      // `focusout`. A cancel and an end are the same fact to everything
+      // downstream: the finger is off the control. They differ only in whose
+      // decision it was, and nothing here can act on that difference.
+      //
+      // Handling `touchcancel` is not optional. The platform fires it INSTEAD
+      // of `touchend` when it takes the gesture over, so an adapter that
+      // listened only for `touchend` would leave the control held for the rest
+      // of the session — the player swipes in from the screen edge while
+      // holding the forward button and walks into a wall until they reload.
+      const action = resolveTouchControl(context.touchControls ?? [], event.target)
+      return action === undefined
+        ? undefined
+        : { kind: 'touchrelease', action, target: planned.target }
+    }
     case 'focusout':
       // Never resolves anything. `focusout` fires on the element being LEFT, so
       // resolving its target would report the slot the keyboard just departed
@@ -550,6 +678,15 @@ export const installInputListeners = (
    * none could have locked anyway.
    */
   pointerLockTarget?: unknown,
+  /**
+   * The on-screen controls this host drew, in no particular order.
+   *
+   * Defaults to NONE, which is what every desktop host has. Order is
+   * meaningless here — unlike `focusGroups`, where the array position IS the
+   * reported index — because a control is resolved by identity to an action and
+   * never to a position.
+   */
+  touchControls: ReadonlyArray<TouchControlTarget> = [],
 ): InstalledInputListeners => {
   const registrations: ReadonlyArray<ListenerRegistration> = LISTENER_PLAN.map((planned) => {
     const suppression = suppressionFor(planned.event, input)
@@ -572,6 +709,7 @@ export const installInputListeners = (
         pointerLockHeld: readsLockElement && isPointerLockHeld(targets.document),
         focusGroups,
         pointerLockTarget,
+        touchControls,
       })
       if (translated !== undefined) {
         Effect.runSync(input.dispatch(translated))
@@ -625,9 +763,12 @@ export const scopedInputListeners = (
   input: InputServiceApi,
   focusGroups: ReadonlyArray<FocusGroupTargets> = [],
   pointerLockTarget?: unknown,
+  touchControls: ReadonlyArray<TouchControlTarget> = [],
 ): Effect.Effect<InstalledInputListeners, never, Scope.Scope> =>
   Effect.acquireRelease(
-    Effect.sync(() => installInputListeners(targets, input, focusGroups, pointerLockTarget)),
+    Effect.sync(() =>
+      installInputListeners(targets, input, focusGroups, pointerLockTarget, touchControls),
+    ),
     (installed) =>
       Effect.sync(() => {
         installed.remove()
@@ -745,6 +886,19 @@ export type BrowserInputOptions = {
    * knows both repositories are on the page.
    */
   readonly focusGroups?: ReadonlyArray<FocusGroupTargets>
+  /**
+   * The on-screen controls to bind, if this host drew any.
+   *
+   * A touch host passes one entry per control —
+   * `[{ action: 'jump', target: jumpButton }, { action: 'escape', target: pauseButton }]`
+   * — and the elements come from the host for the reason `focusGroups`' do: the
+   * host is the only place that knows both repositories are on the page.
+   *
+   * `unboundTouchActions(bindings, controls.map(c => c.action))` is the check
+   * worth running once at setup. A control whose action is bound to nothing is a
+   * picture of a button, and this is the only moment anything can notice.
+   */
+  readonly touchControls?: ReadonlyArray<TouchControlTarget>
 }
 
 const pointerLockPortFor = (options: BrowserInputOptions): PointerLockPort => {
@@ -785,7 +939,13 @@ export const browserInputLayer = (options: BrowserInputOptions): Layer.Layer<Inp
       // second from the first is what makes the fix cost a browser host nothing
       // — the declaration it already had to make now also scopes the
       // acquisition (DN-16 §5(b)).
-      yield* scopedInputListeners(options.targets, input, options.focusGroups ?? [], options.canvas)
+      yield* scopedInputListeners(
+        options.targets,
+        input,
+        options.focusGroups ?? [],
+        options.canvas,
+        options.touchControls ?? [],
+      )
       return input
     }),
   )
@@ -810,4 +970,7 @@ export const TRANSLATED_DOM_EVENTS: ReadonlyArray<string> = [
   'blur',
   'focusin',
   'focusout',
+  'touchstart',
+  'touchend',
+  'touchcancel',
 ]
