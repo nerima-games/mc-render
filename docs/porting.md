@@ -97,12 +97,34 @@ plan.md §3.3（mc-meshing）の移植元は
 | ファイル | LOC | 行き先 | 理由 |
 | --- | ---: | --- | --- |
 | `chunk-mesh-materials.ts` | 238 | **mc-render** | THREE マテリアル。`forceSinglePass`（:164）はここ |
-| `lod-simplification.ts` | 288 | 要判断 | LOD 簡略化。純粋変換なら mc-meshing |
+| `lod-simplification.ts` | 288 | **分割**（決着） | 下記。1 ファイルに関心が 2 つある |
 | `greedy-meshing-passes.ts` | 186 | mc-meshing | 純粋なメッシング |
-| `block-mesh.ts` | 91 | 要判断 | |
+| `block-mesh.ts` | 91 | **mc-render**（決着） | `import * as THREE` + THREE 参照 8 箇所 + `MaterialCacheKey` を持つ `Effect.Service` |
 
-**切り分けは移植時に確定させ、本文書に追記すること。** 純粋関数（チャンク → バッファ）が
-mc-meshing、THREE オブジェクト（`BufferGeometry` / `Material` / `Mesh`）が mc-render。
+切り分けの原則は**純粋関数（チャンク → バッファ）が mc-meshing、THREE オブジェクト
+（`BufferGeometry` / `Material` / `Mesh`）が mc-render**。この 379 LOC はその原則で決着した。
+
+#### `lod-simplification.ts` 288 LOC の分割（決着）
+
+「要判断」だった理由は、**1 ファイルに関心が 2 つ入っていた**ことである。
+mc-meshing の `docs/responsibility.md` は「距離の概念が要るので mc-render 寄りかも」と
+書いていたが、実際に距離を取る記号は 1 つしかない。
+
+| 記号 | 距離を取るか | 行き先 |
+| --- | :-: | --- |
+| `simplifyMesh` (`MeshedChunk → MeshedChunk`) | 取らない | **mc-meshing** |
+| `packQuadKey` / `LodLevel` / `LOD_LEVELS` / `LodLevelSchema` | 取らない | **mc-meshing** |
+| `lodForDistance` | **取る** | **mc-render** |
+| `LOD1_DISTANCE_CHUNKS` = 4 / `LOD2_DISTANCE_CHUNKS` = 8 | 距離そのもの | **mc-render** |
+
+決め手は mc-meshing の `responsibility.md` §3.3「このリポジトリは座標を持たない（意図的）」。
+`lodForDistance` の引数は参照実装自身の doc comment が「プレイヤーのチャンクと対象チャンクの
+L1 / L∞ ノルム」と書いており、座標の派生物である。全文は **mc-meshing の §3.4** にある
+（決定は所有者側に 1 つだけ置き、こちらはそれを指す）。
+
+**この行こそ、名前で責務を推測してはいけない実例である。** §1.3 のファイル名基準
+（`mesh|greedy` にマッチ）は `lod-simplification.ts` を取りこぼす —— 288 LOC が
+「meshing ではない」と静かに分類され、そのうち約 240 LOC は実際には mc-meshing のものだった。
 
 ### 1.3 2 つの計測基準（`test/` ヘルパを含むか）
 
