@@ -31,12 +31,20 @@
  * test. `pnpm typecheck` therefore still compiles this entire shipped surface
  * with `lib: ["ES2024"]` and `types: []` — which is the property that keeps the
  * pointer-lock state machine testable at all (plan.md §3.10: Playwright runs on
- * SwiftShader and cannot do pointer lock). The THREE.js adapter is the next
- * commit and is where `"DOM"`/`"WebWorker"` get argued about again.
+ * SwiftShader and cannot do pointer lock).
+ *
+ * THE THREE.js ADAPTER IS HERE NOW, AND IT DID NOT TURN `"DOM"` ON EITHER.
+ * `application/three-surface.ts` describes the seven constructors the renderer
+ * uses and the ~20 members off them, and `test/three-surface.test.ts` compiles a
+ * fixture against the REAL `three` and `lib.dom.d.ts` to prove the namespace
+ * satisfies them. `three` is a devDependency: it exists so that proof has an
+ * oracle, and no shipped file imports it. `"WebWorker"` is still ahead, with the
+ * mesher pool.
  */
 
 // --- Domain: pure values, policies and orderings ---------------------------
 export * from './domain/camera-mirror'
+export * from './domain/chunk-geometry'
 export * from './domain/frame-scratch'
 export * from './domain/input-bindings'
 export * from './domain/material-policy'
@@ -55,6 +63,19 @@ export * from './application/input-service'
 // why that is a narrow interface rather than `"lib": ["DOM"]`.
 export * from './application/dom-surface'
 export * from './application/browser-input-adapter'
+
+// --- Application: the THREE.js adapter --------------------------------------
+// `three-surface.ts` is the whole THREE dependency, structurally — the same
+// move `dom-surface.ts` makes for `window`, and for the same reason: no shipped
+// file imports `three`, so `tsconfig.build.json` still compiles this package
+// with `lib: ["ES2024"]` and `types: []`. The HOST passes the real namespace in.
+//
+// `world-renderer.ts` is the only file in the repository that touches a GPU. It
+// is what closes docs/e2e-triage.md #1 in mc-compose: nothing in the roster
+// created a WebGL context, so the composed page drew nothing and the smoke test
+// that says so was `fixme`.
+export * from './application/three-surface'
+export * from './application/world-renderer'
 
 // --- Stages: this repository's contribution to the frame --------------------
 // `renderModule` is a full `GameModule` (plan.md §4.1): a Layer plus an

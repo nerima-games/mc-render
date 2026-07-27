@@ -84,6 +84,7 @@ import {
   type GraphicsQuality,
   type PostProcessingStep,
 } from '../domain/post-processing'
+import { NO_DRAW_TARGET, type DrawPort } from '../application/world-renderer'
 import { RENDER_STAGE_IDS, UPSTREAM_STAGE_IDS } from './stage-ids'
 
 /**
@@ -227,6 +228,16 @@ export const makeRenderFrameState = (
 export const renderStages = (
   state: RenderFrameState,
   input: InputServiceApi,
+  /**
+   * Where `render:draw` draws. Defaults to "this platform has no GPU", which is
+   * the common case: every Node test, `apps/preview-render`, and any consumer
+   * composing the module to inspect the frame order.
+   *
+   * A parameter and not a service, for the reason `PointerLockPort` is one —
+   * `application/world-renderer.ts` needs a canvas and a `three` namespace, and
+   * neither can be reached from a Layer this repository is able to build.
+   */
+  draw: DrawPort = NO_DRAW_TARGET,
 ): ReadonlyArray<StageRegistration> => [
   {
     id: RENDER_STAGE_IDS.input,
@@ -343,14 +354,32 @@ export const renderStages = (
   {
     id: RENDER_STAGE_IDS.draw,
     after: [RENDER_STAGE_IDS.chunkSync],
-    // FIRST CUT: the THREE.js renderer call. It is deliberately the ONLY place
-    // in the repository that will ever touch the live camera object, and it
-    // sets that camera from `state.mirroredCamera` — never the other way round.
-    // The reference mutated the live camera for the attack-swing bob and
-    // restored it afterwards, and everything reading the camera in between got
-    // the bob pose; `domain/camera-mirror.ts` composes the offset into a VALUE
-    // instead, which is why that window cannot exist here.
-    run: () => Ref.update(state.framesDrawn, (drawn) => drawn + 1),
+    // THE THREE.js RENDERER CALL, and it is no longer a FIRST CUT: `draw` is a
+    // `DrawPort`, and in a browser it is `application/world-renderer.ts`'s,
+    // which acquires a WebGL2 context and submits a frame.
+    //
+    // This is deliberately the ONLY place in the repository that touches a live
+    // camera object, and it sets that camera from `state.mirroredCamera` —
+    // never the other way round. The reference mutated the live camera for the
+    // attack-swing bob and restored it afterwards, and everything reading the
+    // camera in between got the bob pose; `domain/camera-mirror.ts` composes
+    // the offset into a VALUE instead, which is why that window cannot exist
+    // here. The port's `draw` takes that value and cannot hand a camera back.
+    run: () =>
+      Effect.gen(function* () {
+        // `state.mirroredCamera` and NOT `state.authoritativePose`: the pose is
+        // mc-sim's and the mirror is this repository's view of it, and drawing
+        // the pose directly would skip the cosmetic offset — i.e. the view bob
+        // would stop working and nothing would fail.
+        const camera = yield* Ref.get(state.mirroredCamera)
+        yield* draw.draw(camera)
+        // Counted whether or not anything was drawn, because this counter
+        // answers "did the stage run", which is a frame-loop question. What the
+        // GPU was actually given is `WorldRenderer.framesRendered`, and the two
+        // differ by exactly the frames that ran without a renderer — which is
+        // the distinction that makes a headless run legible rather than a lie.
+        yield* Ref.update(state.framesDrawn, (drawn) => drawn + 1)
+      }),
   },
   {
     id: RENDER_STAGE_IDS.postFx,
@@ -405,12 +434,23 @@ export const renderModule = (
    * repository ships no `lib.DOM`.
    */
   pointerLock: PointerLockPort = UNAVAILABLE_POINTER_LOCK,
+  /**
+   * Where `render:draw` draws. See `renderStages`.
+   *
+   * A browser host builds one with
+   * `makeWorldRenderer(THREE, canvas, viewport)` and passes it here; everything
+   * else leaves it at `NO_DRAW_TARGET`. It is the THIRD platform thing a host
+   * supplies, after the clock and the input targets, and it is supplied the
+   * same way for the same reason: this repository owns what to draw, and the
+   * host owns what there is to draw ON.
+   */
+  draw: DrawPort = NO_DRAW_TARGET,
 ): GameModule<InputService, never, never, InputService> => ({
   layers: InputServiceLayer(defaultBindings(), pointerLock),
   frameStages: Effect.gen(function* () {
     const input = yield* InputService
     const state = yield* makeRenderFrameState(quality)
-    return renderStages(state, input)
+    return renderStages(state, input, draw)
   }),
 })
 
@@ -424,6 +464,7 @@ export const renderModule = (
  */
 export const makeRenderStagesForPreview = (
   quality: GraphicsQuality = QUALITY_PRESETS.high,
+  draw: DrawPort = NO_DRAW_TARGET,
 ): Effect.Effect<
   { readonly state: RenderFrameState; readonly stages: ReadonlyArray<StageRegistration> },
   never,
@@ -432,7 +473,7 @@ export const makeRenderStagesForPreview = (
   Effect.gen(function* () {
     const input = yield* InputService
     const state = yield* makeRenderFrameState(quality)
-    return { state, stages: renderStages(state, input) }
+    return { state, stages: renderStages(state, input, draw) }
   })
 
 /**

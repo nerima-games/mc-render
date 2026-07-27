@@ -13,10 +13,28 @@
 <!-- ------------------------------------------------------------------------- -->
 
 format: 1
-exported declarations: 237
+exported declarations: 284
 supporting declarations: 17
 
 ## Exported
+
+### AO_LEVELS  `const`
+
+```ts
+const AO_LEVELS: number;
+```
+
+### AO_MAX  `const`
+
+```ts
+const AO_MAX: number;
+```
+
+### AO_SHADE_BY_LEVEL  `const`
+
+```ts
+const AO_SHADE_BY_LEVEL: ReadonlyArray<number>;
+```
 
 ### ATLAS_COLUMNS  `const`
 
@@ -79,10 +97,34 @@ type BrowserPointerLockOptions = {
 };
 ```
 
+### CAMERA_FAR_PLANE  `const`
+
+```ts
+const CAMERA_FAR_PLANE = 300;
+```
+
+### CAMERA_FOV_DEGREES  `const`
+
+```ts
+const CAMERA_FOV_DEGREES = 75;
+```
+
+### CAMERA_NEAR_PLANE  `const`
+
+```ts
+const CAMERA_NEAR_PLANE = 0.1;
+```
+
 ### CLICK_LANDINGS  `const`
 
 ```ts
 const CLICK_LANDINGS: readonly ["lock-target", "ui", "elsewhere"];
+```
+
+### COLOR_COMPONENTS  `const`
+
+```ts
+const COLOR_COMPONENTS = 3;
 ```
 
 ### COMPOSITE_SUBSUMES  `const`
@@ -98,6 +140,27 @@ type ChainViolation = {
     readonly rule: 'out-of-order' | 'missing-mandatory' | 'duplicate' | 'composite-conflict' | 'trailing-pass';
     readonly message: string;
 };
+```
+
+### ChunkGeometryBuffers  `type`
+
+```ts
+type ChunkGeometryBuffers = {
+    readonly positions: Float32Array;
+    readonly normals: Float32Array;
+    readonly colors: Uint8Array;
+    readonly uvs: Float32Array;
+    readonly indices: Uint32Array;
+    readonly quadCount: number;
+    readonly vertexCount: number;
+    readonly indexCount: number;
+};
+```
+
+### ChunkKey  `type`
+
+```ts
+type ChunkKey = string;
 ```
 
 ### ClickLanding  `type`
@@ -182,6 +245,15 @@ type DomListenerOptions = {
 };
 ```
 
+### DrawPort  `type`
+
+```ts
+type DrawPort = {
+    readonly draw: (camera: MirroredCameraState) => Effect.Effect<void>;
+    readonly resize: (width: number, height: number) => Effect.Effect<void>;
+};
+```
+
 ### ESCAPE_KEY_CODE  `const`
 
 ```ts
@@ -233,6 +305,18 @@ const FOCUS_NAVIGATION_POLICY: {
     readonly registeredBy: "nobody — the browser moves focus, and `focusin`/`focusout` on document report where it went";
     readonly rationale: string;
 };
+```
+
+### FaceDirection  `type`
+
+```ts
+type FaceDirection = 'xPos' | 'xNeg' | 'yPos' | 'yNeg' | 'zPos' | 'zNeg';
+```
+
+### FaceRole  `type`
+
+```ts
+type FaceRole = 'top' | 'bottom' | 'side';
 ```
 
 ### FocusGroupTargets  `type`
@@ -292,6 +376,12 @@ const HALF_TEXEL_UV: number;
 
 ```ts
 const HOTBAR_FOCUS_GROUP = "hotbar";
+```
+
+### INDICES_PER_QUAD  `const`
+
+```ts
+const INDICES_PER_QUAD = 6;
 ```
 
 ### INPUT_ACTIONS  `const`
@@ -538,6 +628,22 @@ type MaterialSpec = {
 };
 ```
 
+### MeshQuad  `type`
+
+```ts
+type MeshQuad = {
+    readonly blockId: number;
+    readonly direction: FaceDirection;
+    readonly role: FaceRole;
+    readonly lx: number;
+    readonly y: number;
+    readonly lz: number;
+    readonly width: number;
+    readonly height: number;
+    readonly ao: number;
+};
+```
+
 ### MirroredCameraState  `type`
 
 ```ts
@@ -563,6 +669,18 @@ type MouseButton = (typeof MOUSE_BUTTONS)[number];
 
 ```ts
 const NDC_VIEWPORT_AREA = 4;
+```
+
+### NORMAL_COMPONENTS  `const`
+
+```ts
+const NORMAL_COMPONENTS = 3;
+```
+
+### NO_DRAW_TARGET  `const`
+
+```ts
+const NO_DRAW_TARGET: DrawPort;
 ```
 
 ### NO_VIEW_OFFSET  `const`
@@ -671,6 +789,12 @@ const POINTER_LOCK_ACQUIRE_LANDING: ClickLanding;
 
 ```ts
 const POINTER_LOCK_STATES: readonly ["unlocked", "requested", "locked", "refused"];
+```
+
+### POSITION_COMPONENTS  `const`
+
+```ts
+const POSITION_COMPONENTS = 3;
 ```
 
 ### POST_PROCESSING_PASS_ORDER  `const`
@@ -783,6 +907,24 @@ type PostProcessingStep = {
 
 ```ts
 const QUALITY_PRESETS: Readonly<Record<QualityPreset, GraphicsQuality>>;
+```
+
+### QuadAxis  `type`
+
+```ts
+type QuadAxis = 'x' | 'y' | 'z';
+```
+
+### QuadCorners  `type`
+
+```ts
+type QuadCorners = readonly [QuadVertex, QuadVertex, QuadVertex, QuadVertex];
+```
+
+### QuadVertex  `type`
+
+```ts
+type QuadVertex = readonly [number, number, number];
 ```
 
 ### QualityPreset  `type`
@@ -949,6 +1091,18 @@ type RippleOffset = {
 };
 ```
 
+### SKY_CLEAR_ALPHA  `const`
+
+```ts
+const SKY_CLEAR_ALPHA = 1;
+```
+
+### SKY_CLEAR_COLOR  `const`
+
+```ts
+const SKY_CLEAR_COLOR = 8900331;
+```
+
 ### ScratchMap  `type`
 
 ```ts
@@ -1012,6 +1166,122 @@ const TOUCH_LOOK_PHASES: readonly ["press", "move", "release"];
 
 ```ts
 const TRANSLATED_DOM_EVENTS: ReadonlyArray<string>;
+```
+
+### ThreeBufferAttribute  `type`
+
+```ts
+type ThreeBufferAttribute = Record<never, never>;
+```
+
+### ThreeBufferGeometry  `type`
+
+```ts
+type ThreeBufferGeometry = {
+    setAttribute(name: string, attribute: ThreeBufferAttribute): unknown;
+    setIndex(index: ThreeBufferAttribute | null): unknown;
+    readonly computeBoundingSphere: () => void;
+    readonly dispose: () => void;
+};
+```
+
+### ThreeCamera  `type`
+
+```ts
+type ThreeCamera = {
+    readonly position: ThreeVector3;
+    readonly rotation: ThreeEuler;
+};
+```
+
+### ThreeEuler  `type`
+
+```ts
+type ThreeEuler = {
+    set(x: number, y: number, z: number, order: 'YXZ'): unknown;
+};
+```
+
+### ThreeMaterial  `type`
+
+```ts
+type ThreeMaterial = {
+    readonly dispose: () => void;
+};
+```
+
+### ThreeMesh  `type`
+
+```ts
+type ThreeMesh = {
+    frustumCulled: boolean;
+};
+```
+
+### ThreePerspectiveCamera  `type`
+
+```ts
+type ThreePerspectiveCamera = ThreeCamera & {
+    aspect: number;
+    readonly updateProjectionMatrix: () => void;
+};
+```
+
+### ThreeRendererParameters  `type`
+
+```ts
+type ThreeRendererParameters<TCanvas> = {
+    readonly canvas: TCanvas;
+    readonly antialias: boolean;
+    readonly stencil: boolean;
+    readonly powerPreference: 'high-performance';
+    readonly failIfMajorPerformanceCaveat: boolean;
+};
+```
+
+### ThreeScene  `type`
+
+```ts
+type ThreeScene = {
+    add(object: ThreeMesh): unknown;
+    remove(object: ThreeMesh): unknown;
+};
+```
+
+### ThreeSurface  `type`
+
+```ts
+type ThreeSurface<TCanvas, TGeometry extends ThreeBufferGeometry, TMaterial extends ThreeMaterial> = {
+    readonly WebGLRenderer: new (parameters: ThreeRendererParameters<TCanvas>) => ThreeWebGLRenderer;
+    readonly Scene: new () => ThreeScene;
+    readonly PerspectiveCamera: new (fov: number, aspect: number, near: number, far: number) => ThreePerspectiveCamera;
+    readonly BufferGeometry: new () => TGeometry;
+    readonly BufferAttribute: new (array: Float32Array | Uint8Array | Uint32Array, itemSize: number, normalized: boolean) => ThreeBufferAttribute;
+    readonly Mesh: new (geometry: TGeometry, material: TMaterial) => ThreeMesh;
+    readonly MeshBasicMaterial: new (parameters: {
+        readonly vertexColors: boolean;
+        readonly wireframe: boolean;
+    }) => TMaterial;
+};
+```
+
+### ThreeVector3  `type`
+
+```ts
+type ThreeVector3 = {
+    set(x: number, y: number, z: number): unknown;
+};
+```
+
+### ThreeWebGLRenderer  `type`
+
+```ts
+type ThreeWebGLRenderer = {
+    render(scene: ThreeScene, camera: ThreeCamera): unknown;
+    readonly setSize: (width: number, height: number, updateStyle: boolean) => unknown;
+    readonly setClearColor: (color: number, alpha: number) => unknown;
+    readonly dispose: () => void;
+};
 ```
 
 ### TileUvBounds  `type`
@@ -1086,6 +1356,12 @@ const UPSTREAM_STAGE_IDS: {
 };
 ```
 
+### UV_COMPONENTS  `const`
+
+```ts
+const UV_COMPONENTS = 2;
+```
+
 ### UiClick  `type`
 
 ```ts
@@ -1104,6 +1380,12 @@ type UvOrigin = {
 };
 ```
 
+### VERTICES_PER_QUAD  `const`
+
+```ts
+const VERTICES_PER_QUAD = 4;
+```
+
 ### ViewOffset  `type`
 
 ```ts
@@ -1111,6 +1393,15 @@ type ViewOffset = {
     readonly right: number;
     readonly up: number;
     readonly rollRadians: number;
+};
+```
+
+### Viewport  `type`
+
+```ts
+type Viewport = {
+    readonly width: number;
+    readonly height: number;
 };
 ```
 
@@ -1227,6 +1518,30 @@ type WaterUniformName = 'uTime' | 'uRefractionMap' | 'uCameraPosition' | 'uResol
 type WheelDeltaMode = (typeof WHEEL_DELTA_MODES)[number];
 ```
 
+### WorldRenderer  `type`
+
+```ts
+type WorldRenderer = DrawPort & {
+    readonly setChunk: (key: ChunkKey, buffers: ChunkGeometryBuffers) => Effect.Effect<void>;
+    readonly removeChunk: (key: ChunkKey) => Effect.Effect<void>;
+    readonly chunkKeys: Effect.Effect<ReadonlyArray<ChunkKey>>;
+    readonly framesRendered: Effect.Effect<number>;
+    readonly dispose: Effect.Effect<void>;
+};
+```
+
+### WorldRendererOptions  `type`
+
+```ts
+type WorldRendererOptions = {
+    readonly fovDegrees?: number;
+    readonly nearPlane?: number;
+    readonly farPlane?: number;
+    readonly clearColor?: number;
+    readonly wireframe?: boolean;
+};
+```
+
 ### acquiresPointerLock  `const`
 
 ```ts
@@ -1243,6 +1558,12 @@ const actionForKey: (bindings: Bindings, key: InputCode) => InputAction | undefi
 
 ```ts
 const advanceParticles: (pool: ParticlePool, dtSecs: number) => number;
+```
+
+### aoShade  `const`
+
+```ts
+const aoShade: (level: number) => number;
 ```
 
 ### atlasLayoutViolations  `const`
@@ -1270,6 +1591,12 @@ const bindingFor: (bindings: Bindings, action: InputAction) => InputCode | undef
 
 ```ts
 const browserInputLayer: (options: BrowserInputOptions) => Layer.Layer<InputService>;
+```
+
+### buildChunkGeometry  `const`
+
+```ts
+const buildChunkGeometry: (quads: ReadonlyArray<MeshQuad>, originX?: number, originZ?: number) => ChunkGeometryBuffers;
 ```
 
 ### buildPostProcessingChain  `const`
@@ -1336,6 +1663,12 @@ const describeRefractionDecision: (decision: RefractionDecision) => string;
 
 ```ts
 const evictionOrderIsSpawnOrder = true;
+```
+
+### faceNormal  `const`
+
+```ts
+const faceNormal: (direction: FaceDirection) => QuadVertex;
 ```
 
 ### forwardVector  `const`
@@ -1449,7 +1782,7 @@ const makeRenderFrameState: (quality?: GraphicsQuality) => Effect.Effect<RenderF
 ### makeRenderStagesForPreview  `const`
 
 ```ts
-const makeRenderStagesForPreview: (quality?: GraphicsQuality) => Effect.Effect<{
+const makeRenderStagesForPreview: (quality?: GraphicsQuality, draw?: DrawPort) => Effect.Effect<{
     readonly state: RenderFrameState;
     readonly stages: ReadonlyArray<StageRegistration>;
 }, never, InputService>;
@@ -1459,6 +1792,12 @@ const makeRenderStagesForPreview: (quality?: GraphicsQuality) => Effect.Effect<{
 
 ```ts
 const makeScratchMap: <K, V>(name: string, initialCapacity?: number) => ScratchMap<K, V>;
+```
+
+### makeWorldRenderer  `const`
+
+```ts
+const makeWorldRenderer: <TCanvas, TGeometry extends ThreeBufferGeometry, TMaterial extends ThreeMaterial>(three: ThreeSurface<TCanvas, TGeometry, TMaterial>, canvas: TCanvas, viewport: Viewport, options?: WorldRendererOptions) => Effect.Effect<WorldRenderer>;
 ```
 
 ### mayPreventDefault  `const`
@@ -1515,6 +1854,18 @@ const notchesForWheelDelta: (deltaY: number, mode: WheelDeltaMode) => number;
 const passOrderIndex: (pass: PostProcessingPass) => number;
 ```
 
+### quadCorners  `const`
+
+```ts
+const quadCorners: (quad: MeshQuad, originX: number, originZ: number) => QuadCorners;
+```
+
+### quadUvExtent  `const`
+
+```ts
+const quadUvExtent: (quad: MeshQuad) => readonly [number, number];
+```
+
 ### readSlot  `const`
 
 ```ts
@@ -1536,13 +1887,13 @@ const remap: (bindings: Bindings, action: InputAction, key: InputCode) => RemapO
 ### renderModule  `const`
 
 ```ts
-const renderModule: (quality?: GraphicsQuality, pointerLock?: PointerLockPort) => GameModule<InputService, never, never, InputService>;
+const renderModule: (quality?: GraphicsQuality, pointerLock?: PointerLockPort, draw?: DrawPort) => GameModule<InputService, never, never, InputService>;
 ```
 
 ### renderStages  `const`
 
 ```ts
-const renderStages: (state: RenderFrameState, input: InputServiceApi) => ReadonlyArray<StageRegistration>;
+const renderStages: (state: RenderFrameState, input: InputServiceApi, draw?: DrawPort) => ReadonlyArray<StageRegistration>;
 ```
 
 ### reportsKeyboardFocus  `const`
@@ -1647,6 +1998,12 @@ const suppressesBrowserScroll: (pointerLocked: boolean) => boolean;
 const takesTwoPassPath: (material: MaterialSpec) => boolean;
 ```
 
+### tangentAxes  `const`
+
+```ts
+const tangentAxes: (direction: FaceDirection) => readonly [QuadAxis, QuadAxis];
+```
+
 ### tileColumn  `const`
 
 ```ts
@@ -1675,6 +2032,12 @@ const tileUvBounds: (tileIndex: number) => TileUvBounds;
 
 ```ts
 const tileUvOrigin: (tileIndex: number) => UvOrigin;
+```
+
+### totalQuadArea  `const`
+
+```ts
+const totalQuadArea: (quads: ReadonlyArray<MeshQuad>) => number;
 ```
 
 ### touchLookStep  `const`

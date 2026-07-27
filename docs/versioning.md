@@ -95,29 +95,50 @@ mc-dev-meta workspace で開発している間は問題にならないが、publ
   `//npm.pkg.github.com/:_authToken=...` が要る。**現在の `.npmrc` にはまだ書いていない**
   （公開物が無いため）。最初の publish と同時に 16 リポジトリ分を揃える。
 
-## 5. `three` / `@types/three` をまだ入れていない理由
+## 5. `three` / `@types/three` の入れ方 —— `devDependencies`、`"DOM"` 無し
 
 参照実装は `three@^0.170.0` / `@types/three@^0.170.0` を使う（`package.json:57,59`）。
 plan.md §3.9 も THREE.js 描画一式を mc-render の責務としている。
+**両方とも `^0.170.0` で入った。ただし `devDependencies` に、である。**
 
-**それでも `dependencies` に入れていない。** 現在のソースは THREE.js を 1 行も import していないので、
-入れると「使っていないものへの依存」になる。加えて `@types/three` を devDependency に入れると
-`tsconfig.base.json` の `types: []` / `lib: ["ES2024"]` との整合が問題になる。
+この節はかつて「まだ入れていない理由」であり、入れるときの手順を 4 項目で予告していた。
+**予告した 4 項目のうち、実際に起きたのは 1 と 4 だけである。** 予告が外れた 2 が
+この節でいちばん重要なので、外れた形で残す。
 
-**最初の THREE.js アダプタと同じコミットで、まとめて行う:**
+### 5.1 何が起きたか
 
-1. `dependencies` に `three`、`devDependencies` に `@types/three`
-2. `tsconfig.base.json` の `lib` に `"DOM"`（+ ワーカープール実装時に `"WebWorker"`）
-   ——**ただしこれは自動ではない。改めて議論すること。**
-   `window` 入力アダプタは `"DOM"` **無しで**入った（[design-notes.md](./design-notes.md) DN-15）:
-   使う DOM メンバが 8 個だったので `application/dom-surface.ts` に構造的な型として書いた。
-   THREE のクラス階層はその手が効く大きさではないので、おそらく `"DOM"` が要る。
-   要ると判断した場合、**それは `environment: 'node'` で検査できる範囲が縮むということ**であり、
-   縮む範囲を測ってから入れること
-3. `types` に `"three"` は不要（`three` は自前の型を持たないが `@types/three` が
-   `three` モジュールの型宣言を提供するため、`import` すれば解決される）
-4. `vitest.config.ts` の `coverage.include` の見直し（GPU 依存コードは Node 計測から漏れる。
-   [testing.md](./testing.md) §6）
+1. **`dependencies` ではなく `devDependencies` に `three` と `@types/three`。**
+   出荷ソースは THREE.js を 1 行も import していない。`application/three-surface.ts` が
+   使う 7 個のコンストラクタと ~20 個のメンバを構造的な型として書き、
+   ホストが本物の名前空間を渡す。`three` が要るのは
+   `test/fixtures/three-surface.ts` を**本物の `.d.ts` に対してコンパイルする**
+   テストのためだけである。
+   `test/three-surface.test.ts` は「出荷ファイルに `three` の import が 1 つも無いこと」を
+   grep で固定しており、それは `pnpm typecheck` には**見えない**性質である ——
+   `skipLibCheck: true` は `.d.ts` の中の DOM 参照を黙らせたうえで、
+   使用側に `any` を渡す。型のあるシームに見えて、検査は 1 つも走らない。
+
+2. **`tsconfig.base.json` の `lib` に `"DOM"` は入っていない。予告は外れた。**
+   予告は「THREE のクラス階層はその手（構造的な型）が効く大きさではない」と書いていた。
+   **効いた。** レンダラが要るのはクラス階層ではなく 7 個のコンストラクタだったからである。
+   代償は `ThreeSurface<TCanvas, TGeometry, TMaterial>` の型引数 3 つで、
+   3 つとも「その位置の実型が `lib.DOM` か `three` を名指さないと書けない」ために存在する。
+   `application/three-surface.ts` のヘッダに、なぜメソッドは双変で
+   コンストラクタは反変なのか——実測で分かったこと——が書いてある。
+   `"WebWorker"` はまだ先（メッシャのワーカープール）。
+
+3. `types` に `"three"` は不要、は予告どおり（そもそも `import` していない）。
+
+4. `vitest.config.ts` の `coverage.include` の見直しは**まだ**。GPU 依存コードは
+   Node 計測から漏れる（[testing.md](./testing.md) §6）。`application/world-renderer.ts` が
+   その最初の実例になった。
+
+### 5.2 バージョンを一致させること
+
+`three` と `@types/three` は**同じ範囲文字列**でなければならない。
+THREE は minor でも破壊的変更を入れるので、`@types/three` が minor 1 つ先だと
+「入っていないライブラリを記述した型」になる。`test/three-surface.test.ts` が
+この一致を固定している。
 
 バージョンは `0.170.0` を出発点とするが、**移植時に再確認すること**。
 THREE は minor でも破壊的変更を入れる。参照実装は `three/addons/postprocessing/*` の
@@ -191,7 +212,7 @@ kernel の語彙を取ると真実の出所が 2 つになり、上記の削除�
 | --- | --- | --- |
 | `effect` | `^3.20.0` | 16 リポジトリで**同一メジャーに揃える**。Context / Layer の型が跨るため、メジャーが混ざると合成できない |
 | `@nerima-games/*` | 未宣言 | publish 後は**厳密ピン**（`0.3.1` のように範囲なし）。plan.md の bottom-up publish-then-pin |
-| `three` / `@types/three` | **未宣言** | §5。アダプタと同時に `^0.170.0` 起点で追加。**両者のバージョンを一致させる** |
+| `three` / `@types/three` | `^0.170.0`（**devDependencies**） | §5。出荷ソースは import しない。**両者のバージョンを一致させる**（`test/three-surface.test.ts` が固定） |
 | `typescript` / `vitest` / `oxlint` | `^` 付き | ツールチェーンは揃えるが厳密ピンはしない |
 | `packageManager` | `pnpm@9.15.0` | 16 リポジトリで同一 |
 

@@ -94,6 +94,8 @@ UV オフセットを必要とするので、パーティクル作業の**依存
 | **stage の全順序表** | mc-compose | plan.md §2.3-3 |
 | **プレビュー共通ハーネス** | mc-playground-kit | plan.md §3.10。**依存してはならない**（devDependency 専用） |
 | **QA/デバッグAPI・E2E** | mc-compose | plan.md §3.15 |
+| **`three` 名前空間そのものを渡すこと** | **ホスト**（mc-compose の `apps/web/main.ts`） | `window` / `document` / canvas と同じ扱い。mc-render は `application/three-surface.ts` で構造的に記述するだけで `three` を import しない |
+| **何を描くか** | **mc-render** | ホストは `getContext` も draw call も書かない。ライブラリを渡すのは配線、何を描くか決めるのはルール |
 
 ### 3.1 境界が紛らわしい 5 件
 
@@ -102,6 +104,26 @@ UV オフセットを必要とするので、パーティクル作業の**依存
 参照実装では両方が `packages/rendering/infrastructure/meshing/`（2,993 LOC）に同居しており、
 分割にあたって切り分けが要る（[porting.md](./porting.md) §3）。
 
+**2026-07-28: この境界に実装が入った。** `domain/chunk-geometry.ts` が
+quad → 頂点バッファ、`application/world-renderer.ts` が
+頂点バッファ → `BufferGeometry` → シーン、である。
+2 つに割れているのは、前者が**純粋で Node でテストでき**、後者が GPU を要るから。
+
+境界の向きについて 2 点、実装して初めて明確になったことがある:
+
+- **quad は単位面ではない。** `width`/`height` は `tangentAxes(direction)` の順に走る
+  extent であり、平坦な地形ではほぼ全部が merge 済みである。
+  単位面を仮定した builder は「面数も法線も巻き順も正しく、形だけ違う」メッシュを作る。
+- **AO は face ごとに 1 値であって vertex ごとに 4 値ではない。**
+  これは mc-meshing 側の設計判断（`domain/ambient-occlusion.ts`）であり、
+  mc-render はそれを 4 頂点に複製するだけである。**mc-render 側で per-vertex に
+  「改善」してはならない** —— per-vertex AO と greedy merge は本質的に両立しない。
+
+**`MeshQuad` はミラーである。** mc-meshing は依存グラフ上は親だが、
+publish されていないので import できない（`domain/kernel-vocabulary.ts` と同じ事情）。
+加えて mc-compose の vite alias が解決するのは 3 兄弟だけなので、
+import するとブラウザでページが起動しなくなる。publish 時に削除する。
+
 **ワーカープール。** plan.md §3.7 は worldgen 側に「ワーカープールPort（実装は利用側が注入）」と書き、
 §3.9 は render に「ワーカープール実装」と書く。つまり **Port の定義は使う側、実装はここ**。
 参照実装の `packages/worker`（1,556 LOC）は Port と実装が同居しているので、分割時に分ける。
@@ -109,6 +131,15 @@ UV オフセットを必要とするので、パーティクル作業の**依存
 **ライティング。** データ（BFS光伝播・4bitパック・ライトグリッド）は mc-worldgen が所有し、
 チャンクデータの一部。mc-render はそれをシェーダに渡して**適用**するだけ（plan.md §3.7 / §7）。
 光の値を mc-render で再計算し始めたら境界を越えている。
+
+その帰結が `domain/chunk-geometry.ts` の頂点カラーに出ている。
+参照実装は `R = AO, G = sky light, B = block light` を詰めるが
+（`greedy-meshing-accumulator.ts:131-134`）、**読むライトグリッドがまだ無い**ので
+3 チャンネルとも AO を書いている。**これは色の選択ではなく、
+まだ無いものについての記述である。** グリッドが来たら G と B がそのまま置き換わる。
+
+同じ理由で、`SKY_CLEAR_COLOR` は定数である。参照は昼夜サイクルから駆動する
+（`lighting-stage.ts:23`）。昼夜サイクルの所有者はまだ決まっていない。
 
 **Escape キー。** 入力サービスはキーを**観測**するが、Escape の**意味**は決めない。
 閉じるかどうかを決めるのはフレーム側の単一ハンドラ（plan.md §3.9 / §3.13 が対で言及）。

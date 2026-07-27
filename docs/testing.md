@@ -35,26 +35,47 @@ kit を待っていると永遠に始まらない。つまり mc-render のプ�
 
 ### 2.2 「固定チャンクの目視」がまだ無い理由と、代わりに何を見せているか
 
-§3 の方針の直接の帰結である。**現在のソースには THREE.js が 1 行も無く、
-`tsconfig.base.json` の `lib` に `"DOM"` も無い。**
-固定チャンクを描くにはそのどちらも要る。プレビューにだけ THREE を足すことは、
-ポストFXの順序・ホイールのモデル・ポインタロックの 4 値状態機械が Node で検証できる
-という**機構的保証を、どこかの tsconfig が守る約束に格下げする**ことである。
+**この節の前提は 2026-07-28 に変わった。THREE シームは着地した。**
+以下、変わった部分と変わらなかった部分を分けて書く。
 
-**この段落は 2026-07-28 時点でも字義どおり正しい。**
-一度「アダプタは着地済み」として扱われかけたので、確認方法を書いておく。
-`c99ac01` の**コミットメッセージ本文**は THREE シームを詳細に述べている
+#### 変わったこと
+
+`application/three-surface.ts` と `application/world-renderer.ts` があり、
+`render:draw` は `DrawPort` を呼ぶ。`domain/chunk-geometry.ts` は mc-meshing の
+quad を interleave した頂点バッファにする。**`tsconfig.base.json` の `lib` は
+`["ES2024"]` のまま、`types` は `[]` のままである** —— 予告では `"DOM"` が要ると
+書いてあったが、要らなかった（[versioning.md](./versioning.md) §5.1）。
+つまり上の段落が守りたかった機構的保証は**そのまま残っている**。
+
+`three` は `devDependencies` にある。出荷ソースは 1 行も import しない。
+
+#### 変わっていないこと ——「固定チャンクの目視」は依然この repo に無い
+
+`apps/preview-render/` はターミナルプレビューのままである。ブラウザプレビューを
+足すには vite（もう 1 つの devDependency）と、このリポジトリが所有していない
+ワールドデータが要る。**代わりに、目視は mc-compose の `pnpm e2e:browser` にある** ——
+そこでは実際に WebGL2 コンテキストが取得され、フレームが回る
+（docs/e2e-triage.md #1、2026-07-28 に `fixme` を外した）。
+ただし**画面はスカイブルー 1 色である**。mc-worldgen も mc-meshing も
+mc-compose の vite alias で解決できる 3 つの兄弟に入っていないので、
+ジオメトリがページに到達しない。「コンテキストが無い」と「中身が無い」の区別が
+ついた、というのがこの変更の到達点である。
+
+#### 判定方法についての注意は生きている
+
+一度「アダプタは着地済み」として扱われかけたことがある。
+`c99ac01` の**コミットメッセージ本文**は THREE シームを詳細に述べていた
 （narrow structural surface、mc-meshing の merged quads からのジオメトリ構築、`WorldRenderer`）。
-**その diff にシームは入っていない** —— 13 ファイルは
+**その diff にシームは入っていなかった** —— 13 ファイルは
 `domain/particle-pool.ts` / `texture-atlas.ts` / `water-surface.ts` / `water-refraction.ts` と
 対応するテスト、および docs である。件名の「the **three** deferred mesh layers」の
 `three` は THREE.js ではなく**数の 3**（この 3 つのメッシュ層）を指す。
 
 したがって判定はコミットメッセージではなく**ツリー**で行うこと。
-`grep -rn "from 'three'" --include='*.ts' .` が 0 件、`package.json` に `three` が無い、
-`tsconfig.base.json` が `lib: ["ES2024"]` のまま —— この 3 つが揃っているならアダプタは無い。
+現在なら `application/three-surface.ts` と `application/world-renderer.ts` が存在し、
+`test/three-surface.test.ts` が green であることが一次資料である。
 DN-02 §「数値の出所」は**コミットメッセージを見なかったことによる誤判定**を記録しているが、
-今回は逆向きの失敗である。**どちらの方向にも、一次資料はツリーとテストであってメッセージではない。**
+`c99ac01` は逆向きの失敗である。**どちらの方向にも、一次資料はツリーとテストであってメッセージではない。**
 
 そこで `apps/preview-render/` は、**実際にデータとしてモデル化されているもの**を出す。
 6 つのビューがある —— `input` / `postfx` / `material` / `mirror` / `scratch` / `stages`。
@@ -605,3 +626,80 @@ vitest 側の `test/api-lock.test.ts` が見ているのは生成器 `scripts/ap
 ```
 
 `lint:fix` も同様。mx-* の 3 リポジトリも `stages` を含む形で書かれている。
+
+## 12. THREE シームのテスト（2026-07-28）
+
+3 ファイル増えた。それぞれ**何を主張し、何を主張しないか**が違う。
+
+### 12.1 `test/three-surface.test.ts` —— 型の証明であって、実行の証明ではない
+
+`test/fixtures/three-surface.ts` を `lib: ["ES2022", "DOM"]` と**本物の `three`** に
+対してコンパイルし、診断 0 件を主張する。`test/browser-input-adapter.test.ts` 末尾の
+DOM 証明と同じ機構である（`ts.createProgram` を直接叩く）。
+
+**これが必要な理由は 1 つ**: `application/three-surface.ts` の型が正しいかどうかを、
+`pnpm typecheck` は原理的に判定できない。そのプロジェクトには `three` も DOM も無く、
+**assignable であるべき「元」が存在しない**。実際、この 3 つはどれも
+「素直な書き方」で書いて、このテストに落とされてから直したものである:
+
+| 素直な書き方 | 落ちた理由 |
+| --- | --- |
+| `ThreeMesh` に `geometry` を持たせる | `Scene.add` が取るのは `Object3D` で、`Object3D` に `geometry` は無い |
+| `ThreeMaterial` に `dispose` を持たせる | `Mesh` の第 2 引数は `Material \| Material[]` で、**配列に `dispose` は無い** |
+| `ThreeCamera` に `aspect` を持たせる | `WebGLRenderer.render` が取るのは `Camera` で、`aspect` は `PerspectiveCamera` にしか無い |
+
+同じテストが 3 つの周辺事実も固定している: `tsconfig.build.json` が
+`lib: ["ES2024"]` / `types: []` のままであること、**出荷ファイルに `three` の import が
+1 つも無いこと**（grep。`skipLibCheck` があるので型検査では見えない）、
+`three` と `@types/three` のバージョン文字列が一致していること。
+
+### 12.2 `test/chunk-geometry.test.ts` —— merged extent と per-face AO
+
+**この 2 つが load-bearing である。**
+
+`width`/`height` は `tangentAxes(direction)` の順に走るが、**参照実装のスキャン順は
+x 面 2 方向でこれと逆である**（`greedy-meshing-algorithms.ts:24, :63` は `u = lz, v = y`）。
+参照の頂点式をそのまま写すと、**merged な側面がすべて転置される** ——
+面数も巻き順も法線も正しいまま、形だけが動く。だからテストは
+「式をもう一度書いて比べる」のではなく、**軸ごとに emit された extent を測る**。
+式から書いたテストは、式が間違っていることを検出できない。
+
+AO は quad ごとに 1 値である（mc-meshing `domain/ambient-occlusion.ts`。
+per-vertex AO と greedy merge は本質的に両立しない）。テストは
+「4 頂点が同じ shade を持つ」と「shade が level に追従する」を**両方**主張する。
+片方だけなら定数実装が通る。
+
+巻き順は**外積で計算して**法線と向きが揃うことを見る。転記した表と比べるのでは、
+表を写し間違えたときに一緒に間違う。
+
+golden は 1 quad 分を全バイト書き下してある（plan.md §3.3 はハッシュを要求しているが、
+ハッシュは「何かが動いた」しか言わない）。
+
+### 12.3 `test/world-renderer.test.ts` —— 呼び出しプロトコルだけ
+
+`test/support/fake-three.ts` を使う。**そのファイルのヘッダに、この fake が
+何の代わりになっていて何の代わりにはなっていないかが書いてある。**
+要点だけ再掲すると、GPU の挙動は一切モデル化していない ——
+コンテキストが取れるか、何かが見えるか、巻き順・カリング・深度、
+index がバッファをはみ出していないか、`dispose` が本当に解放したか。
+**そのどれもここでは green になる。**
+
+ここで意味があるのは、ブラウザでは「しばらく壊れていても気づかない」種類の帳簿である:
+
+- `setChunk` が同じ key で 2 回呼ばれたとき、mesh を**足す**のではなく**差し替える**
+  （docs/public-api.md §3.1: 落下する砂の柱は 1 tick に同じチャンクを 32 回汚す。
+  症状はメモリ曲線であって絵ではない）
+- `removeChunk` が `BufferGeometry.dispose()` を呼ぶ
+- `draw` が **mirrored** カメラを書き込む。authoritative pose を渡す実装は
+  「view bob だけが静かに効かなくなった正しく見える世界」を描く
+
+### 12.4 目視の実測（2026-07-28）
+
+fake が「主張できない」と書いた側 —— バッファが本当にアップロードでき、
+巻き順が正しく、AO が実際に見えるか —— は、mc-compose のページに
+一時的にジオメトリを流し込んで**スクリーンショットで確認した**（コミットには含まれない）。
+merged な 16x15 の床が正しい遠近で出て、ao=0 の壁が白、ao=3 の壁が濃いグレー、
+ao=1 の `xNeg` 壁が薄いグレーで、いずれもカリングされずに出た。
+
+**この確認は自動化されていない。** ワールドデータが mc-compose に届くようになった時点で、
+`docs/e2e-triage.md` にピクセル主張の行を足すべきである。

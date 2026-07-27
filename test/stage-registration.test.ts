@@ -1,6 +1,7 @@
 import { describe, expect, it } from '@effect/vitest'
 import { Effect, Ref } from 'effect'
-import { isMirrorStale, mirrorLagSecs } from '../domain/camera-mirror'
+import { isMirrorStale, mirrorLagSecs, type MirroredCameraState } from '../domain/camera-mirror'
+import { NO_DRAW_TARGET, type DrawPort } from '../application/world-renderer'
 import {
   GAMEPLAY_LISTENER_TARGET,
   HOTBAR_FOCUS_GROUP,
@@ -551,6 +552,91 @@ describe('render:chunk-sync, render:draw and render:post-fx', () => {
         yield* stage.run(dt).pipe(Effect.provide(FRAME_SERVICES))
         yield* stage.run(dt).pipe(Effect.provide(FRAME_SERVICES))
         expect(yield* Ref.get(state.framesDrawn)).toBe(2)
+      }),
+    ),
+  )
+
+  it.effect('render:draw hands the DrawPort the mirrored camera, once per frame', () =>
+    Effect.gen(function* () {
+      // The stage is no longer a counter: it calls a `DrawPort`, and in a
+      // browser that port is `application/world-renderer.ts`'s. What is checked
+      // here is the WIRING — that the stage reaches the port at all, exactly
+      // once, and with the right value. What the port then does to a GPU is
+      // `test/world-renderer.test.ts`'s and, for anything visual,
+      // mc-compose's `pnpm e2e:browser`.
+      const drawn = yield* Ref.make<ReadonlyArray<MirroredCameraState>>([])
+      const port: DrawPort = {
+        draw: (camera) => Ref.update(drawn, (seen) => [...seen, camera]),
+        resize: () => Effect.void,
+      }
+
+      yield* Effect.gen(function* () {
+        const { state, stages } = yield* makeRenderStagesForPreview(undefined, port)
+        const stage = stageById(stages, RENDER_STAGE_IDS.draw)
+
+        yield* stage.run(dt).pipe(Effect.provide(FRAME_SERVICES))
+        yield* stage.run(dt).pipe(Effect.provide(FRAME_SERVICES))
+
+        expect(yield* Ref.get(drawn)).toHaveLength(2)
+        expect(yield* Ref.get(state.framesDrawn)).toBe(2)
+      }).pipe(Effect.provide(InputServiceLayer()))
+    }),
+  )
+
+  it.effect('REGRESSION: it draws the MIRRORED camera and not the authoritative pose', () =>
+    Effect.gen(function* () {
+      // The two differ by exactly the cosmetic view offset, and a renderer
+      // handed the raw pose would draw a correct-looking world with the view
+      // bob silently switched off — nothing would fail and no test that only
+      // counted frames could tell. `domain/camera-mirror.ts` composes the
+      // offset into the mirrored VALUE; this asserts the stage reads that one.
+      const drawn = yield* Ref.make<ReadonlyArray<MirroredCameraState>>([])
+      const port: DrawPort = {
+        draw: (camera) => Ref.update(drawn, (seen) => [...seen, camera]),
+        resize: () => Effect.void,
+      }
+
+      yield* Effect.gen(function* () {
+        const { state, stages } = yield* makeRenderStagesForPreview(undefined, port)
+
+        yield* Ref.set(state.authoritativePose, {
+          position: position(0, 64, 0),
+          yawRadians: 0,
+          pitchRadians: 0,
+          capturedAtSecs: MonotonicTimeSecs(1),
+        })
+        yield* Ref.set(state.viewOffset, { right: 0, up: 0.5, rollRadians: 0 })
+
+        // The mirror stage is what composes the two; draw must read its output.
+        yield* stageById(stages, RENDER_STAGE_IDS.cameraMirror)
+          .run(dt)
+          .pipe(Effect.provide(FRAME_SERVICES))
+        yield* stageById(stages, RENDER_STAGE_IDS.draw)
+          .run(dt)
+          .pipe(Effect.provide(FRAME_SERVICES))
+
+        const seen = yield* Ref.get(drawn)
+        expect(seen[0]?.position.y).toBe(64.5)
+        expect(seen[0]).toStrictEqual(yield* Ref.get(state.mirroredCamera))
+      }).pipe(Effect.provide(InputServiceLayer()))
+    }),
+  )
+
+  it.effect('with no DrawPort the stage still runs, and has genuinely not drawn', () =>
+    withStages((stages, state) =>
+      Effect.gen(function* () {
+        // `NO_DRAW_TARGET` is the default, and it is the common case: every
+        // Node test, `apps/preview-render`, and any consumer composing the
+        // module to inspect the frame order. A stage that required a renderer
+        // would make the module unregisterable outside a browser.
+        //
+        // `framesDrawn` counts the STAGE and rises anyway; nothing anywhere
+        // claims a frame reached a GPU.
+        const stage = stageById(stages, RENDER_STAGE_IDS.draw)
+        yield* stage.run(dt).pipe(Effect.provide(FRAME_SERVICES))
+
+        expect(yield* Ref.get(state.framesDrawn)).toBe(1)
+        expect(NO_DRAW_TARGET.draw(yield* Ref.get(state.mirroredCamera))).toBeDefined()
       }),
     ),
   )

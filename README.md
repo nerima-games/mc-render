@@ -34,9 +34,13 @@ mc-playground-kit は devDependency 専用で出荷ビルドに入らないた�
 （plan.md §6 Step 3 の bottom-up publish-then-pin）、kernel の語彙は
 `domain/kernel-vocabulary.ts` に暫定ミラーしてある。kernel 公開時に削除する。
 
-**`three` / `@types/three` もまだ入れていない**（参照実装は `^0.170.0`）。
-現在のソースが THREE.js を 1 行も import していないため。
-最初の THREE.js アダプタと同じコミットで追加する
+**`three` / `@types/three` は `devDependencies` に入った**（`^0.170.0`、参照実装と同じ）。
+`dependencies` ではない。**出荷ソースは THREE.js を 1 行も import していない** ——
+`application/three-surface.ts` が使う 7 個のコンストラクタを構造的な型として書き、
+ホストが本物の名前空間を渡す。`three` が要るのは
+`test/fixtures/three-surface.ts` を**本物の `three` の `.d.ts` に対してコンパイルする**
+テスト（`test/three-surface.test.ts`）のためであり、それがこの型が正しいことの唯一の証拠である。
+`tsconfig.base.json` の `lib` は `["ES2024"]` のまま、`types` は `[]` のまま
 （[`docs/versioning.md`](./docs/versioning.md) §5）。
 
 ## このリポジトリの位置づけ
