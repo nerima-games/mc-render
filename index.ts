@@ -40,7 +40,11 @@ export * from './domain/camera-mirror'
 export * from './domain/frame-scratch'
 export * from './domain/input-bindings'
 export * from './domain/material-policy'
+export * from './domain/particle-pool'
 export * from './domain/post-processing'
+export * from './domain/texture-atlas'
+export * from './domain/water-refraction'
+export * from './domain/water-surface'
 
 // --- Application: Effect services ------------------------------------------
 export * from './application/input-service'

@@ -15,18 +15,66 @@ plan.md §2.3-1 の分類でいう **名詞**。「どう見えるか」の仕�
 | 領域 | 具体 | 状態 |
 | --- | --- | --- |
 | ポストFXチェーン | パスの確定順序、品質プリセットごとの構成、CompositePass | 順序と検証は実装済 `domain/post-processing.ts`（THREE 実体は未） |
-| マテリアル | チャンク（不透明/水/透過固体）、水面、パーティクル、`forceSinglePass` 方針 | 方針のみ `domain/material-policy.ts` |
+| マテリアル | チャンク（不透明/水/透過固体）、水面、パーティクル、`forceSinglePass` 方針 | 方針は `domain/material-policy.ts`。**ただし述語は水面を分類できない** — §2.1 |
 | カメラ | mc-sim のスナップショットを THREE カメラへミラー、視錐台カリング | ミラーは実装済 `domain/camera-mirror.ts` |
-| パーティクル | インスタンス化パーティクルプール | 未実装 |
-| 水面 | 水マテリアル・屈折 | 未実装 |
+| パーティクル | インスタンス化パーティクルプール | **プール本体は実装済** `domain/particle-pool.ts`。容量 512 / drop-oldest / シード付き乱数、フレーム経路で無アロケーション。`InstancedMesh` への束ねは THREE アダプタ待ち |
+| 水面 | 水マテリアル・屈折 | **方針・算術は実装済**。マテリアルは `domain/water-surface.ts`、屈折プリパスの実行判定は `domain/water-refraction.ts`。`ShaderMaterial` 実体は THREE アダプタ、**幾何（水面高さ・流向）は mc-meshing** |
 | `WorldRenderer` | chunk ダーティ購読 → メッシュ更新 | **未実装。ただし購読先は決まった**（`mc-worldgen` の `ChunkStore.subscribeDirty`。[public-api.md §3.1](./public-api.md)） |
 | ワーカープール**実装** | 地形ワーカー / メッシングワーカーのプール（Port は各所有者） | 未実装 |
 | **実行時入力サービス** | キーボード / マウス / ポインタロック / タッチ / キーリマッピング | ポート越しに実装済 `application/input-service.ts` + `window` アダプタ `application/browser-input-adapter.ts`（ゲームパッド / タッチは未） |
 | **フレーム stage 登録** | `render:input` / `render:camera-mirror` / `render:chunk-sync` / `render:draw` / `render:post-fx` | 登録位置は確定済 `stages/`。本体は FIRST CUT |
 | フレーム毎スクラッチ | 一時 `Map` の事前確保と再利用 | 実装済 `domain/frame-scratch.ts` |
 | グラフィックス品質プリセット適用 | low / medium / high / ultra | ポストFX部分のみ `domain/post-processing.ts` |
-| テクスチャアセット | アトラス画像を同梱（plan.md §5.3「独立アセットリポジトリは作らない」） | 未実装 |
+| テクスチャアセット | アトラス画像を同梱（plan.md §5.3「独立アセットリポジトリは作らない」） | **半分だけ実装済**。レイアウト算術（タイル→UV、ハーフテクセル）は `domain/texture-atlas.ts`。**アトラス PNG 本体とそのローダは未実装** — §2.2 |
 | ライトグリッドの**適用** | worldgen が持つ 4bit ライトグリッドを描画に反映 | 未実装 |
+
+### 2.1 `forceSinglePass` の述語は水面を分類できない（**既知の穴**）
+
+`domain/material-policy.ts` の規則は **`shared && transparent+DoubleSide && cutout`** である。
+水マテリアルは共有・transparent・DoubleSide だが `alphaTest` が 0（`ShaderMaterial` の既定）なので
+**cutout ではない**。したがって `describeMaterialPolicy` の判定は `review-sharing` になり、
+その処方は「共有をやめるか、コストを承知で受け入れよ」である。
+
+**参照実装はそのどちらもしていない。** `forceSinglePass: true` を立てており
+（`water-material.ts:137`）、`material-policy.ts:67-68` はその行を規則の**正しい適用例 4 件のひとつ**として
+列挙している。つまり述語と、その周りの散文が食い違っている。
+
+正しいのは散文のほうである。`material-policy.ts:62-63` は基準を
+「cutout **または平面**であって順序が何も買わないもの」と書いており、
+`:92-96` で **cutout の側だけ**を述語にした。平面の側は `MaterialSpec` に表現が無い。
+水面はまさにその穴に落ちる —— グリーディメッシュされた水面は閉じた体積ではなく単一の平面で、
+どの瞬間もカメラに向いている面は 2 面のうち 1 面だけなので、
+背面→前面の 2 パス順序が解決するものが無い。水面同士の前後関係は**オブジェクト間ソート**であり、
+`forceSinglePass` はそこに影響しない。
+
+**とった対処**: 共有述語は**書き換えていない**。`MaterialSpec` に `flat` を足すのは
+他の 4 マテリアルの判定を変える共有ファイルの決定であって、水面についての決定ではない。
+また水面の `alphaTest` を 0 以外に**偽らせてもいない**。
+欠けている条項を `WATER_SURFACE_IS_FLAT` という値として置き、
+`waterForceSinglePassVerdict` で共有規則と合成した。
+アダプタは正しい答えを得て、`material-policy.ts` は自分の答えを保ち、食い違いは見えたまま残る。
+両方が `test/water-surface.test.ts` で固定してある。
+
+**述語を広げる決定は未決。** 広げるなら `MaterialSpec` に平面性を足し、
+4 マテリアル分の判定を通し直すこと。そのとき上記テストの前半が落ちて、この節に導かれる。
+
+### 2.2 テクスチャアセットを「半分」にした理由
+
+アトラスは分離できる 2 つのものである。
+
+| | 中身 | ここで検査できるか |
+| --- | --- | --- |
+| **画像** | 512x512 の PNG。バイナリ資産 | **できない。** 読み込みに `TextureLoader` / `CanvasTexture` すなわち DOM が要り、`tsconfig.base.json` はそれを持たない（持たせない）。見た目が正しいかは Node では誰も確かめられない |
+| **レイアウト** | どのタイル番号がどの (列, 行) か、その UV 矩形は何か | **できる。** 整数 2 つの上の純粋な算術で、起こりうるバグは全部単体テストで見える |
+
+レイアウトだけを `domain/texture-atlas.ts` に入れた。§3.1 の方針
+（機械的に検査できる半分はデータと述語にし、スクリーンショットが要る半分は
+「要る」と書く）をそのまま適用したものである。
+レイアウト側は飾りではなく、パーティクルが破壊したブロックのタイルをサンプルするのに
+UV オフセットを必要とするので、パーティクル作業の**依存**である。
+
+**PNG 本体は残っている作業**であり、THREE アダプタと同時に入れるのが自然である
+（ローダがそちら側にあるため）。
 
 ## 3. 非スコープ（明示的に持たない）
 

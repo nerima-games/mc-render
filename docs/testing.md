@@ -154,20 +154,44 @@ E2E でも（ポインタロックが使えないので）単体でも（DOM が
 
 ## 4. 現在のテスト
 
-`vitest run`。10 ファイル / 277 テスト。すべて `environment: 'node'`。
+`vitest run`。16 ファイル / 507 テスト。すべて `environment: 'node'`。
 
 | ファイル | テスト数 | 対応 |
 | --- | ---: | --- |
-| `test/post-processing.test.ts` | 20 | DN-01 / DN-07 |
-| `test/input.test.ts` | 87 | DN-04 / DN-05 / DN-08 / DN-09 / DN-12 / DN-13 / DN-14 |
-| `test/browser-input-adapter.test.ts` | 49 | `window` アダプタ。DN-04（登録と解除）/ DN-12 / DN-13 / DN-14 / DN-15 |
-| `test/camera-mirror.test.ts` | 13 | DN-06 |
-| `test/frame-scratch.test.ts` | 12 | DN-03 |
+| `test/post-processing.test.ts` | 22 | DN-01 / DN-07 |
+| `test/input.test.ts` | 128 | DN-04 / DN-05 / DN-08 / DN-09 / DN-12 / DN-13 / DN-14 |
+| `test/browser-input-adapter.test.ts` | 77 | `window` アダプタ。DN-04（登録と解除）/ DN-12 / DN-13 / DN-14 / DN-15 |
+| `test/touch-controls.test.ts` | 23 | タッチ入力（DN-16 周辺） |
+| `test/movement-keys.test.ts` | 10 | 移動キーの語彙 |
+| `test/camera-mirror.test.ts` | 14 | DN-06 |
+| `test/frame-scratch.test.ts` | 18 | DN-03 |
 | `test/material-policy.test.ts` | 10 | DN-02 |
-| `test/stage-registration.test.ts` | 20 | `stages/` のフレーム位置と順序制約（public-api.md §6-2）+ クリック→ロック要求（DN-14） |
+| **`test/particle-pool.test.ts`** | **36** | **DN-17**（容量・drop-oldest・シード付き乱数） |
+| **`test/water-surface.test.ts`** | **31** | **DN-18**（水マテリアルと `forceSinglePass` の穴）/ DN-02 |
+| **`test/water-refraction.test.ts`** | **29** | **DN-18**（屈折プリパスのゲート 6 つとその順序） |
+| **`test/texture-atlas.test.ts`** | **15** | **DN-19**（アトラスのレイアウト算術とハーフテクセル） |
+| `test/stage-registration.test.ts` | 26 | `stages/` のフレーム位置と順序制約（public-api.md §6-2）+ クリック→ロック要求（DN-14） |
 | `test/kernel-mirror.test.ts` | 12 | `domain/kernel-vocabulary.ts` が mc-kernel と同形であること（§4.1） |
-| `test/check-dependency-whitelist.test.ts` | 28 | DN-11 + 依存ホワイトリスト本体 |
+| `test/check-dependency-whitelist.test.ts` | 30 | DN-11 + 依存ホワイトリスト本体 |
 | `test/api-lock.test.ts` | 26 | APIロック生成器 `scripts/api-lock.ts` の機構（§8 / public-api.md §8） |
+
+### 4.2 パーティクル / 水面で**押さえられなかった**もの
+
+§3.2 の論法と同じで、正直に書いておく。以下は
+「**本物のスクリーンショットが要るので、ここでは検査できない**」であって、
+弱い assertion を置いて覆っているつもりになってはならない。
+
+| 主張 | なぜ検査不能か |
+| --- | --- |
+| パーティクルが**それらしく見える**か（0.1m のクォッドの大きさ、フェード曲線、壊したブロックのタイルが本当に出ているか） | GPU が要る。§1 の fixture / スクリーンショット行 |
+| **容量 512 で足りる**か（速いツルハシで枯渇しないか） | 同上。参照実装も測定を残していない（`domain/particle-pool.ts` は「転記であって正当化ではない」と明記） |
+| 水の**色が水に見える**か。パレット・空のグラデーション・`WATER_SURFACE_ALPHA = 0.86` | 参照実装の根拠が「湖が水平線のヘイズに溶けないこと」という**画についての判断**であり、画を見ないと決まらない |
+| 屈折の閾値 0.005 / 0.05 と、high の間隔 2 が**振り向きで遅れて見えないか** | 実 GPU で閾値サイズの水を見るしかない |
+
+検査**できた**ほうは、逆に全部データにしてある ——
+リップルが有界であること、フレネルが単調であること、
+正弦近似の誤差が 0.056 を超えないこと（**参照実装の数値を引用せず、この場で測っている**）、
+屈折ゲート 6 つの順序が答えを変えないこと（720 通り全数）。
 
 ### 4.1 `test/kernel-mirror.test.ts` が守っているもの
 
@@ -257,6 +281,31 @@ THREE.js アダプタは違う。あちらの検証は §1 の 3 本立て
 知る必要がある。知らないと、次の人が「整理」して消す。
 （実測の正確な範囲と出典コミットは [design-notes.md](./design-notes.md) DN-02。
 assert しているのは文字列の存在であって、数値の再現ではない。）
+
+### 5.7 規則が自分の書いた基準より狭いときは、**両方**を固定する
+
+`test/water-surface.test.ts` に `KNOWN GAP:` で始まるテストがある。
+`domain/material-policy.ts` の述語が水マテリアルを `review-sharing` と判定すること
+——**参照実装がフラグを立てている**マテリアルについて —— を assert している。
+
+正しい答えのほうだけを assert するのが自然に見えるが、それをやると
+**食い違いが消える**。共有述語を誰かが広げた日に、
+このテストが落ちて [responsibility.md §2.1](./responsibility.md) に導かれるのが望ましい挙動であり、
+「合成した側だけ緑」だとその日は静かに過ぎる。
+
+規則は書き換えていない。データも偽っていない（水面の `alphaTest` は本当に 0 である）。
+欠けた条項を値として置き、合成した。**3 つとも別々のテストで固定してある。**
+
+### 5.8 参照実装が書いた数値は、測れるなら**引用せず測る**
+
+`WAVE_APPROX_MAX_ERROR` の 0.056 は、参照実装のコメントから写したのではなく
+`test/water-surface.test.ts` が定義域を掃いて測っている。
+
+それをやったので、参照実装の `~0.056` が
+**貼られている関数の性質ではない**ことが分かった（DN-18）。写していたら分からなかった。
+
+同じ扱いをした値: フレネル F0 = 0.02 は屈折率 1.333 からの導出と一致することを確認している。
+逆に、**測れないものは測れないと書く** —— §4.2。
 
 ## 6. カバレッジ
 

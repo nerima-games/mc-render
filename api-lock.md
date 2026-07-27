@@ -13,10 +13,34 @@
 <!-- ------------------------------------------------------------------------- -->
 
 format: 1
-exported declarations: 147
+exported declarations: 237
 supporting declarations: 17
 
 ## Exported
+
+### ATLAS_COLUMNS  `const`
+
+```ts
+const ATLAS_COLUMNS = 16;
+```
+
+### ATLAS_PIXELS  `const`
+
+```ts
+const ATLAS_PIXELS = 512;
+```
+
+### ATLAS_TILE_COUNT  `const`
+
+```ts
+const ATLAS_TILE_COUNT: number;
+```
+
+### BEHIND_NEAR_PLANE_RATIO  `const`
+
+```ts
+const BEHIND_NEAR_PLANE_RATIO = 1;
+```
 
 ### Bindings  `type`
 
@@ -86,6 +110,18 @@ type ClickLanding = (typeof CLICK_LANDINGS)[number];
 
 ```ts
 const DEFAULT_BINDINGS: Readonly<Record<Exclude<InputAction, 'escape'>, InputCode>>;
+```
+
+### DEFAULT_BURST_PARTICLES  `const`
+
+```ts
+const DEFAULT_BURST_PARTICLES = 6;
+```
+
+### DEFAULT_PARTICLE_SEED  `const`
+
+```ts
+const DEFAULT_PARTICLE_SEED = 20260728;
 ```
 
 ### DomDocument  `type`
@@ -244,6 +280,12 @@ type GraphicsQuality = {
     readonly smaaEnabled: boolean;
     readonly useCompositePass: boolean;
 };
+```
+
+### HALF_TEXEL_UV  `const`
+
+```ts
+const HALF_TEXEL_UV: number;
 ```
 
 ### HOTBAR_FOCUS_GROUP  `const`
@@ -427,6 +469,18 @@ type ListenerTarget = 'window' | 'document';
 const MANDATORY_PASSES: ReadonlySet<PostProcessingPass>;
 ```
 
+### MAX_PARTICLE_STEP_SECS  `const`
+
+```ts
+const MAX_PARTICLE_STEP_SECS = 0.1;
+```
+
+### MAX_RIPPLE_OFFSET_UV  `const`
+
+```ts
+const MAX_RIPPLE_OFFSET_UV: number;
+```
+
 ### MIRROR_LAG_WARNING_SECS  `const`
 
 ```ts
@@ -505,6 +559,12 @@ type MirroredCameraState = {
 type MouseButton = (typeof MOUSE_BUTTONS)[number];
 ```
 
+### NDC_VIEWPORT_AREA  `const`
+
+```ts
+const NDC_VIEWPORT_AREA = 4;
+```
+
 ### NO_VIEW_OFFSET  `const`
 
 ```ts
@@ -515,6 +575,84 @@ const NO_VIEW_OFFSET: ViewOffset;
 
 ```ts
 const OWN_STAGE_PREFIX = "render:";
+```
+
+### PARTICLE_GRAVITY_M_PER_S2  `const`
+
+```ts
+const PARTICLE_GRAVITY_M_PER_S2 = 12;
+```
+
+### PARTICLE_LIFETIME_SECS  `const`
+
+```ts
+const PARTICLE_LIFETIME_SECS = 0.5;
+```
+
+### PARTICLE_MATERIAL_SPEC  `const`
+
+```ts
+const PARTICLE_MATERIAL_SPEC: MaterialSpec;
+```
+
+### PARTICLE_POOL_CAPACITY  `const`
+
+```ts
+const PARTICLE_POOL_CAPACITY = 512;
+```
+
+### PARTICLE_QUAD_SIZE_M  `const`
+
+```ts
+const PARTICLE_QUAD_SIZE_M = 0.1;
+```
+
+### PARTICLE_SPREAD_DOWN_M_PER_S  `const`
+
+```ts
+const PARTICLE_SPREAD_DOWN_M_PER_S = 0.5;
+```
+
+### PARTICLE_SPREAD_HORIZONTAL_M_PER_S  `const`
+
+```ts
+const PARTICLE_SPREAD_HORIZONTAL_M_PER_S = 2;
+```
+
+### PARTICLE_SPREAD_UP_M_PER_S  `const`
+
+```ts
+const PARTICLE_SPREAD_UP_M_PER_S = 3;
+```
+
+### PARTICLE_UV_SPAN  `const`
+
+```ts
+const PARTICLE_UV_SPAN: number;
+```
+
+### PARTICLE_UV_STRIDE  `const`
+
+```ts
+const PARTICLE_UV_STRIDE = 2;
+```
+
+### PARTICLE_VECTOR_STRIDE  `const`
+
+```ts
+const PARTICLE_VECTOR_STRIDE = 3;
+```
+
+### PARTICLE_WRITES_DEPTH  `const`
+
+```ts
+const PARTICLE_WRITES_DEPTH = false;
+```
+
+### PER_FRAME_WATER_UNIFORMS  `const`
+
+```ts
+const PER_FRAME_WATER_UNIFORMS: ReadonlyArray<WaterUniformName>;
 ```
 
 ### POINTER_LOCK_ACQUIRE_BUTTON  `const`
@@ -545,6 +683,48 @@ const POST_PROCESSING_PASS_ORDER: readonly ["render", "gtao", "godRays", "bloom"
 
 ```ts
 const PREVENT_DEFAULT_EVENTS: ReadonlyArray<string>;
+```
+
+### ParticlePool  `type`
+
+```ts
+type ParticlePool = {
+    readonly capacity: number;
+    readonly positions: Float32Array;
+    readonly velocities: Float32Array;
+    readonly lifetimesSecs: Float32Array;
+    readonly scales: Float32Array;
+    readonly uvOffsets: Float32Array;
+    readonly activeCount: () => number;
+    readonly seed: () => number;
+    readonly evictionCount: () => number;
+};
+```
+
+### ParticlePoolOptions  `type`
+
+```ts
+type ParticlePoolOptions = {
+    readonly capacity?: number;
+    readonly seed?: number;
+};
+```
+
+### ParticleSlotState  `type`
+
+```ts
+type ParticleSlotState = {
+    readonly x: number;
+    readonly y: number;
+    readonly z: number;
+    readonly velocityX: number;
+    readonly velocityY: number;
+    readonly velocityZ: number;
+    readonly remainingSecs: number;
+    readonly scale: number;
+    readonly uvU: number;
+    readonly uvV: number;
+};
 ```
 
 ### PlannedListener  `type`
@@ -611,6 +791,30 @@ const QUALITY_PRESETS: Readonly<Record<QualityPreset, GraphicsQuality>>;
 type QualityPreset = 'low' | 'medium' | 'high' | 'ultra';
 ```
 
+### REFERENCE_REFRACTION_GATE_ORDER  `const`
+
+```ts
+const REFERENCE_REFRACTION_GATE_ORDER: ReadonlyArray<RefractionGate>;
+```
+
+### REFRACTION_GATE_ORDER  `const`
+
+```ts
+const REFRACTION_GATE_ORDER: ReadonlyArray<RefractionGate>;
+```
+
+### REFRACTION_INTERVAL_FRAMES  `const`
+
+```ts
+const REFRACTION_INTERVAL_FRAMES: Readonly<Record<QualityPreset, number>>;
+```
+
+### REFRACTION_MIN_SCREEN_RATIO  `const`
+
+```ts
+const REFRACTION_MIN_SCREEN_RATIO: Readonly<Record<QualityPreset, number>>;
+```
+
 ### RENDER_STAGE_IDS  `const`
 
 ```ts
@@ -620,6 +824,70 @@ const RENDER_STAGE_IDS: {
     readonly chunkSync: StageId;
     readonly draw: StageId;
     readonly postFx: StageId;
+};
+```
+
+### RIPPLE_AMPLITUDE_UV  `const`
+
+```ts
+const RIPPLE_AMPLITUDE_UV = 0.014;
+```
+
+### RIPPLE_LAYERS_U  `const`
+
+```ts
+const RIPPLE_LAYERS_U: ReadonlyArray<RippleLayer>;
+```
+
+### RIPPLE_LAYERS_V  `const`
+
+```ts
+const RIPPLE_LAYERS_V: ReadonlyArray<RippleLayer>;
+```
+
+### RefractionCameraKey  `type`
+
+```ts
+type RefractionCameraKey = {
+    readonly sceneVersion: number;
+    readonly x: number;
+    readonly y: number;
+    readonly z: number;
+    readonly qx: number;
+    readonly qy: number;
+    readonly qz: number;
+    readonly qw: number;
+    readonly projection0: number;
+    readonly projection5: number;
+    readonly projection10: number;
+    readonly projection14: number;
+};
+```
+
+### RefractionDecision  `type`
+
+```ts
+type RefractionDecision = 'run' | `skip:${RefractionGate}`;
+```
+
+### RefractionGate  `type`
+
+```ts
+type RefractionGate = 'interval-disabled' | 'not-this-frame' | 'no-water-meshes' | 'no-visible-water' | 'camera-and-scene-unchanged' | 'below-screen-ratio';
+```
+
+### RefractionInputs  `type`
+
+```ts
+type RefractionInputs = {
+    readonly intervalFrames: number;
+    readonly frameNumber: number;
+    readonly waterMeshCount: number;
+    readonly visibleWaterMeshCount: number;
+    readonly waterScreenRatio: number;
+    readonly minScreenRatio: number;
+    readonly cameraKey: RefractionCameraKey;
+    readonly lastRenderedKey: RefractionCameraKey | undefined;
 };
 ```
 
@@ -662,6 +930,25 @@ type RenderFrameState = {
 };
 ```
 
+### RippleLayer  `type`
+
+```ts
+type RippleLayer = {
+    readonly spatialFrequency: number;
+    readonly temporalSpeed: number;
+    readonly amplitudeScale: number;
+};
+```
+
+### RippleOffset  `type`
+
+```ts
+type RippleOffset = {
+    readonly u: number;
+    readonly v: number;
+};
+```
+
 ### ScratchMap  `type`
 
 ```ts
@@ -691,6 +978,24 @@ type ScratchViolation = {
 };
 ```
 
+### TILE_PIXELS  `const`
+
+```ts
+const TILE_PIXELS: number;
+```
+
+### TILE_UV_PITCH  `const`
+
+```ts
+const TILE_UV_PITCH: number;
+```
+
+### TILE_UV_SPAN  `const`
+
+```ts
+const TILE_UV_SPAN: number;
+```
+
 ### TOUCH_LOOK_IDLE  `const`
 
 ```ts
@@ -707,6 +1012,17 @@ const TOUCH_LOOK_PHASES: readonly ["press", "move", "release"];
 
 ```ts
 const TRANSLATED_DOM_EVENTS: ReadonlyArray<string>;
+```
+
+### TileUvBounds  `type`
+
+```ts
+type TileUvBounds = {
+    readonly u0: number;
+    readonly v0: number;
+    readonly u1: number;
+    readonly v1: number;
+};
 ```
 
 ### TouchControlTarget  `type`
@@ -779,6 +1095,15 @@ type UiClick = {
 };
 ```
 
+### UvOrigin  `type`
+
+```ts
+type UvOrigin = {
+    readonly u: number;
+    readonly v: number;
+};
+```
+
 ### ViewOffset  `type`
 
 ```ts
@@ -787,6 +1112,66 @@ type ViewOffset = {
     readonly up: number;
     readonly rollRadians: number;
 };
+```
+
+### WATER_DEEP_COLOR  `const`
+
+```ts
+const WATER_DEEP_COLOR: WaterColor;
+```
+
+### WATER_FRESNEL_F0  `const`
+
+```ts
+const WATER_FRESNEL_F0 = 0.02;
+```
+
+### WATER_INDEX_OF_REFRACTION  `const`
+
+```ts
+const WATER_INDEX_OF_REFRACTION = 1.333;
+```
+
+### WATER_MATERIAL_SPEC  `const`
+
+```ts
+const WATER_MATERIAL_SPEC: MaterialSpec;
+```
+
+### WATER_SHALLOW_COLOR  `const`
+
+```ts
+const WATER_SHALLOW_COLOR: WaterColor;
+```
+
+### WATER_SURFACE_ALPHA  `const`
+
+```ts
+const WATER_SURFACE_ALPHA = 0.86;
+```
+
+### WATER_SURFACE_IS_FLAT  `const`
+
+```ts
+const WATER_SURFACE_IS_FLAT = true;
+```
+
+### WATER_UNIFORM_NAMES  `const`
+
+```ts
+const WATER_UNIFORM_NAMES: ReadonlyArray<WaterUniformName>;
+```
+
+### WATER_WRITES_DEPTH  `const`
+
+```ts
+const WATER_WRITES_DEPTH = false;
+```
+
+### WAVE_APPROX_MAX_ERROR  `const`
+
+```ts
+const WAVE_APPROX_MAX_ERROR = 0.0561;
 ```
 
 ### WHEEL_DELTA_MODES  `const`
@@ -819,6 +1204,23 @@ const WHEEL_PAGES_PER_NOTCH = 1;
 const WHEEL_PIXELS_PER_NOTCH = 100;
 ```
 
+### WaterColor  `type`
+
+```ts
+type WaterColor = {
+    readonly r: number;
+    readonly g: number;
+    readonly b: number;
+    readonly a: number;
+};
+```
+
+### WaterUniformName  `type`
+
+```ts
+type WaterUniformName = 'uTime' | 'uRefractionMap' | 'uCameraPosition' | 'uResolution' | 'uRefractionValid' | 'uSunIntensity';
+```
+
 ### WheelDeltaMode  `type`
 
 ```ts
@@ -835,6 +1237,18 @@ const acquiresPointerLock: (button: MouseButton, state: PointerLockState, landin
 
 ```ts
 const actionForKey: (bindings: Bindings, key: InputCode) => InputAction | undefined;
+```
+
+### advanceParticles  `const`
+
+```ts
+const advanceParticles: (pool: ParticlePool, dtSecs: number) => number;
+```
+
+### atlasLayoutViolations  `const`
+
+```ts
+const atlasLayoutViolations: () => ReadonlyArray<string>;
 ```
 
 ### auditMaterials  `const`
@@ -876,10 +1290,28 @@ const chainEffects: (chain: ReadonlyArray<PostProcessingStep>) => ReadonlyArray<
 const chainPasses: (chain: ReadonlyArray<PostProcessingStep>) => ReadonlyArray<PostProcessingPass>;
 ```
 
+### clampSunIntensity  `const`
+
+```ts
+const clampSunIntensity: (sunIntensity: number) => number;
+```
+
+### clearParticles  `const`
+
+```ts
+const clearParticles: (pool: ParticlePool) => void;
+```
+
 ### codeForTouchAction  `const`
 
 ```ts
 const codeForTouchAction: (bindings: Bindings, action: InputAction) => InputCode | undefined;
+```
+
+### decideRefractionPrePass  `const`
+
+```ts
+const decideRefractionPrePass: (inputs: RefractionInputs, order?: ReadonlyArray<RefractionGate>) => RefractionDecision;
 ```
 
 ### defaultBindings  `const`
@@ -894,10 +1326,28 @@ const defaultBindings: () => Bindings;
 const describeMaterialPolicy: (material: MaterialSpec) => MaterialPolicyVerdict;
 ```
 
+### describeRefractionDecision  `const`
+
+```ts
+const describeRefractionDecision: (decision: RefractionDecision) => string;
+```
+
+### evictionOrderIsSpawnOrder  `const`
+
+```ts
+const evictionOrderIsSpawnOrder = true;
+```
+
 ### forwardVector  `const`
 
 ```ts
 const forwardVector: (snapshot: CameraPoseSnapshot) => Position;
+```
+
+### fresnelF0ForIor  `const`
+
+```ts
+const fresnelF0ForIor: (ior: number) => number;
 ```
 
 ### installInputListeners  `const`
@@ -942,6 +1392,24 @@ const isMouseButton: (code: InputCode) => code is MouseButton;
 const isPointerLockHeld: (document: DomDocument) => boolean;
 ```
 
+### isRefractionSkipped  `const`
+
+```ts
+const isRefractionSkipped: (decision: RefractionDecision) => boolean;
+```
+
+### isSlotActive  `const`
+
+```ts
+const isSlotActive: (pool: ParticlePool, slot: number) => boolean;
+```
+
+### isTileIndex  `const`
+
+```ts
+const isTileIndex: (tileIndex: number) => boolean;
+```
+
 ### listenerOptionsFor  `const`
 
 ```ts
@@ -964,6 +1432,12 @@ const makeFrameScratch: () => FrameScratch;
 
 ```ts
 const makeInputService: (bindings?: Bindings, pointerLock?: PointerLockPort) => Effect.Effect<InputServiceApi>;
+```
+
+### makeParticlePool  `const`
+
+```ts
+const makeParticlePool: (options?: ParticlePoolOptions) => ParticlePool;
 ```
 
 ### makeRenderFrameState  `const`
@@ -1005,6 +1479,12 @@ const mirrorLagSecs: (state: MirroredCameraState, now: MonotonicTimeSecs) => num
 const mirroredCameraState: (snapshot: CameraPoseSnapshot, offset?: ViewOffset) => MirroredCameraState;
 ```
 
+### mixWaterColor  `const`
+
+```ts
+const mixWaterColor: (from: WaterColor, to: WaterColor, t: number) => WaterColor;
+```
+
 ### modalConsumedKeyReachesGameplay  `const`
 
 ```ts
@@ -1017,6 +1497,12 @@ const modalConsumedKeyReachesGameplay: (modalTarget: ListenerTarget, gameplayTar
 const mouseButtonForIndex: (index: number) => MouseButton | undefined;
 ```
 
+### normaliseTileIndex  `const`
+
+```ts
+const normaliseTileIndex: (tileIndex: number) => number;
+```
+
 ### notchesForWheelDelta  `const`
 
 ```ts
@@ -1027,6 +1513,18 @@ const notchesForWheelDelta: (deltaY: number, mode: WheelDeltaMode) => number;
 
 ```ts
 const passOrderIndex: (pass: PostProcessingPass) => number;
+```
+
+### readSlot  `const`
+
+```ts
+const readSlot: (pool: ParticlePool, slot: number) => ParticleSlotState | undefined;
+```
+
+### refractionRunsOnFrame  `const`
+
+```ts
+const refractionRunsOnFrame: (intervalFrames: number, frameNumber: number) => boolean;
 ```
 
 ### remap  `const`
@@ -1077,10 +1575,34 @@ const resolveFocusTarget: (groups: ReadonlyArray<FocusGroupTargets>, target: unk
 const resolveTouchControl: (controls: ReadonlyArray<TouchControlTarget>, target: unknown) => InputAction | undefined;
 ```
 
+### rippleOffset  `const`
+
+```ts
+const rippleOffset: (worldX: number, worldZ: number, timeSecs: number) => RippleOffset;
+```
+
+### sameRefractionKey  `const`
+
+```ts
+const sameRefractionKey: (a: RefractionCameraKey, b: RefractionCameraKey) => boolean;
+```
+
+### schlickFresnel  `const`
+
+```ts
+const schlickFresnel: (cosTheta: number) => number;
+```
+
 ### scopedInputListeners  `const`
 
 ```ts
 const scopedInputListeners: (targets: BrowserInputTargets, input: InputServiceApi, focusGroups?: ReadonlyArray<FocusGroupTargets>, pointerLockTarget?: unknown, touchControls?: ReadonlyArray<TouchControlTarget>) => Effect.Effect<InstalledInputListeners, never, Scope.Scope>;
+```
+
+### screenRatioForNdcRect  `const`
+
+```ts
+const screenRatioForNdcRect: (minX: number, minY: number, maxX: number, maxY: number) => number;
 ```
 
 ### snapshotAgeSecs  `const`
@@ -1093,6 +1615,18 @@ const snapshotAgeSecs: (snapshot: CameraPoseSnapshot, now: MonotonicTimeSecs) =>
 
 ```ts
 const snapshotScratch: <K, V>(buffer: ReadonlyMap<K, V>) => ReadonlyMap<K, V>;
+```
+
+### spawnBlockBurst  `const`
+
+```ts
+const spawnBlockBurst: (pool: ParticlePool, x: number, y: number, z: number, tileIndex: number, count?: number) => number;
+```
+
+### spawnBurst  `const`
+
+```ts
+const spawnBurst: (pool: ParticlePool, x: number, y: number, z: number, uvU: number, uvV: number, count?: number) => number;
 ```
 
 ### suppressesBrowserContextMenu  `const`
@@ -1113,6 +1647,36 @@ const suppressesBrowserScroll: (pointerLocked: boolean) => boolean;
 const takesTwoPassPath: (material: MaterialSpec) => boolean;
 ```
 
+### tileColumn  `const`
+
+```ts
+const tileColumn: (tileIndex: number) => number;
+```
+
+### tileIndexForUvOrigin  `const`
+
+```ts
+const tileIndexForUvOrigin: (origin: UvOrigin) => number;
+```
+
+### tileRow  `const`
+
+```ts
+const tileRow: (tileIndex: number) => number;
+```
+
+### tileUvBounds  `const`
+
+```ts
+const tileUvBounds: (tileIndex: number) => TileUvBounds;
+```
+
+### tileUvOrigin  `const`
+
+```ts
+const tileUvOrigin: (tileIndex: number) => UvOrigin;
+```
+
 ### touchLookStep  `const`
 
 ```ts
@@ -1131,10 +1695,52 @@ const translateDomEvent: (planned: PlannedListener, event: DomInputEvent, contex
 const unboundTouchActions: (bindings: Bindings, actions: ReadonlyArray<InputAction>) => ReadonlyArray<InputAction>;
 ```
 
+### uvPatchStaysInsideTile  `const`
+
+```ts
+const uvPatchStaysInsideTile: (span: number) => boolean;
+```
+
 ### validatePostProcessingChain  `const`
 
 ```ts
 const validatePostProcessingChain: (chain: ReadonlyArray<PostProcessingPass>) => ReadonlyArray<ChainViolation>;
+```
+
+### waterDepthFactor  `const`
+
+```ts
+const waterDepthFactor: (fresnel: number) => number;
+```
+
+### waterForceSinglePassVerdict  `const`
+
+```ts
+const waterForceSinglePassVerdict: () => MaterialPolicyVerdict;
+```
+
+### waterSunAttenuation  `const`
+
+```ts
+const waterSunAttenuation: (sunIntensity: number) => number;
+```
+
+### waterTint  `const`
+
+```ts
+const waterTint: (fresnel: number) => WaterColor;
+```
+
+### waveApprox  `const`
+
+```ts
+const waveApprox: (x: number) => number;
+```
+
+### waveApproxCos  `const`
+
+```ts
+const waveApproxCos: (x: number) => number;
 ```
 
 ### wheelDeltaModeForIndex  `const`
