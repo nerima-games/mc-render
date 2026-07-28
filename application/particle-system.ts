@@ -1,0 +1,191 @@
+/**
+ * The particle system: `domain/particle-pool.ts`'s five typed arrays, bound to
+ * an instanced geometry, uploaded once and re-flagged every frame.
+ *
+ * THE POOL IS NOT COPIED. `InstancedBufferAttribute` is constructed over the
+ * pool's OWN `Float32Array`s, so `advanceParticles` integrating in place is
+ * already the update — there is no per-frame copy, no scratch buffer and no
+ * marshalling step. `sync` below does two things and neither of them is
+ * arithmetic: it sets `needsUpdate` so three re-uploads the bytes, and it sets
+ * `instanceCount` so the dead tail is not drawn.
+ *
+ * That aliasing is the whole reason `ParticlePool` exposes its arrays rather
+ * than accessors, and it is worth stating because it looks like leaked
+ * encapsulation. It is the same decision the pool's own header defends about
+ * capacity: the buffers are fixed at construction precisely so that something
+ * downstream can hold them for the lifetime of the system.
+ *
+ * ---------------------------------------------------------------------------
+ * WHAT THIS FILE DOES NOT DO
+ * ---------------------------------------------------------------------------
+ *
+ * IT DOES NOT INTEGRATE. `advanceParticles` is the pool's, is pure, and is
+ * tested in Node without any of this. A frame calls that and then calls `sync`;
+ * putting the integration here would put physics behind a GPU seam and make it
+ * untestable for no gain.
+ *
+ * IT DOES NOT OWN THE ATLAS. `uAtlas` is bound by the host, from the same
+ * texture the chunk material samples — particles are chips off blocks and
+ * sample the same tiles, which is why `ParticlePool.uvOffsets` holds an atlas
+ * origin rather than a colour.
+ */
+import { Effect, Ref } from 'effect'
+import {
+  PARTICLE_INSTANCE_ATTRIBUTES,
+  PARTICLE_QUAD_INDICES,
+  PARTICLE_QUAD_POSITIONS,
+  PARTICLE_QUAD_UVS,
+  PARTICLE_SHADER_UNIFORMS,
+  particleShaderSource,
+} from '../domain/particle-shader'
+import { PARTICLE_WRITES_DEPTH, type ParticlePool } from '../domain/particle-pool'
+import {
+  POSITION_COMPONENTS,
+  UV_COMPONENTS,
+} from '../domain/chunk-geometry'
+import type {
+  ThreeBufferGeometry,
+  ThreeInstancedBufferAttribute,
+  ThreeInstancedBufferGeometry,
+  ThreeInstancedSurface,
+  ThreeMaterial,
+  ThreeMesh,
+  ThreeShaderMaterialParameters,
+  ThreeUniform,
+} from './three-surface'
+
+/**
+ * `depthWrite: false`, re-exported at the layer that can act on it.
+ *
+ * `domain/particle-pool.ts` states the flag and its reason (particles that
+ * write depth occlude each other in spawn order rather than depth order). It is
+ * repeated here as a named constant rather than a literal for the same reason
+ * every other constant in this repository is: the value a material is built
+ * with should be traceable to the file that decided it.
+ */
+export const PARTICLE_DEPTH_WRITE = PARTICLE_WRITES_DEPTH
+
+/** The live particle system, as its owner holds it. */
+export type ParticleSystem = {
+  /**
+   * Tell the GPU the pool's bytes changed, and how many slots are live.
+   *
+   * CALLED EVERY FRAME AFTER `advanceParticles`, and cheap by construction: no
+   * allocation, no copy, three boolean writes and one integer.
+   */
+  readonly sync: Effect.Effect<void>
+  /** How many instances the last `sync` asked the GPU to draw. */
+  readonly drawnInstances: Effect.Effect<number>
+  /** The mesh, for a host to add to its scene. */
+  readonly mesh: ThreeMesh
+  /** Release the geometry and the material. */
+  readonly dispose: Effect.Effect<void>
+}
+
+/**
+ * Build the instanced geometry, the material, and the mesh.
+ *
+ * `three` is the namespace, and it has to satisfy BOTH the instanced surface
+ * and the shader one — the intersection in the signature is not a trick, it is
+ * the honest statement that this path needs constructors from two of the three
+ * seams `application/three-surface.ts` declares.
+ *
+ * THE INSTANCE ATTRIBUTES ARE BOUND BY ITERATING THE SHADER'S OWN RECORD, not
+ * by three `setAttribute` calls with string literals. `PARTICLE_INSTANCE_ATTRIBUTES`
+ * carries the name AND the stride for each, so a mismatch between what the
+ * shader declares and what this binds is not expressible here — which is the
+ * defect this repository found twice in `tileIndex` and `WATER_UNIFORM_NAMES`
+ * and is deliberately not leaving a third instance of.
+ */
+export const makeParticleSystem = <
+  TCanvas,
+  TGeometry extends ThreeBufferGeometry,
+  TMaterial extends ThreeMaterial,
+  TInstancedGeometry extends ThreeInstancedBufferGeometry,
+  TShaderMaterial extends ThreeMaterial,
+>(
+  three: ThreeInstancedSurface<TCanvas, TGeometry, TMaterial, TInstancedGeometry> & {
+    readonly ShaderMaterial: new (parameters: ThreeShaderMaterialParameters) => TShaderMaterial
+    readonly Mesh: new (geometry: TInstancedGeometry, material: TShaderMaterial) => ThreeMesh
+  },
+  pool: ParticlePool,
+  atlasTexture: unknown,
+): Effect.Effect<ParticleSystem> =>
+  Effect.gen(function* () {
+    const geometry = new three.InstancedBufferGeometry()
+
+    // The base quad: four corners, shared by every instance. `Float32Array.from`
+    // rather than the readonly arrays directly — three uploads a typed array and
+    // the domain declares plain numbers, which is the right way round: the
+    // domain should not know what a GPU wants.
+    geometry.setAttribute(
+      'position',
+      new three.BufferAttribute(
+        Float32Array.from(PARTICLE_QUAD_POSITIONS),
+        POSITION_COMPONENTS,
+        false,
+      ),
+    )
+    geometry.setAttribute(
+      'uv',
+      new three.BufferAttribute(Float32Array.from(PARTICLE_QUAD_UVS), UV_COMPONENTS, false),
+    )
+    geometry.setIndex(
+      new three.BufferAttribute(Uint32Array.from(PARTICLE_QUAD_INDICES), 1, false),
+    )
+
+    // The per-instance attributes, over the POOL'S OWN ARRAYS. See the header.
+    const bindings: ReadonlyArray<{
+      readonly spec: { readonly name: string; readonly stride: number }
+      readonly array: Float32Array
+    }> = [
+      { spec: PARTICLE_INSTANCE_ATTRIBUTES.position, array: pool.positions },
+      { spec: PARTICLE_INSTANCE_ATTRIBUTES.scale, array: pool.scales },
+      { spec: PARTICLE_INSTANCE_ATTRIBUTES.uvOffset, array: pool.uvOffsets },
+    ]
+    const instanced: ReadonlyArray<ThreeInstancedBufferAttribute> = bindings.map(
+      ({ spec, array }) => {
+        const attribute = new three.InstancedBufferAttribute(array, spec.stride)
+        geometry.setAttribute(spec.name, attribute)
+        return attribute
+      },
+    )
+
+    const source = particleShaderSource()
+    const uniforms: Record<string, ThreeUniform> = {
+      [PARTICLE_SHADER_UNIFORMS.atlas]: { value: atlasTexture },
+    }
+    const material = new three.ShaderMaterial({
+      vertexShader: source.vertexShader,
+      fragmentShader: source.fragmentShader,
+      uniforms,
+      vertexColors: true,
+    })
+
+    const mesh = new three.Mesh(geometry, material)
+    const drawn = yield* Ref.make(0)
+
+    return {
+      mesh,
+
+      sync: Effect.gen(function* () {
+        for (const attribute of instanced) {
+          attribute.needsUpdate = true
+        }
+        // The live prefix, not the capacity. A pool that reported its capacity
+        // here would draw 512 quads every frame and the dead ones would sit at
+        // whatever position they last held — which is the failure the pool's
+        // `scales` zero already guards against, and this is the cheaper guard.
+        const active = pool.activeCount()
+        geometry.instanceCount = active
+        yield* Ref.set(drawn, active)
+      }),
+
+      drawnInstances: Ref.get(drawn),
+
+      dispose: Effect.sync(() => {
+        geometry.dispose()
+        material.dispose()
+      }),
+    }
+  })

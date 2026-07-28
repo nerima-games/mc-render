@@ -13,7 +13,7 @@
 <!-- ------------------------------------------------------------------------- -->
 
 format: 1
-exported declarations: 345
+exported declarations: 395
 supporting declarations: 19
 
 ## Exported
@@ -82,6 +82,18 @@ const ATLAS_TILE_COUNT: number;
 
 ```ts
 const BEHIND_NEAR_PLANE_RATIO = 1;
+```
+
+### BHASKARA_LINEAR  `const`
+
+```ts
+const BHASKARA_LINEAR = 1.2732395;
+```
+
+### BHASKARA_QUADRATIC  `const`
+
+```ts
+const BHASKARA_QUADRATIC = 0.4052847;
 ```
 
 ### Bindings  `type`
@@ -197,6 +209,7 @@ type ChunkGeometryBuffers = {
     readonly normals: Float32Array;
     readonly colors: Uint8Array;
     readonly uvs: Float32Array;
+    readonly tileIndices: Float32Array;
     readonly indices: Uint32Array;
     readonly quadCount: number;
     readonly vertexCount: number;
@@ -208,6 +221,30 @@ type ChunkGeometryBuffers = {
 
 ```ts
 type ChunkKey = string;
+```
+
+### ChunkMesher  `type`
+
+```ts
+type ChunkMesher = (chunk: ChunkRef) => Effect.Effect<ReadonlyArray<MeshQuad> | undefined>;
+```
+
+### ChunkRef  `type`
+
+```ts
+type ChunkRef = {
+    readonly cx: number;
+    readonly cz: number;
+};
+```
+
+### ChunkShaderMaterial  `type`
+
+```ts
+type ChunkShaderMaterial<TShaderMaterial extends ThreeMaterial> = {
+    readonly material: TShaderMaterial;
+    readonly uniforms: Record<string, ThreeUniform>;
+};
 ```
 
 ### ChunkShaderSource  `type`
@@ -252,6 +289,23 @@ const DEFAULT_BURST_PARTICLES = 6;
 
 ```ts
 const DEFAULT_PARTICLE_SEED = 20260728;
+```
+
+### DirtyBatch  `type`
+
+```ts
+type DirtyBatch = {
+    readonly changed: ReadonlyArray<ChunkRef>;
+    readonly removed: ReadonlyArray<ChunkRef>;
+};
+```
+
+### DirtySource  `type`
+
+```ts
+type DirtySource = {
+    readonly drain: Effect.Effect<DirtyBatch>;
+};
 ```
 
 ### DomDocument  `type`
@@ -319,6 +373,12 @@ type DrawPort = {
     readonly draw: (camera: MirroredCameraState) => Effect.Effect<void>;
     readonly resize: (width: number, height: number) => Effect.Effect<void>;
 };
+```
+
+### EMPTY_SYNC_REPORT  `const`
+
+```ts
+const EMPTY_SYNC_REPORT: SyncReport;
 ```
 
 ### ESCAPE_KEY_CODE  `const`
@@ -390,6 +450,12 @@ const FULLY_LIT: LightSampler;
 
 ```ts
 const FULL_LIGHT: SkyBlockLight;
+```
+
+### FULL_SUN_INTENSITY  `const`
+
+```ts
+const FULL_SUN_INTENSITY = 1;
 ```
 
 ### FaceDirection  `type`
@@ -743,6 +809,12 @@ const MOUSE_BUTTONS: readonly ["MouseLeft", "MouseMiddle", "MouseRight"];
 const MOUSE_BUTTON_BY_INDEX: ReadonlyArray<MouseButton>;
 ```
 
+### MaterialFactory  `type`
+
+```ts
+type MaterialFactory<TMaterial extends ThreeMaterial> = () => TMaterial;
+```
+
 ### MaterialPolicyVerdict  `type`
 
 ```ts
@@ -849,10 +921,41 @@ const NO_VIEW_OFFSET: ViewOffset;
 const OWN_STAGE_PREFIX = "render:";
 ```
 
+### PARTICLE_ALPHA_TEST  `const`
+
+```ts
+const PARTICLE_ALPHA_TEST = 0.5;
+```
+
+### PARTICLE_DEPTH_WRITE  `const`
+
+```ts
+const PARTICLE_DEPTH_WRITE = false;
+```
+
 ### PARTICLE_GRAVITY_M_PER_S2  `const`
 
 ```ts
 const PARTICLE_GRAVITY_M_PER_S2 = 12;
+```
+
+### PARTICLE_INSTANCE_ATTRIBUTES  `const`
+
+```ts
+const PARTICLE_INSTANCE_ATTRIBUTES: {
+    readonly position: {
+        readonly name: "instancePosition";
+        readonly stride: 3;
+    };
+    readonly scale: {
+        readonly name: "instanceScale";
+        readonly stride: 1;
+    };
+    readonly uvOffset: {
+        readonly name: "instanceUvOffset";
+        readonly stride: 2;
+    };
+};
 ```
 
 ### PARTICLE_LIFETIME_SECS  `const`
@@ -873,10 +976,36 @@ const PARTICLE_MATERIAL_SPEC: MaterialSpec;
 const PARTICLE_POOL_CAPACITY = 512;
 ```
 
+### PARTICLE_QUAD_INDICES  `const`
+
+```ts
+const PARTICLE_QUAD_INDICES: ReadonlyArray<number>;
+```
+
+### PARTICLE_QUAD_POSITIONS  `const`
+
+```ts
+const PARTICLE_QUAD_POSITIONS: ReadonlyArray<number>;
+```
+
 ### PARTICLE_QUAD_SIZE_M  `const`
 
 ```ts
 const PARTICLE_QUAD_SIZE_M = 0.1;
+```
+
+### PARTICLE_QUAD_UVS  `const`
+
+```ts
+const PARTICLE_QUAD_UVS: ReadonlyArray<number>;
+```
+
+### PARTICLE_SHADER_UNIFORMS  `const`
+
+```ts
+const PARTICLE_SHADER_UNIFORMS: {
+    readonly atlas: "uAtlas";
+};
 ```
 
 ### PARTICLE_SPREAD_DOWN_M_PER_S  `const`
@@ -988,6 +1117,17 @@ type ParticlePoolOptions = {
 };
 ```
 
+### ParticleShaderSource  `type`
+
+```ts
+type ParticleShaderSource = {
+    readonly vertexShader: string;
+    readonly fragmentShader: string;
+    readonly attributeNames: ReadonlyArray<string>;
+    readonly uniformNames: ReadonlyArray<string>;
+};
+```
+
 ### ParticleSlotState  `type`
 
 ```ts
@@ -1002,6 +1142,17 @@ type ParticleSlotState = {
     readonly scale: number;
     readonly uvU: number;
     readonly uvV: number;
+};
+```
+
+### ParticleSystem  `type`
+
+```ts
+type ParticleSystem = {
+    readonly sync: Effect.Effect<void>;
+    readonly drawnInstances: Effect.Effect<number>;
+    readonly mesh: ThreeMesh;
+    readonly dispose: Effect.Effect<void>;
 };
 ```
 
@@ -1087,6 +1238,12 @@ type QuadCorners = readonly [QuadVertex, QuadVertex, QuadVertex, QuadVertex];
 type QuadShade = (quad: MeshQuad) => number;
 ```
 
+### QuadTile  `type`
+
+```ts
+type QuadTile = (quad: MeshQuad) => number;
+```
+
 ### QuadVertex  `type`
 
 ```ts
@@ -1133,6 +1290,12 @@ const REFRACTION_INTERVAL_FRAMES: Readonly<Record<QualityPreset, number>>;
 
 ```ts
 const REFRACTION_MIN_SCREEN_RATIO: Readonly<Record<QualityPreset, number>>;
+```
+
+### REFRACTION_UNAVAILABLE  `const`
+
+```ts
+const REFRACTION_UNAVAILABLE = 0;
 ```
 
 ### RENDER_STAGE_IDS  `const`
@@ -1327,10 +1490,35 @@ type SkyBlockLight = {
 };
 ```
 
+### SyncOptions  `type`
+
+```ts
+type SyncOptions = {
+    readonly color?: QuadColor;
+    readonly tile?: QuadTile;
+};
+```
+
+### SyncReport  `type`
+
+```ts
+type SyncReport = {
+    readonly meshed: number;
+    readonly deferred: number;
+    readonly removed: number;
+};
+```
+
 ### TILE_BY_BLOCK_NAME  `const`
 
 ```ts
 const TILE_BY_BLOCK_NAME: Readonly<Record<string, TileAssignment>>;
+```
+
+### TILE_INDEX_COMPONENTS  `const`
+
+```ts
+const TILE_INDEX_COMPONENTS = 1;
 ```
 
 ### TILE_PIXELS  `const`
@@ -1369,6 +1557,12 @@ const TOUCH_LOOK_PHASES: readonly ["press", "move", "release"];
 const TRANSLATED_DOM_EVENTS: ReadonlyArray<string>;
 ```
 
+### TWO_PI  `const`
+
+```ts
+const TWO_PI = 6.2831853;
+```
+
 ### ThreeBufferAttribute  `type`
 
 ```ts
@@ -1400,6 +1594,31 @@ type ThreeCamera = {
 ```ts
 type ThreeEuler = {
     set(x: number, y: number, z: number, order: 'YXZ'): unknown;
+};
+```
+
+### ThreeInstancedBufferAttribute  `type`
+
+```ts
+type ThreeInstancedBufferAttribute = {
+    needsUpdate: boolean;
+};
+```
+
+### ThreeInstancedBufferGeometry  `type`
+
+```ts
+type ThreeInstancedBufferGeometry = ThreeBufferGeometry & {
+    instanceCount: number;
+};
+```
+
+### ThreeInstancedSurface  `type`
+
+```ts
+type ThreeInstancedSurface<TCanvas, TGeometry extends ThreeBufferGeometry, TMaterial extends ThreeMaterial, TInstancedGeometry extends ThreeInstancedBufferGeometry> = ThreeSurface<TCanvas, TGeometry, TMaterial> & {
+    readonly InstancedBufferGeometry: new () => TInstancedGeometry;
+    readonly InstancedBufferAttribute: new (array: Float32Array, itemSize: number) => ThreeInstancedBufferAttribute;
 };
 ```
 
@@ -1463,8 +1682,9 @@ type ThreeShaderMaterialParameters = {
 ### ThreeShaderSurface  `type`
 
 ```ts
-type ThreeShaderSurface<TCanvas, TGeometry extends ThreeBufferGeometry, TMaterial extends ThreeMaterial, TShaderMaterial extends ThreeMaterial> = ThreeSurface<TCanvas, TGeometry, TMaterial> & {
+type ThreeShaderSurface<TCanvas, TGeometry extends ThreeBufferGeometry, TMaterial extends ThreeMaterial, TShaderMaterial extends ThreeMaterial> = Omit<ThreeSurface<TCanvas, TGeometry, TMaterial>, 'Mesh'> & {
     readonly ShaderMaterial: new (parameters: ThreeShaderMaterialParameters) => TShaderMaterial;
+    readonly Mesh: new (geometry: TGeometry, material: TMaterial | TShaderMaterial) => ThreeMesh;
 };
 ```
 
@@ -1576,10 +1796,22 @@ type TouchPoint = {
 const UNAVAILABLE_POINTER_LOCK: PointerLockPort;
 ```
 
+### UNIFORM_ORIGIN  `const`
+
+```ts
+const UNIFORM_ORIGIN: ReadonlyArray<number>;
+```
+
 ### UNSET_CAMERA_POSE  `const`
 
 ```ts
 const UNSET_CAMERA_POSE: CameraPoseSnapshot;
+```
+
+### UNTEXTURED_TILE  `const`
+
+```ts
+const UNTEXTURED_TILE: QuadTile;
 ```
 
 ### UPSTREAM_STAGE_IDS  `const`
@@ -1654,6 +1886,18 @@ type Viewport = {
 const WATER_DEEP_COLOR: WaterColor;
 ```
 
+### WATER_DEPTH_FACTOR_FLOOR  `const`
+
+```ts
+const WATER_DEPTH_FACTOR_FLOOR = 0.55;
+```
+
+### WATER_DEPTH_FACTOR_RANGE  `const`
+
+```ts
+const WATER_DEPTH_FACTOR_RANGE = 0.4;
+```
+
 ### WATER_FRESNEL_F0  `const`
 
 ```ts
@@ -1676,6 +1920,18 @@ const WATER_MATERIAL_SPEC: MaterialSpec;
 
 ```ts
 const WATER_SHALLOW_COLOR: WaterColor;
+```
+
+### WATER_SUN_FLOOR  `const`
+
+```ts
+const WATER_SUN_FLOOR = 0.3;
+```
+
+### WATER_SUN_RANGE  `const`
+
+```ts
+const WATER_SUN_RANGE = 0.7;
 ```
 
 ### WATER_SURFACE_ALPHA  `const`
@@ -1749,6 +2005,16 @@ type WaterColor = {
 };
 ```
 
+### WaterShaderSource  `type`
+
+```ts
+type WaterShaderSource = {
+    readonly vertexShader: string;
+    readonly fragmentShader: string;
+    readonly uniformNames: ReadonlyArray<string>;
+};
+```
+
 ### WaterUniformName  `type`
 
 ```ts
@@ -1776,12 +2042,13 @@ type WorldRenderer = DrawPort & {
 ### WorldRendererOptions  `type`
 
 ```ts
-type WorldRendererOptions = {
+type WorldRendererOptions<TMaterial extends ThreeMaterial = ThreeMaterial> = {
     readonly fovDegrees?: number;
     readonly nearPlane?: number;
     readonly farPlane?: number;
     readonly clearColor?: number;
     readonly wireframe?: boolean;
+    readonly material?: MaterialFactory<TMaterial>;
 };
 ```
 
@@ -1845,7 +2112,7 @@ const browserInputLayer: (options: BrowserInputOptions) => Layer.Layer<InputServ
 ### buildChunkGeometry  `const`
 
 ```ts
-const buildChunkGeometry: (quads: ReadonlyArray<MeshQuad>, originX?: number, originZ?: number, color?: QuadColor) => ChunkGeometryBuffers;
+const buildChunkGeometry: (quads: ReadonlyArray<MeshQuad>, originX?: number, originZ?: number, color?: QuadColor, tile?: QuadTile) => ChunkGeometryBuffers;
 ```
 
 ### buildPostProcessingChain  `const`
@@ -1876,6 +2143,18 @@ const chunkDistance: (from: ChunkXZ, to: ChunkXZ) => number;
 
 ```ts
 const chunkFragmentShader: () => string;
+```
+
+### chunkKeyOf  `const`
+
+```ts
+const chunkKeyOf: (chunk: ChunkRef) => ChunkKey;
+```
+
+### chunkOrigin  `const`
+
+```ts
+const chunkOrigin: (chunk: ChunkRef) => readonly [number, number];
 ```
 
 ### chunkShaderSource  `const`
@@ -1990,6 +2269,12 @@ const fresnelF0ForIor: (ior: number) => number;
 
 ```ts
 const glslFloat: (value: number) => string;
+```
+
+### glslVec4  `const`
+
+```ts
+const glslVec4: (color: WaterColor) => string;
 ```
 
 ### greyChannels  `const`
@@ -2128,6 +2413,12 @@ const lodTierCensus: (renderDistance: number, thresholds: LodThresholds) => LodT
 const makeBrowserPointerLockPort: (options: BrowserPointerLockOptions) => PointerLockPort;
 ```
 
+### makeChunkShaderMaterial  `const`
+
+```ts
+const makeChunkShaderMaterial: <TCanvas, TGeometry extends ThreeBufferGeometry, TMaterial extends ThreeMaterial, TShaderMaterial extends ThreeMaterial>(three: ThreeShaderSurface<TCanvas, TGeometry, TMaterial, TShaderMaterial>, atlasTexture: unknown, sunIntensity?: number) => ChunkShaderMaterial<TShaderMaterial>;
+```
+
 ### makeFrameScratch  `const`
 
 ```ts
@@ -2144,6 +2435,15 @@ const makeInputService: (bindings?: Bindings, pointerLock?: PointerLockPort) => 
 
 ```ts
 const makeParticlePool: (options?: ParticlePoolOptions) => ParticlePool;
+```
+
+### makeParticleSystem  `const`
+
+```ts
+const makeParticleSystem: <TCanvas, TGeometry extends ThreeBufferGeometry, TMaterial extends ThreeMaterial, TInstancedGeometry extends ThreeInstancedBufferGeometry, TShaderMaterial extends ThreeMaterial>(three: ThreeInstancedSurface<TCanvas, TGeometry, TMaterial, TInstancedGeometry> & {
+    readonly ShaderMaterial: new (parameters: ThreeShaderMaterialParameters) => TShaderMaterial;
+    readonly Mesh: new (geometry: TInstancedGeometry, material: TShaderMaterial) => ThreeMesh;
+}, pool: ParticlePool, atlasTexture: unknown) => Effect.Effect<ParticleSystem>;
 ```
 
 ### makeRenderFrameState  `const`
@@ -2167,10 +2467,18 @@ const makeRenderStagesForPreview: (quality?: GraphicsQuality, draw?: DrawPort) =
 const makeScratchMap: <K, V>(name: string, initialCapacity?: number) => ScratchMap<K, V>;
 ```
 
+### makeWaterMaterial  `const`
+
+```ts
+const makeWaterMaterial: <TCanvas, TGeometry extends ThreeBufferGeometry, TMaterial extends ThreeMaterial, TShaderMaterial extends ThreeMaterial>(three: ThreeShaderSurface<TCanvas, TGeometry, TMaterial, TShaderMaterial>, viewport: Viewport, sunIntensity?: number) => ChunkShaderMaterial<TShaderMaterial>;
+```
+
 ### makeWorldRenderer  `const`
 
 ```ts
-const makeWorldRenderer: <TCanvas, TGeometry extends ThreeBufferGeometry, TMaterial extends ThreeMaterial>(three: ThreeSurface<TCanvas, TGeometry, TMaterial>, canvas: TCanvas, viewport: Viewport, options?: WorldRendererOptions) => Effect.Effect<WorldRenderer>;
+const makeWorldRenderer: <TCanvas, TGeometry extends ThreeBufferGeometry, TMaterial extends ThreeMaterial, TUsedMaterial extends ThreeMaterial = TMaterial>(three: Omit<ThreeSurface<TCanvas, TGeometry, TMaterial>, "Mesh"> & {
+    readonly Mesh: new (geometry: TGeometry, material: TUsedMaterial) => ThreeMesh;
+}, canvas: TCanvas, viewport: Viewport, options?: WorldRendererOptions<TUsedMaterial>) => Effect.Effect<WorldRenderer>;
 ```
 
 ### mayPreventDefault  `const`
@@ -2227,6 +2535,24 @@ const notchesForWheelDelta: (deltaY: number, mode: WheelDeltaMode) => number;
 const packedLightColor: (sampler: LightSampler) => QuadColor;
 ```
 
+### particleFragmentShader  `const`
+
+```ts
+const particleFragmentShader: () => string;
+```
+
+### particleShaderSource  `const`
+
+```ts
+const particleShaderSource: () => ParticleShaderSource;
+```
+
+### particleVertexShader  `const`
+
+```ts
+const particleVertexShader: () => string;
+```
+
 ### passOrderIndex  `const`
 
 ```ts
@@ -2237,6 +2563,18 @@ const passOrderIndex: (pass: PostProcessingPass) => number;
 
 ```ts
 const quadCorners: (quad: MeshQuad, originX: number, originZ: number) => QuadCorners;
+```
+
+### quadTileForLookup  `const`
+
+```ts
+const quadTileForLookup: (blockNameOf: BlockNameLookup) => QuadTile;
+```
+
+### quadTileFromResolver  `const`
+
+```ts
+const quadTileFromResolver: (resolve: (blockId: number, role: FaceRole) => number) => QuadTile;
 ```
 
 ### quadUvExtent  `const`
@@ -2377,6 +2715,12 @@ const suppressesBrowserContextMenu: (pointerLocked: boolean) => boolean;
 const suppressesBrowserScroll: (pointerLocked: boolean) => boolean;
 ```
 
+### syncWorld  `const`
+
+```ts
+const syncWorld: (renderer: WorldRenderer, source: DirtySource, mesher: ChunkMesher, options?: SyncOptions) => Effect.Effect<SyncReport>;
+```
+
 ### takesTwoPassPath  `const`
 
 ```ts
@@ -2485,6 +2829,18 @@ const waterDepthFactor: (fresnel: number) => number;
 const waterForceSinglePassVerdict: () => MaterialPolicyVerdict;
 ```
 
+### waterFragmentShader  `const`
+
+```ts
+const waterFragmentShader: () => string;
+```
+
+### waterShaderSource  `const`
+
+```ts
+const waterShaderSource: () => WaterShaderSource;
+```
+
 ### waterSunAttenuation  `const`
 
 ```ts
@@ -2495,6 +2851,12 @@ const waterSunAttenuation: (sunIntensity: number) => number;
 
 ```ts
 const waterTint: (fresnel: number) => WaterColor;
+```
+
+### waterVertexShader  `const`
+
+```ts
+const waterVertexShader: () => string;
 ```
 
 ### waveApprox  `const`

@@ -777,11 +777,24 @@ export const readSlot = (pool: ParticlePool, slot: number): ParticleSlotState | 
  * water material is the one that does NOT come out that way; see
  * `domain/water-surface.ts`.
  */
+/**
+ * The cutout threshold. `alphaTest: 0.5` at particle-system.ts:54.
+ *
+ * NAMED rather than left inline in the spec below, because `./particle-shader.ts`
+ * interpolates it into the fragment stage's `discard`. A material's `alphaTest`
+ * and a shader's `discard` threshold are the SAME decision expressed twice, and
+ * three applies the former only to materials it generates — a `ShaderMaterial`
+ * has to test it itself. Two different numbers here would mean the cutout moves
+ * depending on which path drew the particle, which is invisible in any test that
+ * does not render.
+ */
+export const PARTICLE_ALPHA_TEST = 0.5
+
 export const PARTICLE_MATERIAL_SPEC: MaterialSpec = {
   name: 'particleMaterial',
   transparent: true,
   side: 'double',
-  alphaTest: 0.5,
+  alphaTest: PARTICLE_ALPHA_TEST,
   shared: true,
 }
 

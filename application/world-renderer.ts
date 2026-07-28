@@ -53,16 +53,25 @@ import {
   COLOR_COMPONENTS,
   NORMAL_COMPONENTS,
   POSITION_COMPONENTS,
+  TILE_INDEX_COMPONENTS,
   UV_COMPONENTS,
   type ChunkGeometryBuffers,
 } from '../domain/chunk-geometry'
+import {
+  CHUNK_SHADER_ATTRIBUTES,
+  CHUNK_SHADER_UNIFORMS,
+  chunkShaderSource,
+} from '../domain/chunk-shader'
+import { waterShaderSource } from '../domain/water-shader'
 import type {
   ThreeBufferGeometry,
   ThreeMaterial,
   ThreeMesh,
   ThreePerspectiveCamera,
   ThreeScene,
+  ThreeShaderSurface,
   ThreeSurface,
+  ThreeUniform,
   ThreeWebGLRenderer,
 } from './three-surface'
 
@@ -167,6 +176,154 @@ export const NO_DRAW_TARGET: DrawPort = {
   resize: () => Effect.void,
 }
 
+/**
+ * Full daylight: the value `uSunIntensity` takes when nothing drives it.
+ *
+ * 1 and not 0, which is the difference between "no day/night cycle exists" and
+ * "it is midnight". `SKY_CLEAR_COLOR` above already records the cycle as unowned
+ * and takes its day value for the same reason; a sky-blue background over a
+ * world lit at 0 would be a contradiction visible on the first frame.
+ */
+export const FULL_SUN_INTENSITY = 1
+
+/**
+ * The material for the textured, packed-light path.
+ *
+ * Takes the atlas texture AS A VALUE rather than loading one, which is what
+ * keeps this function in the same Node-testable half as everything else here.
+ * `TextureLoader` needs the DOM; `application/dom-surface.ts` is where that
+ * belongs, and a host passes the result across. The type is `unknown` because
+ * this file never reads the texture — it hands it to three, and enumerating
+ * three's texture type would be a mirror maintained for no check (the same
+ * argument `ThreeUniform.value` makes).
+ *
+ * THE UNIFORM RECORD IS RETURNED, not just the material, because the boxes are
+ * the point: a host that wants a day/night cycle writes
+ * `uniforms.uSunIntensity.value = 0.3` and every chunk sharing this material
+ * follows on the next frame with no recompile. See `ThreeUniform`'s header.
+ */
+export type ChunkShaderMaterial<TShaderMaterial extends ThreeMaterial> = {
+  readonly material: TShaderMaterial
+  readonly uniforms: Record<string, ThreeUniform>
+}
+
+/**
+ * Build the shader material and its uniform boxes.
+ *
+ * The GLSL comes from `domain/chunk-shader.ts`, which generates it from the
+ * lighting constants — see that file's header on why the coefficients are
+ * interpolated rather than typed. Nothing here restates a formula.
+ */
+export const makeChunkShaderMaterial = <
+  TCanvas,
+  TGeometry extends ThreeBufferGeometry,
+  TMaterial extends ThreeMaterial,
+  TShaderMaterial extends ThreeMaterial,
+>(
+  three: ThreeShaderSurface<TCanvas, TGeometry, TMaterial, TShaderMaterial>,
+  atlasTexture: unknown,
+  sunIntensity: number = FULL_SUN_INTENSITY,
+): ChunkShaderMaterial<TShaderMaterial> => {
+  const source = chunkShaderSource()
+  const uniforms: Record<string, ThreeUniform> = {
+    [CHUNK_SHADER_UNIFORMS.atlas]: { value: atlasTexture },
+    [CHUNK_SHADER_UNIFORMS.sunIntensity]: { value: sunIntensity },
+  }
+  return {
+    material: new three.ShaderMaterial({
+      vertexShader: source.vertexShader,
+      fragmentShader: source.fragmentShader,
+      uniforms,
+      // Required `true` by the parameter type, not defaulted here. See
+      // `ThreeShaderMaterialParameters`: without it three does not define the
+      // `color` attribute and the shader fails to link in the browser only.
+      vertexColors: true,
+    }),
+    uniforms,
+  }
+}
+
+/**
+ * "Nothing has drawn into the refraction target yet."
+ *
+ * A FLOAT AND NOT A BOOL, because GLSL ES 1.00 uniforms are floats and the
+ * fragment stage uses this as a `mix` weight rather than as a branch — see
+ * `domain/water-shader.ts`. 0 means the tint alone; 1 means the sampled
+ * refraction is real.
+ *
+ * The default is 0 for the same reason `NO_DRAW_TARGET` is the default
+ * `DrawPort`: "there is no refraction here" is a true state and the common one,
+ * and a shader that sampled an unfilled target would mirror uninitialised
+ * memory — which looks like a driver fault rather than a missing pass.
+ */
+export const REFRACTION_UNAVAILABLE = 0
+
+/**
+ * The origin, as a `vec3` uniform's initial value.
+ *
+ * AN ARRAY AND NOT `null`, AND THAT DISTINCTION WAS A REAL DEFECT — the first
+ * cut of `makeWaterMaterial` initialised `uCameraPosition` to `null`, on the
+ * reasoning that "no camera has been supplied yet" is the honest state and that
+ * `uRefractionMap: null` is fine for a sampler.
+ *
+ * It is not fine for a vector. three uploads a `vec3` by reading `.x` off the
+ * value, so a null threw `TypeError: Cannot read properties of null (reading
+ * 'x')` on the first render — and NOTHING IN THIS REPOSITORY COULD HAVE SEEN
+ * IT. Every Node test passed: the material was constructed, the uniform record
+ * had the right six keys, and the GLSL declared the right six names. The upload
+ * is three's, it happens on a real driver, and the only check in this
+ * organisation that runs one is mc-compose's `apps/shader-probe`, which caught
+ * this on its first execution.
+ *
+ * A plain array rather than a `Vector3` because this repository cannot
+ * construct one — `application/three-surface.ts` names no vector constructor,
+ * and three accepts either (`setValueV3f` branches on `v.x === undefined` and
+ * falls back to `uniform3fv`).
+ */
+export const UNIFORM_ORIGIN: ReadonlyArray<number> = [0, 0, 0]
+
+/**
+ * The water material, and the boxes a host writes into every frame.
+ *
+ * `PER_FRAME_WATER_UNIFORMS` in `domain/water-surface.ts` records WHICH of them
+ * change per frame — `uTime`, `uCameraPosition`, `uSunIntensity` — and that
+ * split is a performance contract invisible in the shader. This function hands
+ * back the whole record rather than the three, because a host also has to
+ * rebind `uResolution` on resize and `uRefractionMap` once; naming only the
+ * per-frame three here would make the other two look optional.
+ */
+export const makeWaterMaterial = <
+  TCanvas,
+  TGeometry extends ThreeBufferGeometry,
+  TMaterial extends ThreeMaterial,
+  TShaderMaterial extends ThreeMaterial,
+>(
+  three: ThreeShaderSurface<TCanvas, TGeometry, TMaterial, TShaderMaterial>,
+  viewport: Viewport,
+  sunIntensity: number = FULL_SUN_INTENSITY,
+): ChunkShaderMaterial<TShaderMaterial> => {
+  const source = waterShaderSource()
+  const uniforms: Record<string, ThreeUniform> = {
+    uTime: { value: 0 },
+    uRefractionMap: { value: null },
+    // NOT `null`. See `UNIFORM_ORIGIN` — a null here is a TypeError inside
+    // three's uniform upload, on a real driver, and on no test in Node.
+    uCameraPosition: { value: [...UNIFORM_ORIGIN] },
+    uResolution: { value: [viewport.width, viewport.height] },
+    uRefractionValid: { value: REFRACTION_UNAVAILABLE },
+    uSunIntensity: { value: sunIntensity },
+  }
+  return {
+    material: new three.ShaderMaterial({
+      vertexShader: source.vertexShader,
+      fragmentShader: source.fragmentShader,
+      uniforms,
+      vertexColors: true,
+    }),
+    uniforms,
+  }
+}
+
 /** How a chunk's geometry is keyed while it is in the scene. */
 export type ChunkKey = string
 
@@ -206,14 +363,48 @@ export type WorldRenderer = DrawPort & {
   readonly dispose: Effect.Effect<void>
 }
 
+/**
+ * How the one shared material gets built.
+ *
+ * A THUNK AND NOT A MATERIAL, so that the renderer still owns the lifetime. The
+ * material is disposed in `dispose` alongside the geometries, and a caller that
+ * handed over an already-constructed instance would have no way to know whether
+ * it may still use it — `WorldRenderer` would be taking ownership of a value it
+ * did not create, which is the one arrangement `DrawPort` and `LightSampler`
+ * both avoid.
+ *
+ * The host closes over its own `three` namespace to write one. That is why this
+ * takes no arguments: a factory parameterised by the surface would have to name
+ * WHICH surface, and the textured path's is `ThreeShaderSurface` — a different
+ * type with a fourth parameter. A thunk is agnostic to which one the host holds.
+ */
+export type MaterialFactory<TMaterial extends ThreeMaterial> = () => TMaterial
+
 /** Everything a caller may vary. Each field's default is documented above. */
-export type WorldRendererOptions = {
+export type WorldRendererOptions<TMaterial extends ThreeMaterial = ThreeMaterial> = {
   readonly fovDegrees?: number
   readonly nearPlane?: number
   readonly farPlane?: number
   readonly clearColor?: number
   /** Draw edges instead of filled faces. For diagnosing a geometry, not for play. */
   readonly wireframe?: boolean
+  /**
+   * Build the shared material. Defaults to the unlit `MeshBasicMaterial`.
+   *
+   * THIS IS THE SWITCH BETWEEN THE TWO LIGHTING PATHS, and it is a port rather
+   * than a `textured: boolean` for the reason `DrawPort`'s header gives: what a
+   * richer host adds is a port, not a branch. Supplying
+   * `chunkShaderMaterialFactory` puts the renderer on the packed-light path that
+   * `domain/chunk-shader.ts` decodes; supplying nothing leaves it on the grey
+   * unlit one, which is what Node, `apps/preview-render` and every consumer
+   * without an atlas image are honestly in.
+   *
+   * `wireframe` is ignored when this is supplied, because a `ShaderMaterial`
+   * has no such flag — its rasterisation is its own source. That is a real
+   * asymmetry and not an oversight: the wireframe option exists to diagnose a
+   * geometry, and the geometry is the same on both paths.
+   */
+  readonly material?: MaterialFactory<TMaterial>
 }
 
 /** The drawing surface's size in device-independent pixels. */
@@ -278,11 +469,19 @@ export const makeWorldRenderer = <
   TCanvas,
   TGeometry extends ThreeBufferGeometry,
   TMaterial extends ThreeMaterial,
+  /**
+   * The material the renderer ACTUALLY MESHES WITH, which is `TMaterial` unless
+   * a factory supplies something else. Defaulted, so every existing call site
+   * is unchanged and infers it from `MeshBasicMaterial` exactly as before.
+   */
+  TUsedMaterial extends ThreeMaterial = TMaterial,
 >(
-  three: ThreeSurface<TCanvas, TGeometry, TMaterial>,
+  three: Omit<ThreeSurface<TCanvas, TGeometry, TMaterial>, 'Mesh'> & {
+    readonly Mesh: new (geometry: TGeometry, material: TUsedMaterial) => ThreeMesh
+  },
   canvas: TCanvas,
   viewport: Viewport,
-  options: WorldRendererOptions = {},
+  options: WorldRendererOptions<TUsedMaterial> = {},
 ): Effect.Effect<WorldRenderer> =>
   Effect.gen(function* () {
     const renderer: ThreeWebGLRenderer = new three.WebGLRenderer({
@@ -323,10 +522,26 @@ export const makeWorldRenderer = <
      * and this material is shared but neither transparent nor a cutout. The
      * water material, when it exists, is the one that will need the audit.
      */
-    const material: TMaterial = new three.MeshBasicMaterial({
-      vertexColors: true,
-      wireframe: options.wireframe ?? false,
-    })
+    /**
+     * THE ONE ASSERTION IN THIS FILE, and it is confined to the branch where it
+     * is a tautology. `TUsedMaterial` DEFAULTS to `TMaterial`, so on the path
+     * where no factory was supplied the two are the same type — but that is a
+     * fact about the default, and a default is not a constraint the checker can
+     * use inside the body. There is no signature that expresses "when this
+     * optional argument is absent, these two parameters are equal"; the
+     * alternative is an overload pair whose bodies are this same expression
+     * twice.
+     *
+     * It is safe in the direction that matters: a caller who supplies a factory
+     * never reaches this branch, and a caller who does not has `TUsedMaterial =
+     * TMaterial` by construction.
+     */
+    const material: TUsedMaterial =
+      options.material?.() ??
+      (new three.MeshBasicMaterial({
+        vertexColors: true,
+        wireframe: options.wireframe ?? false,
+      }) as unknown as TUsedMaterial)
 
     const chunks = yield* Ref.make(
       new Map<ChunkKey, { readonly mesh: ThreeMesh; readonly geometry: TGeometry }>(),
@@ -348,6 +563,16 @@ export const makeWorldRenderer = <
       // `false` on every other attribute, which is the same distinction.
       geometry.setAttribute('color', new three.BufferAttribute(buffers.colors, COLOR_COMPONENTS, true))
       geometry.setAttribute('uv', new three.BufferAttribute(buffers.uvs, UV_COMPONENTS, false))
+      // UPLOADED ON BOTH PATHS, though only the shader reads it. An unused
+      // attribute costs one buffer per chunk; a MISSING one costs a world drawn
+      // entirely from atlas tile 0, because GL supplies 0 for an attribute no
+      // buffer is bound to and reports nothing. The name comes from
+      // `CHUNK_SHADER_ATTRIBUTES` rather than a literal so the two cannot drift
+      // — `test/chunk-shader-geometry.test.ts` asserts that they have not.
+      geometry.setAttribute(
+        CHUNK_SHADER_ATTRIBUTES.tileIndex,
+        new three.BufferAttribute(buffers.tileIndices, TILE_INDEX_COMPONENTS, false),
+      )
       geometry.setIndex(new three.BufferAttribute(buffers.indices, 1, false))
       // Before the first render, not lazily. See `ThreeBufferGeometry`: three
       // computes this on demand and warns on an empty position attribute, and

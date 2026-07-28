@@ -78,6 +78,7 @@ export * from './domain/input-bindings'
 export * from './domain/level-of-detail'
 export * from './domain/material-policy'
 export * from './domain/particle-pool'
+export * from './domain/particle-shader'
 export * from './domain/post-processing'
 export * from './domain/texture-atlas'
 // The shading curve. `chunk-geometry.ts` builds buffers and does not decide how
@@ -88,6 +89,7 @@ export * from './domain/texture-atlas'
 export * from './domain/chunk-shader'
 export * from './domain/voxel-lighting'
 export * from './domain/water-refraction'
+export * from './domain/water-shader'
 export * from './domain/water-surface'
 
 // --- Application: Effect services ------------------------------------------
@@ -112,6 +114,8 @@ export * from './application/browser-input-adapter'
 // that says so was `fixme`.
 export * from './application/three-surface'
 export * from './application/world-renderer'
+export * from './application/particle-system'
+export * from './application/world-sync'
 
 // --- Stages: this repository's contribution to the frame --------------------
 // `renderModule` is a full `GameModule` (plan.md §4.1): a Layer plus an

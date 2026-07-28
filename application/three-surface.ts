@@ -420,6 +420,92 @@ export type ThreeShaderSurface<
   TGeometry extends ThreeBufferGeometry,
   TMaterial extends ThreeMaterial,
   TShaderMaterial extends ThreeMaterial,
-> = ThreeSurface<TCanvas, TGeometry, TMaterial> & {
+> = Omit<ThreeSurface<TCanvas, TGeometry, TMaterial>, 'Mesh'> & {
   readonly ShaderMaterial: new (parameters: ThreeShaderMaterialParameters) => TShaderMaterial
+  /**
+   * `Mesh`, WIDENED TO EITHER MATERIAL — the member the note above predicted
+   * would have to move, arriving from the direction it did not predict.
+   *
+   * `ThreeSurface` narrows this parameter to `TMaterial`, and that narrowing
+   * encoded a fact rather than a preference: the renderer BUILT the material it
+   * meshed with, so there was only ever one. A material factory falsifies that,
+   * and `new three.Mesh(geometry, shaderMaterial)` stops compiling — which is
+   * the type system reporting the change correctly rather than obstructing it.
+   *
+   * WIDENED TO THE UNION AND NOT TO `ThreeMaterial`, which is forced by
+   * `strictFunctionTypes` and is worth recording because the obvious fix does
+   * not work. Constructor parameters are checked CONTRAVARIANTLY, so a
+   * `material: ThreeMaterial` here would oblige `ThreeMaterial` — a type whose
+   * only member is `dispose` — to be assignable to three's own `Material`, and
+   * it is not. `test/three-surface.test.ts` compiles the fixture against the
+   * real namespace and would have said so. The union instantiates at two
+   * CONCRETE three classes, both of which really are `Material`s.
+   *
+   * `Omit` rather than an intersection: intersecting two construct signatures
+   * makes an overload set, and the fallback path's material has the union type,
+   * which matches neither branch of it cleanly.
+   */
+  readonly Mesh: new (geometry: TGeometry, material: TMaterial | TShaderMaterial) => ThreeMesh
+}
+
+/**
+ * An attribute whose contents change after upload.
+ *
+ * `ThreeBufferAttribute` above is opaque — the chunk path builds one, hands it
+ * over and never touches it again, so it needs no members. A PARTICLE attribute
+ * is the opposite case: `domain/particle-pool.ts` writes into the same five
+ * typed arrays every frame and never reallocates them, which is the entire
+ * point of a pool, and three has no way to notice that a `Float32Array` it
+ * already uploaded has different bytes in it now.
+ *
+ * `needsUpdate` is that notification and it is WRITE-ONLY in practice: three
+ * resets it to false after the upload. Naming it here rather than reaching for
+ * the real type keeps the seam's rule intact — this repository names the
+ * members it calls and nothing else.
+ */
+export type ThreeInstancedBufferAttribute = {
+  needsUpdate: boolean
+}
+
+/**
+ * A geometry that draws its contents N times.
+ *
+ * `instanceCount` is MUTABLE and is the whole reason this type is separate from
+ * `ThreeBufferGeometry`. The particle pool's capacity is fixed at construction
+ * — 512 slots, allocated once — but the number of LIVE particles changes every
+ * frame, and the difference between the two is exactly what this field carries.
+ * Setting it is how a frame says "draw the first N instances"; without it the
+ * renderer would draw all 512 every frame, and the dead ones would appear at
+ * whatever position they last held.
+ */
+export type ThreeInstancedBufferGeometry = ThreeBufferGeometry & {
+  instanceCount: number
+}
+
+/**
+ * The surface, plus the two constructors instancing needs.
+ *
+ * SEPARATE AGAIN, and for the reason `ThreeShaderSurface`'s header gives: a host
+ * with no particle system must remain able to build a renderer. The three
+ * surfaces compose by intersection at the one call site that has `three` in
+ * scope, which is where every other instantiation decision in this seam is also
+ * made.
+ *
+ * `InstancedBufferAttribute` takes no `normalized` argument where
+ * `BufferAttribute` does. That is three's own signature and not a narrowing:
+ * every per-instance value the pool holds is already in the units the shader
+ * wants — metres, a 0..1 fade, and an atlas UV origin — so there is nothing to
+ * normalise and a third parameter would only be a place to pass the wrong one.
+ */
+export type ThreeInstancedSurface<
+  TCanvas,
+  TGeometry extends ThreeBufferGeometry,
+  TMaterial extends ThreeMaterial,
+  TInstancedGeometry extends ThreeInstancedBufferGeometry,
+> = ThreeSurface<TCanvas, TGeometry, TMaterial> & {
+  readonly InstancedBufferGeometry: new () => TInstancedGeometry
+  readonly InstancedBufferAttribute: new (
+    array: Float32Array,
+    itemSize: number,
+  ) => ThreeInstancedBufferAttribute
 }

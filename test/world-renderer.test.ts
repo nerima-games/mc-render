@@ -191,6 +191,10 @@ describe('chunk geometry in the scene', () => {
         'normal',
         'color',
         'uv',
+        // Uploaded on BOTH material paths although only the shader samples it.
+        // A missing attribute does not fail: GL feeds 0 to an unbound one, so
+        // the whole world would draw from atlas tile 0 with nothing reported.
+        'tileIndex',
       ])
       expect(geometry?.attributes.get('position')).toStrictEqual({
         array: buffers.positions,
@@ -206,6 +210,15 @@ describe('chunk geometry in the scene', () => {
         normalized: true,
       })
       expect(geometry?.attributes.get('uv')?.itemSize).toBe(2)
+      // itemSize 1 and `normalized: false`: GLSL ES has no integer attributes,
+      // so the index crosses as a float the fragment stage rounds back. A
+      // `normalized: true` here would divide it by 255 and every tile but 0
+      // would resolve wrong.
+      expect(geometry?.attributes.get('tileIndex')).toStrictEqual({
+        array: buffers.tileIndices,
+        itemSize: 1,
+        normalized: false,
+      })
       expect(geometry?.index()).toStrictEqual({
         array: buffers.indices,
         itemSize: 1,

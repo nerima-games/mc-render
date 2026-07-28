@@ -267,8 +267,24 @@ export const WATER_SURFACE_ALPHA = 0.86
  * across it at a glancing angle is the shallow one, because at a glancing angle
  * you are seeing reflection rather than depth.
  */
+export const WATER_DEPTH_FACTOR_FLOOR = 0.55
+
+/**
+ * The span the Fresnel term moves the depth factor across. `* 0.4` at
+ * water-material.ts:85.
+ *
+ * NAMED RATHER THAN INLINE because `./water-shader.ts` interpolates it into the
+ * GLSL. The two implementations of this expression — this one and the fragment
+ * stage's — must not be two hand-written copies: a shader whose depth mix
+ * disagrees with the CPU's throws nothing and type-checks, and the symptom is
+ * water that is the wrong blue at some angles, which reads as a palette opinion
+ * rather than a defect. Same argument `./voxel-lighting.ts` makes for
+ * `LIGHT_SHADE_FLOOR` and `LIGHT_SHADE_RANGE`.
+ */
+export const WATER_DEPTH_FACTOR_RANGE = 0.4
+
 export const waterDepthFactor = (fresnel: number): number => {
-  const factor = 0.55 + (1 - fresnel) * 0.4
+  const factor = WATER_DEPTH_FACTOR_FLOOR + (1 - fresnel) * WATER_DEPTH_FACTOR_RANGE
   return Math.min(1, Math.max(0, factor))
 }
 
@@ -349,19 +365,28 @@ export const schlickFresnel = (cosTheta: number): number => {
 
 // --- The ripple field -------------------------------------------------------
 
-/** `2π`, to the precision the reference's shader uses (water-material.ts:53). */
-const TWO_PI = 6.2831853
+/**
+ * `2π`, to the precision the reference's shader uses (water-material.ts:53).
+ *
+ * EXPORTED, along with the two Bhaskara coefficients below, because
+ * `./water-shader.ts` has to emit this same wave function in GLSL. They were
+ * module-private while there was only one implementation; a second one is
+ * exactly the circumstance under which a private constant becomes a constant
+ * somebody retypes. The GLSL interpolates these three, so the approximation
+ * cannot drift between the CPU and the GPU without the interpolation changing.
+ */
+export const TWO_PI = 6.2831853
 
 /**
  * `4 / π`, the linear coefficient of Bhaskara's parabolic sine.
  * `1.2732395` at water-material.ts:55.
  */
-const BHASKARA_LINEAR = 1.2732395
+export const BHASKARA_LINEAR = 1.2732395
 
 /**
  * `4 / π²`, the quadratic coefficient. `0.4052847` at water-material.ts:55.
  */
-const BHASKARA_QUADRATIC = 0.4052847
+export const BHASKARA_QUADRATIC = 0.4052847
 
 /**
  * The maximum error of `waveApprox` against `Math.sin`, over all finite inputs.
@@ -535,8 +560,13 @@ export const clampSunIntensity = (sunIntensity: number): number => {
  * 30%, NOT to zero. Water that goes fully black at night is water the player
  * walks into, and the 0.30 is what keeps the surface readable as a surface.
  */
+export const WATER_SUN_FLOOR = 0.3
+
+/** The span the sun moves the surface brightness across. `0.70` at :106. */
+export const WATER_SUN_RANGE = 0.7
+
 export const waterSunAttenuation = (sunIntensity: number): number =>
-  0.3 + 0.7 * clampSunIntensity(sunIntensity)
+  WATER_SUN_FLOOR + WATER_SUN_RANGE * clampSunIntensity(sunIntensity)
 
 // --- Material flags, and the policy gap -------------------------------------
 
