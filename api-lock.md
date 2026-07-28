@@ -13,7 +13,7 @@
 <!-- ------------------------------------------------------------------------- -->
 
 format: 1
-exported declarations: 284
+exported declarations: 304
 supporting declarations: 17
 
 ## Exported
@@ -115,6 +115,12 @@ const CAMERA_FOV_DEGREES = 75;
 const CAMERA_NEAR_PLANE = 0.1;
 ```
 
+### CHUNK_SIZE  `const`
+
+```ts
+const CHUNK_SIZE = 16;
+```
+
 ### CLICK_LANDINGS  `const`
 
 ```ts
@@ -161,6 +167,15 @@ type ChunkGeometryBuffers = {
 
 ```ts
 type ChunkKey = string;
+```
+
+### ChunkXZ  `type`
+
+```ts
+type ChunkXZ = {
+    readonly chunkX: number;
+    readonly chunkZ: number;
+};
 ```
 
 ### ClickLanding  `type`
@@ -536,6 +551,24 @@ const LISTENER_PLAN: ReadonlyArray<{
 }>;
 ```
 
+### LOD1_DISTANCE_CHUNKS  `const`
+
+```ts
+const LOD1_DISTANCE_CHUNKS = 4;
+```
+
+### LOD2_DISTANCE_CHUNKS  `const`
+
+```ts
+const LOD2_DISTANCE_CHUNKS = 8;
+```
+
+### LOD_LEVELS  `const`
+
+```ts
+const LOD_LEVELS: readonly [0, 1, 2];
+```
+
 ### ListenerRegistration  `type`
 
 ```ts
@@ -551,6 +584,33 @@ type ListenerRegistration = {
 
 ```ts
 type ListenerTarget = 'window' | 'document';
+```
+
+### LodLevel  `type`
+
+```ts
+type LodLevel = (typeof LOD_LEVELS)[number];
+```
+
+### LodLevelSchema  `const`
+
+```ts
+const LodLevelSchema: Schema.Literal<[0, 1, 2]>;
+```
+
+### LodThresholds  `type`
+
+```ts
+type LodThresholds = {
+    readonly lod1: number;
+    readonly lod2: number;
+};
+```
+
+### LodTierCensus  `type`
+
+```ts
+type LodTierCensus = Readonly<Record<LodLevel, number>>;
 ```
 
 ### MANDATORY_PASSES  `const`
@@ -933,10 +993,22 @@ type QuadVertex = readonly [number, number, number];
 type QualityPreset = 'low' | 'medium' | 'high' | 'ultra';
 ```
 
+### REFERENCE_LOD_THRESHOLDS  `const`
+
+```ts
+const REFERENCE_LOD_THRESHOLDS: LodThresholds;
+```
+
 ### REFERENCE_REFRACTION_GATE_ORDER  `const`
 
 ```ts
 const REFERENCE_REFRACTION_GATE_ORDER: ReadonlyArray<RefractionGate>;
+```
+
+### REFERENCE_VIEWING_CONDITIONS  `const`
+
+```ts
+const REFERENCE_VIEWING_CONDITIONS: ViewingConditions;
 ```
 
 ### REFRACTION_GATE_ORDER  `const`
@@ -1101,6 +1173,12 @@ const SKY_CLEAR_ALPHA = 1;
 
 ```ts
 const SKY_CLEAR_COLOR = 8900331;
+```
+
+### STEP_FOR_LOD  `const`
+
+```ts
+const STEP_FOR_LOD: Readonly<Record<LodLevel, number>>;
 ```
 
 ### ScratchMap  `type`
@@ -1396,6 +1474,15 @@ type ViewOffset = {
 };
 ```
 
+### ViewingConditions  `type`
+
+```ts
+type ViewingConditions = {
+    readonly viewportHeightPixels: number;
+    readonly verticalFovDegrees: number;
+};
+```
+
 ### Viewport  `type`
 
 ```ts
@@ -1617,6 +1704,12 @@ const chainEffects: (chain: ReadonlyArray<PostProcessingStep>) => ReadonlyArray<
 const chainPasses: (chain: ReadonlyArray<PostProcessingStep>) => ReadonlyArray<PostProcessingPass>;
 ```
 
+### chunkDistance  `const`
+
+```ts
+const chunkDistance: (from: ChunkXZ, to: ChunkXZ) => number;
+```
+
 ### clampSunIntensity  `const`
 
 ```ts
@@ -1657,6 +1750,12 @@ const describeMaterialPolicy: (material: MaterialSpec) => MaterialPolicyVerdict;
 
 ```ts
 const describeRefractionDecision: (decision: RefractionDecision) => string;
+```
+
+### distanceForScreenErrorPixels  `const`
+
+```ts
+const distanceForScreenErrorPixels: (level: LodLevel, errorPixels: number, view: ViewingConditions) => number;
 ```
 
 ### evictionOrderIsSpawnOrder  `const`
@@ -1747,6 +1846,30 @@ const isTileIndex: (tileIndex: number) => boolean;
 
 ```ts
 const listenerOptionsFor: (eventName: string) => DomListenerOptions;
+```
+
+### lodForDistance  `const`
+
+```ts
+const lodForDistance: (distanceChunks: number, thresholds: LodThresholds) => LodLevel;
+```
+
+### lodScreenErrorPixels  `const`
+
+```ts
+const lodScreenErrorPixels: (level: LodLevel, distanceChunks: number, view: ViewingConditions) => number;
+```
+
+### lodThresholdsForRenderDistance  `const`
+
+```ts
+const lodThresholdsForRenderDistance: (renderDistance: number) => LodThresholds;
+```
+
+### lodTierCensus  `const`
+
+```ts
+const lodTierCensus: (renderDistance: number, thresholds: LodThresholds) => LodTierCensus;
 ```
 
 ### makeBrowserPointerLockPort  `const`
@@ -2056,6 +2179,12 @@ const translateDomEvent: (planned: PlannedListener, event: DomInputEvent, contex
 
 ```ts
 const unboundTouchActions: (bindings: Bindings, actions: ReadonlyArray<InputAction>) => ReadonlyArray<InputAction>;
+```
+
+### unreachableLodTiers  `const`
+
+```ts
+const unreachableLodTiers: (renderDistance: number, thresholds: LodThresholds) => ReadonlyArray<LodLevel>;
 ```
 
 ### uvPatchStaysInsideTile  `const`

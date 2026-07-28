@@ -47,6 +47,12 @@ export * from './domain/camera-mirror'
 export * from './domain/chunk-geometry'
 export * from './domain/frame-scratch'
 export * from './domain/input-bindings'
+// `level-of-detail.ts` decides which LOD tier a chunk is drawn at, and measures
+// what that costs the picture. mc-meshing docs/responsibility.md §3.4 assigned
+// it here because it takes a DISTANCE and mc-meshing holds no coordinates; the
+// level vocabulary stayed there and `lod-vocabulary.ts` mirrors it back.
+export * from './domain/level-of-detail'
+export * from './domain/lod-vocabulary'
 export * from './domain/material-policy'
 export * from './domain/particle-pool'
 export * from './domain/post-processing'
