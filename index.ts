@@ -116,6 +116,7 @@ export * from './application/three-surface'
 export * from './application/world-renderer'
 export * from './application/particle-system'
 export * from './application/world-sync'
+export * from './application/worker-pool'
 
 // --- Stages: this repository's contribution to the frame --------------------
 // `renderModule` is a full `GameModule` (plan.md §4.1): a Layer plus an

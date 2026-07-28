@@ -13,7 +13,7 @@
 <!-- ------------------------------------------------------------------------- -->
 
 format: 1
-exported declarations: 395
+exported declarations: 405
 supporting declarations: 19
 
 ## Exported
@@ -283,6 +283,12 @@ const DEFAULT_BINDINGS: Readonly<Record<Exclude<InputAction, 'escape'>, InputCod
 
 ```ts
 const DEFAULT_BURST_PARTICLES = 6;
+```
+
+### DEFAULT_MAX_QUEUED  `const`
+
+```ts
+const DEFAULT_MAX_QUEUED = 64;
 ```
 
 ### DEFAULT_PARTICLE_SEED  `const`
@@ -668,6 +674,23 @@ type InputSnapshot = {
 type InstalledInputListeners = {
     readonly registrations: ReadonlyArray<ListenerRegistration>;
     readonly remove: () => void;
+};
+```
+
+### JobKey  `type`
+
+```ts
+type JobKey = string;
+```
+
+### JobOutcome  `type`
+
+```ts
+type JobOutcome<TResult> = {
+    readonly _tag: 'completed';
+    readonly result: TResult;
+} | {
+    readonly _tag: 'cancelled';
 };
 ```
 
@@ -1190,6 +1213,19 @@ type PointerLockState = (typeof POINTER_LOCK_STATES)[number];
 ```ts
 type PointerLockTarget = {
     readonly requestPointerLock?: () => unknown;
+};
+```
+
+### PoolStats  `type`
+
+```ts
+type PoolStats = {
+    readonly busy: number;
+    readonly queued: number;
+    readonly completed: number;
+    readonly cancelledBeforeStart: number;
+    readonly discardedAfterStart: number;
+    readonly droppedForBackpressure: number;
 };
 ```
 
@@ -2027,6 +2063,53 @@ type WaterUniformName = 'uTime' | 'uRefractionMap' | 'uCameraPosition' | 'uResol
 type WheelDeltaMode = (typeof WHEEL_DELTA_MODES)[number];
 ```
 
+### WorkerPool  `type`
+
+```ts
+type WorkerPool<TPayload, TResult> = {
+    readonly submit: (key: JobKey, payload: TPayload) => Effect.Effect<JobOutcome<TResult>>;
+    readonly cancel: (key: JobKey) => Effect.Effect<number>;
+    readonly stats: Effect.Effect<PoolStats>;
+    readonly shutdown: Effect.Effect<void>;
+};
+```
+
+### WorkerPoolOptions  `type`
+
+```ts
+type WorkerPoolOptions = {
+    readonly maxQueued?: number;
+};
+```
+
+### WorkerPort  `type`
+
+```ts
+type WorkerPort<TRequest, TResponse> = {
+    readonly post: (request: TRequest) => void;
+    readonly onMessage: (handler: (response: TResponse) => void) => void;
+    readonly terminate: () => void;
+};
+```
+
+### WorkerRequest  `type`
+
+```ts
+type WorkerRequest<TPayload> = {
+    readonly id: number;
+    readonly payload: TPayload;
+};
+```
+
+### WorkerResponse  `type`
+
+```ts
+type WorkerResponse<TResult> = {
+    readonly id: number;
+    readonly result: TResult;
+};
+```
+
 ### WorldRenderer  `type`
 
 ```ts
@@ -2471,6 +2554,12 @@ const makeScratchMap: <K, V>(name: string, initialCapacity?: number) => ScratchM
 
 ```ts
 const makeWaterMaterial: <TCanvas, TGeometry extends ThreeBufferGeometry, TMaterial extends ThreeMaterial, TShaderMaterial extends ThreeMaterial>(three: ThreeShaderSurface<TCanvas, TGeometry, TMaterial, TShaderMaterial>, viewport: Viewport, sunIntensity?: number) => ChunkShaderMaterial<TShaderMaterial>;
+```
+
+### makeWorkerPool  `const`
+
+```ts
+const makeWorkerPool: <TPayload, TResult>(ports: ReadonlyArray<WorkerPort<WorkerRequest<TPayload>, WorkerResponse<TResult>>>, options?: WorkerPoolOptions) => Effect.Effect<WorkerPool<TPayload, TResult>>;
 ```
 
 ### makeWorldRenderer  `const`
