@@ -331,3 +331,95 @@ export type ThreeSurface<
     readonly wireframe: boolean
   }) => TMaterial
 }
+
+/**
+ * A uniform, as three wants it: a box with a mutable `value`.
+ *
+ * The BOX is the point and is not three being verbose. A host sets
+ * `uniforms.uSunIntensity.value = 0.3` and every material sharing that object
+ * sees it on the next frame, with no material rebuild and no shader
+ * recompilation. Passing a bare number would mean replacing the uniform record
+ * to change the sun, which sets `needsUpdate` and re-resolves the program for
+ * every sharer — the exact cost `domain/material-policy.ts`'s `forceSinglePass`
+ * rule exists to avoid, arrived at from the other direction.
+ *
+ * `unknown` rather than a union of the types three accepts: this surface never
+ * READS a uniform value, it only hands one over, and enumerating three's
+ * accepted types would be a list to maintain for no check.
+ */
+export type ThreeUniform = {
+  value: unknown
+}
+
+/**
+ * The parameters `ShaderMaterial` is constructed with.
+ *
+ * `vertexColors: true` is REQUIRED and not optional, which is a deliberate
+ * narrowing of three's own signature. `domain/chunk-shader.ts`'s fragment source
+ * reads `vColor` for all three of ambient occlusion, sky light and block light;
+ * without the flag three does not define the `color` attribute and the shader
+ * fails to link — in the browser, with a blank canvas and a console message,
+ * which is the failure this repository has the least ability to see. Making it
+ * a required `true` moves that to compile time.
+ */
+export type ThreeShaderMaterialParameters = {
+  readonly vertexShader: string
+  readonly fragmentShader: string
+  readonly uniforms: Record<string, ThreeUniform>
+  readonly vertexColors: true
+}
+
+/**
+ * The surface, plus a `ShaderMaterial`.
+ *
+ * SEPARATE FROM `ThreeSurface` RATHER THAN A NINTH MEMBER OF IT, and the reason
+ * is the property that file's header is built around: `makeWorldRenderer` must
+ * remain constructible by a host that has no atlas image and no textured
+ * pipeline. `apps/preview-render`, `test/stage-registration.test.ts` and every
+ * consumer that composes the module to inspect frame order are in that
+ * position, and adding a required member to `ThreeSurface` would oblige all of
+ * them to supply a constructor they never call.
+ *
+ * A host that wants the textured, packed-light path passes one of these; a host
+ * that wants a grey unlit world passes the smaller surface. Same discipline as
+ * `DrawPort` — what a richer host adds is a port, not a branch.
+ *
+ * ---------------------------------------------------------------------------
+ * FOUR TYPE PARAMETERS, BECAUSE THE TWO MATERIALS ARE NOT THE SAME MATERIAL
+ * ---------------------------------------------------------------------------
+ *
+ * The first cut of this type reused `TMaterial` for both constructors and was
+ * wrong in a way worth recording, because it reads as correct:
+ *
+ *     ThreeSurface<TCanvas, TGeometry, TMaterial> & {
+ *       ShaderMaterial: new (...) => TMaterial   // <- wrong
+ *     }
+ *
+ * Instantiated at `TMaterial = THREE.ShaderMaterial`, that obliges
+ * `MeshBasicMaterial` to RETURN a `ShaderMaterial`, which no version of three
+ * does. `test/three-surface.test.ts` caught it — it compiles the fixture and
+ * asserts zero diagnostics — and the message named `MeshBasicMaterial` as the
+ * incompatible member, three levels down, which is the opposite end of the type
+ * from the one being added.
+ *
+ * `TMaterial` was never "the material type"; it is THE MATERIAL
+ * `makeWorldRenderer` BUILDS. A host that has both paths available has two
+ * material types and needs two slots. That distinction is invisible while only
+ * one constructor exists, which is exactly why adding the second one is when it
+ * had to be made.
+ *
+ * NOTE what this does NOT yet do: `makeWorldRenderer` still constructs a
+ * `MeshBasicMaterial` unconditionally. Handing it a `ShaderMaterial` means the
+ * renderer taking a material FACTORY rather than building one, and it means an
+ * atlas texture — which needs `TextureLoader`, which needs the DOM, which is a
+ * separate seam from this one. This type is the half that can land without
+ * either.
+ */
+export type ThreeShaderSurface<
+  TCanvas,
+  TGeometry extends ThreeBufferGeometry,
+  TMaterial extends ThreeMaterial,
+  TShaderMaterial extends ThreeMaterial,
+> = ThreeSurface<TCanvas, TGeometry, TMaterial> & {
+  readonly ShaderMaterial: new (parameters: ThreeShaderMaterialParameters) => TShaderMaterial
+}

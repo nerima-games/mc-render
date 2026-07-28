@@ -87,7 +87,14 @@
  * reasons to insist on.
  */
 import { LIGHT_LEVEL_MAX, clampLightLevel } from './kernel-vocabulary'
-import { aoShade, faceNormal, type FaceDirection, type QuadShade } from './chunk-geometry'
+import {
+  aoShade,
+  faceNormal,
+  greyQuadColor,
+  type FaceDirection,
+  type QuadColor,
+  type QuadShade,
+} from './chunk-geometry'
 
 /**
  * The two light values at a point: how much of it is daylight and how much is
@@ -374,3 +381,70 @@ export const litShade = (
     return combinedShadeByte(sampler(x, y, z), quad.ao, skyIntensity, quad.direction)
   }
 }
+
+/** `litShade` as the `QuadColor` the geometry builder takes. Grey, three times. */
+export const litColor = (sampler: LightSampler, options: ShadingOptions = {}): QuadColor =>
+  greyQuadColor(litShade(sampler, options))
+
+/**
+ * The OTHER path: `R = AO, G = sky, B = block`, for a fragment shader to
+ * combine.
+ *
+ * The reference's packing (`greedy-meshing-accumulator.ts:131-134`, decoded at
+ * `chunk-mesh-materials.ts:123-128`), and the reason `./chunk-geometry.ts`'s
+ * colour hook returns three channels instead of one.
+ *
+ * ---------------------------------------------------------------------------
+ * IT IS NOT THE DEFAULT, AND FEEDING IT TO THE WRONG MATERIAL IS SPECTACULAR
+ * ---------------------------------------------------------------------------
+ *
+ * These bytes are three unrelated quantities that happen to be stored in
+ * channels named red, green and blue. A `MeshBasicMaterial` — which is what
+ * `application/world-renderer.ts` builds today — multiplies them as a COLOUR:
+ * a sunlit unoccluded face has `G = 255, B = 0` and renders bright green, a
+ * torchlit one renders blue. The failure is loud, which is the one good thing
+ * about it.
+ *
+ * `./chunk-shader.ts` is the decode, and `chunkFragmentShader` is generated
+ * from the SAME constants `combinedShadeByte` uses, so the two paths cannot
+ * drift into computing different pictures.
+ *
+ * ---------------------------------------------------------------------------
+ * WHY IT EXISTS AT ALL, GIVEN THE CPU PATH ALREADY WORKS
+ * ---------------------------------------------------------------------------
+ *
+ * Not speed of the arithmetic — that is a handful of multiplies either way.
+ * WHEN the arithmetic happens:
+ *
+ *   PRE-COMBINED, a torch placed at dusk changes the answer for every face
+ *   around it, so those chunks must be RE-MESHED — the shade is baked into the
+ *   vertex buffer.
+ *
+ *   PACKED, the same torch changes only what the shader reads, and
+ *   `uSunIntensity` moving with the day/night cycle costs nothing at all.
+ *   Geometry is untouched.
+ *
+ * `skyIntensity` is therefore absent here on purpose: it is a uniform in this
+ * path, not a bake-time constant, and accepting one would let a caller bake the
+ * time of day into a buffer whose whole point is that it does not have to.
+ *
+ * The face term is absent for the same reason — the shader derives it from the
+ * normal, which it already has. `chunkVertexShader` carries it.
+ */
+export const packedLightColor =
+  (sampler: LightSampler): QuadColor =>
+  (quad) => {
+    const [x, y, z] = lightSamplePoint(quad, faceNormal(quad.direction))
+    const light = sampler(x, y, z)
+    return [
+      // R: the AO table's own byte, NOT the level. The shader's `0.8 + 0.2 * R`
+      // expects a 0..1 fraction, and `normalized: true` on the attribute divides
+      // by 255 — so the byte that must be here is the one an unlit material
+      // would have shown.
+      aoShade(quad.ao),
+      // G, B: levels scaled onto the byte range, so the shader's `max(sky *
+      // uSunIntensity, block)` operates on 0..1 fractions.
+      Math.round((clampLightLevel(light.sky) / LIGHT_LEVEL_MAX) * MAX_SHADE_BYTE),
+      Math.round((clampLightLevel(light.block) / LIGHT_LEVEL_MAX) * MAX_SHADE_BYTE),
+    ]
+  }

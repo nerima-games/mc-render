@@ -405,16 +405,49 @@ const EMPTY_BUFFERS: ChunkGeometryBuffers = {
 export type QuadShade = (quad: MeshQuad) => number
 
 /**
+ * The three colour channels of a quad's vertices, 0-255 each.
+ *
+ * THREE CHANNELS AND NOT ONE, because the two paths this repository has to
+ * support disagree about what a channel means and agree about the layout:
+ *
+ *   NO SHADER — `MeshBasicMaterial` multiplies the vertex colour directly, so
+ *   the only honest output is a GREY: one number, written three times. See
+ *   `./voxel-lighting.ts`'s header.
+ *
+ *   WITH A SHADER — the reference packs `R = AO, G = sky, B = block` and lets
+ *   the fragment stage combine them, so the three channels carry three
+ *   different quantities. `./chunk-shader.ts` is that decode.
+ *
+ * A `(quad) => number` hook could express the first and not the second, and
+ * the buffer layout is identical either way — which is what lets one builder
+ * serve both without a `packed: boolean` that would have to be threaded
+ * through every caller. `greyChannels` below is the adapter for the first.
+ */
+export type QuadColor = (quad: MeshQuad) => readonly [number, number, number]
+
+/** One value in all three channels: the grey an unlit material can show. */
+export const greyChannels = (shade: number): readonly [number, number, number] => [shade, shade, shade]
+
+/** Lift a single-value shading function into a `QuadColor`. */
+export const greyQuadColor =
+  (shade: QuadShade): QuadColor =>
+  (quad) =>
+    greyChannels(shade(quad))
+
+/**
  * The default: ambient occlusion only, which is what this file did before a
  * light grid was reachable.
  *
  * IT IS THE DEFAULT SO THAT ADDING LIGHTING CHANGED NO EXISTING PIXEL. Every
- * caller that does not pass a shade function gets exactly the previous output,
+ * caller that does not pass a colour function gets exactly the previous output,
  * byte for byte, and `test/chunk-geometry.test.ts`'s AO assertions are
  * unmodified — which is what makes them evidence about the light change rather
  * than a casualty of it.
  */
 export const AO_ONLY_SHADE: QuadShade = (quad) => aoShade(quad.ao)
+
+/** `AO_ONLY_SHADE` as a `QuadColor`. The builder's default. */
+export const AO_ONLY_COLOR: QuadColor = greyQuadColor(AO_ONLY_SHADE)
 
 /**
  * Build the vertex buffers for one chunk's worth of quads.
@@ -446,7 +479,7 @@ export const buildChunkGeometry = (
   quads: ReadonlyArray<MeshQuad>,
   originX = 0,
   originZ = 0,
-  shade: QuadShade = AO_ONLY_SHADE,
+  color: QuadColor = AO_ONLY_COLOR,
 ): ChunkGeometryBuffers => {
   const quadCount = quads.length
   if (quadCount === 0) {
@@ -475,7 +508,7 @@ export const buildChunkGeometry = (
     // key, so every cell the quad covers already agreed on it — and a
     // per-vertex call would invite a `shade` implementation that samples four
     // times and quietly quadruples the cost of a re-mesh.
-    const quadShade = shade(quad)
+    const [red, green, blue] = color(quad)
     const [uExtent, vExtent] = quadUvExtent(quad)
 
     const base = quadIndex * VERTICES_PER_QUAD
@@ -502,9 +535,9 @@ export const buildChunkGeometry = (
       // The same shade four times. See the header: AO is per FACE, and the
       // four-value write is kept so that a light grid can differ per corner
       // without changing the buffer layout.
-      colors[at] = quadShade
-      colors[at + 1] = quadShade
-      colors[at + 2] = quadShade
+      colors[at] = red
+      colors[at + 1] = green
+      colors[at + 2] = blue
     }
 
     // `(0,0), (0,v), (u,v), (u,0)` — the reference's order at

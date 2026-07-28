@@ -13,7 +13,7 @@
 <!-- ------------------------------------------------------------------------- -->
 
 format: 1
-exported declarations: 329
+exported declarations: 345
 supporting declarations: 19
 
 ## Exported
@@ -28,6 +28,12 @@ const AO_LEVELS: number;
 
 ```ts
 const AO_MAX: number;
+```
+
+### AO_ONLY_COLOR  `const`
+
+```ts
+const AO_ONLY_COLOR: QuadColor;
 ```
 
 ### AO_ONLY_SHADE  `const`
@@ -139,6 +145,23 @@ const CAMERA_FOV_DEGREES = 75;
 const CAMERA_NEAR_PLANE = 0.1;
 ```
 
+### CHUNK_SHADER_ATTRIBUTES  `const`
+
+```ts
+const CHUNK_SHADER_ATTRIBUTES: {
+    readonly tileIndex: "tileIndex";
+};
+```
+
+### CHUNK_SHADER_UNIFORMS  `const`
+
+```ts
+const CHUNK_SHADER_UNIFORMS: {
+    readonly atlas: "uAtlas";
+    readonly sunIntensity: "uSunIntensity";
+};
+```
+
 ### CLICK_LANDINGS  `const`
 
 ```ts
@@ -185,6 +208,17 @@ type ChunkGeometryBuffers = {
 
 ```ts
 type ChunkKey = string;
+```
+
+### ChunkShaderSource  `type`
+
+```ts
+type ChunkShaderSource = {
+    readonly vertexShader: string;
+    readonly fragmentShader: string;
+    readonly attributeNames: ReadonlyArray<string>;
+    readonly uniformNames: ReadonlyArray<string>;
+};
 ```
 
 ### ChunkXZ  `type`
@@ -1035,6 +1069,12 @@ const QUALITY_PRESETS: Readonly<Record<QualityPreset, GraphicsQuality>>;
 type QuadAxis = 'x' | 'y' | 'z';
 ```
 
+### QuadColor  `type`
+
+```ts
+type QuadColor = (quad: MeshQuad) => readonly [number, number, number];
+```
+
 ### QuadCorners  `type`
 
 ```ts
@@ -1409,6 +1449,25 @@ type ThreeScene = {
 };
 ```
 
+### ThreeShaderMaterialParameters  `type`
+
+```ts
+type ThreeShaderMaterialParameters = {
+    readonly vertexShader: string;
+    readonly fragmentShader: string;
+    readonly uniforms: Record<string, ThreeUniform>;
+    readonly vertexColors: true;
+};
+```
+
+### ThreeShaderSurface  `type`
+
+```ts
+type ThreeShaderSurface<TCanvas, TGeometry extends ThreeBufferGeometry, TMaterial extends ThreeMaterial, TShaderMaterial extends ThreeMaterial> = ThreeSurface<TCanvas, TGeometry, TMaterial> & {
+    readonly ShaderMaterial: new (parameters: ThreeShaderMaterialParameters) => TShaderMaterial;
+};
+```
+
 ### ThreeSurface  `type`
 
 ```ts
@@ -1423,6 +1482,14 @@ type ThreeSurface<TCanvas, TGeometry extends ThreeBufferGeometry, TMaterial exte
         readonly vertexColors: boolean;
         readonly wireframe: boolean;
     }) => TMaterial;
+};
+```
+
+### ThreeUniform  `type`
+
+```ts
+type ThreeUniform = {
+    value: unknown;
 };
 ```
 
@@ -1778,7 +1845,7 @@ const browserInputLayer: (options: BrowserInputOptions) => Layer.Layer<InputServ
 ### buildChunkGeometry  `const`
 
 ```ts
-const buildChunkGeometry: (quads: ReadonlyArray<MeshQuad>, originX?: number, originZ?: number, shade?: QuadShade) => ChunkGeometryBuffers;
+const buildChunkGeometry: (quads: ReadonlyArray<MeshQuad>, originX?: number, originZ?: number, color?: QuadColor) => ChunkGeometryBuffers;
 ```
 
 ### buildPostProcessingChain  `const`
@@ -1803,6 +1870,24 @@ const chainPasses: (chain: ReadonlyArray<PostProcessingStep>) => ReadonlyArray<P
 
 ```ts
 const chunkDistance: (from: ChunkXZ, to: ChunkXZ) => number;
+```
+
+### chunkFragmentShader  `const`
+
+```ts
+const chunkFragmentShader: () => string;
+```
+
+### chunkShaderSource  `const`
+
+```ts
+const chunkShaderSource: () => ChunkShaderSource;
+```
+
+### chunkVertexShader  `const`
+
+```ts
+const chunkVertexShader: () => string;
 ```
 
 ### clampSunIntensity  `const`
@@ -1901,6 +1986,24 @@ const forwardVector: (snapshot: CameraPoseSnapshot) => Position;
 const fresnelF0ForIor: (ior: number) => number;
 ```
 
+### glslFloat  `const`
+
+```ts
+const glslFloat: (value: number) => string;
+```
+
+### greyChannels  `const`
+
+```ts
+const greyChannels: (shade: number) => readonly [number, number, number];
+```
+
+### greyQuadColor  `const`
+
+```ts
+const greyQuadColor: (shade: QuadShade) => QuadColor;
+```
+
 ### installInputListeners  `const`
 
 ```ts
@@ -1981,6 +2084,12 @@ const lightShadeFactor: (level: number) => number;
 
 ```ts
 const listenerOptionsFor: (eventName: string) => DomListenerOptions;
+```
+
+### litColor  `const`
+
+```ts
+const litColor: (sampler: LightSampler, options?: ShadingOptions) => QuadColor;
 ```
 
 ### litShade  `const`
@@ -2110,6 +2219,12 @@ const normaliseTileIndex: (tileIndex: number) => number;
 
 ```ts
 const notchesForWheelDelta: (deltaY: number, mode: WheelDeltaMode) => number;
+```
+
+### packedLightColor  `const`
+
+```ts
+const packedLightColor: (sampler: LightSampler) => QuadColor;
 ```
 
 ### passOrderIndex  `const`

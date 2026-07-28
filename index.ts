@@ -85,6 +85,7 @@ export * from './domain/texture-atlas'
 // readings. Its header names the noun still missing before the reference's
 // R = AO / G = sky / B = block packing can be used: a `ShaderMaterial` in
 // `application/three-surface.ts` to decode it.
+export * from './domain/chunk-shader'
 export * from './domain/voxel-lighting'
 export * from './domain/water-refraction'
 export * from './domain/water-surface'

@@ -38,6 +38,7 @@ import {
   faceBrightness,
   lightSamplePoint,
   lightShadeFactor,
+  litColor,
   litShade,
   type LightSampler,
   type SkyBlockLight,
@@ -383,7 +384,7 @@ describe('the injection seam', () => {
   it.effect('darkens a face the sampler says is unlit', () =>
     Effect.sync(() => {
       const sealed: LightSampler = () => NO_LIGHT
-      const built = buildChunkGeometry([quad()], 0, 0, litShade(sealed))
+      const built = buildChunkGeometry([quad()], 0, 0, litColor(sealed))
 
       expect(built.colors[0]).toBe(combinedShadeByte(NO_LIGHT, 0, 1))
       expect(built.colors[0]).toBeLessThan(MAX_SHADE_BYTE)
@@ -410,7 +411,7 @@ describe('the injection seam', () => {
         return FULL_LIGHT
       }
 
-      buildChunkGeometry([quad({ direction: 'yPos', lx: 3, y: 10, lz: 4 })], 0, 0, litShade(spy))
+      buildChunkGeometry([quad({ direction: 'yPos', lx: 3, y: 10, lz: 4 })], 0, 0, litColor(spy))
       expect(asked).toStrictEqual([[3.5, 11, 4.5]])
     }),
   )
@@ -427,7 +428,7 @@ describe('the injection seam', () => {
         return FULL_LIGHT
       }
 
-      buildChunkGeometry([quad(), quad({ lx: 1 }), quad({ lx: 2 })], 0, 0, litShade(counting))
+      buildChunkGeometry([quad(), quad({ lx: 1 }), quad({ lx: 2 })], 0, 0, litColor(counting))
       expect(calls).toBe(3)
     }),
   )

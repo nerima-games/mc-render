@@ -31,6 +31,7 @@
  */
 import * as THREE from 'three'
 import { makeWorldRenderer } from '../../application/world-renderer'
+import { chunkShaderSource } from '../../domain/chunk-shader'
 import type {
   ThreeBufferAttribute,
   ThreeBufferGeometry,
@@ -38,6 +39,7 @@ import type {
   ThreeMesh,
   ThreePerspectiveCamera,
   ThreeScene,
+  ThreeShaderSurface,
   ThreeSurface,
   ThreeWebGLRenderer,
 } from '../../application/three-surface'
@@ -179,3 +181,49 @@ export const hostBuildsARenderer = makeWorldRenderer<
   THREE.BufferGeometry,
   THREE.MeshBasicMaterial
 >(THREE, browserCanvas, { width: 1280, height: 720 })
+
+/**
+ * THE SAME PROOF FOR THE SHADER SURFACE.
+ *
+ * `application/three-surface.ts` claims the real `three` namespace satisfies
+ * `ThreeShaderSurface` without a cast, exactly as it claims for the smaller
+ * surface above, and this is the line that makes the claim checkable rather
+ * than merely stated.
+ *
+ * FOUR TYPE ARGUMENTS, and the third and fourth differ. The first cut of
+ * `ThreeShaderSurface` reused one material slot for both constructors, and this
+ * line is what rejected it: at `TMaterial = ShaderMaterial` the intersection
+ * obliges `MeshBasicMaterial` to return a `ShaderMaterial`. `TMaterial` is the
+ * material `makeWorldRenderer` BUILDS; `TShaderMaterial` is the one a textured
+ * host builds for itself. A host with both paths has both.
+ *
+ * The construct-signature contravariance the header describes applies here too:
+ * `ThreeShaderMaterialParameters` requires `vertexColors: true` where three
+ * accepts `boolean | undefined`, and the assignment holds because required-true
+ * is assignable INTO the wider optional — the direction that works. Widening
+ * ours to `boolean` would also compile and would give up the compile-time
+ * guarantee that `vColor` is defined; narrowing three's is not something this
+ * file can do.
+ */
+export const namespaceIsAShaderSurface: ThreeShaderSurface<
+  HTMLCanvasElement,
+  THREE.BufferGeometry,
+  THREE.MeshBasicMaterial,
+  THREE.ShaderMaterial
+> = THREE
+
+/**
+ * The generated source, constructed the way a host constructs it.
+ *
+ * This is the ONLY place in `pnpm verify` where `domain/chunk-shader.ts`'s
+ * output meets a real `three` declaration. It does not compile the GLSL — that
+ * needs a GL context and happens in mc-compose's Playwright run — but it does
+ * check that the shape `chunkShaderSource()` returns is the shape the
+ * constructor takes, which is the half that can go wrong silently in Node.
+ */
+export const hostBuildsTheChunkMaterial: THREE.ShaderMaterial = new THREE.ShaderMaterial({
+  vertexShader: chunkShaderSource().vertexShader,
+  fragmentShader: chunkShaderSource().fragmentShader,
+  uniforms: { uSunIntensity: { value: 1 }, uAtlas: { value: null } },
+  vertexColors: true,
+})
