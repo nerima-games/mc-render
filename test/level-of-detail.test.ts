@@ -421,6 +421,39 @@ describe('the mirrored vocabulary, and the constants it has to agree with', () =
     }),
   )
 
+  it.effect('REGRESSION: the mirror is NOT re-exported from the barrel', () =>
+    Effect.gen(function* () {
+      // FOUND BY `check:repoint`, NOT BY ANYTHING IN THIS REPOSITORY, which is
+      // the whole reason this test exists rather than a comment.
+      //
+      // `export * from './domain/lod-vocabulary'` in index.ts becomes
+      // `export * from '@nerima-games/mc-meshing'` the day the mirror dies — a
+      // re-export of that package's entire surface — and nine of its names
+      // collide with `domain/chunk-geometry.ts`'s own structural mirrors.
+      // `pnpm verify` is green on either side of that line, because the
+      // collision only exists once the import is repointed.
+      //
+      // 14 of the 15 repositories in this organisation exclude their mirrors
+      // from their barrels for this reason. The exclusion is a claim, and an
+      // unpinned claim is one an `export *` restores by accident.
+      const barrel = yield* Effect.promise(() => import('../index'))
+      const names = Object.keys(barrel)
+
+      for (const mirrored of ['LOD_LEVELS', 'LodLevelSchema', 'STEP_FOR_LOD', 'CHUNK_SIZE']) {
+        expect(names).not.toContain(mirrored)
+      }
+      // The names `chunk-geometry.ts` owns must still be THIS repository's, and
+      // must be reachable — they are what would have been shadowed.
+      for (const owned of ['tangentAxes', 'totalQuadArea', 'AO_MAX', 'VERTICES_PER_QUAD']) {
+        expect(names).toContain(owned)
+      }
+      // And what the barrel DOES publish from this feature is mc-render's own.
+      expect(names).toContain('lodForDistance')
+      expect(names).toContain('lodScreenErrorPixels')
+      expect(names).toContain('lodTierCensus')
+    }),
+  )
+
   it.effect('every level has a step, and every step is usable as a divisor', () =>
     Effect.sync(() => {
       FastCheck.assert(

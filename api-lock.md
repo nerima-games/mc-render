@@ -13,8 +13,8 @@
 <!-- ------------------------------------------------------------------------- -->
 
 format: 1
-exported declarations: 304
-supporting declarations: 17
+exported declarations: 299
+supporting declarations: 19
 
 ## Exported
 
@@ -113,12 +113,6 @@ const CAMERA_FOV_DEGREES = 75;
 
 ```ts
 const CAMERA_NEAR_PLANE = 0.1;
-```
-
-### CHUNK_SIZE  `const`
-
-```ts
-const CHUNK_SIZE = 16;
 ```
 
 ### CLICK_LANDINGS  `const`
@@ -563,12 +557,6 @@ const LOD1_DISTANCE_CHUNKS = 4;
 const LOD2_DISTANCE_CHUNKS = 8;
 ```
 
-### LOD_LEVELS  `const`
-
-```ts
-const LOD_LEVELS: readonly [0, 1, 2];
-```
-
 ### ListenerRegistration  `type`
 
 ```ts
@@ -584,18 +572,6 @@ type ListenerRegistration = {
 
 ```ts
 type ListenerTarget = 'window' | 'document';
-```
-
-### LodLevel  `type`
-
-```ts
-type LodLevel = (typeof LOD_LEVELS)[number];
-```
-
-### LodLevelSchema  `const`
-
-```ts
-const LodLevelSchema: Schema.Literal<[0, 1, 2]>;
 ```
 
 ### LodThresholds  `type`
@@ -1173,12 +1149,6 @@ const SKY_CLEAR_ALPHA = 1;
 
 ```ts
 const SKY_CLEAR_COLOR = 8900331;
-```
-
-### STEP_FOR_LOD  `const`
-
-```ts
-const STEP_FOR_LOD: Readonly<Record<LodLevel, number>>;
 ```
 
 ### ScratchMap  `type`
@@ -2335,6 +2305,18 @@ interface GameModule<ROut, E, RIn, RRegister = never> {
 
 ```ts
 const InputService_base: Context.TagClass<InputService, "@nerima-games/mc-render/InputService", InputServiceApi>;
+```
+
+### LOD_LEVELS  `const`
+
+```ts
+const LOD_LEVELS: readonly [0, 1, 2];
+```
+
+### LodLevel  `type`
+
+```ts
+type LodLevel = (typeof LOD_LEVELS)[number];
 ```
 
 ### MonotonicTimeSecs  `const`

@@ -50,9 +50,27 @@ export * from './domain/input-bindings'
 // `level-of-detail.ts` decides which LOD tier a chunk is drawn at, and measures
 // what that costs the picture. mc-meshing docs/responsibility.md §3.4 assigned
 // it here because it takes a DISTANCE and mc-meshing holds no coordinates; the
-// level vocabulary stayed there and `lod-vocabulary.ts` mirrors it back.
+// level vocabulary stayed there and `domain/lod-vocabulary.ts` mirrors it back.
+//
+// THAT MIRROR IS NOT EXPORTED FROM THIS BARREL, and neither is
+// `domain/kernel-vocabulary.ts`. Both exclusions are deliberate and both are
+// pinned by tests; this one was added because `check:repoint` FAILED WITHOUT IT,
+// which is worth recording because the failure is invisible from inside this
+// repository.
+//
+// `export * from './domain/lod-vocabulary'` becomes
+// `export * from '@nerima-games/mc-meshing'` on the day the mirror is deleted —
+// a re-export of that package's ENTIRE surface, which collides with the nine
+// names `domain/chunk-geometry.ts` declares as its own structural mirrors
+// (`FaceDirection`, `FaceRole`, `QuadAxis`, `tangentAxes`, `totalQuadArea`,
+// `AO_LEVELS`, `AO_MAX`, `VERTICES_PER_QUAD`, `INDICES_PER_QUAD`). Nine TS2308s
+// in three tsconfig projects, and `pnpm verify` here is green throughout,
+// because the collision does not exist until the import is repointed.
+//
+// A mirror is a private stand-in for somebody else's package. Putting one in a
+// barrel re-publishes it under this package's name, which is the thing the
+// mirror headers all promise not to do.
 export * from './domain/level-of-detail'
-export * from './domain/lod-vocabulary'
 export * from './domain/material-policy'
 export * from './domain/particle-pool'
 export * from './domain/post-processing'
