@@ -43,6 +43,11 @@
  */
 
 // --- Domain: pure values, policies and orderings ---------------------------
+// Which atlas tile each block shows. Keyed by NAME and not by id: the
+// reference's table is indexed by ITS block ids, and mc-kernel's ordering
+// disagrees from index 1 onward, so an index-wise copy would have been wrong in
+// 117 of 120 rows with a real texture on every face.
+export * from './domain/block-texture-map'
 export * from './domain/camera-mirror'
 export * from './domain/chunk-geometry'
 export * from './domain/frame-scratch'

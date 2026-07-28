@@ -13,7 +13,7 @@
 <!-- ------------------------------------------------------------------------- -->
 
 format: 1
-exported declarations: 320
+exported declarations: 327
 supporting declarations: 19
 
 ## Exported
@@ -82,6 +82,12 @@ const BEHIND_NEAR_PLANE_RATIO = 1;
 
 ```ts
 type Bindings = Readonly<Record<string, InputCode>>;
+```
+
+### BlockNameLookup  `type`
+
+```ts
+type BlockNameLookup = (blockId: number) => string;
 ```
 
 ### BrowserInputOptions  `type`
@@ -671,6 +677,12 @@ const MAX_SHADE_FACTOR = 1;
 
 ```ts
 const MIRROR_LAG_WARNING_SECS = 0.1;
+```
+
+### MISSING_TILE  `const`
+
+```ts
+const MISSING_TILE = 0;
 ```
 
 ### MODAL_LISTENER_TARGET  `const`
@@ -1269,6 +1281,12 @@ type SkyBlockLight = {
 };
 ```
 
+### TILE_BY_BLOCK_NAME  `const`
+
+```ts
+const TILE_BY_BLOCK_NAME: Readonly<Record<string, TileAssignment>>;
+```
+
 ### TILE_PIXELS  `const`
 
 ```ts
@@ -1419,6 +1437,12 @@ type ThreeWebGLRenderer = {
     readonly setClearColor: (color: number, alpha: number) => unknown;
     readonly dispose: () => void;
 };
+```
+
+### TileAssignment  `type`
+
+```ts
+type TileAssignment = Readonly<Record<FaceRole, number>>;
 ```
 
 ### TileUvBounds  `type`
@@ -2100,6 +2124,12 @@ const quadUvExtent: (quad: MeshQuad) => readonly [number, number];
 const readSlot: (pool: ParticlePool, slot: number) => ParticleSlotState | undefined;
 ```
 
+### referencedTileIndices  `const`
+
+```ts
+const referencedTileIndices: () => ReadonlyArray<number>;
+```
+
 ### refractionRunsOnFrame  `const`
 
 ```ts
@@ -2238,10 +2268,22 @@ const tangentAxes: (direction: FaceDirection) => readonly [QuadAxis, QuadAxis];
 const tileColumn: (tileIndex: number) => number;
 ```
 
+### tileIndexForBlockName  `const`
+
+```ts
+const tileIndexForBlockName: (blockName: string, role: FaceRole) => number;
+```
+
 ### tileIndexForUvOrigin  `const`
 
 ```ts
 const tileIndexForUvOrigin: (origin: UvOrigin) => number;
+```
+
+### tileIndexResolver  `const`
+
+```ts
+const tileIndexResolver: (blockNameOf: BlockNameLookup) => (blockId: number, role: FaceRole) => number;
 ```
 
 ### tileRow  `const`
