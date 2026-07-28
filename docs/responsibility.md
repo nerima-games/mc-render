@@ -17,16 +17,16 @@ plan.md §2.3-1 の分類でいう **名詞**。「どう見えるか」の仕�
 | ポストFXチェーン | パスの確定順序、品質プリセットごとの構成、CompositePass | 順序と検証は実装済 `domain/post-processing.ts`（THREE 実体は未） |
 | マテリアル | チャンク（不透明/水/透過固体）、水面、パーティクル、`forceSinglePass` 方針 | 方針は `domain/material-policy.ts`。**ただし述語は水面を分類できない** — §2.1 |
 | カメラ | mc-sim のスナップショットを THREE カメラへミラー、視錐台カリング | ミラーは実装済 `domain/camera-mirror.ts` |
-| パーティクル | インスタンス化パーティクルプール | **プール本体は実装済** `domain/particle-pool.ts`。容量 512 / drop-oldest / シード付き乱数、フレーム経路で無アロケーション。`InstancedMesh` への束ねは THREE アダプタ待ち |
-| 水面 | 水マテリアル・屈折 | **方針・算術は実装済**。マテリアルは `domain/water-surface.ts`、屈折プリパスの実行判定は `domain/water-refraction.ts`。`ShaderMaterial` 実体は THREE アダプタ、**幾何（水面高さ・流向）は mc-meshing** |
-| `WorldRenderer` | chunk ダーティ購読 → メッシュ更新 | **未実装。ただし購読先は決まった**（`mc-worldgen` の `ChunkStore.subscribeDirty`。[public-api.md §3.1](./public-api.md)） |
+| パーティクル | インスタンス化パーティクルプール | **プール本体は実装済** `domain/particle-pool.ts`。容量 512 / drop-oldest / シード付き乱数、フレーム経路で無アロケーション。`InstancedMesh` への束ねは**未実装** —— THREE シームは着地したが `application/three-surface.ts` は `InstancedMesh` を**持たない**（構成子は 7 つ。§2.3） |
+| 水面 | 水マテリアル・屈折 | **方針・算術は実装済**。マテリアルは `domain/water-surface.ts`、屈折プリパスの実行判定は `domain/water-refraction.ts`。`ShaderMaterial` 実体は**未実装** —— 同上、シームは `MeshBasicMaterial` しか構成できない。**幾何（水面高さ・流向）は mc-meshing** |
+| `WorldRenderer` | chunk ダーティ購読 → メッシュ更新 | **半分だけ実装済** —— **メッシュ更新は実装済** `application/world-renderer.ts`（`setChunk` / `removeChunk` / `draw` / `resize` / `dispose`）+ 純粋側 `domain/chunk-geometry.ts`。**ダーティ購読は未実装**。購読先は決まっている（`mc-worldgen` の `ChunkStore.subscribeDirty`。[public-api.md §3.1](./public-api.md)）が、リポジトリ内に `subscribeDirty` を呼ぶ行は 1 つも無く、`render:chunk-sync` は FIRST CUT のまま（スクラッチ借用のみ） — §2.3 |
 | ワーカープール**実装** | 地形ワーカー / メッシングワーカーのプール（Port は各所有者） | 未実装 |
 | **実行時入力サービス** | キーボード / マウス / ポインタロック / タッチ / キーリマッピング | ポート越しに実装済 `application/input-service.ts` + `window` アダプタ `application/browser-input-adapter.ts`（ゲームパッド / タッチは未） |
-| **フレーム stage 登録** | `render:input` / `render:camera-mirror` / `render:chunk-sync` / `render:draw` / `render:post-fx` | 登録位置は確定済 `stages/`。本体は FIRST CUT |
+| **フレーム stage 登録** | `render:input` / `render:camera-mirror` / `render:chunk-sync` / `render:draw` / `render:post-fx` | 登録位置は確定済 `stages/`。**本体は 5 本のうち 3 本が実体、2 本が FIRST CUT** —— `render:input`（`InputService` を実際に進める）/ `render:camera-mirror`（`mirroredCameraState` + ラグ計測）/ `render:draw`（`DrawPort.draw`。ブラウザでは実際に `renderer.render` が走る）は実体。`render:chunk-sync`（購読先が無いのでスクラッチ借用のみ）と `render:post-fx`（チェーンは組むが `EffectComposer` の実行が無い）は FIRST CUT |
 | フレーム毎スクラッチ | 一時 `Map` の事前確保と再利用 | 実装済 `domain/frame-scratch.ts` |
 | グラフィックス品質プリセット適用 | low / medium / high / ultra | ポストFX部分のみ `domain/post-processing.ts` |
 | テクスチャアセット | アトラス画像を同梱（plan.md §5.3「独立アセットリポジトリは作らない」） | **半分だけ実装済**。レイアウト算術（タイル→UV、ハーフテクセル）は `domain/texture-atlas.ts`。**アトラス PNG 本体とそのローダは未実装** — §2.2 |
-| ライトグリッドの**適用** | worldgen が持つ 4bit ライトグリッドを描画に反映 | 未実装 |
+| ライトグリッドの**適用** | worldgen が持つ 4bit ライトグリッドを描画に反映 | **未実装。ただし塞いでいるものが変わった** —— グリッドは mc-worldgen に**もう存在する**（`domain/light.ts`、`computeChunkLight` / `ChunkLight` / `getLightAt`、`index.ts` から export 済み）。届かない理由は「無い」ではなく「未 publish かつ mc-compose の vite alias 3 兄弟に入らない」である。`domain/chunk-geometry.ts` は 3 チャンネルとも AO を書いたまま — §3.1 |
 
 ### 2.1 `forceSinglePass` の述語は水面を分類できない（**既知の穴**）
 
@@ -73,8 +73,54 @@ plan.md §2.3-1 の分類でいう **名詞**。「どう見えるか」の仕�
 レイアウト側は飾りではなく、パーティクルが破壊したブロックのタイルをサンプルするのに
 UV オフセットを必要とするので、パーティクル作業の**依存**である。
 
-**PNG 本体は残っている作業**であり、THREE アダプタと同時に入れるのが自然である
-（ローダがそちら側にあるため）。
+**PNG 本体は残っている作業**である。
+
+**2026-07-28 の訂正**: ここにはかつて「THREE アダプタと同時に入れるのが自然である
+（ローダがそちら側にあるため）」と書いてあった。**アダプタは着地したが PNG は入らなかった**ので、
+その予定は外れている。理由は後から見ると明快で、`application/three-surface.ts` の構成子は 7 つしかなく
+**`TextureLoader` も `CanvasTexture` もその中に無い**。アダプタが要求したのは
+`MeshBasicMaterial` + `vertexColors` までで、テクスチャは 1 つも要らなかった
+（AO を頂点カラーとして出すのに十分だったため）。
+
+したがって PNG が要るのは「アダプタを書くとき」ではなく
+**「アトラスを実際にサンプルする最初のマテリアルを書くとき」**であり、
+そのときシームに `TextureLoader`（または `CanvasTexture`）が 1 つ増える。
+それは §2.2 の表の「画像」側が Node で検査できないという事実を変えないので、
+足すときは検査可能性ではなく**ホストが何を渡すか**の決定になる。
+
+### 2.3 THREE シームが**覆っている範囲**（2026-07-28）
+
+上の表が「THREE アダプタ待ち」と書いていた行が複数あり、そのうち**着地したのは一部だけ**である。
+「アダプタが無い」と「アダプタはあるがこの構成子を持たない」を混ぜると、
+残作業の見積もりが毎回ずれる。シームが実際に露出しているものを列挙する。
+
+`application/three-surface.ts` が持つ構成子は **7 つで全部**である:
+
+| 構成子 | 何に使われているか |
+| --- | --- |
+| `WebGLRenderer` | `makeWorldRenderer` がコンテキストを取得する 1 箇所 |
+| `Scene` | チャンク mesh の入れ物 |
+| `PerspectiveCamera` | ミラーの書き込み先 |
+| `BufferGeometry` | チャンク 1 つぶんのジオメトリ |
+| `BufferAttribute` | position / normal / color / uv / index の 5 本 |
+| `Mesh` | ジオメトリ + 共有マテリアル |
+| `MeshBasicMaterial` | **全チャンク共有の 1 枚**。`vertexColors: true`、光源なし |
+
+**この表に無いものは、アダプタ着地では解けていない。** 具体的には:
+
+| 表の「THREE アダプタ待ち」だった項目 | 実際 |
+| --- | --- |
+| パーティクルの `InstancedMesh` | シームに `InstancedMesh` が無い。**残っている** |
+| 水面の `ShaderMaterial` | シームに `ShaderMaterial` が無い。構成できるマテリアルは `MeshBasicMaterial` 1 種。**残っている** |
+| ポストFXの `EffectComposer` / 各 `Pass` | シームに無い。`render:post-fx` が FIRST CUT なのはこれが理由。**残っている** |
+| アトラス PNG の `TextureLoader` | シームに無い。§2.2。**残っている** |
+| チャンクのジオメトリ構築と描画 | **着地した**（`world-renderer.ts` / `chunk-geometry.ts`） |
+
+シームが小さいのは事故ではなく、`test/three-surface.test.ts` が
+**本物の `three` に対して構造的代入可能性を証明できる大きさ**に保つためである
+（[testing.md](./testing.md) §12.1）。構成子を足すたびにその証明が 1 件増える。
+だから「THREE アダプタ待ち」という書き方をこれ以上使わないこと ——
+**待っているのは特定の構成子であって、アダプタではない。**
 
 ## 3. 非スコープ（明示的に持たない）
 
@@ -134,9 +180,24 @@ import するとブラウザでページが起動しなくなる。publish 時�
 
 その帰結が `domain/chunk-geometry.ts` の頂点カラーに出ている。
 参照実装は `R = AO, G = sky light, B = block light` を詰めるが
-（`greedy-meshing-accumulator.ts:131-134`）、**読むライトグリッドがまだ無い**ので
-3 チャンネルとも AO を書いている。**これは色の選択ではなく、
-まだ無いものについての記述である。** グリッドが来たら G と B がそのまま置き換わる。
+（`greedy-meshing-accumulator.ts:131-134`）、ここは 3 チャンネルとも AO を書いている。
+**これは色の選択ではなく、まだ届いていないものについての記述である。**
+グリッドが来たら G と B がそのまま置き換わる。
+
+**2026-07-28 の訂正**: ここにはかつて「**読むライトグリッドがまだ無い**」と書いてあった。
+**それはもう正しくない。** mc-worldgen の `domain/light.ts` にライトグリッドは存在する ——
+`ChunkLight`（sky / block の 2 面）、4bit パック（`LIGHT_BYTE_LENGTH = CHUNK_VOLUME / 2`、
+`getLightAt` / `setLightAt`）、BFS 伝播（`computeChunkLight`）、そして `setBlock` による無効化。
+`index.ts` から export もされている。
+
+**塞いでいるのは存在ではなく到達可能性である。** mc-worldgen は未 publish なので import できず
+（`domain/kernel-vocabulary.ts` と同じ事情）、mc-compose の vite alias が解決する 3 兄弟
+（mc-render / mx-ui / mx-redstone）にも入っていない。この 2 つのどちらかが外れた日に、
+`chunk-geometry.ts` の G と B は**そのまま置き換えられる** —— 置き換え先が既にあるので、
+これは設計課題ではなく配線待ちである。
+
+**この区別を潰さないこと。** 「無い」と「あるが届かない」は、
+次に読む人が着手できるかどうかを分ける。本文書は前者を 1 回書き損じている。
 
 同じ理由で、`SKY_CLEAR_COLOR` は定数である。参照は昼夜サイクルから駆動する
 （`lighting-stage.ts:23`）。昼夜サイクルの所有者はまだ決まっていない。
@@ -164,12 +225,21 @@ mc-render 側の実装が要る可能性が高い。**未決。** 実装時に�
 | リポジトリ | 使うもの | 未公開のため現状 |
 | --- | --- | --- |
 | `mc-kernel` | 語彙全般（`CameraPoseSnapshot`、座標、`GameModule`、Clock Port） | `domain/kernel-vocabulary.ts` に暫定ミラー |
-| `mc-meshing` | `mesh(chunk, neighbors, config) → {opaque, water, transparentSolid}` | 未使用 |
+| `mc-meshing` | `mesh(chunk, neighbors, config) → {opaque, water, transparentSolid}` | **未使用だが型は消費している** —— `domain/chunk-geometry.ts` が `MeshQuad` / `FaceDirection` / `FaceRole` / `tangentAxes` を**構造ミラー**として持ち、`test/chunk-geometry.test.ts` が mc-meshing の `domain/mesh.ts:149-169` に対して固定している。publish 時に削除して import に置き換える |
 | `mc-sim` | `CameraPoseSnapshot`、描画対象の状態（**チャンクダーティ購読はここではない** — `mc-worldgen`） | 未使用（`domain/camera-mirror.ts` は構造ミラーのみ） |
 | `mc-worldgen` | `Chunk` データ、ライトグリッド | 未使用 |
 
 ~~**mc-sim のチャンクダーティ通知が未設計であることが、`WorldRenderer` を書けない直接の原因である**~~ → 解消。購読先は **mc-worldgen** の `ChunkStore` である（mc-sim ではない）。[public-api.md §3.1](./public-api.md)
 （mc-sim の `docs/public-api.md` §5 参照）。
+
+**2026-07-28 追記**: そのうえで `WorldRenderer` は**書かれた**。
+購読が無いことは「書けない」理由ではなかった —— `setChunk(key, buffers)` は
+**誰が呼ぶかを知らないまま**正しく定義でき、実際そうなっている。
+残っているのは呼び出し元であって、レンダラ側の設計ではない。
+`test/world-renderer.test.ts` が押さえているのはその呼び出しプロトコル
+（同一 key の再投入が**差し替え**であること、`removeChunk` が `dispose` すること、
+`draw` が **mirrored** カメラを書くこと）で、
+これらは購読が来た日に**変わらない**性質として選んである。
 
 ### 子（mc-render に依存する）
 

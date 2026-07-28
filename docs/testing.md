@@ -9,10 +9,16 @@
 
 | 検証 | 何を保証するか | 状態 |
 | --- | --- | --- |
-| fixture 描画 | 固定チャンクが描ける | 未実装（THREE.js アダプタが要る。**まだ無い。§2.5**） |
+| fixture 描画 | 固定チャンクが描ける | **未実装。ただし塞いでいるものが変わった** —— THREE アダプタは**着地済み**（§12）。残っているのは**描く対象**、すなわちこのリポジトリが所有していないワールドデータと、それを載せるブラウザページ。§2.2 |
 | スクリーンショット比較 | 見た目が変わっていない | 未実装。ただし**決定性は実測で片付いた**（§2.5） |
-| **内蔵プレビュー** | **人間が操作して確かめられること** | 実装済（[`apps/preview-render/`](../apps/preview-render/README.md)） |
-| ── うち固定チャンクの目視 | マテリアル / ポストFX の**絵**を見る | **GPU が要る。§2.2 を見ること** |
+| **内蔵プレビュー** | **人間が操作して確かめられること** | 実装済（[`apps/preview-render/`](../apps/preview-render/README.md)）。ただしターミナル。§2.2 |
+| ── うち固定チャンクの目視 | マテリアル / ポストFX の**絵**を見る | **GPU が要る。§2.2 を見ること**。現状もっとも近いのは mc-compose の `pnpm e2e:browser`（空は出るがジオメトリは届かない） |
+
+> **この表は 1 度、実装より古くなったまま放置された。** 行は
+> 「未実装（THREE.js アダプタが要る。**まだ無い**）」と書いてあり、
+> 同じファイルの §2.2 と §12 は**同じ日付でアダプタの着地を詳述していた** ——
+> つまり矛盾は外部の情報ではなく、**このファイルの中で閉じていた**。
+> 表を直すときは §2.2 / §12 と突き合わせること。片方だけ直すのが、この状態の作り方である。
 
 GPU を必要としない部分の単体テストは、§3 で述べるとおり**意図的に厚くしてある**。
 内蔵プレビューはその厚みの上に立っており、同じ理由で端末に描く。
@@ -288,7 +294,7 @@ E2E でも（ポインタロックが使えないので）単体でも（DOM が
 
 ## 4. 現在のテスト
 
-`vitest run`。16 ファイル / 507 テスト。すべて `environment: 'node'`。
+`vitest run`。**19 ファイル / 555 テスト**（2026-07-28 実測）。すべて `environment: 'node'`。
 
 | ファイル | テスト数 | 対応 |
 | --- | ---: | --- |
@@ -304,7 +310,10 @@ E2E でも（ポインタロックが使えないので）単体でも（DOM が
 | **`test/water-surface.test.ts`** | **31** | **DN-18**（水マテリアルと `forceSinglePass` の穴）/ DN-02 |
 | **`test/water-refraction.test.ts`** | **29** | **DN-18**（屈折プリパスのゲート 6 つとその順序） |
 | **`test/texture-atlas.test.ts`** | **15** | **DN-19**（アトラスのレイアウト算術とハーフテクセル） |
-| `test/stage-registration.test.ts` | 26 | `stages/` のフレーム位置と順序制約（public-api.md §6-2）+ クリック→ロック要求（DN-14） |
+| **`test/world-renderer.test.ts`** | **20** | THREE シーム。呼び出しプロトコルのみ（§12.3） |
+| **`test/chunk-geometry.test.ts`** | **21** | merged extent と per-face AO（§12.2） |
+| **`test/three-surface.test.ts`** | **4** | 本物の `three` に対する構造的代入可能性の証明（§12.1） |
+| `test/stage-registration.test.ts` | 29 | `stages/` のフレーム位置と順序制約（public-api.md §6-2）+ クリック→ロック要求（DN-14）+ `render:draw` の `DrawPort` 呼び出し |
 | `test/kernel-mirror.test.ts` | 12 | `domain/kernel-vocabulary.ts` が mc-kernel と同形であること（§4.1） |
 | `test/check-dependency-whitelist.test.ts` | 30 | DN-11 + 依存ホワイトリスト本体 |
 | `test/api-lock.test.ts` | 26 | APIロック生成器 `scripts/api-lock.ts` の機構（§8 / public-api.md §8） |
@@ -503,16 +512,20 @@ typecheck (build + test の 2 プロジェクト)
 
 [design-notes.md](./design-notes.md) の「（要追加）」印を参照。特に重要な未実装:
 
-| テスト | 対応 | いつ |
-| --- | --- | --- |
-| `the THREE adapter adds passes in exactly buildPostProcessingChain order` | DN-01 | アダプタ実装時 |
-| `every shared material built by the adapter passes auditMaterials` | DN-02 | 同上（起動時アサーションとして） |
-| `a full frame allocates no new Map` | DN-03 | 同上 |
-| `no source file in this repository reads camera.position` | DN-06 | アダプタ実装時。走査テストで |
-| `blur clears gamepad and touch state too` | DN-08 | それらの実装時 |
-| ワーカープールの Port 適合 / 死んだワーカーの置き換え | DN-10 | プール実装時 |
-| fixture 描画 + スクリーンショット比較（許容差 0、SwiftShader 限定 skip 付き） | §2.5 | アダプタ実装時 |
-| 参照実装の入力テスト 1,261 LOC の移植 | — | 残り（[porting.md](./porting.md) §6） |
+**「いつ」の列は 2026-07-28 に監査した。** 「アダプタ実装時」と書かれた 4 行のうち
+**2 行は条件が成立している**（シームは着地した）。条件が静かに真になった行を放置するのが、
+この表が信用されなくなる経路なので、成否を明示する。
+
+| テスト | 対応 | いつ | 条件は成立したか |
+| --- | --- | --- | --- |
+| `the THREE adapter adds passes in exactly buildPostProcessingChain order` | DN-01 | `EffectComposer` がシームに入ったとき | **まだ。** シームに `EffectComposer` も `Pass` も無い（[responsibility.md](./responsibility.md) §2.3）。`render:post-fx` が FIRST CUT なのと同じ理由 |
+| `every shared material built by the adapter passes auditMaterials` | DN-02 | 起動時アサーションとして | **成立した。** `makeWorldRenderer` は共有 `MeshBasicMaterial` を 1 枚作る。ただし `describeMaterialPolicy` の入力である `MaterialSpec` を組む所がまだ無い |
+| `a full frame allocates no new Map` | DN-03 | シーム着地後 | **成立した。** `render:draw` は実体になった。未着手 |
+| `no source file in this repository reads camera.position` | DN-06 | 走査テストで | **成立した。ただし優先度は下がった** —— `ThreeSurface` の `ThreeVector3` は `set` しか持たず、`ThreeCamera` は読み出し口を持たない。**読む書き方が型として存在しない**ので、走査テストは型が既に保証しているものの二重化になる。書くなら「シームに getter が生えていないこと」を見るほうが強い |
+| `blur clears gamepad and touch state too` | DN-08 | それらの実装時 | **タッチのみ成立。** `test/touch-controls.test.ts`（23 件）がある。ゲームパッドは未実装 |
+| ワーカープールの Port 適合 / 死んだワーカーの置き換え | DN-10 | プール実装時 | まだ |
+| fixture 描画 + スクリーンショット比較（許容差 0、SwiftShader 限定 skip 付き） | §2.5 | 描く対象が届いたとき | **アダプタ条件は成立、データ条件は未成立。** §1 の表と §2.2 を見ること。塞いでいるのはワールドデータであってアダプタではない |
+| 参照実装の入力テスト 1,261 LOC の移植 | — | 残り（[porting.md](./porting.md) §6） | — |
 
 **アダプタを書き始める前に決めておくこと（テストではなく設計制約）。**
 §2.5 の測定から出た要求は 1 つだけで、しかし**後から入れると高くつく**:

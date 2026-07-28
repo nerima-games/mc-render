@@ -46,15 +46,19 @@ mc-sim が `1.0.0` を出せるのは、以下がすべて満たされたとき�
 3. **mc-playground-kit が実際に消費して契約を確認している。**
    使われていない界面に「壊さない」と約束しても意味がない。
 4. **[public-api.md](./public-api.md) §7 の未設計 API が埋まっている。**
-   特に **`WorldRenderer`**。plan.md §3.9 の筆頭 API でありながら 1 行も無い。
-   ダーティ通知は決まった —— `mc-worldgen` の `ChunkStore.subscribeDirty` である
+   特に **`WorldRenderer`**。plan.md §3.9 の筆頭 API である。
+   **2026-07-28: 本体は書かれた**（`application/world-renderer.ts`）ので、
+   ここに残っているのは**ダーティ購読の配線だけ**である。
+   ダーティ通知の宛先は決まった —— `mc-worldgen` の `ChunkStore.subscribeDirty` である
    （plan.md §3.8 は mc-sim の API としているが、フラグを持つのは §3.7 により
    worldgen 側で、sim 経由にすると毎フレーム全チャンクのポーリングになる）。
    §2.1 に `render → worldgen` のエッジは既にあるので、購読に新しい依存は要らない。
 5. `domain/kernel-vocabulary.ts` が削除され、`@nerima-games/mc-kernel` を
    `dependencies` から参照している（§5 参照）。
 
-### 3.1 ブロッカーの連鎖
+### 3.1 ブロッカーの連鎖 —— **2026-07-28 に前半が反証された**
+
+かつてここには次の連鎖が書いてあった。
 
 ```
 mc-worldgen の ChunkStore.subscribeDirty（決定済み）
@@ -66,7 +70,29 @@ mc-worldgen の ChunkStore.subscribeDirty（決定済み）
             → 1.0.0
 ```
 
-**最上流が mc-sim 側の未設計項目**である。mc-render 単独では先へ進めない部分がある。
+**最初の 2 本の矢印は成立していなかった。** `WorldRenderer` も THREE シームも、
+`subscribeDirty` が 1 行も無いまま着地している。理由は後から見ると単純で、
+`setChunk(key, buffers)` は**誰が呼ぶかを知らなくても定義できる** ——
+購読はレンダラの**引数の出どころ**であって、レンダラの設計への入力ではなかった。
+
+依存を上流に描きすぎると、**実際には並行して進められる作業が直列に見える**。
+このリポジトリはそれを 1 回やり、その間ずっと「1 行も無い」と書き続けていた。
+
+現在の連鎖:
+
+```
+mc-worldgen / mc-meshing が publish される（または vite alias に入る）
+  → ワールドデータが mc-render に届く
+    → 内蔵 fixture ビューアが動く / ライトグリッドの適用が書ける
+      → 完了条件を満たす
+        → APIロック 4 週間
+          → 1.0.0
+```
+
+**最上流は「未設計」ではなく「未 publish」である。** これは設計待ちではなく順序待ちで、
+plan.md §6 Step 3 のボトムアップ publish がそのまま解く。
+それとは独立に進む作業がシーム側に残っている（[responsibility.md](./responsibility.md) §2.3 の
+`InstancedMesh` / `ShaderMaterial` / `EffectComposer` / `TextureLoader`）。
 
 ### 3.1 `0.x` の間の運用
 

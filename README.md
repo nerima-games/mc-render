@@ -172,11 +172,20 @@ DOM に触るのは `window` 入力アダプタ 1 つだけで、**`tsconfig` �
 
 ### まだ無いもの
 
-- **THREE.js アダプタ一式。** マテリアル / パーティクル / 水面 / テクスチャ / シーン。
-- **`WorldRenderer`。** plan.md §3.9 の筆頭 API でありながら 1 行も無い。
-  購読先は決まった（**mc-worldgen** の `ChunkStore.subscribeDirty`。mc-sim ではない）。
-  [docs/public-api.md](./docs/public-api.md) §3.1 に骨格がある
-  （[`docs/public-api.md`](./docs/public-api.md) §3）。
+- **THREE.js アダプタの残り。** シーンとチャンク描画は**入った**
+  （`application/three-surface.ts` / `application/world-renderer.ts`）。
+  入っていないのは `InstancedMesh`（パーティクル）/ `ShaderMaterial`（水面）/
+  `EffectComposer`（ポストFX）/ `TextureLoader`（アトラス PNG）で、
+  シームの構成子は現在 7 つしかない
+  （[docs/responsibility.md](./docs/responsibility.md) §2.3 に全表）。
+- **`WorldRenderer` のダーティ購読。** レンダラ本体は**入った** ——
+  `setChunk` / `removeChunk` / `draw` / `resize` / `dispose`
+  （`application/world-renderer.ts`、`test/world-renderer.test.ts` 20 件）。
+  無いのは**呼び出し元**である。購読先は決まっている
+  （**mc-worldgen** の `ChunkStore.subscribeDirty`。mc-sim ではない）が、
+  mc-worldgen は未 publish で mc-compose の vite alias にも入らないため、
+  リポジトリ内に `subscribeDirty` を呼ぶ行は 1 つも無い
+  （[`docs/public-api.md`](./docs/public-api.md) §3.1）。
 - **キーボードフォーカスの「移動」側。** 観測（`focusin` / `focusout` → `InputSnapshot.keyboardFocus`）は
   **入った**が、グループ**内**を矢印キーで動かす手段は無い。ホットバーはタブストップが 1 つなので、
   Tab で入れるのはスロット 0 だけである。閉じるには `dom-surface.ts` に `focus()` が要り、
