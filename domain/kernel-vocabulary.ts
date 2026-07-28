@@ -109,6 +109,44 @@ export const StageId = Brand.refined<StageId>(
 )
 
 // ---------------------------------------------------------------------------
+// Light levels — mirrors mc-kernel/domain/block-properties.ts
+// ---------------------------------------------------------------------------
+
+/**
+ * The 4-bit light range, 0..15 inclusive.
+ *
+ * mc-kernel owns it because the light grid is 4 bits per voxel and `lightEmission`
+ * is a block PROPERTY in kernel's registry; mc-worldgen propagates within that
+ * range and this repository only ever DIVIDES by the maximum, to turn a level
+ * into a fraction (`./voxel-lighting.ts`).
+ *
+ * Mirrored rather than written as `15`, and that distinction has a price tag
+ * here: the denominator of a shading curve. A stale 15 against a widened range
+ * would not throw or look obviously broken — it would make every surface in the
+ * world uniformly too bright, which is the class of defect that gets attributed
+ * to the material, the texture or the monitor before anybody suspects a
+ * constant.
+ */
+export const LIGHT_LEVEL_MIN = 0
+export const LIGHT_LEVEL_MAX = 15
+
+/**
+ * Clamp into the 4-bit light range.
+ *
+ * Mirrored because this repository RECEIVES levels rather than computing them —
+ * from an injected sampler backed by mc-worldgen's packed grid — and a sampler
+ * is exactly the kind of seam an out-of-range value arrives through. Kernel's
+ * own comment names save files and developer consoles; an injected function
+ * supplied by a host is a third.
+ *
+ * `Math.trunc` and not `Math.round`, matching kernel: a level is an integer
+ * quantity and rounding 15.6 up to 16 then clamping to 15 loses the information
+ * that the input was invalid.
+ */
+export const clampLightLevel = (value: number): number =>
+  Math.min(LIGHT_LEVEL_MAX, Math.max(LIGHT_LEVEL_MIN, Math.trunc(value)))
+
+// ---------------------------------------------------------------------------
 // Coordinates — mirrors mc-kernel/domain/coordinates.ts (the continuous part)
 // ---------------------------------------------------------------------------
 

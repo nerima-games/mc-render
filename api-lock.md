@@ -13,7 +13,7 @@
 <!-- ------------------------------------------------------------------------- -->
 
 format: 1
-exported declarations: 299
+exported declarations: 320
 supporting declarations: 19
 
 ## Exported
@@ -30,10 +30,28 @@ const AO_LEVELS: number;
 const AO_MAX: number;
 ```
 
+### AO_ONLY_SHADE  `const`
+
+```ts
+const AO_ONLY_SHADE: QuadShade;
+```
+
 ### AO_SHADE_BY_LEVEL  `const`
 
 ```ts
 const AO_SHADE_BY_LEVEL: ReadonlyArray<number>;
+```
+
+### AO_SHADE_FLOOR  `const`
+
+```ts
+const AO_SHADE_FLOOR = 0.8;
+```
+
+### AO_SHADE_RANGE  `const`
+
+```ts
+const AO_SHADE_RANGE = 0.2;
 ```
 
 ### ATLAS_COLUMNS  `const`
@@ -316,6 +334,18 @@ const FOCUS_NAVIGATION_POLICY: {
 };
 ```
 
+### FULLY_LIT  `const`
+
+```ts
+const FULLY_LIT: LightSampler;
+```
+
+### FULL_LIGHT  `const`
+
+```ts
+const FULL_LIGHT: SkyBlockLight;
+```
+
 ### FaceDirection  `type`
 
 ```ts
@@ -535,6 +565,18 @@ type InstalledInputListeners = {
 type KeyCode = string;
 ```
 
+### LIGHT_SHADE_FLOOR  `const`
+
+```ts
+const LIGHT_SHADE_FLOOR = 0.45;
+```
+
+### LIGHT_SHADE_RANGE  `const`
+
+```ts
+const LIGHT_SHADE_RANGE = 0.55;
+```
+
 ### LISTENER_PLAN  `const`
 
 ```ts
@@ -555,6 +597,12 @@ const LOD1_DISTANCE_CHUNKS = 4;
 
 ```ts
 const LOD2_DISTANCE_CHUNKS = 8;
+```
+
+### LightSampler  `type`
+
+```ts
+type LightSampler = (x: number, y: number, z: number) => SkyBlockLight;
 ```
 
 ### ListenerRegistration  `type`
@@ -605,6 +653,18 @@ const MAX_PARTICLE_STEP_SECS = 0.1;
 
 ```ts
 const MAX_RIPPLE_OFFSET_UV: number;
+```
+
+### MAX_SHADE_BYTE  `const`
+
+```ts
+const MAX_SHADE_BYTE = 255;
+```
+
+### MAX_SHADE_FACTOR  `const`
+
+```ts
+const MAX_SHADE_FACTOR = 1;
 ```
 
 ### MIRROR_LAG_WARNING_SECS  `const`
@@ -717,6 +777,12 @@ const NORMAL_COMPONENTS = 3;
 
 ```ts
 const NO_DRAW_TARGET: DrawPort;
+```
+
+### NO_LIGHT  `const`
+
+```ts
+const NO_LIGHT: SkyBlockLight;
 ```
 
 ### NO_VIEW_OFFSET  `const`
@@ -957,6 +1023,12 @@ type QuadAxis = 'x' | 'y' | 'z';
 type QuadCorners = readonly [QuadVertex, QuadVertex, QuadVertex, QuadVertex];
 ```
 
+### QuadShade  `type`
+
+```ts
+type QuadShade = (quad: MeshQuad) => number;
+```
+
 ### QuadVertex  `type`
 
 ```ts
@@ -1177,6 +1249,23 @@ class ScratchMisuseError extends Error {
 type ScratchViolation = {
     readonly rule: 're-entrant-borrow' | 'escaped-buffer';
     readonly message: string;
+};
+```
+
+### ShadingOptions  `type`
+
+```ts
+type ShadingOptions = {
+    readonly skyIntensity?: number;
+};
+```
+
+### SkyBlockLight  `type`
+
+```ts
+type SkyBlockLight = {
+    readonly sky: number;
+    readonly block: number;
 };
 ```
 
@@ -1623,6 +1712,12 @@ const advanceParticles: (pool: ParticlePool, dtSecs: number) => number;
 const aoShade: (level: number) => number;
 ```
 
+### aoShadeFactor  `const`
+
+```ts
+const aoShadeFactor: (aoLevel: number) => number;
+```
+
 ### atlasLayoutViolations  `const`
 
 ```ts
@@ -1653,7 +1748,7 @@ const browserInputLayer: (options: BrowserInputOptions) => Layer.Layer<InputServ
 ### buildChunkGeometry  `const`
 
 ```ts
-const buildChunkGeometry: (quads: ReadonlyArray<MeshQuad>, originX?: number, originZ?: number) => ChunkGeometryBuffers;
+const buildChunkGeometry: (quads: ReadonlyArray<MeshQuad>, originX?: number, originZ?: number, shade?: QuadShade) => ChunkGeometryBuffers;
 ```
 
 ### buildPostProcessingChain  `const`
@@ -1698,6 +1793,18 @@ const clearParticles: (pool: ParticlePool) => void;
 const codeForTouchAction: (bindings: Bindings, action: InputAction) => InputCode | undefined;
 ```
 
+### combinedShadeByte  `const`
+
+```ts
+const combinedShadeByte: (light: SkyBlockLight, aoLevel: number, skyIntensity: number) => number;
+```
+
+### combinedShadeFactor  `const`
+
+```ts
+const combinedShadeFactor: (light: SkyBlockLight, aoLevel: number, skyIntensity: number) => number;
+```
+
 ### decideRefractionPrePass  `const`
 
 ```ts
@@ -1726,6 +1833,12 @@ const describeRefractionDecision: (decision: RefractionDecision) => string;
 
 ```ts
 const distanceForScreenErrorPixels: (level: LodLevel, errorPixels: number, view: ViewingConditions) => number;
+```
+
+### effectiveLightLevel  `const`
+
+```ts
+const effectiveLightLevel: (light: SkyBlockLight, skyIntensity: number) => number;
 ```
 
 ### evictionOrderIsSpawnOrder  `const`
@@ -1812,10 +1925,32 @@ const isSlotActive: (pool: ParticlePool, slot: number) => boolean;
 const isTileIndex: (tileIndex: number) => boolean;
 ```
 
+### lightSamplePoint  `const`
+
+```ts
+const lightSamplePoint: (quad: {
+    readonly lx: number;
+    readonly y: number;
+    readonly lz: number;
+}, normal: readonly [number, number, number]) => readonly [number, number, number];
+```
+
+### lightShadeFactor  `const`
+
+```ts
+const lightShadeFactor: (level: number) => number;
+```
+
 ### listenerOptionsFor  `const`
 
 ```ts
 const listenerOptionsFor: (eventName: string) => DomListenerOptions;
+```
+
+### litShade  `const`
+
+```ts
+const litShade: (sampler: LightSampler, options?: ShadingOptions) => QuadShade;
 ```
 
 ### lodForDistance  `const`

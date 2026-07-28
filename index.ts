@@ -75,6 +75,12 @@ export * from './domain/material-policy'
 export * from './domain/particle-pool'
 export * from './domain/post-processing'
 export * from './domain/texture-atlas'
+// The shading curve. `chunk-geometry.ts` builds buffers and does not decide how
+// bright a surface is; this holds the rule, and a host injects the light
+// readings. Its header names the noun still missing before the reference's
+// R = AO / G = sky / B = block packing can be used: a `ShaderMaterial` in
+// `application/three-surface.ts` to decode it.
+export * from './domain/voxel-lighting'
 export * from './domain/water-refraction'
 export * from './domain/water-surface'
 

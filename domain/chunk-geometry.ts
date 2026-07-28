@@ -389,12 +389,46 @@ const EMPTY_BUFFERS: ChunkGeometryBuffers = {
 }
 
 /**
+ * How a quad becomes the 0-255 grey its four vertices are shaded with.
+ *
+ * AN INJECTED PREDICATE, which is this project's settled answer to "who owns
+ * this rule" — the same shape as `transparentBlockIds`, `IsRailAt` and
+ * `BlockAt`, each of which resolved an ownership dispute by having the owner
+ * answer a question instead of the consumer importing a table.
+ *
+ * The dispute here is the one `AO_SHADE_BY_LEVEL` above states and declines to
+ * settle: this builder must not decide how bright a surface is, because that is
+ * a material's job and the material does not exist yet. Handing it a function
+ * keeps the decision outside — `./voxel-lighting.ts` holds the curve, a host
+ * supplies the light readings, and this file multiplies nothing.
+ */
+export type QuadShade = (quad: MeshQuad) => number
+
+/**
+ * The default: ambient occlusion only, which is what this file did before a
+ * light grid was reachable.
+ *
+ * IT IS THE DEFAULT SO THAT ADDING LIGHTING CHANGED NO EXISTING PIXEL. Every
+ * caller that does not pass a shade function gets exactly the previous output,
+ * byte for byte, and `test/chunk-geometry.test.ts`'s AO assertions are
+ * unmodified — which is what makes them evidence about the light change rather
+ * than a casualty of it.
+ */
+export const AO_ONLY_SHADE: QuadShade = (quad) => aoShade(quad.ao)
+
+/**
  * Build the vertex buffers for one chunk's worth of quads.
  *
  * `originX`/`originZ` are the chunk's world-space corner; mc-meshing emits
  * chunk-local positions and says "mc-render applies the offset"
  * (`mc-meshing/domain/mesh.ts:143`). There is no `originY` because there is no
  * vertical chunking: `CHUNK_HEIGHT` is the whole column.
+ *
+ * `shade` decides the vertex grey and defaults to `AO_ONLY_SHADE`. See
+ * `QuadShade` on why it is a parameter rather than a branch on "is there a
+ * light grid": `application/world-renderer.ts` makes the same move with
+ * `DrawPort`, and its header states the rule this follows — what a richer host
+ * adds is a port, not a branch.
  *
  * `let` + `for` and direct typed-array writes, which is the same performance
  * exemption mc-meshing takes for its own inner loops (plan.md §5.2): this runs
@@ -412,6 +446,7 @@ export const buildChunkGeometry = (
   quads: ReadonlyArray<MeshQuad>,
   originX = 0,
   originZ = 0,
+  shade: QuadShade = AO_ONLY_SHADE,
 ): ChunkGeometryBuffers => {
   const quadCount = quads.length
   if (quadCount === 0) {
@@ -435,7 +470,12 @@ export const buildChunkGeometry = (
 
     const corners = quadCorners(quad, originX, originZ)
     const normal = faceNormal(quad.direction)
-    const shade = aoShade(quad.ao)
+    // ONE CALL PER QUAD, not per vertex. The four vertices of a quad share a
+    // shade for the reason the header gives for AO — the value joins the merge
+    // key, so every cell the quad covers already agreed on it — and a
+    // per-vertex call would invite a `shade` implementation that samples four
+    // times and quietly quadruples the cost of a re-mesh.
+    const quadShade = shade(quad)
     const [uExtent, vExtent] = quadUvExtent(quad)
 
     const base = quadIndex * VERTICES_PER_QUAD
@@ -462,9 +502,9 @@ export const buildChunkGeometry = (
       // The same shade four times. See the header: AO is per FACE, and the
       // four-value write is kept so that a light grid can differ per corner
       // without changing the buffer layout.
-      colors[at] = shade
-      colors[at + 1] = shade
-      colors[at + 2] = shade
+      colors[at] = quadShade
+      colors[at + 1] = quadShade
+      colors[at + 2] = quadShade
     }
 
     // `(0,0), (0,v), (u,v), (u,0)` — the reference's order at
