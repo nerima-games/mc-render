@@ -2532,7 +2532,7 @@ const makeParticleSystem: <TCanvas, TGeometry extends ThreeBufferGeometry, TMate
 ### makeRenderFrameState  `const`
 
 ```ts
-const makeRenderFrameState: (quality?: GraphicsQuality) => Effect.Effect<RenderFrameState>;
+const makeRenderFrameState: (quality?: GraphicsQuality, initialPose?: CameraPoseSnapshot) => Effect.Effect<RenderFrameState>;
 ```
 
 ### makeRenderStagesForPreview  `const`
@@ -2699,7 +2699,7 @@ const remap: (bindings: Bindings, action: InputAction, key: InputCode) => RemapO
 ### renderModule  `const`
 
 ```ts
-const renderModule: (quality?: GraphicsQuality, pointerLock?: PointerLockPort, draw?: DrawPort) => GameModule<InputService, never, never, InputService>;
+const renderModule: (quality?: GraphicsQuality, pointerLock?: PointerLockPort, draw?: DrawPort, initialPose?: CameraPoseSnapshot) => GameModule<InputService, never, never, InputService>;
 ```
 
 ### renderStages  `const`
