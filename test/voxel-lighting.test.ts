@@ -35,6 +35,7 @@ import {
   combinedShadeByte,
   combinedShadeFactor,
   effectiveLightLevel,
+  faceBrightness,
   lightSamplePoint,
   lightShadeFactor,
   litShade,
@@ -133,6 +134,102 @@ describe('the reference`s curve', () => {
       // `Math.round` and not `Math.trunc`. An off-by-one here lands on the exact
       // value every other test is most likely to assert.
       expect(combinedShadeByte(FULL_LIGHT, 0, 1)).toBe(MAX_SHADE_BYTE)
+    }),
+  )
+})
+
+describe('the fixed per-face brightness', () => {
+  // ADDED AFTER THE FACT, and the reason is worth recording. The face term was
+  // missing from the first version of this file, and when it was added EVERY
+  // TEST HERE STILL PASSED — because every fixture defaults to `yPos`, whose
+  // brightness is exactly 1. Seventeen green tests were blind to a term that
+  // changes five sixths of the world's surfaces.
+  //
+  // A default that happens to be the identity element is the most effective way
+  // to hide a multiplicative term, and it is not visible in a pass/fail count.
+
+  it.effect('REGRESSION: the four vanilla brightness levels, per direction', () =>
+    Effect.sync(() => {
+      // TRANSCRIBED from the reference vertex shader (chunk-mesh-materials.ts:92):
+      //   normal.y > 0.5 ? 1.0 : normal.y < -0.5 ? 0.5 : abs(normal.x) > 0.5 ? 0.6 : 0.8
+      expect(faceBrightness('yPos')).toBe(1)
+      expect(faceBrightness('yNeg')).toBe(0.5)
+      expect(faceBrightness('xPos')).toBe(0.6)
+      expect(faceBrightness('xNeg')).toBe(0.6)
+      expect(faceBrightness('zPos')).toBe(0.8)
+      expect(faceBrightness('zNeg')).toBe(0.8)
+    }),
+  )
+
+  it.effect('REGRESSION: gives a uniformly lit cube six distinguishable faces', () =>
+    Effect.sync(() => {
+      // THE PROPERTY THE TERM EXISTS FOR. Under full light and no occlusion —
+      // the case where every other term in this file is the identity — the six
+      // faces must still differ, or a block reads as a flat hexagon.
+      const lit = litShade(FULLY_LIT)
+      const byDirection = FACE_DIRECTIONS.map((direction) => lit(quad({ direction })))
+
+      // Top is the brightest and bottom the darkest, always.
+      expect(Math.max(...byDirection)).toBe(lit(quad({ direction: 'yPos' })))
+      expect(Math.min(...byDirection)).toBe(lit(quad({ direction: 'yNeg' })))
+
+      // Four distinct values across six faces: the opposing horizontal pairs
+      // agree with each other and differ from the other axis.
+      expect(new Set(byDirection).size).toBe(4)
+      expect(lit(quad({ direction: 'xPos' }))).toBe(lit(quad({ direction: 'xNeg' })))
+      expect(lit(quad({ direction: 'zPos' }))).toBe(lit(quad({ direction: 'zNeg' })))
+      expect(lit(quad({ direction: 'xPos' }))).toBeLessThan(lit(quad({ direction: 'zPos' })))
+    }),
+  )
+
+  it.effect('does not vary with light, sun or occlusion — it is FIXED', () =>
+    Effect.sync(() => {
+      // The reference's comment calls it "fixed per-face brightness" and that is
+      // load-bearing: a wall must look the same at dawn and at noon, which is
+      // what makes voxel terrain readable. A term that moved with the sun would
+      // be a lighting model, and this deliberately is not one.
+      FastCheck.assert(
+        FastCheck.property(
+          FastCheck.constantFrom(...FACE_DIRECTIONS),
+          arbitraryLevel,
+          arbitraryLevel,
+          FastCheck.integer({ min: 0, max: AO_MAX }),
+          FastCheck.double({ min: 0, max: 1, noNaN: true }),
+          (direction, sky, block, ao, skyIntensity) => {
+            // The ratio of the shaded value to the same value on a top face is
+            // the face factor, whatever else is going on.
+            const shaded = combinedShadeFactor({ sky, block }, ao, skyIntensity, direction)
+            const onTop = combinedShadeFactor({ sky, block }, ao, skyIntensity, 'yPos')
+            expect(shaded / onTop).toBeCloseTo(faceBrightness(direction), 10)
+          },
+        ),
+        { seed: 0, numRuns: 400 },
+      )
+    }),
+  )
+
+  it.effect('REGRESSION: the darkest legal surface is an unlit occluded UNDERSIDE', () =>
+    Effect.sync(() => {
+      // 0.45 * 0.88 * 0.5 = 0.198. Adding the face term LOWERED the floor from
+      // 0.36, which is the reference's range and not a regression — it is why
+      // LIGHT_SHADE_FLOOR can afford to be as high as 0.45.
+      const darkest = combinedShadeFactor(NO_LIGHT, AO_MAX, 1, 'yNeg')
+      expect(darkest).toBeCloseTo(LIGHT_SHADE_FLOOR * aoShadeFactor(AO_MAX) * 0.5, 10)
+      expect(darkest).toBeGreaterThan(0)
+
+      // Nothing is darker, over the whole legal input space.
+      FastCheck.assert(
+        FastCheck.property(
+          FastCheck.constantFrom(...FACE_DIRECTIONS),
+          arbitraryLevel,
+          arbitraryLevel,
+          FastCheck.integer({ min: 0, max: AO_MAX }),
+          (direction, sky, block, ao) => {
+            expect(combinedShadeFactor({ sky, block }, ao, 1, direction)).toBeGreaterThanOrEqual(darkest)
+          },
+        ),
+        { seed: 0, numRuns: 300 },
+      )
     }),
   )
 })

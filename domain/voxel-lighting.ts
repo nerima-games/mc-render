@@ -87,7 +87,7 @@
  * reasons to insist on.
  */
 import { LIGHT_LEVEL_MAX, clampLightLevel } from './kernel-vocabulary'
-import { aoShade, faceNormal, type QuadShade } from './chunk-geometry'
+import { aoShade, faceNormal, type FaceDirection, type QuadShade } from './chunk-geometry'
 
 /**
  * The two light values at a point: how much of it is daylight and how much is
@@ -195,16 +195,79 @@ export const aoShadeFactor = (aoLevel: number): number =>
   AO_SHADE_FLOOR + AO_SHADE_RANGE * (aoShade(aoLevel) / MAX_SHADE_BYTE)
 
 /**
- * The whole curve: light and occlusion, multiplied.
+ * Vanilla Minecraft's fixed per-face brightness. THE TERM THAT MAKES A CUBE
+ * LOOK LIKE A CUBE.
  *
- * Range is `[0.45 * 0.8, 1] = [0.36, 1]`. See the header on why the floors
- * compose multiplicatively rather than being clamped to a single minimum.
+ * TRANSCRIBED from the reference's vertex shader
+ * (`chunk-mesh-materials.ts:92`), whose own comment names it "vanilla
+ * Minecraft's fixed per-face brightness":
+ *
+ *     vFaceFactor = normal.y > 0.5 ? 1.0
+ *                 : normal.y < -0.5 ? 0.5
+ *                 : abs(normal.x) > 0.5 ? 0.6
+ *                 : 0.8
+ *
+ * It is a constant per DIRECTION and depends on nothing else — not the light,
+ * not the sun, not the time of day. That is exactly what makes it the term you
+ * notice when it is missing: without it, the six faces of an evenly lit block
+ * all draw at the same brightness and the block reads as a flat hexagon rather
+ * than as a solid. Every other term in this file varies with the world; this one
+ * is what gives geometry its shape when the world is uniform.
+ *
+ * IT IS NOT A LIGHTING MODEL AND IS NOT MEANT TO BE. A physically-motivated
+ * version would shade by the angle between the face and the sun, which moves,
+ * and the reference deliberately does not: fixed factors mean a wall looks the
+ * same at dawn and at noon, which is what makes voxel terrain readable. The X
+ * and Z sides differ (0.6 against 0.8) for the same reason — nothing physical
+ * distinguishes them, and giving the two horizontal axes different values is
+ * what stops a corner between them from vanishing.
+ *
+ * Written over `FaceDirection` rather than over the normal vector, which is a
+ * deviation from the transcription and is the safer direction: the reference
+ * reconstructs the direction from the normal with three float comparisons
+ * because a shader has only the normal, whereas `MeshQuad.direction` is the
+ * direction, named. Comparing `normal.y > 0.5` against a normal that is exactly
+ * `[0, 1, 0]` is unambiguous, but it is a float test standing in for an enum,
+ * and this repository has the enum.
+ */
+export const FACE_BRIGHTNESS: Readonly<Record<FaceDirection, number>> = {
+  yPos: 1,
+  yNeg: 0.5,
+  xPos: 0.6,
+  xNeg: 0.6,
+  zPos: 0.8,
+  zNeg: 0.8,
+}
+
+/** The fixed brightness of a face direction. Total by the type of the table. */
+export const faceBrightness = (direction: FaceDirection): number => FACE_BRIGHTNESS[direction]
+
+/**
+ * The whole curve: light, occlusion and face direction, multiplied.
+ *
+ * All three terms of the reference's fragment shader
+ * (`chunk-mesh-materials.ts:128`):
+ *
+ *     diffuseColor.rgb *= (0.45 + 0.55 * lightFactor) * (0.8 + 0.2 * aoFactor) * vFaceFactor
+ *
+ * Range is `[0.45 * 0.8 * 0.5, 1] = [0.18, 1]`. The darkest legal surface is an
+ * unlit, fully occluded, DOWNWARD face — which is the underside of an overhang
+ * in a cave, and is meant to be the darkest thing in the world.
+ *
+ * Note that the floor is no longer 0.36: adding the face term lowers it,
+ * because `yNeg` contributes 0.5. That is the reference's range and not a
+ * regression, and it is the reason `LIGHT_SHADE_FLOOR` can afford to be as high
+ * as 0.45 — the face term supplies the rest of the contrast.
  */
 export const combinedShadeFactor = (
   light: SkyBlockLight,
   aoLevel: number,
   skyIntensity: number,
-): number => lightShadeFactor(effectiveLightLevel(light, skyIntensity)) * aoShadeFactor(aoLevel)
+  direction: FaceDirection = 'yPos',
+): number =>
+  lightShadeFactor(effectiveLightLevel(light, skyIntensity)) *
+  aoShadeFactor(aoLevel) *
+  faceBrightness(direction)
 
 /**
  * The curve, as the 0..255 byte `./chunk-geometry.ts` writes into all three
@@ -221,7 +284,8 @@ export const combinedShadeByte = (
   light: SkyBlockLight,
   aoLevel: number,
   skyIntensity: number,
-): number => Math.round(combinedShadeFactor(light, aoLevel, skyIntensity) * MAX_SHADE_BYTE)
+  direction: FaceDirection = 'yPos',
+): number => Math.round(combinedShadeFactor(light, aoLevel, skyIntensity, direction) * MAX_SHADE_BYTE)
 
 /**
  * Where a face's light is read from: the block the face LOOKS INTO, not the one
@@ -307,6 +371,6 @@ export const litShade = (
   const skyIntensity = options.skyIntensity ?? 1
   return (quad) => {
     const [x, y, z] = lightSamplePoint(quad, faceNormal(quad.direction))
-    return combinedShadeByte(sampler(x, y, z), quad.ao, skyIntensity)
+    return combinedShadeByte(sampler(x, y, z), quad.ao, skyIntensity, quad.direction)
   }
 }

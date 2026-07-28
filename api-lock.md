@@ -13,7 +13,7 @@
 <!-- ------------------------------------------------------------------------- -->
 
 format: 1
-exported declarations: 327
+exported declarations: 329
 supporting declarations: 19
 
 ## Exported
@@ -314,6 +314,12 @@ const ESCAPE_POLICY: {
 
 ```ts
 const EXPERIENCE_MODULE_STAGE_PREFIXES: readonly ["gameplay:", "redstone:", "ui:", "multiplayer:"];
+```
+
+### FACE_BRIGHTNESS  `const`
+
+```ts
+const FACE_BRIGHTNESS: Readonly<Record<FaceDirection, number>>;
 ```
 
 ### FOCUS_NAVIGATION_KEY_CODE  `const`
@@ -1820,13 +1826,13 @@ const codeForTouchAction: (bindings: Bindings, action: InputAction) => InputCode
 ### combinedShadeByte  `const`
 
 ```ts
-const combinedShadeByte: (light: SkyBlockLight, aoLevel: number, skyIntensity: number) => number;
+const combinedShadeByte: (light: SkyBlockLight, aoLevel: number, skyIntensity: number, direction?: FaceDirection) => number;
 ```
 
 ### combinedShadeFactor  `const`
 
 ```ts
-const combinedShadeFactor: (light: SkyBlockLight, aoLevel: number, skyIntensity: number) => number;
+const combinedShadeFactor: (light: SkyBlockLight, aoLevel: number, skyIntensity: number, direction?: FaceDirection) => number;
 ```
 
 ### decideRefractionPrePass  `const`
@@ -1869,6 +1875,12 @@ const effectiveLightLevel: (light: SkyBlockLight, skyIntensity: number) => numbe
 
 ```ts
 const evictionOrderIsSpawnOrder = true;
+```
+
+### faceBrightness  `const`
+
+```ts
+const faceBrightness: (direction: FaceDirection) => number;
 ```
 
 ### faceNormal  `const`
