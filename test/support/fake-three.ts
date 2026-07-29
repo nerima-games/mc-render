@@ -142,6 +142,8 @@ export type FakeInstancedGeometry = FakeGeometry & ThreeInstancedBufferGeometry
 export type FakeMesh = ThreeMesh & {
   readonly geometry: FakeGeometry
   readonly material: FakeMaterial | FakeShaderMaterial
+  readonly positions: () => ReadonlyArray<readonly [number, number, number]>
+  readonly position: { readonly set: (x: number, y: number, z: number) => void }
 }
 
 /** One `camera.position.set` / `camera.rotation.set`, recorded verbatim. */
@@ -177,6 +179,10 @@ export type FakeCanvas = { readonly id: string }
 export type FakeThree = ThreeSurface<FakeCanvas, FakeGeometry, FakeMaterial> &
   ThreeShaderSurface<FakeCanvas, FakeGeometry, FakeMaterial, FakeShaderMaterial> &
   ThreeInstancedSurface<FakeCanvas, FakeGeometry, FakeMaterial, FakeInstancedGeometry> & {
+  readonly Mesh: new (
+    geometry: FakeGeometry,
+    material: FakeMaterial | FakeShaderMaterial,
+  ) => FakeMesh
   readonly renderers: () => ReadonlyArray<FakeRenderer>
   readonly scenes: () => ReadonlyArray<FakeScene>
   readonly cameras: () => ReadonlyArray<FakeCamera>
@@ -423,7 +429,14 @@ export const makeFakeThree = (): FakeThree => {
 
   const Mesh = class {
     constructor(geometry: FakeGeometry, material: FakeMaterial | FakeShaderMaterial) {
-      const self: FakeMesh = { frustumCulled: true, geometry, material }
+      const positions: Array<readonly [number, number, number]> = []
+      const self: FakeMesh = {
+        frustumCulled: true,
+        geometry,
+        material,
+        positions: () => positions,
+        position: { set: (x, y, z) => positions.push([x, y, z]) },
+      }
       meshes.push(self)
       return self
     }
@@ -434,7 +447,7 @@ export const makeFakeThree = (): FakeThree => {
   } as unknown as new (
     geometry: FakeGeometry,
     material: FakeMaterial | FakeShaderMaterial,
-  ) => ThreeMesh
+  ) => FakeMesh
 
   return {
     WebGLRenderer,

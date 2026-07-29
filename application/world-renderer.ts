@@ -72,6 +72,7 @@ import type {
   ThreeShaderSurface,
   ThreeSurface,
   ThreeUniform,
+  ThreeVector3,
   ThreeWebGLRenderer,
 } from './three-surface'
 
@@ -327,6 +328,21 @@ export const makeWaterMaterial = <
 /** How a chunk's geometry is keyed while it is in the scene. */
 export type ChunkKey = string
 
+/** Coarse render policy without importing simulation entity classes. */
+export type EntityRenderCategory = 'hostile' | 'item'
+
+/** The renderer-owned entity projection consumed by compose. */
+export type RenderEntity = {
+  readonly id: string
+  readonly kind: string
+  readonly feetPosition: {
+    readonly x: number
+    readonly y: number
+    readonly z: number
+  }
+  readonly category?: EntityRenderCategory
+}
+
 /**
  * The renderer, as its owner holds it.
  *
@@ -357,6 +373,12 @@ export type WorldRenderer = DrawPort & {
   readonly removeChunk: (key: ChunkKey) => Effect.Effect<void>
   /** Which chunks are currently in the scene. Diagnostics and tests. */
   readonly chunkKeys: Effect.Effect<ReadonlyArray<ChunkKey>>
+  /** Reconcile the complete visible entity set by stable entity id. */
+  readonly syncEntities: (entities: ReadonlyArray<RenderEntity>) => Effect.Effect<void>
+  /** Number of entity meshes currently owned by the renderer. */
+  readonly entityCount: Effect.Effect<number>
+  /** Last reconciled renderer DTOs, detached from caller-owned values. */
+  readonly entitySnapshot: Effect.Effect<ReadonlyArray<RenderEntity>>
   /** Frames actually submitted to the GPU by this renderer. */
   readonly framesRendered: Effect.Effect<number>
   /** Release the renderer, every chunk geometry, and the shared material. */
@@ -437,6 +459,59 @@ const UPDATE_CANVAS_STYLE = false
 const safeAspect = (viewport: Viewport): number =>
   viewport.width > 0 && viewport.height > 0 ? viewport.width / viewport.height : 1
 
+type PositionedThreeMesh = ThreeMesh & { readonly position: ThreeVector3 }
+
+type EntityStyle = {
+  readonly width: number
+  readonly height: number
+  readonly depth: number
+  readonly color: readonly [number, number, number]
+}
+
+const entityStyle = (entity: RenderEntity): EntityStyle => {
+  if (entity.category === 'item') {
+    return { width: 0.3, height: 0.3, depth: 0.3, color: [225, 165, 65] }
+  }
+  switch (entity.kind) {
+    case 'creeper':
+      return { width: 0.55, height: 1.7, depth: 0.55, color: [75, 180, 70] }
+    case 'enderman':
+      return { width: 0.5, height: 2.9, depth: 0.5, color: [40, 35, 45] }
+    case 'zombie':
+      return { width: 0.65, height: 1.8, depth: 0.45, color: [100, 160, 95] }
+    default:
+      return { width: 0.6, height: 1.8, depth: 0.5, color: [165, 85, 55] }
+  }
+}
+
+const entityBuffers = (style: EntityStyle) => {
+  const x = style.width / 2
+  const z = style.depth / 2
+  const positions = new Float32Array([
+    -x, 0, -z, x, 0, -z, x, style.height, -z, -x, style.height, -z,
+    -x, 0, z, x, 0, z, x, style.height, z, -x, style.height, z,
+  ])
+  const colors = new Uint8Array(8 * COLOR_COMPONENTS)
+  for (let offset = 0; offset < colors.length; offset += COLOR_COMPONENTS) {
+    colors.set(style.color, offset)
+  }
+  return {
+    positions,
+    colors,
+    indices: new Uint32Array([
+      0, 2, 1, 0, 3, 2, 4, 5, 6, 4, 6, 7, 0, 4, 7, 0, 7, 3,
+      1, 2, 6, 1, 6, 5, 0, 1, 5, 0, 5, 4, 3, 7, 6, 3, 6, 2,
+    ]),
+  }
+}
+
+const copyEntity = (entity: RenderEntity): RenderEntity => ({
+  id: entity.id,
+  kind: entity.kind,
+  feetPosition: { ...entity.feetPosition },
+  ...(entity.category === undefined ? {} : { category: entity.category }),
+})
+
 /**
  * Build a renderer on a canvas.
  *
@@ -477,7 +552,10 @@ export const makeWorldRenderer = <
   TUsedMaterial extends ThreeMaterial = TMaterial,
 >(
   three: Omit<ThreeSurface<TCanvas, TGeometry, TMaterial>, 'Mesh'> & {
-    readonly Mesh: new (geometry: TGeometry, material: TUsedMaterial) => ThreeMesh
+    readonly Mesh: new (
+      geometry: TGeometry,
+      material: TUsedMaterial | TMaterial,
+    ) => PositionedThreeMesh
   },
   canvas: TCanvas,
   viewport: Viewport,
@@ -546,6 +624,13 @@ export const makeWorldRenderer = <
     const chunks = yield* Ref.make(
       new Map<ChunkKey, { readonly mesh: ThreeMesh; readonly geometry: TGeometry }>(),
     )
+    type EntityEntry = {
+      readonly entity: RenderEntity
+      readonly mesh: PositionedThreeMesh
+      readonly geometry: TGeometry
+      readonly material: TMaterial
+    }
+    const entities = yield* Ref.make(new Map<string, EntityEntry>())
     const framesRendered = yield* Ref.make(0)
 
     const buildGeometry = (buffers: ChunkGeometryBuffers): TGeometry => {
@@ -586,6 +671,32 @@ export const makeWorldRenderer = <
       entry.geometry.dispose()
     }
 
+    const buildEntity = (entity: RenderEntity): EntityEntry => {
+      const buffers = entityBuffers(entityStyle(entity))
+      const geometry = new three.BufferGeometry()
+      geometry.setAttribute(
+        'position',
+        new three.BufferAttribute(buffers.positions, POSITION_COMPONENTS, false),
+      )
+      geometry.setAttribute(
+        'color',
+        new three.BufferAttribute(buffers.colors, COLOR_COMPONENTS, true),
+      )
+      geometry.setIndex(new three.BufferAttribute(buffers.indices, 1, false))
+      geometry.computeBoundingSphere()
+      const entityMaterial = new three.MeshBasicMaterial({ vertexColors: true, wireframe: false })
+      const mesh = new three.Mesh(geometry, entityMaterial)
+      mesh.position.set(entity.feetPosition.x, entity.feetPosition.y, entity.feetPosition.z)
+      scene.add(mesh)
+      return { entity, mesh, geometry, material: entityMaterial }
+    }
+
+    const releaseEntity = (entry: EntityEntry): void => {
+      scene.remove(entry.mesh)
+      entry.geometry.dispose()
+      entry.material.dispose()
+    }
+
     return {
       setChunk: (key, buffers) =>
         Ref.update(chunks, (current) => {
@@ -615,6 +726,44 @@ export const makeWorldRenderer = <
 
       chunkKeys: Ref.get(chunks).pipe(Effect.map((current) => [...current.keys()])),
 
+      syncEntities: (incoming) =>
+        Ref.update(entities, (current) => {
+          const desired = new Map(incoming.map((entity) => [entity.id, copyEntity(entity)]))
+          const next = new Map<string, EntityEntry>()
+          for (const [id, entity] of desired) {
+            const previous = current.get(id)
+            if (
+              previous !== undefined &&
+              previous.entity.kind === entity.kind &&
+              previous.entity.category === entity.category
+            ) {
+              previous.mesh.position.set(
+                entity.feetPosition.x,
+                entity.feetPosition.y,
+                entity.feetPosition.z,
+              )
+              next.set(id, { ...previous, entity })
+            } else {
+              if (previous !== undefined) {
+                releaseEntity(previous)
+              }
+              next.set(id, buildEntity(entity))
+            }
+          }
+          for (const [id, entry] of current) {
+            if (!desired.has(id)) {
+              releaseEntity(entry)
+            }
+          }
+          return next
+        }),
+
+      entityCount: Ref.get(entities).pipe(Effect.map((current) => current.size)),
+
+      entitySnapshot: Ref.get(entities).pipe(
+        Effect.map((current) => [...current.values()].map(({ entity }) => copyEntity(entity))),
+      ),
+
       framesRendered: Ref.get(framesRendered),
 
       draw: (mirrored: MirroredCameraState) =>
@@ -643,10 +792,16 @@ export const makeWorldRenderer = <
           camera.updateProjectionMatrix()
         }),
 
-      dispose: Ref.getAndSet(chunks, new Map()).pipe(
-        Effect.map((current) => {
-          for (const entry of current.values()) {
+      dispose: Effect.all([
+        Ref.getAndSet(chunks, new Map()),
+        Ref.getAndSet(entities, new Map()),
+      ]).pipe(
+        Effect.map(([currentChunks, currentEntities]) => {
+          for (const entry of currentChunks.values()) {
             releaseChunk(entry)
+          }
+          for (const entry of currentEntities.values()) {
+            releaseEntity(entry)
           }
           material.dispose()
           renderer.dispose()

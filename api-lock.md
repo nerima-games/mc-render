@@ -13,8 +13,8 @@
 <!-- ------------------------------------------------------------------------- -->
 
 format: 1
-exported declarations: 409
-supporting declarations: 19
+exported declarations: 411
+supporting declarations: 20
 
 ## Exported
 
@@ -414,6 +414,12 @@ const ESCAPE_POLICY: {
 
 ```ts
 const EXPERIENCE_MODULE_STAGE_PREFIXES: readonly ["gameplay:", "redstone:", "ui:", "multiplayer:"];
+```
+
+### EntityRenderCategory  `type`
+
+```ts
+type EntityRenderCategory = 'hostile' | 'item';
 ```
 
 ### FACE_BRIGHTNESS  `const`
@@ -1443,6 +1449,21 @@ type RemapRejection = {
 };
 ```
 
+### RenderEntity  `type`
+
+```ts
+type RenderEntity = {
+    readonly id: string;
+    readonly kind: string;
+    readonly feetPosition: {
+        readonly x: number;
+        readonly y: number;
+        readonly z: number;
+    };
+    readonly category?: EntityRenderCategory;
+};
+```
+
 ### RenderFrameState  `type`
 
 ```ts
@@ -2129,6 +2150,9 @@ type WorldRenderer = DrawPort & {
     readonly setChunk: (key: ChunkKey, buffers: ChunkGeometryBuffers) => Effect.Effect<void>;
     readonly removeChunk: (key: ChunkKey) => Effect.Effect<void>;
     readonly chunkKeys: Effect.Effect<ReadonlyArray<ChunkKey>>;
+    readonly syncEntities: (entities: ReadonlyArray<RenderEntity>) => Effect.Effect<void>;
+    readonly entityCount: Effect.Effect<number>;
+    readonly entitySnapshot: Effect.Effect<ReadonlyArray<RenderEntity>>;
     readonly framesRendered: Effect.Effect<number>;
     readonly dispose: Effect.Effect<void>;
 };
@@ -2590,7 +2614,7 @@ const makeWorkerPool: <TPayload, TResult>(ports: ReadonlyArray<WorkerPort<Worker
 
 ```ts
 const makeWorldRenderer: <TCanvas, TGeometry extends ThreeBufferGeometry, TMaterial extends ThreeMaterial, TUsedMaterial extends ThreeMaterial = TMaterial>(three: Omit<ThreeSurface<TCanvas, TGeometry, TMaterial>, "Mesh"> & {
-    readonly Mesh: new (geometry: TGeometry, material: TUsedMaterial) => ThreeMesh;
+    readonly Mesh: new (geometry: TGeometry, material: TUsedMaterial | TMaterial) => PositionedThreeMesh;
 }, canvas: TCanvas, viewport: Viewport, options?: WorldRendererOptions<TUsedMaterial>) => Effect.Effect<WorldRenderer>;
 ```
 
@@ -3117,6 +3141,14 @@ type Position = {
     readonly x: number;
     readonly y: number;
     readonly z: number;
+};
+```
+
+### PositionedThreeMesh  `type`
+
+```ts
+type PositionedThreeMesh = ThreeMesh & {
+    readonly position: ThreeVector3;
 };
 ```
 
