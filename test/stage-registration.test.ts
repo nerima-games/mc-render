@@ -16,7 +16,7 @@ import {
   StageId,
   type CameraPoseSnapshot,
   type StageRegistration,
-} from '../domain/kernel-vocabulary'
+} from "@nerima-games/mc-kernel"
 import { chainPasses, QUALITY_PRESETS } from '../domain/post-processing'
 import {
   InputService,

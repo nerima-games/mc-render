@@ -1,7 +1,7 @@
 /**
  * Every `StageId` this repository writes down, in one file.
  *
- * See `../domain/kernel-vocabulary.ts` for why a stage id is a string and what
+ * See `@nerima-games/mc-kernel` for why a stage id is a string and what
  * that implies: naming one creates no import and no dependency edge, so an
  * `after` constraint is invisible to `pnpm check:deps`. Collecting them here is
  * what makes them reviewable, and `test/stage-registration.test.ts` reads this
@@ -44,7 +44,7 @@
  * dev-only"), and it had been reintroduced by a missing stage rather than by a
  * misplaced service.
  */
-import { StageId } from '../domain/kernel-vocabulary'
+import { StageId } from "@nerima-games/mc-kernel"
 
 /**
  * Stages owned by mc-render.

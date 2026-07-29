@@ -39,7 +39,7 @@ import {
   POINTER_LOCK_STATES,
   type PointerLockState,
 } from '../../domain/input-bindings'
-import { MonotonicTimeSecs } from '../../domain/kernel-vocabulary'
+import { MonotonicTimeSecs } from "@nerima-games/mc-kernel"
 import { buildPostProcessingChain, QUALITY_PRESETS } from '../../domain/post-processing'
 import { makeRenderFrameState, renderModule, UNSET_CAMERA_POSE } from '../../stages/registration'
 import { RENDER_STAGE_IDS } from '../../stages/stage-ids'

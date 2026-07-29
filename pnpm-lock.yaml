@@ -8,6 +8,9 @@ importers:
 
   .:
     dependencies:
+      '@nerima-games/mc-kernel':
+        specifier: 0.2.0
+        version: 0.2.0
       effect:
         specifier: ^3.22.0
         version: 3.22.0
@@ -255,6 +258,10 @@ packages:
 
   '@jridgewell/trace-mapping@0.3.31':
     resolution: {integrity: sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw==}
+
+  '@nerima-games/mc-kernel@0.2.0':
+    resolution: {integrity: sha512-aNO7SZP8mfrxRo0XsDNfg2P+BSmriCvVa4rqMzQPZfbqa7orx5qfuPRdmHjxVhFRmTpvsswv/4yuy9Z1HOGrqQ==, tarball: https://npm.pkg.github.com/download/@nerima-games/mc-kernel/0.2.0/e78e32d4c2fed78a30b275ec5f2ee3e0ee16e030}
+    engines: {node: '>=24.0.0', pnpm: '>=11.0.0'}
 
   '@oxlint/binding-android-arm-eabi@1.76.0':
     resolution: {integrity: sha512-ZHIE5Zt9AsPDcY4nOlofXt0YfneEeo+QrKMPcPzLf2Z6Q8VtV2W73d7SFJ920WUwyik783u/doKCs3KXdwG+7w==}
@@ -1289,6 +1296,10 @@ snapshots:
     dependencies:
       '@jridgewell/resolve-uri': 3.1.2
       '@jridgewell/sourcemap-codec': 1.5.5
+
+  '@nerima-games/mc-kernel@0.2.0':
+    dependencies:
+      effect: 3.22.0
 
   '@oxlint/binding-android-arm-eabi@1.76.0':
     optional: true
