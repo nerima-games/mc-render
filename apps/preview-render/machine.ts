@@ -61,7 +61,7 @@ import {
   type PointerLockState,
 } from '../../domain/input-bindings'
 import { UNSET_CAMERA_POSE } from '../../stages/registration'
-import { MonotonicTimeSecs, position, type CameraPoseSnapshot } from "@nerima-games/mc-kernel"
+import { MonotonicTimeSecs, position, type CameraPoseSnapshot } from '../../domain/kernel-vocabulary'
 import { scenarioFor, stepAt, type Command, type ScenarioName, type ScriptedStep } from './script'
 
 /**

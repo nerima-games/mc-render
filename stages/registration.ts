@@ -77,7 +77,7 @@ import {
   type CameraPoseSnapshot,
   type GameModule,
   type StageRegistration,
-} from "@nerima-games/mc-kernel"
+} from '../domain/kernel-vocabulary'
 import {
   buildPostProcessingChain,
   QUALITY_PRESETS,

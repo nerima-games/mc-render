@@ -16,7 +16,7 @@
  * `@nerima-games/mc-meshing` IS a permitted parent of this repository —
  * `scripts/check-dependency-whitelist.ts`'s authoritative row is
  * `mc-meshing, mc-sim, mc-worldgen`. It still cannot be imported, for the same
- * two reasons `@nerima-games/mc-kernel` gives for mirroring mc-kernel:
+ * two reasons `domain/kernel-vocabulary.ts` gives for mirroring mc-kernel:
  *
  *   1. NOTHING IS PUBLISHED (plan.md §6 Step 3 is bottom-up
  *      publish-then-pin), and mc-dev-meta's `check-repoint.ts` states the

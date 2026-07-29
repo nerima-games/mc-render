@@ -5,7 +5,7 @@
  * This module is scheduled for deletion. Do not build on it.
  * ---------------------------------------------------------------------------
  *
- * Same reason and same fate as `@nerima-games/mc-kernel`, whose header carries
+ * Same reason and same fate as `./kernel-vocabulary.ts`, whose header carries
  * the full argument. plan.md §6 Step 3 publishes bottom-up, `@nerima-games/mc-meshing`
  * does not resolve yet, and `scripts/check-dependency-whitelist.ts` would reject
  * an import of something absent from `package.json#dependencies` in any case.
@@ -79,7 +79,7 @@ export type LodLevel = (typeof LOD_LEVELS)[number]
  * MIRRORS `mc-meshing/domain/lod.ts:75`.
  *
  * Mirrored even though nothing in this repository parses one yet, and the
- * reason is the same one `@nerima-games/mc-kernel` gives for carrying the whole
+ * reason is the same one `kernel-vocabulary.ts` gives for carrying the whole
  * Clock Port: mc-meshing's own header names the use as a WORKER MESSAGE, which
  * crosses `postMessage` and lands as `unknown`. index.ts records the mesher pool
  * as the thing that will finally turn `"WebWorker"` on in this package's

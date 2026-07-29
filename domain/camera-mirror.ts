@@ -53,8 +53,8 @@
  * so a write-back edge would be a cycle, and `pnpm check:deps` rejects cycles
  * outright with no allowlist.
  */
-import type { CameraPoseSnapshot, MonotonicTimeSecs, Position } from "@nerima-games/mc-kernel"
-import { position, snapshotAgeSecs } from "@nerima-games/mc-kernel"
+import type { CameraPoseSnapshot, MonotonicTimeSecs, Position } from './kernel-vocabulary'
+import { position, snapshotAgeSecs } from './kernel-vocabulary'
 
 /**
  * A purely cosmetic displacement applied at mirror time.

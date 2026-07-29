@@ -17,7 +17,7 @@ import { describe, expect, it } from '@effect/vitest'
 import { Effect } from 'effect'
 import { mirroredCameraState } from '../domain/camera-mirror'
 import { buildChunkGeometry, type MeshQuad } from '../domain/chunk-geometry'
-import { MonotonicTimeSecs, position, type CameraPoseSnapshot } from "@nerima-games/mc-kernel"
+import { MonotonicTimeSecs, position, type CameraPoseSnapshot } from '../domain/kernel-vocabulary'
 import {
   CAMERA_FAR_PLANE,
   CAMERA_FOV_DEGREES,
