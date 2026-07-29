@@ -116,6 +116,7 @@ export * from './application/three-surface'
 export * from './application/world-renderer'
 export * from './application/particle-system'
 export * from './application/world-sync'
+export * from './application/chunk-store-mesher'
 export * from './application/worker-pool'
 
 // --- Stages: this repository's contribution to the frame --------------------

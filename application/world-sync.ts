@@ -8,20 +8,9 @@
  * so a composed game acquired a WebGL2 context, ran its frame loop, and cleared
  * to sky blue over an empty scene.
  *
- * ---------------------------------------------------------------------------
- * IT IMPORTS NEITHER mc-worldgen NOR mc-meshing, AND THAT IS THE DESIGN
- * ---------------------------------------------------------------------------
- *
- * Both are unpublished, and the mirror discipline this workspace runs on says a
- * mirror is carried WHOLE or not carried (`domain/block-texture-map.ts`'s
- * `BlockNameLookup` header records what the organisation paid to learn that).
- * A `ChunkStore` mirror would be the widest mirror in the workspace — fourteen
- * methods, five tagged result types — to support the two this file calls.
- *
- * So it takes PORTS instead, which is this project's settled answer to exactly
- * this question and already has four instances (`DrawPort`, `LightSampler`,
- * `BlockNameLookup`, `QuadTile`). The host owns the store and the mesher and
- * answers two questions: "what changed?" and "what are this chunk's quads?".
+ * `syncWorld` takes ports so its state transition remains testable without a
+ * generator, mesher or GPU. `application/chunk-store-mesher.ts` is the concrete
+ * adapter from the published worldgen and meshing packages to those ports.
  *
  * The consequence worth stating: `syncWorld` is fully testable in Node against
  * a fake that returns three coordinates, with no world generator, no mesher and
@@ -84,13 +73,13 @@ export type DirtySource = {
  * empty array, and the distinction is load-bearing. An EMPTY ARRAY means "this
  * chunk has no visible faces", which is a real and common answer at the edge of
  * the world, and the honest response is to put an empty geometry in the scene.
- * `undefined` means "ask again later" — the chunk is not loaded, or its
- * neighbours are not, so meshing it now would seal faces that a neighbour is
- * about to open.
+ * `undefined` means "ask again later" because the chunk itself is not loaded.
+ * Missing neighbours do not defer meshing: their boundary faces are drawn, and
+ * mc-worldgen dirties the resident neighbour when a chunk arrives or leaves so
+ * the seam is meshed again.
  *
- * Collapsing the two would make a chunk whose neighbour has not arrived render
- * as a sealed box, and then never re-render, because nothing marks it dirty
- * again once the neighbour lands.
+ * Collapsing the two would remove a previously visible chunk when a transient
+ * lookup cannot supply its contents.
  */
 export type ChunkMesher = (chunk: ChunkRef) => Effect.Effect<ReadonlyArray<MeshQuad> | undefined>
 

@@ -8,6 +8,15 @@ importers:
 
   .:
     dependencies:
+      '@nerima-games/mc-kernel':
+        specifier: 0.2.0
+        version: 0.2.0
+      '@nerima-games/mc-meshing':
+        specifier: 0.1.0
+        version: 0.1.0
+      '@nerima-games/mc-worldgen':
+        specifier: 0.1.0
+        version: 0.1.0
       effect:
         specifier: ^3.20.0
         version: 3.22.0
@@ -249,6 +258,18 @@ packages:
 
   '@jridgewell/trace-mapping@0.3.31':
     resolution: {integrity: sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw==}
+
+  '@nerima-games/mc-kernel@0.2.0':
+    resolution: {integrity: sha512-aNO7SZP8mfrxRo0XsDNfg2P+BSmriCvVa4rqMzQPZfbqa7orx5qfuPRdmHjxVhFRmTpvsswv/4yuy9Z1HOGrqQ==, tarball: https://npm.pkg.github.com/download/@nerima-games/mc-kernel/0.2.0/e78e32d4c2fed78a30b275ec5f2ee3e0ee16e030}
+    engines: {node: '>=24.0.0', pnpm: '>=11.0.0'}
+
+  '@nerima-games/mc-meshing@0.1.0':
+    resolution: {integrity: sha512-Y7xSgciRskB5AY1kcCAdI/38Ga9L5f9cjO3D5DzzYVRWOzIqXSE4EVH7Ev3/fRItrWwz2KRnzhHY1BFSIfWuWg==, tarball: https://npm.pkg.github.com/download/@nerima-games/mc-meshing/0.1.0/b0c735a5db04a00ff3ad1d65522075fbf5cab96a}
+    engines: {node: '>=24.0.0', pnpm: '>=11.0.0'}
+
+  '@nerima-games/mc-worldgen@0.1.0':
+    resolution: {integrity: sha512-h4ZR7nS6N1cDiGI/4sRhRK6OfCkiB9Ie9OPAUDxmsbhMd44PxMNPGScmtFOczCyYTwLRuIw2BE82/ul8FLylUw==, tarball: https://npm.pkg.github.com/download/@nerima-games/mc-worldgen/0.1.0/c99b20a7c7b480da138adef24a30667ff8c757e0}
+    engines: {node: '>=24.0.0', pnpm: '>=11.0.0'}
 
   '@oxlint/darwin-arm64@0.12.0':
     resolution: {integrity: sha512-UydkjcAImpmBn8JYaMPg0zJrwgWJMGvJagvCnyPfyiBRWAN83Kq+BDgJZgIq+2Te6kvlnoiHWNJKVJmpy0f0BA==}
@@ -1052,6 +1073,18 @@ snapshots:
     dependencies:
       '@jridgewell/resolve-uri': 3.1.2
       '@jridgewell/sourcemap-codec': 1.5.5
+
+  '@nerima-games/mc-kernel@0.2.0':
+    dependencies:
+      effect: 3.22.0
+
+  '@nerima-games/mc-meshing@0.1.0':
+    dependencies:
+      effect: 3.22.0
+
+  '@nerima-games/mc-worldgen@0.1.0':
+    dependencies:
+      effect: 3.22.0
 
   '@oxlint/darwin-arm64@0.12.0':
     optional: true

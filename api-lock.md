@@ -13,7 +13,7 @@
 <!-- ------------------------------------------------------------------------- -->
 
 format: 1
-exported declarations: 405
+exported declarations: 409
 supporting declarations: 19
 
 ## Exported
@@ -694,6 +694,12 @@ type JobOutcome<TResult> = {
 };
 ```
 
+### KERNEL_MESH_CONFIG  `const`
+
+```ts
+const KERNEL_MESH_CONFIG: MeshConfig;
+```
+
 ### KeyCode  `type`
 
 ```ts
@@ -885,6 +891,12 @@ type MeshQuad = {
     readonly height: number;
     readonly ao: number;
 };
+```
+
+### MeshingChunkStore  `type`
+
+```ts
+type MeshingChunkStore = Pick<ChunkStoreApi, 'peek' | 'neighbours'>;
 ```
 
 ### MirroredCameraState  `type`
@@ -2186,6 +2198,12 @@ const auditMaterials: (materials: ReadonlyArray<MaterialSpec>) => ReadonlyArray<
 const bindingFor: (bindings: Bindings, action: InputAction) => InputCode | undefined;
 ```
 
+### blockNameFromKernel  `const`
+
+```ts
+const blockNameFromKernel: BlockNameLookup;
+```
+
 ### browserInputLayer  `const`
 
 ```ts
@@ -2500,6 +2518,12 @@ const makeBrowserPointerLockPort: (options: BrowserPointerLockOptions) => Pointe
 
 ```ts
 const makeChunkShaderMaterial: <TCanvas, TGeometry extends ThreeBufferGeometry, TMaterial extends ThreeMaterial, TShaderMaterial extends ThreeMaterial>(three: ThreeShaderSurface<TCanvas, TGeometry, TMaterial, TShaderMaterial>, atlasTexture: unknown, sunIntensity?: number) => ChunkShaderMaterial<TShaderMaterial>;
+```
+
+### makeChunkStoreMesher  `const`
+
+```ts
+const makeChunkStoreMesher: (store: MeshingChunkStore, config?: MeshConfig) => ChunkMesher;
 ```
 
 ### makeFrameScratch  `const`

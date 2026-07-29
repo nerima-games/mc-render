@@ -58,6 +58,9 @@
     "verify": "pnpm typecheck && pnpm lint && pnpm check:deps && pnpm api:check && pnpm test"
   },
   "dependencies": {
+    "@nerima-games/mc-kernel": "0.2.0",
+    "@nerima-games/mc-meshing": "0.1.0",
+    "@nerima-games/mc-worldgen": "0.1.0",
     "effect": "^3.20.0"
   },
   "devDependencies": {
