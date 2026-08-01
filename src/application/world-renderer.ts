@@ -70,6 +70,8 @@ import {
 } from '../domain/frustum-culling'
 import {
   COLOR_COMPONENTS,
+  FLUID_DIRECTION_COMPONENTS,
+  FLUID_FALLING_COMPONENTS,
   NORMAL_COMPONENTS,
   POSITION_COMPONENTS,
   TILE_INDEX_COMPONENTS,
@@ -805,6 +807,8 @@ export const makeWorldRenderer = <
       // `false` on every other attribute, which is the same distinction.
       geometry.setAttribute('color', new three.BufferAttribute(buffers.colors, COLOR_COMPONENTS, true))
       geometry.setAttribute('uv', new three.BufferAttribute(buffers.uvs, UV_COMPONENTS, false))
+      geometry.setAttribute('fluidDirection', new three.BufferAttribute(buffers.fluidDirections, FLUID_DIRECTION_COMPONENTS, false))
+      geometry.setAttribute('fluidFalling', new three.BufferAttribute(buffers.fluidFalling, FLUID_FALLING_COMPONENTS, false))
       // UPLOADED ON BOTH PATHS, though only the shader reads it. An unused
       // attribute costs one buffer per chunk; a MISSING one costs a world drawn
       // entirely from atlas tile 0, because GL supplies 0 for an attribute no

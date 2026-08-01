@@ -38,8 +38,10 @@ describe('makeChunkStoreMesher', () => {
 
       const quads = yield* makeChunkStoreMesher(storeOf(resident))({ cx: 0, cz: 0 })
 
-      expect(new Set(quads?.map(({ blockId }) => blockId))).toEqual(new Set([2, 6, 10]))
-      expect(quads).toHaveLength(18)
+      expect(new Set(quads?.map(({ blockId }) => blockId))).toEqual(new Set([2, 10]))
+      expect(quads).toHaveLength(12)
+      expect(quads?.fluids?.length).toBeGreaterThan(0)
+      expect(new Set(quads?.fluids?.map(({ blockId }) => blockId))).toEqual(new Set([6]))
     }),
   )
 

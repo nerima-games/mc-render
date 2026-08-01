@@ -32,6 +32,7 @@ export const blockNameFromKernel: BlockNameLookup = (blockId) => blockTypeOfId(b
  */
 export const KERNEL_MESH_CONFIG: MeshConfig = {
   waterBlockIds: blockIdsWithOpacity('fluid'),
+  fluidMaxLevels: new Map([[6, 7], [11, 3]]),
   transparentSolidBlockIds: blockIdsWithOpacity('transparentSolid'),
 }
 
@@ -96,7 +97,8 @@ export const makeChunkStoreMesher = (
 
       const neighbours = yield* store.neighbours(coord)
       const layers = meshChunk(chunk, neighbours, config)
-      return [...layers.opaque, ...layers.water, ...layers.transparentSolid]
+      const quads = [...layers.opaque, ...layers.water, ...layers.transparentSolid]
+      return Object.assign(quads, { fluids: layers.fluids })
     })
 
 /** Attach the renderer directly to a worldgen ChunkStore subscription. */

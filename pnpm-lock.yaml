@@ -12,8 +12,8 @@ importers:
         specifier: 0.2.0
         version: 0.2.0
       '@nerima-games/mc-meshing':
-        specifier: 0.1.0
-        version: 0.1.0
+        specifier: 0.1.4
+        version: 0.1.4
       '@nerima-games/mc-sim':
         specifier: 0.1.31
         version: 0.1.31
@@ -360,8 +360,8 @@ packages:
     resolution: {integrity: sha512-l3d5vrrvMI6tDBgMoGCBjiH24rbcqmprC0oZSi5P2AWBE6d2RK7kxgvUnIP7hIa6wzMtjIrzpYrxbuKNevNP2w==, tarball: https://npm.pkg.github.com/download/@nerima-games/mc-kernel/0.2.8/72737ce13aea5e3c3feaa8d485a9a03fde5bc61e}
     engines: {node: '>=24.0.0', pnpm: '>=11.0.0'}
 
-  '@nerima-games/mc-meshing@0.1.0':
-    resolution: {integrity: sha512-Y7xSgciRskB5AY1kcCAdI/38Ga9L5f9cjO3D5DzzYVRWOzIqXSE4EVH7Ev3/fRItrWwz2KRnzhHY1BFSIfWuWg==, tarball: https://npm.pkg.github.com/download/@nerima-games/mc-meshing/0.1.0/b0c735a5db04a00ff3ad1d65522075fbf5cab96a}
+  '@nerima-games/mc-meshing@0.1.4':
+    resolution: {integrity: sha512-xdXOLIFvyOiyxswB9TZj5n4tFzVmG5gQ56PpPgolEekfAhdOXiTVsfdvlZKomR2JkFmg6VMiXrT5vahBgrvlww==, tarball: https://npm.pkg.github.com/download/@nerima-games/mc-meshing/0.1.4/c7ab1157c5e71f7ac3b990ad7d9a8b5ca255874c}
     engines: {node: '>=24.0.0', pnpm: '>=11.0.0'}
 
   '@nerima-games/mc-physics@0.1.0':
@@ -1660,7 +1660,7 @@ snapshots:
     dependencies:
       effect: 3.22.0
 
-  '@nerima-games/mc-meshing@0.1.0':
+  '@nerima-games/mc-meshing@0.1.4':
     dependencies:
       effect: 3.22.0
 

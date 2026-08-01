@@ -199,7 +199,7 @@ describe('acquiring the renderer', () => {
 })
 
 describe('chunk geometry in the scene', () => {
-  it.effect('setChunk builds the five attributes with the reference item sizes and flags', () =>
+  it.effect('setChunk builds all geometry attributes with the reference item sizes and flags', () =>
     Effect.gen(function* () {
       const three = makeFakeThree()
       const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT)
@@ -216,6 +216,8 @@ describe('chunk geometry in the scene', () => {
         // Uploaded on BOTH material paths although only the shader samples it.
         // A missing attribute does not fail: GL feeds 0 to an unbound one, so
         // the whole world would draw from atlas tile 0 with nothing reported.
+        'fluidDirection',
+        'fluidFalling',
         'tileIndex',
       ])
       expect(geometry?.attributes.get('position')).toStrictEqual({
@@ -238,6 +240,16 @@ describe('chunk geometry in the scene', () => {
       // would resolve wrong.
       expect(geometry?.attributes.get('tileIndex')).toStrictEqual({
         array: buffers.tileIndices,
+        itemSize: 1,
+        normalized: false,
+      })
+      expect(geometry?.attributes.get('fluidDirection')).toStrictEqual({
+        array: buffers.fluidDirections,
+        itemSize: 2,
+        normalized: false,
+      })
+      expect(geometry?.attributes.get('fluidFalling')).toStrictEqual({
+        array: buffers.fluidFalling,
         itemSize: 1,
         normalized: false,
       })

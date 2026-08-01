@@ -33,7 +33,7 @@
  * can be seen. The batch is the unit of work because the frame is.
  */
 import { Effect, Ref } from 'effect'
-import { buildChunkGeometry, type MeshQuad, type QuadColor, type QuadTile } from '../domain/chunk-geometry'
+import { buildChunkGeometry, buildFluidGeometry, combineChunkGeometry, type FluidQuad, type MeshQuad, type QuadColor, type QuadTile } from '../domain/chunk-geometry'
 import { CHUNK_SIZE } from '../domain/lod-vocabulary'
 import type { ChunkKey, WorldRenderer } from './world-renderer'
 
@@ -91,7 +91,8 @@ export type DirtySubscriptionStore = {
  * Collapsing the two would remove a previously visible chunk when a transient
  * lookup cannot supply its contents.
  */
-export type ChunkMesher = (chunk: ChunkRef) => Effect.Effect<ReadonlyArray<MeshQuad> | undefined>
+export type ChunkMesh = ReadonlyArray<MeshQuad> & { readonly fluids?: ReadonlyArray<FluidQuad> }
+export type ChunkMesher = (chunk: ChunkRef) => Effect.Effect<ChunkMesh | undefined>
 
 /** How a chunk coordinate becomes the renderer's key. */
 export const chunkKeyOf = (chunk: ChunkRef): ChunkKey => `${chunk.cx},${chunk.cz}`
@@ -181,18 +182,23 @@ export const syncWorld = (
     let meshed = 0
     let deferred = 0
     for (const chunk of batch.changed) {
-      const quads = yield* mesher(chunk)
-      if (quads === undefined) {
+      const mesh = yield* mesher(chunk)
+      if (mesh === undefined) {
         deferred += 1
         continue
       }
+      const quads = mesh
+      const fluids = mesh.fluids ?? []
       const [originX, originZ] = chunkOrigin(chunk)
       const color = options.colorForChunk === undefined
         ? options.color
         : yield* options.colorForChunk(chunk, quads)
       yield* renderer.setChunk(
         chunkKeyOf(chunk),
-        buildChunkGeometry(quads, originX, originZ, color, options.tile),
+        combineChunkGeometry(
+          buildChunkGeometry(quads, originX, originZ, color, options.tile),
+          buildFluidGeometry(fluids, originX, originZ, color, options.tile),
+        ),
       )
       meshed += 1
     }
