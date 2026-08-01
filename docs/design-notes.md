@@ -718,7 +718,7 @@ plan.md §3.7 は mc-worldgen に「ワーカープールPort（実装は利用�
 plan.md §4.3 / §5.1-3。時刻はすべて注入された Clock Port から取る。
 
 強制は `scripts/check-dependency-whitelist.ts` の `findBannedTimeSources`
-（`Date.now()` / `new Date()` / `performance.now()`）。**oxlint.json ではない**——
+（`Date.now()` / `new Date()` / `performance.now()`）。**`.oxlintrc.json` ではない**——
 oxlint 0.12 は `no-restricted-syntax` も `no-restricted-properties` も実装しておらず、
 `no-restricted-globals` は一覧に出るが実装されていない（mc-kernel で 0.12.0 に対し実測確認済み）。
 

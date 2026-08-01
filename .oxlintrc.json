@@ -113,25 +113,45 @@
     // Declared for intent and for the day oxlint implements it; inert in 0.12.
     // The real enforcement lives in scripts/check-dependency-whitelist.ts.
     "no-restricted-globals": ["warn", "name", "open", "close", "event"],
-    // NOTE ON WHETHER THIS RULE ACTUALLY FIRES (verified empirically while
-    // migrating, 2026-08-01): under the oxlint version this repository pins
-    // (^0.12.0), `no-restricted-imports` is not in `oxlint --rules`' output at
-    // all and does not fire regardless of --import-plugin or option shape —
-    // it is as inert as `no-restricted-globals` above. It DOES fire under a
-    // newer oxlint (verified against 1.76.0) but only when (a) the CLI is run
-    // with `--import-plugin` — this rule lives in the import plugin, which is
-    // off by default and is NOT passed by `scripts.lint` below — and (b) the
-    // options use the schema below (`paths` for single-module bans, `patterns`
-    // for regex bans, both nested inside ONE options object). A flat list of
-    // extra objects appended after the severity string (e.g.
-    // `["warn", {...}, {...}]`, which is what this rule used before this
-    // migration and what sibling oxlint.json files in this org currently use)
-    // is silently ignored: oxlint only reads the object at array index 1.
-    // This block is written in the schema that will actually work once the
-    // toolchain is upgraded; enabling it for real also needs `--import-plugin`
-    // added to `scripts.lint` / `scripts.lint:fix`, which this migration does
-    // not do (a toolchain version bump is out of scope for the org-standard
-    // migration; see the PR description).
+    // NOTE ON WHETHER THIS RULE ACTUALLY FIRES (re-verified empirically
+    // 2026-08-01, after also fixing the config *filename* — see below):
+    //
+    // - Under the oxlint version this repository actually pins and has
+    //   installed (0.12.0), `no-restricted-imports` is not in `oxlint --rules`'
+    //   output at all, and it never appears in `oxlint --print-config` output
+    //   either — with or without `-c`, and with or without `--import-plugin`.
+    //   It is as inert as `no-restricted-globals` above. This was confirmed
+    //   directly against the `node_modules/.bin/oxlint` binary installed in
+    //   this repo, not inferred from release notes.
+    // - Separately, 0.12.0 also does NOT auto-discover any config file
+    //   (neither `oxlint.json`, `oxlintrc.json`, nor `.oxlintrc.json`) unless
+    //   `-c <path>` is passed explicitly; `scripts.lint` below passes no `-c`.
+    //   So on 0.12.0 this whole file is loaded from neither name, and even if
+    //   it were, this one rule still would not fire.
+    // - A throwaway `oxlint@1.76.0` install (fetched fresh via
+    //   `npx --yes oxlint@1.76.0`, NOT the toolchain this repo pins) DOES
+    //   auto-discover a file named exactly `.oxlintrc.json` (leading dot; a
+    //   plain `oxlint.json` is silently ignored) and DOES fire
+    //   `no-restricted-imports` correctly with the nested schema below and
+    //   ZERO extra CLI flags — `--import-plugin` is NOT required for this
+    //   rule on 1.76.0. (An earlier draft of this comment claimed
+    //   `--import-plugin` was required on newer oxlint; that was not borne
+    //   out when actually tested and has been corrected here.)
+    // - Net effect for THIS repository today: renaming `oxlint.json` to
+    //   `.oxlintrc.json` and using the schema below is necessary but not
+    //   sufficient — the rule remains completely inert until the pinned
+    //   `oxlint` dependency is upgraded past 0.12.0 (a toolchain version bump
+    //   is out of scope for the org-standard migration; see the PR
+    //   description). The schema below is written so that upgrading the
+    //   dependency is the only remaining step to turn on real enforcement;
+    //   no CLI flag change (in particular, no `--import-plugin`) is needed in
+    //   `scripts.lint` / `scripts.lint:fix`.
+    // - The options use the schema below (`paths` for single-module bans,
+    //   `patterns` for regex bans, both nested inside ONE options object). A
+    //   flat list of extra objects appended after the severity string (e.g.
+    //   `["warn", {...}, {...}]`, which is what sibling oxlint.json files in
+    //   this org may still use) is silently ignored: oxlint only reads the
+    //   object at array index 1.
     "no-restricted-imports": [
       "warn",
       {

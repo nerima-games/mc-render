@@ -128,7 +128,7 @@
  * full argument for it. The short form of that argument, because it governs the
  * code below: every intermediate of `16807 * x` for `x < 2^31` is exact in a
  * double, so the sequence is identical in every JavaScript engine, and it uses
- * no bitwise operator, so `oxlint.json`'s `no-bitwise` needs no suppression in
+ * no bitwise operator, so `.oxlintrc.json`'s `no-bitwise` needs no suppression in
  * the one file that produces randomness.
  *
  * It is TRANSCRIBED rather than imported. `scripts/check-dependency-whitelist.ts`
