@@ -309,7 +309,7 @@ E2E でも（ポインタロックが使えないので）単体でも（DOM が
 | **`test/particle-pool.test.ts`** | **36** | **DN-17**（容量・drop-oldest・シード付き乱数） |
 | **`test/water-surface.test.ts`** | **31** | **DN-18**（水マテリアルと `forceSinglePass` の穴）/ DN-02 |
 | **`test/water-refraction.test.ts`** | **29** | **DN-18**（屈折プリパスのゲート 6 つとその順序） |
-| **`test/texture-atlas.test.ts`** | **15** | **DN-19**（アトラスのレイアウト算術とハーフテクセル） |
+| **`test/texture-atlas.test.ts`** | **19** | **DN-19**（レイアウト算術、RGBA生成、全マッピングcoverage、素材別alpha） |
 | **`test/world-renderer.test.ts`** | **20** | THREE シーム。呼び出しプロトコルのみ（§12.3） |
 | **`test/chunk-geometry.test.ts`** | **21** | merged extent と per-face AO（§12.2） |
 | **`test/three-surface.test.ts`** | **4** | 本物の `three` に対する構造的代入可能性の証明（§12.1） |

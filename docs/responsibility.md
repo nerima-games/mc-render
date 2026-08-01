@@ -25,7 +25,7 @@ plan.md §2.3-1 の分類でいう **名詞**。「どう見えるか」の仕�
 | **フレーム stage 登録** | `render:input` / `render:camera-mirror` / `render:chunk-sync` / `render:draw` / `render:post-fx` | 登録位置は確定済 `stages/`。**本体は 5 本のうち 3 本が実体、2 本が FIRST CUT** —— `render:input`（`InputService` を実際に進める）/ `render:camera-mirror`（`mirroredCameraState` + ラグ計測）/ `render:draw`（`DrawPort.draw`。ブラウザでは実際に `renderer.render` が走る）は実体。`render:chunk-sync`（購読先が無いのでスクラッチ借用のみ）と `render:post-fx`（チェーンは組むが `EffectComposer` の実行が無い）は FIRST CUT |
 | フレーム毎スクラッチ | 一時 `Map` の事前確保と再利用 | 実装済 `domain/frame-scratch.ts` |
 | グラフィックス品質プリセット適用 | low / medium / high / ultra | ポストFX部分のみ `domain/post-processing.ts` |
-| テクスチャアセット | アトラス画像を同梱（plan.md §5.3「独立アセットリポジトリは作らない」） | **半分だけ実装済**。レイアウト算術（タイル→UV、ハーフテクセル）は `domain/texture-atlas.ts`。**アトラス PNG 本体とそのローダは未実装** — §2.2 |
+| テクスチャアセット | アトラス画像を同梱（plan.md §5.3「独立アセットリポジトリは作らない」） | **RGBAアトラス生成とレイアウト算術は実装済**。`domain/texture-atlas.ts` が512x512画像をDOM非依存で生成する。THREEへの転送はホスト側アダプタの責務 — §2.2 |
 | ライトグリッドの**適用** | worldgen が持つ 4bit ライトグリッドを描画に反映 | **実装済** —— world adapter が sky/block light を geometry に運び、chunk shader が AO と合成する。`planRenderEnvironment` は同じ shader の日照、空色、距離フォグを決定的に同期する。 |
 
 ### 2.1 `forceSinglePass` の述語は水面を分類できない（**既知の穴**）
@@ -58,35 +58,20 @@ plan.md §2.3-1 の分類でいう **名詞**。「どう見えるか」の仕�
 **述語を広げる決定は未決。** 広げるなら `MaterialSpec` に平面性を足し、
 4 マテリアル分の判定を通し直すこと。そのとき上記テストの前半が落ちて、この節に導かれる。
 
-### 2.2 テクスチャアセットを「半分」にした理由
+### 2.2 テクスチャアセットは純粋RGBAとして生成する
 
 アトラスは分離できる 2 つのものである。
 
 | | 中身 | ここで検査できるか |
 | --- | --- | --- |
-| **画像** | 512x512 の PNG。バイナリ資産 | **できない。** 読み込みに `TextureLoader` / `CanvasTexture` すなわち DOM が要り、`tsconfig.base.json` はそれを持たない（持たせない）。見た目が正しいかは Node では誰も確かめられない |
+| **画像** | 512x512 の RGBA | **できる。** `generateTerrainAtlas` はDOM・Canvas・ファイルシステムを使わず、決定的な `Uint8ClampedArray` を返す |
 | **レイアウト** | どのタイル番号がどの (列, 行) か、その UV 矩形は何か | **できる。** 整数 2 つの上の純粋な算術で、起こりうるバグは全部単体テストで見える |
 
-レイアウトだけを `domain/texture-atlas.ts` に入れた。§3.1 の方針
-（機械的に検査できる半分はデータと述語にし、スクリーンショットが要る半分は
-「要る」と書く）をそのまま適用したものである。
-レイアウト側は飾りではなく、パーティクルが破壊したブロックのタイルをサンプルするのに
-UV オフセットを必要とするので、パーティクル作業の**依存**である。
+全256タイルは番号由来のピクセルアートで識別できる。ブロックマッピングと同じ番号を使い、
+water / lava / leaves / glass / cutout はパレットとアルファ値を分ける。テストは寸法、決定性、
+全120ブロックの全face role、参照タイル間の差、素材別アルファを検証する。
 
-**PNG 本体は残っている作業**である。
-
-**2026-07-28 の訂正**: ここにはかつて「THREE アダプタと同時に入れるのが自然である
-（ローダがそちら側にあるため）」と書いてあった。**アダプタは着地したが PNG は入らなかった**ので、
-その予定は外れている。理由は後から見ると明快で、`application/three-surface.ts` の構成子は 7 つしかなく
-**`TextureLoader` も `CanvasTexture` もその中に無い**。アダプタが要求したのは
-`MeshBasicMaterial` + `vertexColors` までで、テクスチャは 1 つも要らなかった
-（AO を頂点カラーとして出すのに十分だったため）。
-
-したがって PNG が要るのは「アダプタを書くとき」ではなく
-**「アトラスを実際にサンプルする最初のマテリアルを書くとき」**であり、
-そのときシームに `TextureLoader`（または `CanvasTexture`）が 1 つ増える。
-それは §2.2 の表の「画像」側が Node で検査できないという事実を変えないので、
-足すときは検査可能性ではなく**ホストが何を渡すか**の決定になる。
+残るのは生成済みRGBAを `DataTexture` 等へ渡すホスト側の接続であり、画像本体ではない。
 
 ### 2.3 THREE シームが**覆っている範囲**（2026-07-28）
 
@@ -113,7 +98,7 @@ UV オフセットを必要とするので、パーティクル作業の**依存
 | パーティクルの `InstancedMesh` | シームに `InstancedMesh` が無い。**残っている** |
 | 水面の `ShaderMaterial` | シームに `ShaderMaterial` が無い。構成できるマテリアルは `MeshBasicMaterial` 1 種。**残っている** |
 | ポストFXの `EffectComposer` / 各 `Pass` | シームに無い。`render:post-fx` が FIRST CUT なのはこれが理由。**残っている** |
-| アトラス PNG の `TextureLoader` | シームに無い。§2.2。**残っている** |
+| 生成RGBAを受け取る `DataTexture` | シームに無い。§2.2。**残っている** |
 | チャンクのジオメトリ構築と描画 | **着地した**（`world-renderer.ts` / `chunk-geometry.ts`） |
 
 シームが小さいのは事故ではなく、`test/three-surface.test.ts` が
