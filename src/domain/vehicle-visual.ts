@@ -25,7 +25,7 @@ export type VehicleVisualDescriptor = Readonly<{
 export type VehicleInterpolationSample = Readonly<{
   position: Readonly<{ x: number; y: number; z: number }>
   velocity: Readonly<{ x: number; y: number; z: number }>
-  yaw: number
+  yawRadians: number
 }>
 
 export type VehicleCameraContext = Readonly<{
@@ -46,7 +46,7 @@ export type VehicleRenderPlan = Readonly<{
   dimension: Vehicle['dimension']
   position: VehicleInterpolationSample['position']
   velocity: VehicleInterpolationSample['velocity']
-  yaw: number
+  yawRadians: number
   parts: ReadonlyArray<VehicleVisualPartDescriptor>
   occupant?: VehicleOccupantRenderPlan
 }>
@@ -119,7 +119,7 @@ export const interpolateVehicle = (
     return {
       position: { ...current.position },
       velocity: { ...current.velocity },
-      yaw: current.yaw,
+      yawRadians: current.yawRadians,
     }
   }
 
@@ -134,7 +134,7 @@ export const interpolateVehicle = (
       y: lerp(previous.velocity.y, current.velocity.y, safeAmount),
       z: lerp(previous.velocity.z, current.velocity.z, safeAmount),
     },
-    yaw: previous.yaw + shortestAngleDelta(previous.yaw, current.yaw) * safeAmount,
+    yawRadians: previous.yawRadians + shortestAngleDelta(previous.yawRadians, current.yawRadians) * safeAmount,
   }
 }
 
@@ -148,11 +148,11 @@ export const planVehicleVisual = (
   }> = {},
 ): VehicleRenderPlan => {
   const sample = options.previous === undefined
-    ? { position: { ...vehicle.position }, velocity: { ...vehicle.velocity }, yaw: vehicle.yaw }
+    ? { position: { ...vehicle.position }, velocity: { ...vehicle.velocity }, yawRadians: vehicle.yawRadians }
     : interpolateVehicle(options.previous, vehicle, options.interpolation ?? 1)
   const descriptor = vehicleVisualDescriptor(vehicle.type)
-  const cosYaw = Math.cos(sample.yaw)
-  const sinYaw = Math.sin(sample.yaw)
+  const cosYaw = Math.cos(sample.yawRadians)
+  const sinYaw = Math.sin(sample.yawRadians)
   const [anchorX, anchorY, anchorZ] = descriptor.occupantAnchor
   const occupant = vehicle.occupant === undefined ? undefined : {
     id: vehicle.occupant,
@@ -161,7 +161,7 @@ export const planVehicleVisual = (
       y: sample.position.y + anchorY,
       z: sample.position.z + anchorX * sinYaw + anchorZ * cosYaw,
     },
-    facingRadians: sample.yaw,
+    facingRadians: sample.yawRadians,
     visible: !(
       options.camera?.localOccupantId === vehicle.occupant &&
       (options.camera.perspective ?? 'first-person') === 'first-person'
@@ -174,7 +174,7 @@ export const planVehicleVisual = (
     dimension: vehicle.dimension,
     position: sample.position,
     velocity: sample.velocity,
-    yaw: sample.yaw,
+    yawRadians: sample.yawRadians,
     parts: descriptor.parts,
     ...(occupant === undefined ? {} : { occupant }),
   }

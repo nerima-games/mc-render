@@ -13,7 +13,7 @@ const vehicle = (overrides: Partial<Vehicle> = {}): Vehicle => ({
   dimension: 'overworld',
   position: { x: 2, y: 4, z: 6 },
   velocity: { x: 0, y: 0, z: 0 },
-  yaw: 0,
+  yawRadians: 0,
   ...overrides,
 })
 
@@ -39,22 +39,22 @@ describe('vehicle interpolation', () => {
     const previous = vehicle({
       position: { x: 0, y: 2, z: 4 },
       velocity: { x: 0, y: 0, z: 2 },
-      yaw: (170 * Math.PI) / 180,
+      yawRadians: (170 * Math.PI) / 180,
     })
     const current = vehicle({
       position: { x: 10, y: 4, z: 8 },
       velocity: { x: 4, y: 2, z: 0 },
-      yaw: (-170 * Math.PI) / 180,
+      yawRadians: (-170 * Math.PI) / 180,
     })
     const sample = interpolateVehicle(previous, current, 0.5)
 
     expect(sample.position).toStrictEqual({ x: 5, y: 3, z: 6 })
     expect(sample.velocity).toStrictEqual({ x: 2, y: 1, z: 1 })
-    expect(Math.abs(sample.yaw)).toBeCloseTo(Math.PI, 12)
+    expect(Math.abs(sample.yawRadians)).toBeCloseTo(Math.PI, 12)
   })
 
   it('clamps invalid amounts and does not blend unrelated vehicles', () => {
-    const current = vehicle({ position: { x: 10, y: 4, z: 8 }, yaw: 2 })
+    const current = vehicle({ position: { x: 10, y: 4, z: 8 }, yawRadians: 2 })
     expect(interpolateVehicle(vehicle(), current, Number.NaN).position).toStrictEqual(vehicle().position)
     expect(interpolateVehicle(vehicle(), current, 99).position).toStrictEqual(current.position)
     const unrelated = vehicle({
@@ -68,7 +68,7 @@ describe('vehicle interpolation', () => {
 describe('vehicle render planning', () => {
   it('exposes a world-space occupant anchor and camera visibility decision', () => {
     const occupant = 'player:local' as OccupantId
-    const occupied = vehicle({ occupant, yaw: Math.PI / 2 })
+    const occupied = vehicle({ occupant, yawRadians: Math.PI / 2 })
     const firstPerson: VehicleRenderPlan = planVehicleVisual(occupied, {
       camera: { localOccupantId: occupant },
     })

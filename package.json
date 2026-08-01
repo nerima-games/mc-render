@@ -1,6 +1,6 @@
 {
   "name": "@nerima-games/mc-render",
-  "version": "0.2.5",
+  "version": "0.2.6",
   "type": "module",
   "description": "Rendering and runtime input for the nerima-games Minecraft-clone rebuild: the post-processing chain, material policy, per-frame scratch buffers, and the InputService.",
   "homepage": "https://github.com/nerima-games/mc-render#readme",
@@ -54,7 +54,7 @@
   "dependencies": {
     "@nerima-games/mc-kernel": "0.2.0",
     "@nerima-games/mc-meshing": "0.1.0",
-    "@nerima-games/mc-sim": "0.1.30",
+    "@nerima-games/mc-sim": "0.1.31",
     "@nerima-games/mc-worldgen": "0.1.2",
     "effect": "^3.20.0"
   },
