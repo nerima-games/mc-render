@@ -31,9 +31,9 @@ import {
   lodTierCensus,
   unreachableLodTiers,
   type LodThresholds,
-} from '../domain/level-of-detail'
-import { CHUNK_SIZE, LOD_LEVELS, STEP_FOR_LOD, type LodLevel } from '../domain/lod-vocabulary'
-import { CAMERA_FOV_DEGREES } from '../application/world-renderer'
+} from '../src/domain/level-of-detail'
+import { CHUNK_SIZE, LOD_LEVELS, STEP_FOR_LOD, type LodLevel } from '../src/domain/lod-vocabulary'
+import { CAMERA_FOV_DEGREES } from '../src/application/world-renderer'
 
 const arbitraryLevel: FastCheck.Arbitrary<LodLevel> = FastCheck.constantFrom(...LOD_LEVELS)
 
@@ -436,7 +436,7 @@ describe('the mirrored vocabulary, and the constants it has to agree with', () =
       // 14 of the 15 repositories in this organisation exclude their mirrors
       // from their barrels for this reason. The exclusion is a claim, and an
       // unpinned claim is one an `export *` restores by accident.
-      const barrel = yield* Effect.promise(() => import('../index'))
+      const barrel = yield* Effect.promise(() => import('../src/index'))
       const names = Object.keys(barrel)
 
       for (const mirrored of ['LOD_LEVELS', 'LodLevelSchema', 'STEP_FOR_LOD', 'CHUNK_SIZE']) {

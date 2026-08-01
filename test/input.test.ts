@@ -46,7 +46,7 @@ import {
   WHEEL_LINES_PER_NOTCH,
   WHEEL_PIXELS_PER_NOTCH,
   wrapHotbarSelection,
-} from '../domain/input-bindings'
+} from '../src/domain/input-bindings'
 import {
   ESCAPE_POLICY,
   FOCUS_NAVIGATION_POLICY,
@@ -55,8 +55,8 @@ import {
   UNAVAILABLE_POINTER_LOCK,
   type PointerLockPort,
   type PointerLockRequestOutcome,
-} from '../application/input-service'
-import { PREVENT_DEFAULT_EVENTS, mayPreventDefault } from '../application/browser-input-adapter'
+} from '../src/application/input-service'
+import { PREVENT_DEFAULT_EVENTS, mayPreventDefault } from '../src/application/browser-input-adapter'
 
 describe('REGRESSION: Escape has exactly one owner', () => {
   it.effect('the owner is the frame-level handler, recorded as a value not a comment', () =>

@@ -1,12 +1,12 @@
 import { describe, expect, it } from '@effect/vitest'
 import { Effect, Ref } from 'effect'
-import { isMirrorStale, mirrorLagSecs, type MirroredCameraState } from '../domain/camera-mirror'
-import { NO_DRAW_TARGET, type DrawPort } from '../application/world-renderer'
+import { isMirrorStale, mirrorLagSecs, type MirroredCameraState } from '../src/domain/camera-mirror'
+import { NO_DRAW_TARGET, type DrawPort } from '../src/application/world-renderer'
 import {
   GAMEPLAY_LISTENER_TARGET,
   HOTBAR_FOCUS_GROUP,
   MODAL_LISTENER_TARGET,
-} from '../domain/input-bindings'
+} from '../src/domain/input-bindings'
 import {
   DeltaTimeSecs,
   EpochMillis,
@@ -16,26 +16,26 @@ import {
   StageId,
   type CameraPoseSnapshot,
   type StageRegistration,
-} from '../domain/kernel-vocabulary'
-import { chainPasses, QUALITY_PRESETS } from '../domain/post-processing'
+} from '../src/domain/kernel-vocabulary'
+import { chainPasses, QUALITY_PRESETS } from '../src/domain/post-processing'
 import {
   InputService,
   InputServiceLayer,
   type PointerLockPort,
   type PointerLockRequestOutcome,
-} from '../application/input-service'
+} from '../src/application/input-service'
 import {
   makeRenderStagesForPreview,
   renderModule,
   UNSET_CAMERA_POSE,
   type RenderFrameState,
-} from '../stages/registration'
+} from '../src/stages/registration'
 import {
   EXPERIENCE_MODULE_STAGE_PREFIXES,
   OWN_STAGE_PREFIX,
   RENDER_STAGE_IDS,
   UPSTREAM_STAGE_IDS,
-} from '../stages/stage-ids'
+} from '../src/stages/stage-ids'
 
 const FRAME_SERVICES = FixedClockLayer({
   monotonicSecs: MonotonicTimeSecs(100),

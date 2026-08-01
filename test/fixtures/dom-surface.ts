@@ -28,7 +28,7 @@ import {
   type DomListener,
   type DomListenerOptions,
   type PointerLockTarget,
-} from '../../application/dom-surface'
+} from '../../src/application/dom-surface'
 
 declare const browserWindow: Window
 declare const browserDocument: Document

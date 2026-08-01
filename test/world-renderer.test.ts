@@ -15,9 +15,9 @@
  */
 import { describe, expect, it } from '@effect/vitest'
 import { Effect } from 'effect'
-import { mirroredCameraState } from '../domain/camera-mirror'
-import { buildChunkGeometry, type MeshQuad } from '../domain/chunk-geometry'
-import { MonotonicTimeSecs, position, type CameraPoseSnapshot } from '../domain/kernel-vocabulary'
+import { mirroredCameraState } from '../src/domain/camera-mirror'
+import { buildChunkGeometry, type MeshQuad } from '../src/domain/chunk-geometry'
+import { MonotonicTimeSecs, position, type CameraPoseSnapshot } from '../src/domain/kernel-vocabulary'
 import {
   CAMERA_FAR_PLANE,
   CAMERA_FOV_DEGREES,
@@ -26,7 +26,7 @@ import {
   NO_DRAW_TARGET,
   SKY_CLEAR_ALPHA,
   SKY_CLEAR_COLOR,
-} from '../application/world-renderer'
+} from '../src/application/world-renderer'
 import { FAKE_CANVAS, makeFakeThree } from './support/fake-three'
 
 const VIEWPORT = { width: 1280, height: 720 }

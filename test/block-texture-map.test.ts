@@ -14,9 +14,9 @@ import {
   referencedTileIndices,
   tileIndexForBlockName,
   tileIndexResolver,
-} from '../domain/block-texture-map'
-import { ATLAS_TILE_COUNT, isTileIndex } from '../domain/texture-atlas'
-import type { FaceRole } from '../domain/chunk-geometry'
+} from '../src/domain/block-texture-map'
+import { ATLAS_TILE_COUNT, isTileIndex } from '../src/domain/texture-atlas'
+import type { FaceRole } from '../src/domain/chunk-geometry'
 
 const ROLES: ReadonlyArray<FaceRole> = ['top', 'bottom', 'side']
 

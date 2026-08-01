@@ -29,16 +29,16 @@
  */
 import { describe, expect, it } from '@effect/vitest'
 import { Effect } from 'effect'
-import { buildChunkGeometry, TILE_INDEX_COMPONENTS, VERTICES_PER_QUAD, type MeshQuad } from '../domain/chunk-geometry'
-import { chunkShaderSource, CHUNK_SHADER_UNIFORMS } from '../domain/chunk-shader'
-import { MISSING_TILE, quadTileForLookup, tileIndexForBlockName } from '../domain/block-texture-map'
+import { buildChunkGeometry, TILE_INDEX_COMPONENTS, VERTICES_PER_QUAD, type MeshQuad } from '../src/domain/chunk-geometry'
+import { chunkShaderSource, CHUNK_SHADER_UNIFORMS } from '../src/domain/chunk-shader'
+import { MISSING_TILE, quadTileForLookup, tileIndexForBlockName } from '../src/domain/block-texture-map'
 import {
   FULL_SUN_INTENSITY,
   UNIFORM_ORIGIN,
   makeChunkShaderMaterial,
   makeWaterMaterial,
   makeWorldRenderer,
-} from '../application/world-renderer'
+} from '../src/application/world-renderer'
 import { FAKE_CANVAS, makeFakeThree } from './support/fake-three'
 
 const VIEWPORT = { width: 1280, height: 720 }

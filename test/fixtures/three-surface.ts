@@ -30,8 +30,8 @@
  * `pnpm check:deps`.
  */
 import * as THREE from 'three'
-import { makeChunkShaderMaterial, makeWaterMaterial, makeWorldRenderer } from '../../application/world-renderer'
-import { chunkShaderSource } from '../../domain/chunk-shader'
+import { makeChunkShaderMaterial, makeWaterMaterial, makeWorldRenderer } from '../../src/application/world-renderer'
+import { chunkShaderSource } from '../../src/domain/chunk-shader'
 import type {
   ThreeBufferAttribute,
   ThreeBufferGeometry,
@@ -43,7 +43,7 @@ import type {
   ThreeShaderSurface,
   ThreeSurface,
   ThreeWebGLRenderer,
-} from '../../application/three-surface'
+} from '../../src/application/three-surface'
 
 /**
  * THE WHOLE CLAIM, IN ONE LINE.

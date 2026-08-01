@@ -3,7 +3,7 @@
   // ever leaks into `domain/` or `application/` this project fails, which is
   // what keeps the package usable from browser, worker and server alike.
   "extends": "./tsconfig.base.json",
-  "include": ["index.ts", "domain/**/*.ts", "application/**/*.ts", "stages/**/*.ts"],
+  "include": ["src/index.ts", "src/domain/**/*.ts", "src/application/**/*.ts", "src/stages/**/*.ts"],
   "exclude": [
     "node_modules",
     "coverage",
