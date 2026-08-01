@@ -21,28 +21,28 @@ import {
   UNAVAILABLE_POINTER_LOCK,
   type InputEvent,
   type PointerLockPort,
-} from '../../application/input-service'
+} from '../../src/application/input-service'
 import {
   isMirrorStale,
   mirroredCameraState,
   mirrorLagSecs,
   MIRROR_LAG_WARNING_SECS,
-} from '../../domain/camera-mirror'
+} from '../../src/domain/camera-mirror'
 import {
   makeScratchMap,
   withScratch,
   type ScratchMap,
-} from '../../domain/frame-scratch'
+} from '../../src/domain/frame-scratch'
 import {
   defaultBindings,
   notchesForWheelDelta,
   POINTER_LOCK_STATES,
   type PointerLockState,
-} from '../../domain/input-bindings'
-import { MonotonicTimeSecs } from '../../domain/kernel-vocabulary'
-import { buildPostProcessingChain, QUALITY_PRESETS } from '../../domain/post-processing'
-import { makeRenderFrameState, renderModule, UNSET_CAMERA_POSE } from '../../stages/registration'
-import { RENDER_STAGE_IDS } from '../../stages/stage-ids'
+} from '../../src/domain/input-bindings'
+import { MonotonicTimeSecs } from '../../src/domain/kernel-vocabulary'
+import { buildPostProcessingChain, QUALITY_PRESETS } from '../../src/domain/post-processing'
+import { makeRenderFrameState, renderModule, UNSET_CAMERA_POSE } from '../../src/stages/registration'
+import { RENDER_STAGE_IDS } from '../../src/stages/stage-ids'
 import { fixed, pad, padStart } from './style'
 
 const section = (title: string, why: string): ReadonlyArray<string> => ['', `== ${title}`, `   ${why}`, '']

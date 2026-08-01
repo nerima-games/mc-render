@@ -8,7 +8,7 @@
  */
 import { describe, expect, it } from '@effect/vitest'
 import { Effect } from 'effect'
-import { QUALITY_PRESETS, type QualityPreset } from '../domain/post-processing'
+import { QUALITY_PRESETS, type QualityPreset } from '../src/domain/post-processing'
 import {
   BEHIND_NEAR_PLANE_RATIO,
   decideRefractionPrePass,
@@ -25,7 +25,7 @@ import {
   type RefractionCameraKey,
   type RefractionGate,
   type RefractionInputs,
-} from '../domain/water-refraction'
+} from '../src/domain/water-refraction'
 
 const KEY: RefractionCameraKey = {
   sceneVersion: 3,

@@ -30,7 +30,7 @@ import {
   type GraphicsQuality,
   type PostProcessingPass,
   type PostProcessingStep,
-} from '../domain/post-processing'
+} from '../src/domain/post-processing'
 
 const ALL_ON: GraphicsQuality = {
   ssaoEnabled: true,

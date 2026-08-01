@@ -40,7 +40,7 @@ import {
   type InputSnapshot,
   type PointerLockPort,
   type PointerLockRequestOutcome,
-} from '../../application/input-service'
+} from '../../src/application/input-service'
 import {
   isMirrorStale,
   mirroredCameraState,
@@ -48,7 +48,7 @@ import {
   NO_VIEW_OFFSET,
   type MirroredCameraState,
   type ViewOffset,
-} from '../../domain/camera-mirror'
+} from '../../src/domain/camera-mirror'
 import {
   acquiresPointerLock,
   actionForKey,
@@ -59,9 +59,9 @@ import {
   type InputAction,
   type InputCode,
   type PointerLockState,
-} from '../../domain/input-bindings'
-import { UNSET_CAMERA_POSE } from '../../stages/registration'
-import { MonotonicTimeSecs, position, type CameraPoseSnapshot } from '../../domain/kernel-vocabulary'
+} from '../../src/domain/input-bindings'
+import { UNSET_CAMERA_POSE } from '../../src/stages/registration'
+import { MonotonicTimeSecs, position, type CameraPoseSnapshot } from '../../src/domain/kernel-vocabulary'
 import { scenarioFor, stepAt, type Command, type ScenarioName, type ScriptedStep } from './script'
 
 /**

@@ -75,7 +75,7 @@ import type {
   ThreeSurface,
   ThreeUniform,
   ThreeWebGLRenderer,
-} from '../../application/three-surface'
+} from '../../src/application/three-surface'
 
 /** One `new BufferAttribute(array, itemSize, normalized)`, recorded verbatim. */
 export type RecordedAttribute = {

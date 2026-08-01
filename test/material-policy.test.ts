@@ -20,7 +20,7 @@ import {
   requiresForceSinglePass,
   takesTwoPassPath,
   type MaterialSpec,
-} from '../domain/material-policy'
+} from '../src/domain/material-policy'
 
 /** ts-minecraft/packages/rendering/infrastructure/meshing/chunk-mesh-materials.ts:156-164. */
 const GLASS_LEAVES: MaterialSpec = {

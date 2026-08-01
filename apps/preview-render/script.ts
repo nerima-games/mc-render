@@ -28,8 +28,8 @@
  * than a constant. Two of the three findings in this app come from reordering
  * two events that a test happens to issue in the other order.
  */
-import type { InputEvent } from '../../application/input-service'
-import { HOTBAR_FOCUS_GROUP, type WheelDeltaMode } from '../../domain/input-bindings'
+import type { InputEvent } from '../../src/application/input-service'
+import { HOTBAR_FOCUS_GROUP, type WheelDeltaMode } from '../../src/domain/input-bindings'
 
 /** Something the driver does that is not an `InputEvent`. */
 export type Command =

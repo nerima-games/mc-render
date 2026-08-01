@@ -19,7 +19,7 @@ import {
   waterFragmentShader,
   waterShaderSource,
   waterVertexShader,
-} from '../domain/water-shader'
+} from '../src/domain/water-shader'
 import {
   RIPPLE_LAYERS_U,
   RIPPLE_LAYERS_V,
@@ -35,7 +35,7 @@ import {
   rippleOffset,
   waterDepthFactor,
   waterSunAttenuation,
-} from '../domain/water-surface'
+} from '../src/domain/water-surface'
 
 /** Every `uniform <type> <name>;` the fragment source declares. */
 const declaredUniforms = (source: string): ReadonlyArray<string> =>

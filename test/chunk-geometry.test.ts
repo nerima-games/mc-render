@@ -39,7 +39,7 @@ import {
   type FaceDirection,
   type MeshQuad,
   type QuadAxis,
-} from '../domain/chunk-geometry'
+} from '../src/domain/chunk-geometry'
 
 const DIRECTIONS: ReadonlyArray<FaceDirection> = ['xPos', 'xNeg', 'yPos', 'yNeg', 'zPos', 'zNeg']
 

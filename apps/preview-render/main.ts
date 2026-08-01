@@ -53,7 +53,7 @@
  *    and `pnpm lint` lints it, but `pnpm preview` is not a gate.
  */
 import { Effect } from 'effect'
-import type { InputEvent } from '../../application/input-service'
+import type { InputEvent } from '../../src/application/input-service'
 import { parseArguments, USAGE, type PreviewOptions } from './options'
 import { describeCommand, describeEvent, makeMachine, type Machine } from './machine'
 import { statsReport } from './probes'

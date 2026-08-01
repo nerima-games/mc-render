@@ -1,7 +1,7 @@
 import { describe, expect, it } from '@effect/vitest'
 import { BlockId, chunkCoord, emptyBlocks, setBlockAt, type Chunk } from '@nerima-games/mc-worldgen'
 import { Effect } from 'effect'
-import { blockNameFromKernel, makeChunkStoreMesher, type MeshingChunkStore } from '../application/chunk-store-mesher'
+import { blockNameFromKernel, makeChunkStoreMesher, type MeshingChunkStore } from '../src/application/chunk-store-mesher'
 
 const chunk = (cx: number, cz: number, blocks: ReadonlyArray<readonly [number, number, number, number]>): Chunk => {
   const data = emptyBlocks()

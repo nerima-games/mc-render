@@ -23,8 +23,8 @@ import {
   NO_VIEW_OFFSET,
   snapshotAgeSecs,
   type ViewOffset,
-} from '../domain/camera-mirror'
-import { MonotonicTimeSecs, position, type CameraPoseSnapshot } from '../domain/kernel-vocabulary'
+} from '../src/domain/camera-mirror'
+import { MonotonicTimeSecs, position, type CameraPoseSnapshot } from '../src/domain/kernel-vocabulary'
 
 const AUTHORITATIVE: CameraPoseSnapshot = {
   position: position(8, 65.62, -12),

@@ -21,7 +21,7 @@ import {
   type WorkerPort,
   type WorkerRequest,
   type WorkerResponse,
-} from '../application/worker-pool'
+} from '../src/application/worker-pool'
 
 type Payload = { readonly chunk: string }
 type Result = { readonly quads: number }

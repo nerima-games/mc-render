@@ -13,7 +13,7 @@
  */
 import { describe, expect, it } from '@effect/vitest'
 import { Effect } from 'effect'
-import { describeMaterialPolicy, requiresForceSinglePass } from '../domain/material-policy'
+import { describeMaterialPolicy, requiresForceSinglePass } from '../src/domain/material-policy'
 import {
   clampSunIntensity,
   fresnelF0ForIor,
@@ -41,7 +41,7 @@ import {
   WAVE_APPROX_MAX_ERROR,
   waveApprox,
   waveApproxCos,
-} from '../domain/water-surface'
+} from '../src/domain/water-surface'
 
 describe('the water uniforms', () => {
   it.effect('are the six the reference declares', () =>

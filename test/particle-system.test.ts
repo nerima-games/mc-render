@@ -15,19 +15,19 @@
  */
 import { describe, expect, it } from '@effect/vitest'
 import { Effect } from 'effect'
-import { makeParticleSystem } from '../application/particle-system'
+import { makeParticleSystem } from '../src/application/particle-system'
 import {
   PARTICLE_INSTANCE_ATTRIBUTES,
   PARTICLE_QUAD_INDICES,
   PARTICLE_QUAD_POSITIONS,
   particleShaderSource,
-} from '../domain/particle-shader'
+} from '../src/domain/particle-shader'
 import {
   PARTICLE_UV_STRIDE,
   PARTICLE_VECTOR_STRIDE,
   makeParticlePool,
   spawnBurst,
-} from '../domain/particle-pool'
+} from '../src/domain/particle-pool'
 import { makeFakeThree, type FakeInstancedAttribute } from './support/fake-three'
 
 const ATLAS = { id: 'atlas-texture' }

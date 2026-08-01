@@ -14,7 +14,7 @@
  */
 import { describe, expect, it } from '@effect/vitest'
 import { Effect, Ref } from 'effect'
-import { makeWorldRenderer } from '../application/world-renderer'
+import { makeWorldRenderer } from '../src/application/world-renderer'
 import {
   EMPTY_SYNC_REPORT,
   chunkKeyOf,
@@ -22,9 +22,9 @@ import {
   syncWorld,
   type ChunkRef,
   type DirtyBatch,
-} from '../application/world-sync'
-import { CHUNK_SIZE } from '../domain/lod-vocabulary'
-import type { MeshQuad } from '../domain/chunk-geometry'
+} from '../src/application/world-sync'
+import { CHUNK_SIZE } from '../src/domain/lod-vocabulary'
+import type { MeshQuad } from '../src/domain/chunk-geometry'
 import { FAKE_CANVAS, makeFakeThree } from './support/fake-three'
 
 const VIEWPORT = { width: 1280, height: 720 }

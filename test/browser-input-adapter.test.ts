@@ -31,13 +31,13 @@ import {
   MODAL_LISTENER_TARGET,
   WHEEL_LINES_PER_NOTCH,
   WHEEL_PIXELS_PER_NOTCH,
-} from '../domain/input-bindings'
+} from '../src/domain/input-bindings'
 import {
   InputService,
   LISTENER_PLAN,
   makeInputService,
   type InputEvent,
-} from '../application/input-service'
+} from '../src/application/input-service'
 import {
   browserInputLayer,
   installInputListeners,
@@ -51,9 +51,9 @@ import {
   translateDomEvent,
   TRANSLATED_DOM_EVENTS,
   type BrowserInputTargets,
-} from '../application/browser-input-adapter'
-import type { DomEventContext, FocusGroupTargets } from '../application/browser-input-adapter'
-import type { DomInputEvent, DomListener, DomListenerOptions } from '../application/dom-surface'
+} from '../src/application/browser-input-adapter'
+import type { DomEventContext, FocusGroupTargets } from '../src/application/browser-input-adapter'
+import type { DomInputEvent, DomListener, DomListenerOptions } from '../src/application/dom-surface'
 
 // ---------------------------------------------------------------------------
 // The fake DOM

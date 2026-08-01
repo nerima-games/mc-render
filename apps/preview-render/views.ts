@@ -21,7 +21,7 @@ import {
   requiresForceSinglePass,
   takesTwoPassPath,
   type MaterialSpec,
-} from '../../domain/material-policy'
+} from '../../src/domain/material-policy'
 import {
   buildPostProcessingChain,
   chainEffects,
@@ -35,7 +35,7 @@ import {
   validatePostProcessingChain,
   type PostProcessingPass,
   type QualityPreset,
-} from '../../domain/post-processing'
+} from '../../src/domain/post-processing'
 import {
   ESCAPE_KEY_CODE,
   ESCAPE_OWNER,
@@ -45,10 +45,10 @@ import {
   WHEEL_LINES_PER_NOTCH,
   WHEEL_PAGES_PER_NOTCH,
   WHEEL_PIXELS_PER_NOTCH,
-} from '../../domain/input-bindings'
-import { LISTENER_PLAN } from '../../application/input-service'
-import { MIRROR_LAG_WARNING_SECS } from '../../domain/camera-mirror'
-import { RENDER_STAGE_IDS, UPSTREAM_STAGE_IDS } from '../../stages/stage-ids'
+} from '../../src/domain/input-bindings'
+import { LISTENER_PLAN } from '../../src/application/input-service'
+import { MIRROR_LAG_WARNING_SECS } from '../../src/domain/camera-mirror'
+import { RENDER_STAGE_IDS, UPSTREAM_STAGE_IDS } from '../../src/stages/stage-ids'
 import { scenarioFor, scenarioLength, stepAt, type ScenarioName } from './script'
 import { describeCommand, describeEvent, type MachineView } from './machine'
 import {
