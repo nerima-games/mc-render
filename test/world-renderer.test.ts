@@ -575,6 +575,73 @@ describe('drawing', () => {
   )
 })
 
+describe('canvas weather', () => {
+  it.effect('reuses a bounded GPU buffer and clears it without residue', () =>
+    Effect.gen(function* () {
+      const three = makeFakeThree()
+      const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT, {
+        weather: { particleCapacity: 2 },
+      })
+      const rain = {
+        mode: 'rain' as const,
+        intensity: 1,
+        daylight: 1,
+        temperature: 0.8,
+        seed: 42,
+      }
+
+      const first = yield* renderer.weather.frame(rain, { x: 10, y: 64, z: -5 })
+      expect(first.particles).toHaveLength(2)
+      expect(three.geometries()).toHaveLength(1)
+      expect(three.materials()).toHaveLength(2)
+      expect(three.scene().members()).toHaveLength(1)
+      const geometry = three.geometries()[0]
+      const position = geometry?.attributes.get('position')
+      expect(geometry?.drawRanges()).toStrictEqual([
+        [0, 0],
+        [0, 24],
+      ])
+      expect(position?.needsUpdate).toBe(true)
+
+      yield* renderer.weather.frame(rain, { x: 10, y: 64, z: -5 })
+      expect(three.geometries()).toHaveLength(1)
+      expect(geometry?.attributes.get('position')?.array).toBe(position?.array)
+      expect(geometry?.drawRanges().at(-1)).toStrictEqual([0, 24])
+
+      yield* renderer.resize(800, 600)
+      yield* renderer.weather.frame(
+        { ...rain, mode: 'clear' as const },
+        { x: 10, y: 64, z: -5 },
+      )
+      expect(geometry?.disposed()).toBe(true)
+      expect(three.materials()[1]?.disposed()).toBe(true)
+      expect(three.scene().members()).toStrictEqual([])
+    }),
+  )
+
+  it.effect('disposes active thunder precipitation with the world renderer', () =>
+    Effect.gen(function* () {
+      const three = makeFakeThree()
+      const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT)
+      yield* renderer.weather.frame(
+        {
+          mode: 'thunder',
+          intensity: 1,
+          daylight: 0.5,
+          temperature: 0.8,
+          seed: 9,
+          lightningSequence: 1,
+        },
+        { x: 0, y: 70, z: 0 },
+      )
+
+      yield* renderer.dispose
+      expect(three.geometries()[0]?.disposed()).toBe(true)
+      expect(three.scene().members()).toStrictEqual([])
+    }),
+  )
+})
+
 describe('teardown', () => {
   it.effect('dispose releases every chunk geometry, the material and the renderer', () =>
     Effect.gen(function* () {

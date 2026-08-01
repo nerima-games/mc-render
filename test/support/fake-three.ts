@@ -82,6 +82,7 @@ export type RecordedAttribute = {
   readonly array: Float32Array | Uint8Array | Uint32Array
   readonly itemSize: number
   readonly normalized: boolean
+  needsUpdate?: boolean
 }
 
 export type FakeGeometry = ThreeBufferGeometry & {
@@ -97,6 +98,7 @@ export type FakeGeometry = ThreeBufferGeometry & {
   readonly attributes: Map<string, RecordedAttribute | FakeInstancedAttribute>
   readonly index: () => RecordedAttribute | undefined
   readonly boundingSphereComputations: () => number
+  readonly drawRanges: () => ReadonlyArray<readonly [number, number]>
   readonly disposed: () => boolean
 }
 
@@ -312,17 +314,22 @@ export const makeFakeThree = (): FakeThree => {
       const attributes = new Map<string, RecordedAttribute>()
       let index: RecordedAttribute | undefined
       let boundingSphereComputations = 0
+      const drawRanges: Array<readonly [number, number]> = []
       let disposed = false
       const self: FakeGeometry = {
         attributes,
         index: () => index,
         boundingSphereComputations: () => boundingSphereComputations,
+        drawRanges: () => drawRanges,
         disposed: () => disposed,
         setAttribute: (name, attribute) => {
           attributes.set(name, attribute as RecordedAttribute)
         },
         setIndex: (attribute) => {
           index = attribute === null ? undefined : (attribute as RecordedAttribute)
+        },
+        setDrawRange: (start, count) => {
+          drawRanges.push([start, count])
         },
         computeBoundingSphere: () => {
           boundingSphereComputations += 1
@@ -388,6 +395,7 @@ export const makeFakeThree = (): FakeThree => {
   const InstancedBufferGeometry = class {
     constructor() {
       const attributes = new Map<string, RecordedAttribute | FakeInstancedAttribute>()
+      const drawRanges: Array<readonly [number, number]> = []
       let index: RecordedAttribute | undefined
       let disposed = false
       const self: FakeInstancedGeometry = {
@@ -395,12 +403,16 @@ export const makeFakeThree = (): FakeThree => {
         attributes,
         index: () => index,
         boundingSphereComputations: () => 0,
+        drawRanges: () => drawRanges,
         disposed: () => disposed,
         setAttribute: (name: string, attribute: unknown) => {
           attributes.set(name, attribute as RecordedAttribute)
         },
         setIndex: (attribute: unknown) => {
           index = (attribute ?? undefined) as RecordedAttribute | undefined
+        },
+        setDrawRange: (start, count) => {
+          drawRanges.push([start, count])
         },
         computeBoundingSphere: () => {},
         dispose: () => {

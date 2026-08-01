@@ -138,17 +138,20 @@ const precipitationParticles = (
   if (kind === undefined) return []
   const count = Math.floor(capacity * intensity)
   return Array.from({ length: count }, (_, id) => {
-    const particleSeed = safeInteger(snapshot.seed) ^ Math.imul(frame, 0x9e3779b1) ^ Math.imul(id + 1, 0x85ebca6b)
+    const particleSeed = safeInteger(snapshot.seed) ^ Math.imul(id + 1, 0x85ebca6b)
     const x = camera.x + (random01(particleSeed) * 2 - 1) * radius
     const z = camera.z + (random01(particleSeed ^ 0x68bc21eb) * 2 - 1) * radius
-    const y = camera.y + random01(particleSeed ^ 0x02e5be93) * height
+    const velocityY = kind === 'rain' ? -18 : -2.4
+    const startY = random01(particleSeed ^ 0x02e5be93) * height
+    const travelled = (safeInteger(frame) * Math.abs(velocityY)) / 60
+    const y = camera.y + (height === 0 ? 0 : ((startY - travelled) % height + height) % height)
     return {
       id,
       kind,
       x,
       y,
       z,
-      velocityY: kind === 'rain' ? -18 : -2.4,
+      velocityY,
       opacity: kind === 'rain' ? 0.72 : 0.88,
     }
   })

@@ -49,6 +49,7 @@
  */
 import { Effect, Ref } from 'effect'
 import type { MirroredCameraState } from '../domain/camera-mirror'
+import type { WeatherFrameOptions } from '../domain/weather-rendering'
 import {
   planMobVisual,
   type MobAnimationInput,
@@ -91,6 +92,8 @@ import type {
   ThreeVector3,
   ThreeWebGLRenderer,
 } from './three-surface'
+import { makeThreeWeatherPrecipitation } from './three-weather-runtime'
+import { makeWeatherRenderer, type WeatherRenderer } from './weather-renderer'
 
 /**
  * Vertical field of view, in degrees.
@@ -393,6 +396,8 @@ export type RenderEntity = {
  * one somebody eventually adds a light to.
  */
 export type WorldRenderer = DrawPort & {
+  /** Canvas weather runtime. Call once per simulation frame. */
+  readonly weather: WeatherRenderer
   /** Apply a precomputed sky, sun and fog state without recreating GPU resources. */
   readonly setEnvironment: (environment: RenderEnvironmentPlan) => Effect.Effect<void>
   /**
@@ -474,6 +479,7 @@ export type WorldRendererOptions<TMaterial extends ThreeMaterial = ThreeMaterial
    * geometry, and the geometry is the same on both paths.
    */
   readonly material?: MaterialFactory<TMaterial>
+  readonly weather?: WeatherFrameOptions
 }
 
 /** The drawing surface's size in device-independent pixels. */
@@ -616,6 +622,10 @@ export const makeWorldRenderer = <
     const fovDegrees = options.fovDegrees ?? CAMERA_FOV_DEGREES
     const nearPlane = options.nearPlane ?? CAMERA_NEAR_PLANE
     const farPlane = options.farPlane ?? CAMERA_FAR_PLANE
+    const weatherCapacity = Math.max(
+      0,
+      Math.trunc(options.weather?.particleCapacity ?? 96),
+    )
     const initialAspect = safeAspect(viewport)
     const initialEnvironment = planRenderEnvironment(options.daylight ?? 1, farPlane)
     renderer.setClearColor(options.clearColor ?? initialEnvironment.skyColor, SKY_CLEAR_ALPHA)
@@ -807,12 +817,31 @@ export const makeWorldRenderer = <
       return { ...entry, entity }
     }
 
-    return {
-      setEnvironment: (environment) =>
+    const setEnvironment = (environment: RenderEnvironmentPlan) =>
         Effect.sync(() => {
           renderer.setClearColor(environment.skyColor, SKY_CLEAR_ALPHA)
           options.applyMaterialEnvironment?.(environment)
-        }),
+        })
+    const weather = yield* makeWeatherRenderer(
+      {
+        setEnvironment,
+        createPrecipitation: (kind) =>
+          Effect.sync(() =>
+            makeThreeWeatherPrecipitation(
+              three,
+              scene,
+              kind,
+              weatherCapacity,
+            ),
+          ),
+      },
+      { ...options.weather, farPlane },
+    )
+    yield* weather.resize(viewport)
+
+    return {
+      weather,
+      setEnvironment,
 
       setChunk: (key, buffers) =>
         Ref.update(chunks, (current) => {
@@ -921,9 +950,10 @@ export const makeWorldRenderer = <
           // world stretches. three does not recompute it on assignment.
           camera.updateProjectionMatrix()
           yield* Ref.set(viewportAspect, aspect)
+          yield* weather.resize({ width, height })
         }),
 
-      dispose: Effect.all([
+      dispose: weather.dispose.pipe(Effect.andThen(Effect.all([
         Ref.getAndSet(chunks, new Map()),
         Ref.getAndSet(entities, new Map()),
       ]).pipe(
@@ -941,6 +971,6 @@ export const makeWorldRenderer = <
           material.dispose()
           renderer.dispose()
         }),
-      ),
+      ))),
     }
   })

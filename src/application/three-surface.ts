@@ -184,6 +184,7 @@ export type ThreeMaterial = {
 export type ThreeBufferGeometry = {
   setAttribute(name: string, attribute: ThreeBufferAttribute): unknown
   setIndex(index: ThreeBufferAttribute | null): unknown
+  setDrawRange(start: number, count: number): unknown
   readonly computeBoundingSphere: () => void
   readonly dispose: () => void
 }

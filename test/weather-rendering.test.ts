@@ -24,6 +24,23 @@ describe('weather frame planning', () => {
     }),
   )
 
+  it.effect('advances precipitation downward without changing its horizontal track', () =>
+    Effect.sync(() => {
+      const first = planWeatherFrame(rain, camera, INITIAL_WEATHER_RENDER_STATE, {
+        particleCapacity: 2,
+      })
+      const second = planWeatherFrame(rain, camera, first.state, {
+        particleCapacity: 2,
+      })
+      expect(second.plan.particles[0]?.x).toBe(first.plan.particles[0]?.x)
+      expect(second.plan.particles[0]?.z).toBe(first.plan.particles[0]?.z)
+      expect(second.plan.particles[0]?.y).toBeLessThan(first.plan.particles[0]?.y ?? 0)
+      expect(
+        planWeatherFrame(rain, camera, first.state, { particleCapacity: 2 }),
+      ).toStrictEqual(second)
+    }),
+  )
+
   it.effect('clamps intensity and keeps every particle inside the camera volume', () =>
     Effect.sync(() => {
       const planned = planWeatherFrame(
