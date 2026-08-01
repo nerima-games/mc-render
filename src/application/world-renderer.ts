@@ -84,6 +84,8 @@ import {
   chunkShaderSource,
 } from '../domain/chunk-shader'
 import { waterShaderSource } from '../domain/water-shader'
+import { advanceParticles, makeParticlePool, type ParticlePool, type ParticlePoolOptions } from '../domain/particle-pool'
+import { WATER_MATERIAL_SPEC, WATER_WRITES_DEPTH } from '../domain/water-surface'
 import {
   DAY_SKY_COLOR,
   planRenderEnvironment,
@@ -97,6 +99,8 @@ import type {
   ThreePerspectiveCamera,
   ThreeScene,
   ThreeShaderSurface,
+  ThreeInstancedBufferGeometry,
+  ThreeInstancedSurface,
   ThreeSurface,
   ThreeUniform,
   ThreeVector3,
@@ -104,6 +108,7 @@ import type {
 } from './three-surface'
 import { makeThreeWeatherPrecipitation } from './three-weather-runtime'
 import { makeWeatherRenderer, type WeatherRenderer } from './weather-renderer'
+import { makeParticleSystem, type ParticleSystem } from './particle-system'
 
 /**
  * Vertical field of view, in degrees.
@@ -370,6 +375,8 @@ export const makeWaterMaterial = <
       fragmentShader: source.fragmentShader,
       uniforms,
       vertexColors: true,
+      transparent: WATER_MATERIAL_SPEC.transparent,
+      depthWrite: WATER_WRITES_DEPTH,
     }),
     uniforms,
   }
@@ -456,6 +463,10 @@ export type WorldRenderer = DrawPort & {
   readonly entitySnapshot: Effect.Effect<ReadonlyArray<RenderEntity>>
   /** Frames actually submitted to the GPU by this renderer. */
   readonly framesRendered: Effect.Effect<number>
+  /** Add a renderer-adjacent mesh, such as the shared particle pool. */
+  readonly attachSceneObject: (object: ThreeMesh) => Effect.Effect<void>
+  /** Remove an attached mesh without assuming ownership of its resources. */
+  readonly detachSceneObject: (object: ThreeMesh) => Effect.Effect<void>
   /** Release the renderer, all cached geometry, and every shared material. */
   readonly dispose: Effect.Effect<void>
 }
@@ -1026,6 +1037,10 @@ export const makeWorldRenderer = <
 
       framesRendered: Ref.get(framesRendered),
 
+      attachSceneObject: (object) => Effect.sync(() => scene.add(object)),
+
+      detachSceneObject: (object) => Effect.sync(() => scene.remove(object)),
+
       draw: (mirrored: MirroredCameraState) =>
         Effect.gen(function* () {
           // The copy, in the one direction that is allowed. `rotation.order` is
@@ -1089,5 +1104,92 @@ export const makeWorldRenderer = <
           renderer.dispose()
         }),
       ))),
+    }
+  })
+
+export type ProductionFrame = {
+  readonly elapsedSecs: number
+  readonly deltaSecs: number
+  readonly cameraPosition: Readonly<{ x: number; y: number; z: number }>
+}
+
+export type ProductionWorldRenderer<TShaderMaterial extends ThreeMaterial> = WorldRenderer & {
+  readonly chunkMaterial: TShaderMaterial
+  readonly waterMaterial: TShaderMaterial
+  readonly waterUniforms: Record<string, ThreeUniform>
+  readonly particlePool: ParticlePool
+  readonly particles: ParticleSystem
+  readonly advanceFrame: (frame: ProductionFrame) => Effect.Effect<void>
+}
+
+export type ProductionWorldRendererOptions = Omit<
+  WorldRendererOptions<ThreeMaterial>,
+  'material' | 'applyMaterialEnvironment'
+> & {
+  readonly particles?: ParticlePoolOptions
+}
+
+/** Assemble the atlas shader, animated water and instanced particles as one owned renderer. */
+export const makeProductionWorldRenderer = <
+  TCanvas,
+  TGeometry extends ThreeBufferGeometry,
+  TMaterial extends ThreeMaterial,
+  TInstancedGeometry extends ThreeInstancedBufferGeometry,
+  TShaderMaterial extends ThreeMaterial,
+>(
+  three: ThreeShaderSurface<TCanvas, TGeometry, TMaterial, TShaderMaterial> &
+    ThreeInstancedSurface<TCanvas, TGeometry, TMaterial, TInstancedGeometry> & {
+      readonly Mesh: new (
+        geometry: TGeometry | TInstancedGeometry,
+        material: TMaterial | TShaderMaterial,
+      ) => TransformableThreeMesh
+    },
+  canvas: TCanvas,
+  viewport: Viewport,
+  atlasTexture: unknown,
+  options: ProductionWorldRendererOptions = {},
+): Effect.Effect<ProductionWorldRenderer<TShaderMaterial>> =>
+  Effect.gen(function* () {
+    const chunk = makeChunkShaderMaterial(three, atlasTexture)
+    const water = makeWaterMaterial(three, viewport)
+    const particlePool = makeParticlePool(options.particles)
+    const particles = yield* makeParticleSystem(three, particlePool, atlasTexture)
+    const { particles: _particles, ...rendererOptions } = options
+    const renderer = yield* makeWorldRenderer(three, canvas, viewport, {
+      ...rendererOptions,
+      material: () => chunk.material,
+      applyMaterialEnvironment: (environment) => {
+        applyChunkShaderEnvironment(chunk.uniforms, environment)
+        const sun = water.uniforms['uSunIntensity']
+        if (sun !== undefined) sun.value = environment.sunIntensity
+      },
+    })
+    yield* renderer.attachSceneObject(particles.mesh)
+
+    return {
+      ...renderer,
+      chunkMaterial: chunk.material,
+      waterMaterial: water.material,
+      waterUniforms: water.uniforms,
+      particlePool,
+      particles,
+      advanceFrame: (frame) => Effect.sync(() => {
+        advanceParticles(particlePool, frame.deltaSecs)
+        const time = water.uniforms['uTime']
+        const cameraPosition = water.uniforms['uCameraPosition']
+        if (time !== undefined) time.value = frame.elapsedSecs
+        if (cameraPosition !== undefined) {
+          cameraPosition.value = [frame.cameraPosition.x, frame.cameraPosition.y, frame.cameraPosition.z]
+        }
+      }).pipe(Effect.andThen(particles.sync)),
+      resize: (width, height) => renderer.resize(width, height).pipe(Effect.tap(() => Effect.sync(() => {
+        const resolution = water.uniforms['uResolution']
+        if (resolution !== undefined) resolution.value = [width, height]
+      }))),
+      dispose: renderer.detachSceneObject(particles.mesh).pipe(
+        Effect.andThen(renderer.dispose),
+        Effect.andThen(particles.dispose),
+        Effect.andThen(Effect.sync(() => water.material.dispose())),
+      ),
     }
   })

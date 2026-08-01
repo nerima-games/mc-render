@@ -368,6 +368,8 @@ export type ThreeShaderMaterialParameters = {
   readonly fragmentShader: string
   readonly uniforms: Record<string, ThreeUniform>
   readonly vertexColors: true
+  readonly transparent?: boolean
+  readonly depthWrite?: boolean
 }
 
 /**

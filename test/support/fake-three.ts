@@ -127,6 +127,8 @@ export type FakeShaderMaterial = ThreeMaterial & {
   readonly fragmentShader: string
   readonly uniforms: Record<string, ThreeUniform>
   readonly vertexColors: true
+  readonly transparent?: boolean
+  readonly depthWrite?: boolean
   readonly disposed: () => boolean
 }
 
@@ -435,6 +437,8 @@ export const makeFakeThree = (): FakeThree => {
         // `.value` and every sharer sees it.
         uniforms: parameters.uniforms,
         vertexColors: parameters.vertexColors,
+        ...(parameters.transparent === undefined ? {} : { transparent: parameters.transparent }),
+        ...(parameters.depthWrite === undefined ? {} : { depthWrite: parameters.depthWrite }),
         disposed: () => disposed,
         dispose: () => {
           disposed = true

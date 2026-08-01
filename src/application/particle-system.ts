@@ -160,6 +160,8 @@ export const makeParticleSystem = <
       fragmentShader: source.fragmentShader,
       uniforms,
       vertexColors: true,
+      transparent: true,
+      depthWrite: PARTICLE_DEPTH_WRITE,
     })
 
     const mesh = new three.Mesh(geometry, material)

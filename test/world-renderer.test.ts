@@ -22,11 +22,13 @@ import {
   CAMERA_FAR_PLANE,
   CAMERA_FOV_DEGREES,
   CAMERA_NEAR_PLANE,
+  makeProductionWorldRenderer,
   makeWorldRenderer,
   NO_DRAW_TARGET,
   SKY_CLEAR_ALPHA,
   SKY_CLEAR_COLOR,
 } from '../src/application/world-renderer'
+import { spawnBurst } from '../src/domain/particle-pool'
 import { FAKE_CANVAS, makeFakeThree } from './support/fake-three'
 import { planRenderEnvironment } from '../src/domain/render-environment'
 import { planMobVisual } from '../src/domain/mob-visual'
@@ -859,6 +861,48 @@ describe('NO_DRAW_TARGET', () => {
       yield* NO_DRAW_TARGET.resize(1, 1)
 
       expect(Object.keys(NO_DRAW_TARGET).toSorted()).toStrictEqual(['draw', 'resize'])
+    }),
+  )
+})
+
+describe('makeProductionWorldRenderer', () => {
+  it.effect('owns the atlas shaders, animated water, and shared particle system', () =>
+    Effect.gen(function* () {
+      const three = makeFakeThree()
+      const atlas = { name: 'terrain-atlas' }
+      const renderer = yield* makeProductionWorldRenderer(three, FAKE_CANVAS, VIEWPORT, atlas, {
+        particles: { capacity: 4 },
+      })
+
+      expect(three.materials()).toHaveLength(0)
+      expect(three.shaderMaterials()).toHaveLength(3)
+      expect(renderer.chunkMaterial.uniforms['uAtlas']?.value).toBe(atlas)
+      expect(renderer.waterMaterial.transparent).toBe(true)
+      expect(renderer.waterMaterial.depthWrite).toBe(false)
+      expect(three.shaderMaterials()[2]?.uniforms['uAtlas']?.value).toBe(atlas)
+      expect(three.scene().members()).toContain(renderer.particles.mesh)
+
+      yield* renderer.setEnvironment(planRenderEnvironment(0.25))
+      expect(renderer.chunkMaterial.uniforms['uSunIntensity']?.value).toBeCloseTo(0.25)
+      expect(renderer.waterUniforms['uSunIntensity']?.value).toBeCloseTo(0.25)
+
+      spawnBurst(renderer.particlePool, 1, 2, 3, 0, 0, 1)
+      yield* renderer.advanceFrame({
+        elapsedSecs: 2,
+        deltaSecs: 0.1,
+        cameraPosition: { x: 4, y: 5, z: 6 },
+      })
+      expect(renderer.waterUniforms['uTime']?.value).toBe(2)
+      expect(renderer.waterUniforms['uCameraPosition']?.value).toStrictEqual([4, 5, 6])
+      expect(three.instancedGeometries()[0]?.instanceCount).toBe(1)
+
+      yield* renderer.resize(640, 360)
+      expect(renderer.waterUniforms['uResolution']?.value).toStrictEqual([640, 360])
+
+      yield* renderer.dispose
+      expect(three.scene().members()).toStrictEqual([])
+      expect(three.shaderMaterials().every((material) => material.disposed())).toBe(true)
+      expect(three.renderer().disposed()).toBe(true)
     }),
   )
 })
