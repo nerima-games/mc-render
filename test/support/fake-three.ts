@@ -143,7 +143,13 @@ export type FakeMesh = ThreeMesh & {
   readonly geometry: FakeGeometry
   readonly material: FakeMaterial | FakeShaderMaterial
   readonly positions: () => ReadonlyArray<readonly [number, number, number]>
+  readonly scales: () => ReadonlyArray<readonly [number, number, number]>
+  readonly rotations: () => ReadonlyArray<readonly [number, number, number, 'YXZ']>
   readonly position: { readonly set: (x: number, y: number, z: number) => void }
+  readonly scale: { readonly set: (x: number, y: number, z: number) => void }
+  readonly rotation: {
+    readonly set: (x: number, y: number, z: number, order: 'YXZ') => void
+  }
 }
 
 /** One `camera.position.set` / `camera.rotation.set`, recorded verbatim. */
@@ -430,13 +436,19 @@ export const makeFakeThree = (): FakeThree => {
   const Mesh = class {
     constructor(geometry: FakeGeometry, material: FakeMaterial | FakeShaderMaterial) {
       const positions: Array<readonly [number, number, number]> = []
+      const scales: Array<readonly [number, number, number]> = []
+      const rotations: Array<readonly [number, number, number, 'YXZ']> = []
       const self: FakeMesh = {
         frustumCulled: true,
         visible: true,
         geometry,
         material,
         positions: () => positions,
+        scales: () => scales,
+        rotations: () => rotations,
         position: { set: (x, y, z) => positions.push([x, y, z]) },
+        scale: { set: (x, y, z) => scales.push([x, y, z]) },
+        rotation: { set: (x, y, z, order) => rotations.push([x, y, z, order]) },
       }
       meshes.push(self)
       return self

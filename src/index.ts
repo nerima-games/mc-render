@@ -78,6 +78,7 @@ export * from './domain/input-bindings'
 // mirror headers all promise not to do.
 export * from './domain/level-of-detail'
 export * from './domain/material-policy'
+export * from './domain/mob-visual'
 export * from './domain/particle-pool'
 export * from './domain/particle-shader'
 export * from './domain/post-processing'

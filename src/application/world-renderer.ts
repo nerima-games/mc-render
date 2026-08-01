@@ -50,6 +50,11 @@
 import { Effect, Ref } from 'effect'
 import type { MirroredCameraState } from '../domain/camera-mirror'
 import {
+  planMobVisual,
+  type MobAnimationInput,
+  type MobVisualPartPlan,
+} from '../domain/mob-visual'
+import {
   aabbIntersectsPerspectiveFrustum,
   boundsFromPositions,
   type AxisAlignedBounds,
@@ -75,6 +80,7 @@ import {
 } from '../domain/render-environment'
 import type {
   ThreeBufferGeometry,
+  ThreeEuler,
   ThreeMaterial,
   ThreeMesh,
   ThreePerspectiveCamera,
@@ -360,7 +366,7 @@ export const makeWaterMaterial = <
 export type ChunkKey = string
 
 /** Coarse render policy without importing simulation entity classes. */
-export type EntityRenderCategory = 'hostile' | 'item'
+export type EntityRenderCategory = 'hostile' | 'passive' | 'item'
 
 /** The renderer-owned entity projection consumed by compose. */
 export type RenderEntity = {
@@ -372,6 +378,10 @@ export type RenderEntity = {
     readonly z: number
   }
   readonly category?: EntityRenderCategory
+  /** Horizontal world-space orientation, in radians. */
+  readonly facingRadians?: number
+  /** Pure animation input used to derive part transforms deterministically. */
+  readonly animation?: MobAnimationInput
 }
 
 /**
@@ -408,13 +418,13 @@ export type WorldRenderer = DrawPort & {
   readonly chunkKeys: Effect.Effect<ReadonlyArray<ChunkKey>>
   /** Reconcile the complete visible entity set by stable entity id. */
   readonly syncEntities: (entities: ReadonlyArray<RenderEntity>) => Effect.Effect<void>
-  /** Number of entity meshes currently owned by the renderer. */
+  /** Number of logical entities currently owned by the renderer. */
   readonly entityCount: Effect.Effect<number>
   /** Last reconciled renderer DTOs, detached from caller-owned values. */
   readonly entitySnapshot: Effect.Effect<ReadonlyArray<RenderEntity>>
   /** Frames actually submitted to the GPU by this renderer. */
   readonly framesRendered: Effect.Effect<number>
-  /** Release the renderer, every chunk geometry, and the shared material. */
+  /** Release the renderer, all cached geometry, and every shared material. */
   readonly dispose: Effect.Effect<void>
 }
 
@@ -496,41 +506,34 @@ const UPDATE_CANVAS_STYLE = false
 const safeAspect = (viewport: Viewport): number =>
   viewport.width > 0 && viewport.height > 0 ? viewport.width / viewport.height : 1
 
-type PositionedThreeMesh = ThreeMesh & { readonly position: ThreeVector3 }
-
-type EntityStyle = {
-  readonly width: number
-  readonly height: number
-  readonly depth: number
-  readonly color: readonly [number, number, number]
+type TransformableThreeMesh = ThreeMesh & {
+  readonly position: ThreeVector3
+  readonly rotation: ThreeEuler
+  readonly scale: ThreeVector3
 }
 
-const entityStyle = (entity: RenderEntity): EntityStyle => {
-  if (entity.category === 'item') {
-    return { width: 0.3, height: 0.3, depth: 0.3, color: [225, 165, 65] }
-  }
-  switch (entity.kind) {
-    case 'creeper':
-      return { width: 0.55, height: 1.7, depth: 0.55, color: [75, 180, 70] }
-    case 'enderman':
-      return { width: 0.5, height: 2.9, depth: 0.5, color: [40, 35, 45] }
-    case 'zombie':
-      return { width: 0.65, height: 1.8, depth: 0.45, color: [100, 160, 95] }
-    default:
-      return { width: 0.6, height: 1.8, depth: 0.5, color: [165, 85, 55] }
-  }
-}
+const ITEM_VISUAL_PARTS: ReadonlyArray<MobVisualPartPlan> = [
+  {
+    id: 'item',
+    role: 'body',
+    size: [0.3, 0.3, 0.3],
+    center: [0, 0.15, 0],
+    rotation: [0, 0, 0],
+    color: [225, 165, 65],
+  },
+]
 
-const entityBuffers = (style: EntityStyle) => {
-  const x = style.width / 2
-  const z = style.depth / 2
+const entityParts = (entity: RenderEntity): ReadonlyArray<MobVisualPartPlan> =>
+  entity.category === 'item' ? ITEM_VISUAL_PARTS : planMobVisual(entity.kind, entity.animation).parts
+
+const unitCubeBuffers = (color: readonly [number, number, number]) => {
   const positions = new Float32Array([
-    -x, 0, -z, x, 0, -z, x, style.height, -z, -x, style.height, -z,
-    -x, 0, z, x, 0, z, x, style.height, z, -x, style.height, z,
+    -0.5, -0.5, -0.5, 0.5, -0.5, -0.5, 0.5, 0.5, -0.5, -0.5, 0.5, -0.5,
+    -0.5, -0.5, 0.5, 0.5, -0.5, 0.5, 0.5, 0.5, 0.5, -0.5, 0.5, 0.5,
   ])
   const colors = new Uint8Array(8 * COLOR_COMPONENTS)
   for (let offset = 0; offset < colors.length; offset += COLOR_COMPONENTS) {
-    colors.set(style.color, offset)
+    colors.set(color, offset)
   }
   return {
     positions,
@@ -547,6 +550,8 @@ const copyEntity = (entity: RenderEntity): RenderEntity => ({
   kind: entity.kind,
   feetPosition: { ...entity.feetPosition },
   ...(entity.category === undefined ? {} : { category: entity.category }),
+  ...(entity.facingRadians === undefined ? {} : { facingRadians: entity.facingRadians }),
+  ...(entity.animation === undefined ? {} : { animation: { ...entity.animation } }),
 })
 
 /**
@@ -592,7 +597,7 @@ export const makeWorldRenderer = <
     readonly Mesh: new (
       geometry: TGeometry,
       material: TUsedMaterial | TMaterial,
-    ) => PositionedThreeMesh
+    ) => TransformableThreeMesh
   },
   canvas: TCanvas,
   viewport: Viewport,
@@ -675,14 +680,18 @@ export const makeWorldRenderer = <
       >(),
     )
     const viewportAspect = yield* Ref.make(initialAspect)
+    type EntityPartEntry = {
+      readonly id: string
+      readonly mesh: TransformableThreeMesh
+    }
     type EntityEntry = {
       readonly entity: RenderEntity
-      readonly mesh: PositionedThreeMesh
-      readonly geometry: TGeometry
-      readonly material: TMaterial
+      readonly parts: ReadonlyArray<EntityPartEntry>
     }
     const entities = yield* Ref.make(new Map<string, EntityEntry>())
     const framesRendered = yield* Ref.make(0)
+    const entityGeometries = new Map<string, TGeometry>()
+    let entityMaterial: TMaterial | undefined
 
     const buildGeometry = (buffers: ChunkGeometryBuffers): TGeometry => {
       const geometry = new three.BufferGeometry()
@@ -722,8 +731,11 @@ export const makeWorldRenderer = <
       entry.geometry.dispose()
     }
 
-    const buildEntity = (entity: RenderEntity): EntityEntry => {
-      const buffers = entityBuffers(entityStyle(entity))
+    const buildEntityGeometry = (color: readonly [number, number, number]): TGeometry => {
+      const key = color.join(',')
+      const cached = entityGeometries.get(key)
+      if (cached !== undefined) return cached
+      const buffers = unitCubeBuffers(color)
       const geometry = new three.BufferGeometry()
       geometry.setAttribute(
         'position',
@@ -735,17 +747,64 @@ export const makeWorldRenderer = <
       )
       geometry.setIndex(new three.BufferAttribute(buffers.indices, 1, false))
       geometry.computeBoundingSphere()
-      const entityMaterial = new three.MeshBasicMaterial({ vertexColors: true, wireframe: false })
-      const mesh = new three.Mesh(geometry, entityMaterial)
-      mesh.position.set(entity.feetPosition.x, entity.feetPosition.y, entity.feetPosition.z)
-      scene.add(mesh)
-      return { entity, mesh, geometry, material: entityMaterial }
+      entityGeometries.set(key, geometry)
+      return geometry
+    }
+
+    const getEntityMaterial = (): TMaterial => {
+      entityMaterial ??= new three.MeshBasicMaterial({ vertexColors: true, wireframe: false })
+      return entityMaterial
+    }
+
+    const applyEntityPartTransform = (
+      mesh: TransformableThreeMesh,
+      entity: RenderEntity,
+      part: MobVisualPartPlan,
+    ): void => {
+      const facing =
+        entity.facingRadians !== undefined && Number.isFinite(entity.facingRadians)
+          ? entity.facingRadians
+          : 0
+      const cosine = Math.cos(facing)
+      const sine = Math.sin(facing)
+      const [centerX, centerY, centerZ] = part.center
+      mesh.position.set(
+        entity.feetPosition.x + centerX * cosine + centerZ * sine,
+        entity.feetPosition.y + centerY,
+        entity.feetPosition.z - centerX * sine + centerZ * cosine,
+      )
+      mesh.scale.set(...part.size)
+      mesh.rotation.set(part.rotation[0], part.rotation[1] + facing, part.rotation[2], 'YXZ')
+    }
+
+    const buildEntity = (entity: RenderEntity): EntityEntry => {
+      const parts = entityParts(entity).map((part): EntityPartEntry => {
+        const mesh = new three.Mesh(buildEntityGeometry(part.color), getEntityMaterial())
+        applyEntityPartTransform(mesh, entity, part)
+        scene.add(mesh)
+        return { id: part.id, mesh }
+      })
+      return { entity, parts }
     }
 
     const releaseEntity = (entry: EntityEntry): void => {
-      scene.remove(entry.mesh)
-      entry.geometry.dispose()
-      entry.material.dispose()
+      for (const part of entry.parts) scene.remove(part.mesh)
+    }
+
+    const updateEntity = (entry: EntityEntry, entity: RenderEntity): EntityEntry => {
+      const plans = entityParts(entity)
+      if (
+        plans.length !== entry.parts.length ||
+        plans.some((plan, index) => plan.id !== entry.parts[index]?.id)
+      ) {
+        releaseEntity(entry)
+        return buildEntity(entity)
+      }
+      for (const [index, plan] of plans.entries()) {
+        const part = entry.parts[index]
+        if (part !== undefined) applyEntityPartTransform(part.mesh, entity, plan)
+      }
+      return { ...entry, entity }
     }
 
     return {
@@ -797,12 +856,7 @@ export const makeWorldRenderer = <
               previous.entity.kind === entity.kind &&
               previous.entity.category === entity.category
             ) {
-              previous.mesh.position.set(
-                entity.feetPosition.x,
-                entity.feetPosition.y,
-                entity.feetPosition.z,
-              )
-              next.set(id, { ...previous, entity })
+              next.set(id, updateEntity(previous, entity))
             } else {
               if (previous !== undefined) {
                 releaseEntity(previous)
@@ -880,6 +934,10 @@ export const makeWorldRenderer = <
           for (const entry of currentEntities.values()) {
             releaseEntity(entry)
           }
+          for (const geometry of entityGeometries.values()) geometry.dispose()
+          entityGeometries.clear()
+          entityMaterial?.dispose()
+          entityMaterial = undefined
           material.dispose()
           renderer.dispose()
         }),

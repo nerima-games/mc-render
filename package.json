@@ -1,6 +1,6 @@
 {
   "name": "@nerima-games/mc-render",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "type": "module",
   "description": "Rendering and runtime input for the nerima-games Minecraft-clone rebuild: the post-processing chain, material policy, per-frame scratch buffers, and the InputService.",
   "homepage": "https://github.com/nerima-games/mc-render#readme",

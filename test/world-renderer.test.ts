@@ -29,6 +29,7 @@ import {
 } from '../src/application/world-renderer'
 import { FAKE_CANVAS, makeFakeThree } from './support/fake-three'
 import { planRenderEnvironment } from '../src/domain/render-environment'
+import { planMobVisual } from '../src/domain/mob-visual'
 
 const VIEWPORT = { width: 1280, height: 720 }
 
@@ -337,7 +338,7 @@ describe('chunk geometry in the scene', () => {
 })
 
 describe('entity meshes in the scene', () => {
-  it.effect('creates distinguishable hostile and item silhouettes from renderer DTOs', () =>
+  it.effect('creates one transformed mesh per visual part from renderer DTOs', () =>
     Effect.gen(function* () {
       const three = makeFakeThree()
       const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT)
@@ -350,49 +351,56 @@ describe('entity meshes in the scene', () => {
       ])
 
       expect(yield* renderer.entityCount).toBe(4)
-      expect(three.scene().members()).toHaveLength(4)
-      expect(three.meshes().map((mesh) => mesh.positions())).toStrictEqual([
-        [[1, 64, 2]],
-        [[3, 64, 4]],
-        [[5, 64, 6]],
-        [[7, 64, 8]],
-      ])
-      const heights = three.geometries().map((geometry) => {
-        const positions = geometry.attributes.get('position')?.array
-        return positions instanceof Float32Array
-          ? Number(Math.max(...positions).toFixed(1))
-          : undefined
-      })
-      expect(heights).toStrictEqual([1.8, 1.7, 2.9, 0.3])
+      const mobPartCount = ['zombie', 'creeper', 'enderman'].reduce(
+        (total, kind) => total + planMobVisual(kind).parts.length,
+        0,
+      )
+      expect(three.scene().members()).toHaveLength(mobPartCount + 1)
+      expect(three.meshes()[0]?.positions()).toStrictEqual([[1, 65.55, 2]])
+      expect(three.meshes()[0]?.scales()).toStrictEqual([[0.5, 0.5, 0.5]])
+      expect(three.meshes().at(-1)?.positions()).toStrictEqual([[7, 64.15, 8]])
+      expect(three.meshes().at(-1)?.scales()).toStrictEqual([[0.3, 0.3, 0.3]])
+      expect(new Set(three.meshes().map(({ material }) => material))).toHaveLength(1)
     }),
   )
 
-  it.effect('reuses an unchanged id mesh, updates its position, and exposes a detached snapshot', () =>
+  it.effect('reuses every part mesh for an unchanged id and updates its animation transform', () =>
     Effect.gen(function* () {
       const three = makeFakeThree()
       const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT)
       const feetPosition = { x: 0, y: 64, z: 0 }
 
       yield* renderer.syncEntities([{ id: 'z', kind: 'zombie', feetPosition }])
-      const firstMesh = three.meshes()[0]
+      const firstMeshes = [...three.meshes()]
       feetPosition.x = 99
       yield* renderer.syncEntities([
-        { id: 'z', kind: 'zombie', feetPosition: { x: 2, y: 65, z: 3 } },
+        {
+          id: 'z',
+          kind: 'zombie',
+          feetPosition: { x: 2, y: 65, z: 3 },
+          facingRadians: Math.PI / 2,
+          animation: { state: 'walk', phaseRadians: Math.PI / 2 },
+        },
       ])
 
-      expect(three.meshes()).toHaveLength(1)
-      expect(three.meshes()[0]).toBe(firstMesh)
-      expect(firstMesh?.positions()).toStrictEqual([
-        [0, 64, 0],
-        [2, 65, 3],
-      ])
+      expect(three.meshes()).toStrictEqual(firstMeshes)
+      expect(firstMeshes.every((mesh) => mesh.positions().length === 2)).toBe(true)
+      expect(firstMeshes.every((mesh) => mesh.scales().length === 2)).toBe(true)
+      expect(firstMeshes.every((mesh) => mesh.rotations().length === 2)).toBe(true)
+      expect(firstMeshes[2]?.rotations().at(-1)?.[0]).toBeCloseTo(0.65, 12)
       expect(yield* renderer.entitySnapshot).toStrictEqual([
-        { id: 'z', kind: 'zombie', feetPosition: { x: 2, y: 65, z: 3 } },
+        {
+          id: 'z',
+          kind: 'zombie',
+          feetPosition: { x: 2, y: 65, z: 3 },
+          facingRadians: Math.PI / 2,
+          animation: { state: 'walk', phaseRadians: Math.PI / 2 },
+        },
       ])
     }),
   )
 
-  it.effect('removes missing ids and disposes only their owned resources without touching chunks', () =>
+  it.effect('removes missing ids while retaining shared resources until renderer disposal', () =>
     Effect.gen(function* () {
       const three = makeFakeThree()
       const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT)
@@ -401,7 +409,7 @@ describe('entity meshes in the scene', () => {
       yield* renderer.syncEntities([
         { id: 'z', kind: 'zombie', feetPosition: { x: 0, y: 64, z: 0 } },
       ])
-      const entityGeometry = three.geometries()[1]
+      const entityGeometries = three.geometries().slice(1)
       const entityMaterial = three.materials()[1]
       yield* renderer.syncEntities([])
 
@@ -409,12 +417,16 @@ describe('entity meshes in the scene', () => {
       expect(yield* renderer.chunkKeys).toStrictEqual(['0,0'])
       expect(three.scene().members()).toHaveLength(1)
       expect(three.geometries()[0]?.disposed()).toBe(false)
-      expect(entityGeometry?.disposed()).toBe(true)
+      expect(entityGeometries.every((geometry) => !geometry.disposed())).toBe(true)
+      expect(entityMaterial?.disposed()).toBe(false)
+
+      yield* renderer.dispose
+      expect(entityGeometries.every((geometry) => geometry.disposed())).toBe(true)
       expect(entityMaterial?.disposed()).toBe(true)
     }),
   )
 
-  it.effect('rebuilds and releases the previous mesh when an id changes visual identity', () =>
+  it.effect('rebuilds all parts when an id changes visual identity', () =>
     Effect.gen(function* () {
       const three = makeFakeThree()
       const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT)
@@ -422,16 +434,35 @@ describe('entity meshes in the scene', () => {
       yield* renderer.syncEntities([
         { id: 'same', kind: 'zombie', feetPosition: { x: 0, y: 0, z: 0 } },
       ])
-      const previousGeometry = three.geometries()[0]
-      const previousMaterial = three.materials()[1]
+      const previousMeshes = [...three.scene().members()]
+      const previousGeometries = [...three.geometries()]
+      const entityMaterial = three.materials()[1]
       yield* renderer.syncEntities([
         { id: 'same', kind: 'creeper', feetPosition: { x: 1, y: 0, z: 0 } },
       ])
 
-      expect(three.meshes()).toHaveLength(2)
-      expect(three.scene().members()).toStrictEqual([three.meshes()[1]])
-      expect(previousGeometry?.disposed()).toBe(true)
-      expect(previousMaterial?.disposed()).toBe(true)
+      const currentMeshes = three.scene().members()
+      expect(previousMeshes).toHaveLength(planMobVisual('zombie').parts.length)
+      expect(currentMeshes).toHaveLength(planMobVisual('creeper').parts.length)
+      expect(currentMeshes.every((mesh) => !previousMeshes.includes(mesh))).toBe(true)
+      expect(previousGeometries.every((geometry) => !geometry.disposed())).toBe(true)
+      expect(three.materials()[1]).toBe(entityMaterial)
+    }),
+  )
+
+  it.effect('renders unknown kinds through the stable fallback silhouette', () =>
+    Effect.gen(function* () {
+      const three = makeFakeThree()
+      const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT)
+
+      yield* renderer.syncEntities([
+        { id: 'future', kind: 'not-yet-supported', feetPosition: { x: 4, y: 5, z: 6 } },
+      ])
+
+      const fallback = planMobVisual('not-yet-supported')
+      expect(fallback.descriptorKind).toBe('unknown')
+      expect(three.scene().members()).toHaveLength(fallback.parts.length)
+      expect(three.meshes()[0]?.positions()).toStrictEqual([[4, 5.65, 6]])
     }),
   )
 })
@@ -572,7 +603,7 @@ describe('teardown', () => {
       ])
       yield* renderer.dispose
 
-      expect(three.geometries()[0]?.disposed()).toBe(true)
+      expect(three.geometries().every((geometry) => geometry.disposed())).toBe(true)
       expect(three.materials()[1]?.disposed()).toBe(true)
       expect(three.scene().members()).toStrictEqual([])
       expect(yield* renderer.entityCount).toBe(0)
