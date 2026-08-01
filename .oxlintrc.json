@@ -73,38 +73,30 @@
     "no-sync": "warn",
 
     // Style
-    "array-bracket-spacing": "warn",
-    "block-spacing": "warn",
-    "brace-style": ["warn", "1tbs", { "allowSingleLine": true }],
-    "camelcase": "warn",
-    "comma-dangle": ["warn", "always-multiline"],
-    "comma-spacing": "warn",
-    "comma-style": "warn",
-    "computed-property-spacing": "warn",
-    "eol-last": "warn",
-    "func-call-spacing": "warn",
-    "indent": "off",
-    "key-spacing": "warn",
-    "keyword-spacing": "warn",
-    "linebreak-style": ["warn", "unix"],
-    "lines-between-class-members": "warn",
+    // NOTE: as of oxlint 1.7x, oxlint does not implement any ESLint-core
+    // *formatting* rules at all (array-bracket-spacing, block-spacing,
+    // brace-style, camelcase, comma-dangle, comma-spacing, comma-style,
+    // computed-property-spacing, eol-last, func-call-spacing, indent,
+    // key-spacing, keyword-spacing, linebreak-style,
+    // lines-between-class-members, no-mixed-spaces-and-tabs, no-new-object,
+    // no-tabs, no-trailing-spaces, no-whitespace-before-property,
+    // object-curly-spacing, one-var, operator-linebreak, padded-blocks,
+    // quote-props, semi-spacing, space-before-blocks, space-infix-ops,
+    // space-unary-ops, spaced-comment). Verified empirically against the
+    // Nix-provided oxlint 1.73.0: `oxlint --print-config` hard-fails ("Rule
+    // 'X' not found in plugin 'eslint'") if any of them are present in this
+    // file. This was previously masked because this config file was itself
+    // never loaded by the pinned 0.12.0 devDependency (see git history:
+    // `oxlint.json` -> `.oxlintrc.json`), so these entries silently did
+    // nothing rather than erroring. Oxlint's stance is that formatting is a
+    // formatter's job (Oxfmt), not the linter's; there is deliberately no
+    // replacement configured here since this repo runs no formatter (see the
+    // top-of-file note). If any of these are needed again, they must be
+    // loaded via oxlint's JS plugin system (stylistic ESLint plugin), not as
+    // bare rule names. Mirrors the same fix already applied on
+    // mc-kernel's main.
     "no-array-method-this-argument": "warn",
     "no-bitwise": "warn",
-    "no-mixed-spaces-and-tabs": "error",
-    "no-new-object": "warn",
-    "no-tabs": "error",
-    "no-trailing-spaces": "warn",
-    "no-whitespace-before-property": "warn",
-    "object-curly-spacing": ["warn", "always"],
-    "one-var": ["warn", "never"],
-    "operator-linebreak": "warn",
-    "padded-blocks": ["warn", "never"],
-    "quote-props": ["warn", "as-needed"],
-    "semi-spacing": "warn",
-    "space-before-blocks": "warn",
-    "space-infix-ops": "warn",
-    "space-unary-ops": "warn",
-    "spaced-comment": "warn",
 
     // Restriction
     "default-case": "warn",
@@ -114,38 +106,30 @@
     // The real enforcement lives in scripts/check-dependency-whitelist.ts.
     "no-restricted-globals": ["warn", "name", "open", "close", "event"],
     // NOTE ON WHETHER THIS RULE ACTUALLY FIRES (re-verified empirically
-    // 2026-08-01, after also fixing the config *filename* — see below):
+    // 2026-08-01, after switching oxlint from a package.json devDependency
+    // to the Nix-provided binary — see flake.nix):
     //
-    // - Under the oxlint version this repository actually pins and has
-    //   installed (0.12.0), `no-restricted-imports` is not in `oxlint --rules`'
-    //   output at all, and it never appears in `oxlint --print-config` output
-    //   either — with or without `-c`, and with or without `--import-plugin`.
-    //   It is as inert as `no-restricted-globals` above. This was confirmed
-    //   directly against the `node_modules/.bin/oxlint` binary installed in
-    //   this repo, not inferred from release notes.
-    // - Separately, 0.12.0 also does NOT auto-discover any config file
-    //   (neither `oxlint.json`, `oxlintrc.json`, nor `.oxlintrc.json`) unless
-    //   `-c <path>` is passed explicitly; `scripts.lint` below passes no `-c`.
-    //   So on 0.12.0 this whole file is loaded from neither name, and even if
-    //   it were, this one rule still would not fire.
-    // - A throwaway `oxlint@1.76.0` install (fetched fresh via
-    //   `npx --yes oxlint@1.76.0`, NOT the toolchain this repo pins) DOES
-    //   auto-discover a file named exactly `.oxlintrc.json` (leading dot; a
+    // - The version this repository used to pin as a devDependency (0.12.0)
+    //   did not implement `no-restricted-imports` at all: it was not in
+    //   `oxlint --rules` output, and it never appeared in
+    //   `oxlint --print-config` output either — with or without `-c`, and
+    //   with or without `--import-plugin`. It was as inert as
+    //   `no-restricted-globals` above. This was confirmed directly against
+    //   the `node_modules/.bin/oxlint` binary previously installed in this
+    //   repo, not inferred from release notes.
+    // - That npm-resolved pin is gone now. oxlint is provided by the Nix
+    //   devShell instead (`pkgs.oxlint`, nixpkgs currently ~1.75.x), which
+    //   auto-discovers a file named exactly `.oxlintrc.json` (leading dot; a
     //   plain `oxlint.json` is silently ignored) and DOES fire
     //   `no-restricted-imports` correctly with the nested schema below and
     //   ZERO extra CLI flags — `--import-plugin` is NOT required for this
-    //   rule on 1.76.0. (An earlier draft of this comment claimed
-    //   `--import-plugin` was required on newer oxlint; that was not borne
-    //   out when actually tested and has been corrected here.)
-    // - Net effect for THIS repository today: renaming `oxlint.json` to
-    //   `.oxlintrc.json` and using the schema below is necessary but not
-    //   sufficient — the rule remains completely inert until the pinned
-    //   `oxlint` dependency is upgraded past 0.12.0 (a toolchain version bump
-    //   is out of scope for the org-standard migration; see the PR
-    //   description). The schema below is written so that upgrading the
-    //   dependency is the only remaining step to turn on real enforcement;
-    //   no CLI flag change (in particular, no `--import-plugin`) is needed in
-    //   `scripts.lint` / `scripts.lint:fix`.
+    //   rule. This was re-verified against the actual Nix-provided binary via
+    //   `direnv exec . pnpm lint`, not inferred from release notes.
+    // - Net effect for THIS repository today: the rule is live and gates CI
+    //   (`nix develop --command pnpm lint`, `.github/workflows/ci.yaml`).
+    //   The version-drift problem this depended on fixing — 16 repos each
+    //   independently resolving their own npm oxlint version — is now closed
+    //   by having a single Nix-pinned version instead of 16 separate pins.
     // - The options use the schema below (`paths` for single-module bans,
     //   `patterns` for regex bans, both nested inside ONE options object). A
     //   flat list of extra objects appended after the severity string (e.g.
@@ -188,5 +172,5 @@
     "no-param-reassign": "off",
     "no-plusplus": "off"
   },
-  "ignore": ["node_modules/**", "coverage/**", "dist/**", ".git/**", "*.config.ts", "docs/**"]
+  "ignorePatterns": ["node_modules/**", "coverage/**", "dist/**", ".git/**", "*.config.ts", "docs/**"]
 }

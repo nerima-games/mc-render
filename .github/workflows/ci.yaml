@@ -47,8 +47,22 @@ jobs:
       - name: Type check
         run: pnpm typecheck
 
+      # oxlint is provided by the Nix devShell (flake.nix), not a
+      # package.json devDependency -- a single Nix-pinned version replaces
+      # 16 repos each independently drifting on their own npm-resolved
+      # oxlint version. Copy templates/actions/nix-setup to
+      # <repo>/.github/actions/nix-setup/ verbatim; do not inline these
+      # steps here.
+      - name: Set up Nix
+        uses: ./.github/actions/nix-setup
+        with:
+          cachix-cache: ${{ vars.CACHIX_CACHE }}
+          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+
+      # oxlint's no-restricted-imports (.oxlintrc.json) is the enforcement
+      # mechanism for the Tier2 dependency policy (DEPENDENCY_POLICY.md §5).
       - name: Lint
-        run: pnpm lint
+        run: nix develop --command pnpm lint
 
       - name: Test
         run: pnpm test
