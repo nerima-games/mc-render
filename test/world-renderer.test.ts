@@ -199,6 +199,25 @@ describe('acquiring the renderer', () => {
 })
 
 describe('chunk geometry in the scene', () => {
+  it.effect('setChunks commits a batch while preserving replacement semantics', () =>
+    Effect.gen(function* () {
+      const three = makeFakeThree()
+      const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT)
+
+      yield* renderer.setChunks([
+        { key: '0,0', buffers: buildChunkGeometry([quad()]) },
+        { key: '1,0', buffers: buildChunkGeometry([quad()]) },
+        { key: '0,0', buffers: buildChunkGeometry([quad({ ao: 2 })]) },
+      ])
+
+      expect(yield* renderer.chunkKeys).toStrictEqual(['0,0', '1,0'])
+      expect(three.scene().members()).toHaveLength(2)
+      expect(three.geometries()[0]?.disposed()).toBe(true)
+      expect(three.geometries()[1]?.disposed()).toBe(false)
+      expect(three.geometries()[2]?.disposed()).toBe(false)
+    }),
+  )
+
   it.effect('setChunk builds all geometry attributes with the reference item sizes and flags', () =>
     Effect.gen(function* () {
       const three = makeFakeThree()

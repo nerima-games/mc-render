@@ -35,7 +35,7 @@
 import { Effect, Ref } from 'effect'
 import { buildChunkGeometry, buildFluidGeometry, combineChunkGeometry, type FluidQuad, type MeshQuad, type QuadColor, type QuadTile } from '../domain/chunk-geometry'
 import { CHUNK_SIZE } from '../domain/lod-vocabulary'
-import type { ChunkKey, WorldRenderer } from './world-renderer'
+import type { ChunkGeometryUpdate, ChunkKey, WorldRenderer } from './world-renderer'
 
 /**
  * Which chunk, in chunk coordinates.
@@ -181,6 +181,7 @@ export const syncWorld = (
 
     let meshed = 0
     let deferred = 0
+    const updates: Array<ChunkGeometryUpdate> = []
     for (const chunk of batch.changed) {
       const mesh = yield* mesher(chunk)
       if (mesh === undefined) {
@@ -193,15 +194,16 @@ export const syncWorld = (
       const color = options.colorForChunk === undefined
         ? options.color
         : yield* options.colorForChunk(chunk, quads)
-      yield* renderer.setChunk(
-        chunkKeyOf(chunk),
-        combineChunkGeometry(
+      updates.push({
+        key: chunkKeyOf(chunk),
+        buffers: combineChunkGeometry(
           buildChunkGeometry(quads, originX, originZ, color, options.tile),
           buildFluidGeometry(fluids, originX, originZ, color, options.tile),
         ),
-      )
+      })
       meshed += 1
     }
+    yield* renderer.setChunks(updates)
 
     return { meshed, deferred, removed }
   })

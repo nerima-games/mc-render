@@ -14,7 +14,11 @@
  */
 import { describe, expect, it } from '@effect/vitest'
 import { Effect, Ref } from 'effect'
-import { makeWorldRenderer } from '../src/application/world-renderer'
+import {
+  makeWorldRenderer,
+  type ChunkGeometryUpdate,
+  type WorldRenderer,
+} from '../src/application/world-renderer'
 import {
   EMPTY_SYNC_REPORT,
   attachWorldRenderer,
@@ -86,6 +90,34 @@ describe('chunkOrigin', () => {
 })
 
 describe('syncWorld', () => {
+  for (const count of [81, 289, 1089] as const) {
+    it.effect(`keeps ${String(count)} changed chunks within one registry commit`, () =>
+      Effect.gen(function* () {
+        const three = makeFakeThree()
+        const actual = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT)
+        const changed = Array.from({ length: count }, (_, index) => ({
+          cx: index,
+          cz: 0,
+        }))
+        const source = yield* scriptedSource([{ changed, removed: [] }])
+        const committedSizes: Array<number> = []
+        const renderer: WorldRenderer = {
+          ...actual,
+          setChunk: () => Effect.die('syncWorld must use the batch API'),
+          setChunks: (updates: ReadonlyArray<ChunkGeometryUpdate>) =>
+            Effect.sync(() => {
+              committedSizes.push(updates.length)
+            }),
+        }
+
+        const report = yield* syncWorld(renderer, source, () => Effect.succeed([]))
+
+        expect(report.meshed).toBe(count)
+        expect(committedSizes).toStrictEqual([count])
+      }),
+    )
+  }
+
   it.effect('meshes each changed chunk into the scene under its own key', () =>
     Effect.gen(function* () {
       const three = makeFakeThree()

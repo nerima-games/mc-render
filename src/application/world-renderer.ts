@@ -378,6 +378,12 @@ export const makeWaterMaterial = <
 /** How a chunk's geometry is keyed while it is in the scene. */
 export type ChunkKey = string
 
+/** One chunk replacement in an atomic renderer registry update. */
+export type ChunkGeometryUpdate = {
+  readonly key: ChunkKey
+  readonly buffers: ChunkGeometryBuffers
+}
+
 /** Coarse render policy without importing simulation entity classes. */
 export type EntityRenderCategory = 'hostile' | 'passive' | 'item'
 
@@ -423,6 +429,13 @@ export type WorldRenderer = DrawPort & {
    * `addChunk` would leak a mesh per edit.
    */
   readonly setChunk: (key: ChunkKey, buffers: ChunkGeometryBuffers) => Effect.Effect<void>
+  /**
+   * Replace many chunks while copying the chunk registry only once.
+   *
+   * Updates are applied in order, so duplicate keys retain `setChunk`'s
+   * replacement semantics and the final entry wins.
+   */
+  readonly setChunks: (updates: ReadonlyArray<ChunkGeometryUpdate>) => Effect.Effect<void>
   /**
    * Take a chunk out of the scene and release its GPU buffers.
    *
@@ -832,6 +845,27 @@ export const makeWorldRenderer = <
       entry.geometry.dispose()
     }
 
+    const setChunks = (updates: ReadonlyArray<ChunkGeometryUpdate>): Effect.Effect<void> =>
+      updates.length === 0
+        ? Effect.void
+        : Ref.update(chunks, (current) => {
+            const next = new Map(current)
+            for (const { key, buffers } of updates) {
+              const previous = next.get(key)
+              if (previous !== undefined) {
+                releaseChunk(previous)
+              }
+              const geometry = buildGeometry(buffers)
+              const mesh = new three.Mesh(geometry, material)
+              const bounds = boundsFromPositions(buffers.positions)
+              mesh.frustumCulled = false
+              mesh.visible = bounds !== undefined
+              scene.add(mesh)
+              next.set(key, { mesh, geometry, bounds })
+            }
+            return next
+          })
+
     const buildEntityGeometry = (color: readonly [number, number, number]): TGeometry => {
       const key = color.join(',')
       const cached = entityGeometries.get(key)
@@ -939,22 +973,9 @@ export const makeWorldRenderer = <
       weather,
       setEnvironment,
 
-      setChunk: (key, buffers) =>
-        Ref.update(chunks, (current) => {
-          const previous = current.get(key)
-          if (previous !== undefined) {
-            releaseChunk(previous)
-          }
-          const geometry = buildGeometry(buffers)
-          const mesh = new three.Mesh(geometry, material)
-          const bounds = boundsFromPositions(buffers.positions)
-          mesh.frustumCulled = false
-          mesh.visible = bounds !== undefined
-          scene.add(mesh)
-          const next = new Map(current)
-          next.set(key, { mesh, geometry, bounds })
-          return next
-        }),
+      setChunk: (key, buffers) => setChunks([{ key, buffers }]),
+
+      setChunks,
 
       removeChunk: (key) =>
         Ref.update(chunks, (current) => {
