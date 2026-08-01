@@ -437,6 +437,42 @@ describe('entity meshes in the scene', () => {
 })
 
 describe('drawing', () => {
+  it.effect('manually culls a batch of chunk AABBs and disables Three sphere culling', () =>
+    Effect.gen(function* () {
+      const three = makeFakeThree()
+      const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, { width: 100, height: 100 })
+
+      yield* renderer.setChunk('front', buildChunkGeometry([quad({ lz: -10 })]))
+      yield* renderer.setChunk('behind', buildChunkGeometry([quad({ lz: 10 })]))
+      yield* renderer.setChunk('side', buildChunkGeometry([quad({ lx: 20, lz: -10 })]))
+      yield* renderer.draw(mirroredCameraState(poseAt(0, 0, 0, 0, 0)))
+
+      expect(three.meshes().map(({ frustumCulled }) => frustumCulled)).toStrictEqual([
+        false,
+        false,
+        false,
+      ])
+      expect(three.meshes().map(({ visible }) => visible)).toStrictEqual([true, false, false])
+      expect(three.renderer().renderCalls()).toBe(1)
+    }),
+  )
+
+  it.effect('re-evaluates empty chunks and viewport aspect before each draw', () =>
+    Effect.gen(function* () {
+      const three = makeFakeThree()
+      const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, { width: 100, height: 100 })
+
+      yield* renderer.setChunk('edge', buildChunkGeometry([quad({ lx: 10, lz: -10 })]))
+      yield* renderer.setChunk('empty', buildChunkGeometry([]))
+      yield* renderer.draw(mirroredCameraState(poseAt(0, 0, 0, 0, 0)))
+      expect(three.meshes().map(({ visible }) => visible)).toStrictEqual([false, false])
+
+      yield* renderer.resize(200, 100)
+      yield* renderer.draw(mirroredCameraState(poseAt(0, 0, 0, 0, 0)))
+      expect(three.meshes().map(({ visible }) => visible)).toStrictEqual([true, false])
+    }),
+  )
+
   it.effect('the camera is WRITTEN from the mirrored pose, and cannot be read back', () =>
     Effect.gen(function* () {
       // plan.md §3.8's inversion, checked at the one place it could reappear.

@@ -50,6 +50,11 @@
 import { Effect, Ref } from 'effect'
 import type { MirroredCameraState } from '../domain/camera-mirror'
 import {
+  aabbIntersectsPerspectiveFrustum,
+  boundsFromPositions,
+  type AxisAlignedBounds,
+} from '../domain/frustum-culling'
+import {
   COLOR_COMPONENTS,
   NORMAL_COMPONENTS,
   POSITION_COMPONENTS,
@@ -603,16 +608,19 @@ export const makeWorldRenderer = <
     })
 
     renderer.setSize(viewport.width, viewport.height, UPDATE_CANVAS_STYLE)
+    const fovDegrees = options.fovDegrees ?? CAMERA_FOV_DEGREES
+    const nearPlane = options.nearPlane ?? CAMERA_NEAR_PLANE
     const farPlane = options.farPlane ?? CAMERA_FAR_PLANE
+    const initialAspect = safeAspect(viewport)
     const initialEnvironment = planRenderEnvironment(options.daylight ?? 1, farPlane)
     renderer.setClearColor(options.clearColor ?? initialEnvironment.skyColor, SKY_CLEAR_ALPHA)
     options.applyMaterialEnvironment?.(initialEnvironment)
 
     const scene: ThreeScene = new three.Scene()
     const camera: ThreePerspectiveCamera = new three.PerspectiveCamera(
-      options.fovDegrees ?? CAMERA_FOV_DEGREES,
-      safeAspect(viewport),
-      options.nearPlane ?? CAMERA_NEAR_PLANE,
+      fovDegrees,
+      initialAspect,
+      nearPlane,
       farPlane,
     )
 
@@ -657,8 +665,16 @@ export const makeWorldRenderer = <
       }) as unknown as TUsedMaterial)
 
     const chunks = yield* Ref.make(
-      new Map<ChunkKey, { readonly mesh: ThreeMesh; readonly geometry: TGeometry }>(),
+      new Map<
+        ChunkKey,
+        {
+          readonly mesh: ThreeMesh
+          readonly geometry: TGeometry
+          readonly bounds: AxisAlignedBounds | undefined
+        }
+      >(),
     )
+    const viewportAspect = yield* Ref.make(initialAspect)
     type EntityEntry = {
       readonly entity: RenderEntity
       readonly mesh: PositionedThreeMesh
@@ -747,9 +763,12 @@ export const makeWorldRenderer = <
           }
           const geometry = buildGeometry(buffers)
           const mesh = new three.Mesh(geometry, material)
+          const bounds = boundsFromPositions(buffers.positions)
+          mesh.frustumCulled = false
+          mesh.visible = bounds !== undefined
           scene.add(mesh)
           const next = new Map(current)
-          next.set(key, { mesh, geometry })
+          next.set(key, { mesh, geometry, bounds })
           return next
         }),
 
@@ -820,17 +839,34 @@ export const makeWorldRenderer = <
             mirrored.rotation.z,
             mirrored.rotation.order,
           )
+          const [currentChunks, aspect] = yield* Effect.all([
+            Ref.get(chunks),
+            Ref.get(viewportAspect),
+          ])
+          for (const entry of currentChunks.values()) {
+            entry.mesh.visible =
+              entry.bounds !== undefined &&
+              aabbIntersectsPerspectiveFrustum(entry.bounds, {
+                camera: mirrored,
+                verticalFovDegrees: fovDegrees,
+                aspect,
+                nearPlane,
+                farPlane,
+              })
+          }
           renderer.render(scene, camera)
           yield* Ref.update(framesRendered, (drawn) => drawn + 1)
         }),
 
       resize: (width, height) =>
-        Effect.sync(() => {
+        Effect.gen(function* () {
           renderer.setSize(width, height, UPDATE_CANVAS_STYLE)
-          camera.aspect = safeAspect({ width, height })
+          const aspect = safeAspect({ width, height })
+          camera.aspect = aspect
           // Without this the projection matrix keeps the old aspect and the
           // world stretches. three does not recompute it on assignment.
           camera.updateProjectionMatrix()
+          yield* Ref.set(viewportAspect, aspect)
         }),
 
       dispose: Effect.all([

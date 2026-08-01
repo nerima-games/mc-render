@@ -222,11 +222,11 @@ export type ThreeEuler = {
  * (ts-minecraft `packages/rendering/infrastructure/meshing/chunk-mesh-geometry.ts:40-41`:
  * "frustumCulled=false + manual AABB frustum culling in WorldRendererService
  * (cheaper than Three.js per-object bounding-sphere checks)"). This repository
- * has no frustum culler yet and leaves the flag at three's default; the member
- * is here so that adding one is a renderer change and not a surface change.
+ * performs that manual cull before each draw. `visible` carries its result.
  */
 export type ThreeMesh = {
   frustumCulled: boolean
+  visible: boolean
 }
 
 /**

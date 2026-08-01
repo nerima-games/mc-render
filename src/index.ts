@@ -51,6 +51,7 @@ export * from './domain/block-texture-map'
 export * from './domain/camera-mirror'
 export * from './domain/chunk-geometry'
 export * from './domain/frame-scratch'
+export * from './domain/frustum-culling'
 export * from './domain/input-bindings'
 // `level-of-detail.ts` decides which LOD tier a chunk is drawn at, and measures
 // what that costs the picture. mc-meshing docs/responsibility.md §3.4 assigned

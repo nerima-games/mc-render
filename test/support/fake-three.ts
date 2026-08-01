@@ -432,6 +432,7 @@ export const makeFakeThree = (): FakeThree => {
       const positions: Array<readonly [number, number, number]> = []
       const self: FakeMesh = {
         frustumCulled: true,
+        visible: true,
         geometry,
         material,
         positions: () => positions,
