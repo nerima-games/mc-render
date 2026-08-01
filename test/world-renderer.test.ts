@@ -28,6 +28,7 @@ import {
   SKY_CLEAR_COLOR,
 } from '../src/application/world-renderer'
 import { FAKE_CANVAS, makeFakeThree } from './support/fake-three'
+import { planRenderEnvironment } from '../src/domain/render-environment'
 
 const VIEWPORT = { width: 1280, height: 720 }
 
@@ -116,6 +117,25 @@ describe('acquiring the renderer', () => {
 
       expect(three.renderer().clearColors()).toStrictEqual([[SKY_CLEAR_COLOR, SKY_CLEAR_ALPHA]])
       expect(SKY_CLEAR_COLOR).toBe(0x87ceeb)
+    }),
+  )
+
+  it.effect('applies one daylight plan to the sky and injected material updater', () =>
+    Effect.gen(function* () {
+      const three = makeFakeThree()
+      const applied: unknown[] = []
+      const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT, {
+        applyMaterialEnvironment: (environment) => applied.push(environment),
+      })
+      const night = planRenderEnvironment(0, CAMERA_FAR_PLANE)
+
+      yield* renderer.setEnvironment(night)
+
+      expect(applied).toStrictEqual([planRenderEnvironment(1, CAMERA_FAR_PLANE), night])
+      expect(three.renderer().clearColors()).toStrictEqual([
+        [SKY_CLEAR_COLOR, SKY_CLEAR_ALPHA],
+        [night.skyColor, SKY_CLEAR_ALPHA],
+      ])
     }),
   )
 

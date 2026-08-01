@@ -19,14 +19,14 @@ plan.md §2.3-1 の分類でいう **名詞**。「どう見えるか」の仕�
 | カメラ | mc-sim のスナップショットを THREE カメラへミラー、視錐台カリング | ミラーは実装済 `domain/camera-mirror.ts` |
 | パーティクル | インスタンス化パーティクルプール | **プール本体は実装済** `domain/particle-pool.ts`。容量 512 / drop-oldest / シード付き乱数、フレーム経路で無アロケーション。`InstancedMesh` への束ねは**未実装** —— THREE シームは着地したが `application/three-surface.ts` は `InstancedMesh` を**持たない**（構成子は 7 つ。§2.3） |
 | 水面 | 水マテリアル・屈折 | **方針・算術は実装済**。マテリアルは `domain/water-surface.ts`、屈折プリパスの実行判定は `domain/water-refraction.ts`。`ShaderMaterial` 実体は**未実装** —— 同上、シームは `MeshBasicMaterial` しか構成できない。**幾何（水面高さ・流向）は mc-meshing** |
-| `WorldRenderer` | chunk ダーティ購読 → メッシュ更新 | **半分だけ実装済** —— **メッシュ更新は実装済** `application/world-renderer.ts`（`setChunk` / `removeChunk` / `draw` / `resize` / `dispose`）+ 純粋側 `domain/chunk-geometry.ts`。**ダーティ購読は未実装**。購読先は決まっている（`mc-worldgen` の `ChunkStore.subscribeDirty`。[public-api.md §3.1](./public-api.md)）が、リポジトリ内に `subscribeDirty` を呼ぶ行は 1 つも無く、`render:chunk-sync` は FIRST CUT のまま（スクラッチ借用のみ） — §2.3 |
+| `WorldRenderer` | chunk ダーティ購読 → メッシュ更新 | **実装済** —— `application/world-renderer.ts` が `setChunk` / `removeChunk` / `draw` / `resize` / `setEnvironment` / `dispose` を所有し、`application/world-sync.ts` の `attachChunkStoreRenderer` が dirty 通知を直列化する。純粋側は `domain/chunk-geometry.ts` と `domain/render-environment.ts`。 |
 | ワーカープール**実装** | 地形ワーカー / メッシングワーカーのプール（Port は各所有者） | 未実装 |
 | **実行時入力サービス** | キーボード / マウス / ポインタロック / タッチ / キーリマッピング | ポート越しに実装済 `application/input-service.ts` + `window` アダプタ `application/browser-input-adapter.ts`（ゲームパッド / タッチは未） |
 | **フレーム stage 登録** | `render:input` / `render:camera-mirror` / `render:chunk-sync` / `render:draw` / `render:post-fx` | 登録位置は確定済 `stages/`。**本体は 5 本のうち 3 本が実体、2 本が FIRST CUT** —— `render:input`（`InputService` を実際に進める）/ `render:camera-mirror`（`mirroredCameraState` + ラグ計測）/ `render:draw`（`DrawPort.draw`。ブラウザでは実際に `renderer.render` が走る）は実体。`render:chunk-sync`（購読先が無いのでスクラッチ借用のみ）と `render:post-fx`（チェーンは組むが `EffectComposer` の実行が無い）は FIRST CUT |
 | フレーム毎スクラッチ | 一時 `Map` の事前確保と再利用 | 実装済 `domain/frame-scratch.ts` |
 | グラフィックス品質プリセット適用 | low / medium / high / ultra | ポストFX部分のみ `domain/post-processing.ts` |
 | テクスチャアセット | アトラス画像を同梱（plan.md §5.3「独立アセットリポジトリは作らない」） | **半分だけ実装済**。レイアウト算術（タイル→UV、ハーフテクセル）は `domain/texture-atlas.ts`。**アトラス PNG 本体とそのローダは未実装** — §2.2 |
-| ライトグリッドの**適用** | worldgen が持つ 4bit ライトグリッドを描画に反映 | **未実装。ただし塞いでいるものが変わった** —— グリッドは mc-worldgen に**もう存在する**（`domain/light.ts`、`computeChunkLight` / `ChunkLight` / `getLightAt`、`index.ts` から export 済み）。届かない理由は「無い」ではなく「未 publish かつ mc-compose の vite alias 3 兄弟に入らない」である。`domain/chunk-geometry.ts` は 3 チャンネルとも AO を書いたまま — §3.1 |
+| ライトグリッドの**適用** | worldgen が持つ 4bit ライトグリッドを描画に反映 | **実装済** —— world adapter が sky/block light を geometry に運び、chunk shader が AO と合成する。`planRenderEnvironment` は同じ shader の日照、空色、距離フォグを決定的に同期する。 |
 
 ### 2.1 `forceSinglePass` の述語は水面を分類できない（**既知の穴**）
 

@@ -885,9 +885,28 @@ mx-ui はリスナも `stopPropagation()` も持たないまま（DN-UI-4 は無
 ホストは `browserInputLayer` に既に渡している `canvas` 以外を渡さない。
 `installInputListeners` を直に呼ぶホストだけが、第 4 引数で canvas をもう一度渡す。
 
-## 3. WorldRenderer — **未設計。最優先**
+## 3. WorldRenderer — **実装済**
 
-plan.md §3.9 の筆頭 API であり、**まだ 1 行も無い。**
+`makeWorldRenderer` は注入された THREE surface と canvas から renderer、scene、camera を
+取得し、chunk mesh、描画、resize、破棄を所有する。環境表現は純粋な
+`planRenderEnvironment(daylight, farPlane)` と副作用境界の
+`WorldRenderer.setEnvironment(plan)` に分ける。
+
+```ts
+const shader = makeChunkShaderMaterial(three, atlasTexture)
+const renderer = yield* makeWorldRenderer(three, canvas, {
+  material: () => shader.material,
+  applyMaterialEnvironment: (environment) =>
+    applyChunkShaderEnvironment(shader.uniforms, environment),
+})
+
+yield* renderer.setEnvironment(planRenderEnvironment(daylight, farPlane))
+```
+
+同じ plan が canvas の clear color と chunk shader の sunlight / fog uniforms を更新する。
+uniform box は material と共有したまま更新するため GPU resource を再生成しない。
+resize listener と renderer/material の解放責務は従来どおり scope finalizer が所有し、
+環境更新は listener や resource を追加しない。
 
 ### 3.1 購読先は決まった — mc-sim ではなく mc-worldgen
 

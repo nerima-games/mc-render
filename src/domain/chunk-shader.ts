@@ -73,7 +73,7 @@
  * described by data, it is testable as data, and it adds ONE constructor to the
  * surface instead of an escape hatch into three's internals.
  *
- * WHAT IS GIVEN UP, stated plainly: fog, tone mapping and three's colour-space
+ * WHAT IS GIVEN UP, stated plainly: tone mapping and three's colour-space
  * conversion, all of which the built-in materials get from shader chunks this
  * file does not include. None is wired up in this repository today. When one is
  * wanted it is written here, in source that is generated and checked, rather
@@ -149,6 +149,10 @@ export const CHUNK_SHADER_UNIFORMS = {
   atlas: 'uAtlas',
   /** `float` 0..1. The day/night cycle's one input; scales the sky channel only. */
   sunIntensity: 'uSunIntensity',
+  /** `vec3`. Linear interpolation target for distance fog. */
+  fogColor: 'uFogColor',
+  fogNear: 'uFogNear',
+  fogFar: 'uFogFar',
 } as const
 
 /**
@@ -176,6 +180,7 @@ varying vec2 vUv;
 varying vec3 vColor;
 varying float vTileIndex;
 varying float vFaceBrightness;
+varying float vFogDepth;
 
 void main() {
   vUv = uv;
@@ -192,7 +197,9 @@ void main() {
             ? ${glslFloat(FACE_BRIGHTNESS.xPos)}
             : ${glslFloat(FACE_BRIGHTNESS.zPos)}));
 
-  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  vec4 viewPosition = modelViewMatrix * vec4(position, 1.0);
+  vFogDepth = max(-viewPosition.z, 0.0);
+  gl_Position = projectionMatrix * viewPosition;
 }
 `
 
@@ -216,11 +223,15 @@ void main() {
 export const chunkFragmentShader = (): string => `
 uniform sampler2D ${CHUNK_SHADER_UNIFORMS.atlas};
 uniform float ${CHUNK_SHADER_UNIFORMS.sunIntensity};
+uniform vec3 ${CHUNK_SHADER_UNIFORMS.fogColor};
+uniform float ${CHUNK_SHADER_UNIFORMS.fogNear};
+uniform float ${CHUNK_SHADER_UNIFORMS.fogFar};
 
 varying vec2 vUv;
 varying vec3 vColor;
 varying float vTileIndex;
 varying float vFaceBrightness;
+varying float vFogDepth;
 
 const float ATLAS_COLUMNS = ${glslFloat(ATLAS_COLUMNS)};
 const float HALF_TEXEL = ${glslFloat(HALF_TEXEL_UV)};
@@ -268,7 +279,15 @@ void main() {
     * (${glslFloat(AO_SHADE_FLOOR)} + ${glslFloat(AO_SHADE_RANGE)} * ao)
     * vFaceBrightness;
 
-  gl_FragColor = vec4(texel.rgb * shade, texel.a);
+  float fogAmount = smoothstep(
+    ${CHUNK_SHADER_UNIFORMS.fogNear},
+    ${CHUNK_SHADER_UNIFORMS.fogFar},
+    vFogDepth
+  );
+  gl_FragColor = vec4(
+    mix(texel.rgb * shade, ${CHUNK_SHADER_UNIFORMS.fogColor}, fogAmount),
+    texel.a
+  );
 }
 `
 

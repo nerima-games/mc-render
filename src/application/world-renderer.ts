@@ -63,6 +63,11 @@ import {
   chunkShaderSource,
 } from '../domain/chunk-shader'
 import { waterShaderSource } from '../domain/water-shader'
+import {
+  DAY_SKY_COLOR,
+  planRenderEnvironment,
+  type RenderEnvironmentPlan,
+} from '../domain/render-environment'
 import type {
   ThreeBufferGeometry,
   ThreeMaterial,
@@ -144,7 +149,7 @@ export const CAMERA_FAR_PLANE = 300
  * black is indistinguishable from a canvas that failed to draw; a canvas
  * cleared to sky blue says the context was acquired and the frame ran.
  */
-export const SKY_CLEAR_COLOR = 0x87ceeb
+export const SKY_CLEAR_COLOR = DAY_SKY_COLOR
 
 /** Opacity of the clear. Fully opaque: there is nothing behind the world. */
 export const SKY_CLEAR_ALPHA = 1
@@ -208,6 +213,23 @@ export type ChunkShaderMaterial<TShaderMaterial extends ThreeMaterial> = {
   readonly uniforms: Record<string, ThreeUniform>
 }
 
+/** Update the shared shader's stable uniform boxes without rebuilding it. */
+export const applyChunkShaderEnvironment = (
+  uniforms: Record<string, ThreeUniform>,
+  environment: RenderEnvironmentPlan,
+): void => {
+  const values: Readonly<Record<string, unknown>> = {
+    [CHUNK_SHADER_UNIFORMS.sunIntensity]: environment.sunIntensity,
+    [CHUNK_SHADER_UNIFORMS.fogColor]: [...environment.fogColor],
+    [CHUNK_SHADER_UNIFORMS.fogNear]: environment.fogNear,
+    [CHUNK_SHADER_UNIFORMS.fogFar]: environment.fogFar,
+  }
+  for (const [name, value] of Object.entries(values)) {
+    const uniform = uniforms[name]
+    if (uniform !== undefined) uniform.value = value
+  }
+}
+
 /**
  * Build the shader material and its uniform boxes.
  *
@@ -226,9 +248,13 @@ export const makeChunkShaderMaterial = <
   sunIntensity: number = FULL_SUN_INTENSITY,
 ): ChunkShaderMaterial<TShaderMaterial> => {
   const source = chunkShaderSource()
+  const defaultEnvironment = planRenderEnvironment(1)
   const uniforms: Record<string, ThreeUniform> = {
     [CHUNK_SHADER_UNIFORMS.atlas]: { value: atlasTexture },
     [CHUNK_SHADER_UNIFORMS.sunIntensity]: { value: sunIntensity },
+    [CHUNK_SHADER_UNIFORMS.fogColor]: { value: [...defaultEnvironment.fogColor] },
+    [CHUNK_SHADER_UNIFORMS.fogNear]: { value: defaultEnvironment.fogNear },
+    [CHUNK_SHADER_UNIFORMS.fogFar]: { value: defaultEnvironment.fogFar },
   }
   return {
     material: new three.ShaderMaterial({
@@ -352,6 +378,8 @@ export type RenderEntity = {
  * one somebody eventually adds a light to.
  */
 export type WorldRenderer = DrawPort & {
+  /** Apply a precomputed sky, sun and fog state without recreating GPU resources. */
+  readonly setEnvironment: (environment: RenderEnvironmentPlan) => Effect.Effect<void>
   /**
    * Put a chunk's geometry in the scene, replacing whatever was there.
    *
@@ -408,6 +436,10 @@ export type WorldRendererOptions<TMaterial extends ThreeMaterial = ThreeMaterial
   readonly nearPlane?: number
   readonly farPlane?: number
   readonly clearColor?: number
+  /** Initial daylight in the inclusive 0..1 range; invalid values are clamped by the planner. */
+  readonly daylight?: number
+  /** Port used by a shader material to receive the same plan as the canvas clear colour. */
+  readonly applyMaterialEnvironment?: (environment: RenderEnvironmentPlan) => void
   /** Draw edges instead of filled faces. For diagnosing a geometry, not for play. */
   readonly wireframe?: boolean
   /**
@@ -571,14 +603,17 @@ export const makeWorldRenderer = <
     })
 
     renderer.setSize(viewport.width, viewport.height, UPDATE_CANVAS_STYLE)
-    renderer.setClearColor(options.clearColor ?? SKY_CLEAR_COLOR, SKY_CLEAR_ALPHA)
+    const farPlane = options.farPlane ?? CAMERA_FAR_PLANE
+    const initialEnvironment = planRenderEnvironment(options.daylight ?? 1, farPlane)
+    renderer.setClearColor(options.clearColor ?? initialEnvironment.skyColor, SKY_CLEAR_ALPHA)
+    options.applyMaterialEnvironment?.(initialEnvironment)
 
     const scene: ThreeScene = new three.Scene()
     const camera: ThreePerspectiveCamera = new three.PerspectiveCamera(
       options.fovDegrees ?? CAMERA_FOV_DEGREES,
       safeAspect(viewport),
       options.nearPlane ?? CAMERA_NEAR_PLANE,
-      options.farPlane ?? CAMERA_FAR_PLANE,
+      farPlane,
     )
 
     /**
@@ -698,6 +733,12 @@ export const makeWorldRenderer = <
     }
 
     return {
+      setEnvironment: (environment) =>
+        Effect.sync(() => {
+          renderer.setClearColor(environment.skyColor, SKY_CLEAR_ALPHA)
+          options.applyMaterialEnvironment?.(environment)
+        }),
+
       setChunk: (key, buffers) =>
         Ref.update(chunks, (current) => {
           const previous = current.get(key)

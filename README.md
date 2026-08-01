@@ -184,6 +184,10 @@ DOM に触るのは `window` 入力アダプタ 1 つだけで、**`tsconfig` �
   AO / 天空光 / ブロック光を頂点カラーの R / G / B に格納するため、チャンク境界も
   隣接チャンク側の光を参照できる。未ロード・範囲外は暗さ 0 とし、光レベルは 0..15 に
   クランプする。既存の `color` または `colorForChunk` を指定すれば、この既定動作を上書きできる。
+- **空・日照・地形フォグは同じ決定的 plan で同期する。**
+  `planRenderEnvironment(daylight, farPlane)` は純粋関数として空色、日照強度、
+  フォグ色と距離を返す。`WorldRenderer.setEnvironment` は clear color と既存の
+  chunk shader uniform を更新し、material や GPU resource を再生成しない。
 - **キーボードフォーカスの「移動」側。** 観測（`focusin` / `focusout` → `InputSnapshot.keyboardFocus`）は
   **入った**が、グループ**内**を矢印キーで動かす手段は無い。ホットバーはタブストップが 1 つなので、
   Tab で入れるのはスロット 0 だけである。閉じるには `dom-surface.ts` に `focus()` が要り、

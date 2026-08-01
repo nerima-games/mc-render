@@ -80,6 +80,7 @@ export * from './domain/material-policy'
 export * from './domain/particle-pool'
 export * from './domain/particle-shader'
 export * from './domain/post-processing'
+export * from './domain/render-environment'
 export * from './domain/texture-atlas'
 // The shading curve. `chunk-geometry.ts` builds buffers and does not decide how
 // bright a surface is; this holds the rule, and a host injects the light
