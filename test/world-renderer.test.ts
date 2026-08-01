@@ -30,6 +30,7 @@ import {
 import { FAKE_CANVAS, makeFakeThree } from './support/fake-three'
 import { planRenderEnvironment } from '../src/domain/render-environment'
 import { planMobVisual } from '../src/domain/mob-visual'
+import { planWitherSkullVisual, planWitherVisual } from '../src/domain/wither-visual'
 
 const VIEWPORT = { width: 1280, height: 720 }
 
@@ -463,6 +464,124 @@ describe('entity meshes in the scene', () => {
       expect(fallback.descriptorKind).toBe('unknown')
       expect(three.scene().members()).toHaveLength(fallback.parts.length)
       expect(three.meshes()[0]?.positions()).toStrictEqual([[4, 5.65, 6]])
+    }),
+  )
+
+  it.effect('renders Wither state at its authoritative position and facing', () =>
+    Effect.gen(function* () {
+      const three = makeFakeThree()
+      const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT)
+      const witherState = {
+        phase: 'airborne' as const,
+        healthPoints: 300,
+        chargeRemainingSecs: 0,
+        feetPosition: { x: 10, y: 20, z: 30 },
+        velocity: { x: 1, y: 0, z: 0 },
+      }
+      const visual = planWitherVisual(witherState)
+      const firstPart = visual.parts[0]
+
+      yield* renderer.syncEntities([
+        {
+          id: 'wither',
+          kind: 'wither',
+          feetPosition: { x: 0, y: 0, z: 0 },
+          facingRadians: 0,
+          witherState,
+        },
+      ])
+
+      expect(firstPart).toBeDefined()
+      expect(three.scene().members()).toHaveLength(visual.parts.length)
+      expect(three.meshes()[0]?.positions()[0]?.[0]).toBeCloseTo(
+        visual.position.x + (firstPart?.center[2] ?? 0) * -1,
+        12,
+      )
+      expect(three.meshes()[0]?.positions()[0]?.[1]).toBeCloseTo(
+        visual.position.y + (firstPart?.center[1] ?? 0),
+        12,
+      )
+      expect(three.meshes()[0]?.positions()[0]?.[2]).toBeCloseTo(
+        visual.position.z + (firstPart?.center[0] ?? 0),
+        12,
+      )
+      expect(three.meshes()[0]?.rotations()[0]?.[1]).toBeCloseTo(-Math.PI / 2, 12)
+    }),
+  )
+
+  it.effect('rebuilds charging colors and removes every part once the Wither is dead', () =>
+    Effect.gen(function* () {
+      const three = makeFakeThree()
+      const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT)
+      const baseState = {
+        healthPoints: 300,
+        feetPosition: { x: 0, y: 64, z: 0 },
+        velocity: { x: 0, y: 0, z: -1 },
+      }
+
+      yield* renderer.syncEntities([
+        {
+          id: 'wither',
+          kind: 'wither',
+          feetPosition: baseState.feetPosition,
+          witherState: { ...baseState, phase: 'charging', chargeRemainingSecs: 1.125 },
+        },
+      ])
+      const unlitMeshes = [...three.scene().members()]
+
+      yield* renderer.syncEntities([
+        {
+          id: 'wither',
+          kind: 'wither',
+          feetPosition: baseState.feetPosition,
+          witherState: { ...baseState, phase: 'charging', chargeRemainingSecs: 1 },
+        },
+      ])
+      const litMeshes = [...three.scene().members()]
+      expect(litMeshes).toHaveLength(unlitMeshes.length)
+      expect(litMeshes.every((mesh) => !unlitMeshes.includes(mesh))).toBe(true)
+
+      yield* renderer.syncEntities([
+        {
+          id: 'wither',
+          kind: 'wither',
+          feetPosition: baseState.feetPosition,
+          witherState: { ...baseState, phase: 'dead', chargeRemainingSecs: 0 },
+        },
+      ])
+      expect(yield* renderer.entityCount).toBe(1)
+      expect(three.scene().members()).toStrictEqual([])
+    }),
+  )
+
+  it.effect('renders a blue Wither skull at its origin with direction-derived angles', () =>
+    Effect.gen(function* () {
+      const three = makeFakeThree()
+      const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT)
+      const witherSkullProjectile = {
+        kind: 'wither_skull' as const,
+        variant: 'blue' as const,
+        origin: { x: 3, y: 7, z: 11 },
+        direction: { x: 1, y: 1, z: 0 },
+        speed: 20,
+        explosivePower: 1,
+        destroysResistantBlocks: true,
+      }
+      const visual = planWitherSkullVisual(witherSkullProjectile)
+
+      yield* renderer.syncEntities([
+        {
+          id: 'blue-skull',
+          kind: 'wither_skull',
+          feetPosition: { x: 0, y: 0, z: 0 },
+          witherSkullProjectile,
+        },
+      ])
+
+      expect(three.scene().members()).toHaveLength(visual.parts.length)
+      expect(three.meshes()[0]?.positions()[0]).toStrictEqual([3, 7, 11])
+      expect(three.meshes()[0]?.rotations()[0]?.[0]).toBeCloseTo(Math.PI / 4, 12)
+      expect(three.meshes()[0]?.rotations()[0]?.[1]).toBeCloseTo(-Math.PI / 2, 12)
     }),
   )
 })

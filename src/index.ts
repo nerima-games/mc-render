@@ -86,6 +86,7 @@ export * from './domain/render-environment'
 export * from './domain/weather-rendering'
 export * from './domain/texture-atlas'
 export * from './domain/vehicle-visual'
+export * from './domain/wither-visual'
 // The shading curve. `chunk-geometry.ts` builds buffers and does not decide how
 // bright a surface is; this holds the rule, and a host injects the light
 // readings. Its header names the noun still missing before the reference's

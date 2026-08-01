@@ -56,6 +56,14 @@ import {
   type MobVisualPartPlan,
 } from '../domain/mob-visual'
 import {
+  planWitherSkullVisual,
+  planWitherVisual,
+  type WitherSkullVisualInput,
+  type WitherVisualPartDescriptor,
+  type WitherVisualPosition,
+  type WitherVisualStateInput,
+} from '../domain/wither-visual'
+import {
   aabbIntersectsPerspectiveFrustum,
   boundsFromPositions,
   type AxisAlignedBounds,
@@ -385,6 +393,10 @@ export type RenderEntity = {
   readonly facingRadians?: number
   /** Pure animation input used to derive part transforms deterministically. */
   readonly animation?: MobAnimationInput
+  /** mc-sim-compatible state projection for a `wither` entity. */
+  readonly witherState?: WitherVisualStateInput
+  /** mc-sim-compatible projectile projection for a `wither_skull` entity. */
+  readonly witherSkullProjectile?: WitherSkullVisualInput
 }
 
 /**
@@ -518,7 +530,15 @@ type TransformableThreeMesh = ThreeMesh & {
   readonly scale: ThreeVector3
 }
 
-const ITEM_VISUAL_PARTS: ReadonlyArray<MobVisualPartPlan> = [
+type EntityVisualPartPlan = MobVisualPartPlan | WitherVisualPartDescriptor
+
+type EntityVisualPlan = Readonly<{
+  position: WitherVisualPosition
+  facingRadians: number
+  parts: ReadonlyArray<EntityVisualPartPlan>
+}>
+
+const ITEM_VISUAL_PARTS: ReadonlyArray<EntityVisualPartPlan> = [
   {
     id: 'item',
     role: 'body',
@@ -529,8 +549,60 @@ const ITEM_VISUAL_PARTS: ReadonlyArray<MobVisualPartPlan> = [
   },
 ]
 
-const entityParts = (entity: RenderEntity): ReadonlyArray<MobVisualPartPlan> =>
-  entity.category === 'item' ? ITEM_VISUAL_PARTS : planMobVisual(entity.kind, entity.animation).parts
+const entityFacing = (entity: RenderEntity): number =>
+  entity.facingRadians !== undefined && Number.isFinite(entity.facingRadians)
+    ? entity.facingRadians
+    : 0
+
+const facingDirection = (facingRadians: number): WitherVisualPosition => ({
+  x: -Math.sin(facingRadians),
+  y: 0,
+  z: -Math.cos(facingRadians),
+})
+
+const planEntityVisual = (entity: RenderEntity): EntityVisualPlan => {
+  const facingRadians = entityFacing(entity)
+  if (entity.category === 'item') {
+    return { position: entity.feetPosition, facingRadians, parts: ITEM_VISUAL_PARTS }
+  }
+  if (entity.kind === 'wither') {
+    const state: WitherVisualStateInput = entity.witherState ?? {
+      phase: 'airborne',
+      healthPoints: 300,
+      chargeRemainingSecs: 0,
+      feetPosition: entity.feetPosition,
+      velocity: facingDirection(facingRadians),
+    }
+    const visual = planWitherVisual(state)
+    return {
+      position: visual.position,
+      facingRadians: visual.yawRadians,
+      parts: visual.parts,
+    }
+  }
+  if (entity.kind === 'wither_skull') {
+    const projectile: WitherSkullVisualInput = entity.witherSkullProjectile ?? {
+      kind: 'wither_skull',
+      variant: 'normal',
+      origin: entity.feetPosition,
+      direction: facingDirection(facingRadians),
+      speed: 0,
+      explosivePower: 0,
+      destroysResistantBlocks: false,
+    }
+    const visual = planWitherSkullVisual(projectile)
+    return {
+      position: visual.position,
+      facingRadians: visual.yawRadians,
+      parts: visual.parts,
+    }
+  }
+  return {
+    position: entity.feetPosition,
+    facingRadians,
+    parts: planMobVisual(entity.kind, entity.animation).parts,
+  }
+}
 
 const unitCubeBuffers = (color: readonly [number, number, number]) => {
   const positions = new Float32Array([
@@ -558,6 +630,20 @@ const copyEntity = (entity: RenderEntity): RenderEntity => ({
   ...(entity.category === undefined ? {} : { category: entity.category }),
   ...(entity.facingRadians === undefined ? {} : { facingRadians: entity.facingRadians }),
   ...(entity.animation === undefined ? {} : { animation: { ...entity.animation } }),
+  ...(entity.witherState === undefined ? {} : {
+    witherState: {
+      ...entity.witherState,
+      feetPosition: { ...entity.witherState.feetPosition },
+      velocity: { ...entity.witherState.velocity },
+    },
+  }),
+  ...(entity.witherSkullProjectile === undefined ? {} : {
+    witherSkullProjectile: {
+      ...entity.witherSkullProjectile,
+      origin: { ...entity.witherSkullProjectile.origin },
+      direction: { ...entity.witherSkullProjectile.direction },
+    },
+  }),
 })
 
 /**
@@ -692,6 +778,7 @@ export const makeWorldRenderer = <
     const viewportAspect = yield* Ref.make(initialAspect)
     type EntityPartEntry = {
       readonly id: string
+      readonly color: readonly [number, number, number]
       readonly mesh: TransformableThreeMesh
     }
     type EntityEntry = {
@@ -768,31 +855,30 @@ export const makeWorldRenderer = <
 
     const applyEntityPartTransform = (
       mesh: TransformableThreeMesh,
-      entity: RenderEntity,
-      part: MobVisualPartPlan,
+      visual: EntityVisualPlan,
+      part: EntityVisualPartPlan,
     ): void => {
-      const facing =
-        entity.facingRadians !== undefined && Number.isFinite(entity.facingRadians)
-          ? entity.facingRadians
-          : 0
+      const facing = visual.facingRadians
       const cosine = Math.cos(facing)
       const sine = Math.sin(facing)
       const [centerX, centerY, centerZ] = part.center
+      const [sizeX, sizeY, sizeZ] = part.size
       mesh.position.set(
-        entity.feetPosition.x + centerX * cosine + centerZ * sine,
-        entity.feetPosition.y + centerY,
-        entity.feetPosition.z - centerX * sine + centerZ * cosine,
+        visual.position.x + centerX * cosine + centerZ * sine,
+        visual.position.y + centerY,
+        visual.position.z - centerX * sine + centerZ * cosine,
       )
-      mesh.scale.set(...part.size)
+      mesh.scale.set(sizeX, sizeY, sizeZ)
       mesh.rotation.set(part.rotation[0], part.rotation[1] + facing, part.rotation[2], 'YXZ')
     }
 
     const buildEntity = (entity: RenderEntity): EntityEntry => {
-      const parts = entityParts(entity).map((part): EntityPartEntry => {
+      const visual = planEntityVisual(entity)
+      const parts = visual.parts.map((part): EntityPartEntry => {
         const mesh = new three.Mesh(buildEntityGeometry(part.color), getEntityMaterial())
-        applyEntityPartTransform(mesh, entity, part)
+        applyEntityPartTransform(mesh, visual, part)
         scene.add(mesh)
-        return { id: part.id, mesh }
+        return { id: part.id, color: part.color, mesh }
       })
       return { entity, parts }
     }
@@ -802,17 +888,23 @@ export const makeWorldRenderer = <
     }
 
     const updateEntity = (entry: EntityEntry, entity: RenderEntity): EntityEntry => {
-      const plans = entityParts(entity)
+      const visual = planEntityVisual(entity)
+      const plans = visual.parts
       if (
         plans.length !== entry.parts.length ||
-        plans.some((plan, index) => plan.id !== entry.parts[index]?.id)
+        plans.some((plan, index) => {
+          const previous = entry.parts[index]
+          return previous === undefined ||
+            plan.id !== previous.id ||
+            plan.color.some((component, colorIndex) => component !== previous.color[colorIndex])
+        })
       ) {
         releaseEntity(entry)
         return buildEntity(entity)
       }
       for (const [index, plan] of plans.entries()) {
         const part = entry.parts[index]
-        if (part !== undefined) applyEntityPartTransform(part.mesh, entity, plan)
+        if (part !== undefined) applyEntityPartTransform(part.mesh, visual, plan)
       }
       return { ...entry, entity }
     }
