@@ -129,6 +129,11 @@ export const EMPTY_SYNC_REPORT: SyncReport = { meshed: 0, deferred: 0, removed: 
 export type SyncOptions = {
   /** Vertex colouring. Defaults to `buildChunkGeometry`'s AO-only grey. */
   readonly color?: QuadColor
+  /** Resolve vertex colouring after meshing, for chunk-scoped data such as light. */
+  readonly colorForChunk?: (
+    chunk: ChunkRef,
+    quads: ReadonlyArray<MeshQuad>,
+  ) => Effect.Effect<QuadColor>
   /** Atlas tile per quad. Defaults to the untextured tile. */
   readonly tile?: QuadTile
 }
@@ -182,9 +187,12 @@ export const syncWorld = (
         continue
       }
       const [originX, originZ] = chunkOrigin(chunk)
+      const color = options.colorForChunk === undefined
+        ? options.color
+        : yield* options.colorForChunk(chunk, quads)
       yield* renderer.setChunk(
         chunkKeyOf(chunk),
-        buildChunkGeometry(quads, originX, originZ, options.color, options.tile),
+        buildChunkGeometry(quads, originX, originZ, color, options.tile),
       )
       meshed += 1
     }

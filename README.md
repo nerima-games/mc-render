@@ -178,14 +178,12 @@ DOM に触るのは `window` 入力アダプタ 1 つだけで、**`tsconfig` �
   `EffectComposer`（ポストFX）/ `TextureLoader`（アトラス PNG）で、
   シームの構成子は現在 7 つしかない
   （[docs/responsibility.md](./docs/responsibility.md) §2.3 に全表）。
-- **`WorldRenderer` のダーティ購読。** レンダラ本体は**入った** ——
-  `setChunk` / `removeChunk` / `draw` / `resize` / `dispose`
-  （`application/world-renderer.ts`、`test/world-renderer.test.ts` 20 件）。
-  無いのは**呼び出し元**である。購読先は決まっている
-  （**mc-worldgen** の `ChunkStore.subscribeDirty`。mc-sim ではない）が、
-  mc-worldgen は未 publish で mc-compose の vite alias にも入らないため、
-  リポジトリ内に `subscribeDirty` を呼ぶ行は 1 つも無い
-  （[`docs/public-api.md`](./docs/public-api.md) §3.1）。
+- **`WorldRenderer` のダーティ購読と照明同期は入った。**
+  `attachChunkStoreRenderer` が mc-worldgen の `ChunkStore.subscribeDirty` を購読し、
+  ダーティチャンクを再メッシュする。各面の外側セルをワールド座標で `getLight` し、
+  AO / 天空光 / ブロック光を頂点カラーの R / G / B に格納するため、チャンク境界も
+  隣接チャンク側の光を参照できる。未ロード・範囲外は暗さ 0 とし、光レベルは 0..15 に
+  クランプする。既存の `color` または `colorForChunk` を指定すれば、この既定動作を上書きできる。
 - **キーボードフォーカスの「移動」側。** 観測（`focusin` / `focusout` → `InputSnapshot.keyboardFocus`）は
   **入った**が、グループ**内**を矢印キーで動かす手段は無い。ホットバーはタブストップが 1 つなので、
   Tab で入れるのはスロット 0 だけである。閉じるには `dom-surface.ts` に `focus()` が要り、
