@@ -32,7 +32,7 @@
  * drain per frame re-meshes it once per frame, which is the most often anything
  * can be seen. The batch is the unit of work because the frame is.
  */
-import { Effect } from 'effect'
+import { Effect, Ref } from 'effect'
 import { buildChunkGeometry, type MeshQuad, type QuadColor, type QuadTile } from '../domain/chunk-geometry'
 import { CHUNK_SIZE } from '../domain/lod-vocabulary'
 import type { ChunkKey, WorldRenderer } from './world-renderer'
@@ -64,6 +64,16 @@ export type DirtyBatch = {
  */
 export type DirtySource = {
   readonly drain: Effect.Effect<DirtyBatch>
+}
+
+/** The lifecycle-bearing dirty API published by mc-worldgen's ChunkStore. */
+export type DirtySubscription = DirtySource & {
+  readonly unsubscribe: Effect.Effect<void>
+}
+
+/** The narrow ChunkStore surface required to attach a renderer. */
+export type DirtySubscriptionStore = {
+  readonly subscribeDirty: Effect.Effect<DirtySubscription>
 }
 
 /**
@@ -123,6 +133,15 @@ export type SyncOptions = {
   readonly tile?: QuadTile
 }
 
+/** A renderer's exclusive connection to one ChunkStore dirty subscription. */
+export type WorldRendererAttachment = {
+  /** Drain and apply at most one coalesced dirty batch. */
+  readonly update: Effect.Effect<SyncReport>
+  /** Unsubscribe once; queued and future updates become no-ops. */
+  readonly detach: Effect.Effect<void>
+  readonly attached: Effect.Effect<boolean>
+}
+
 /**
  * Drain once, and bring the scene up to date.
  *
@@ -171,4 +190,42 @@ export const syncWorld = (
     }
 
     return { meshed, deferred, removed }
+  })
+
+/**
+ * Attach a renderer to the published mc-worldgen dirty-subscription lifecycle.
+ *
+ * Updates are deliberately caller-driven: mc-worldgen's contract is a
+ * coalescing pull subscription, so a render frame calls `update` once rather
+ * than installing a callback that can mesh the same chunk repeatedly between
+ * frames. The mutex makes drain/application atomic with respect to detach and
+ * prevents concurrent callers from applying newer geometry before older work.
+ */
+export const attachWorldRenderer = (
+  renderer: WorldRenderer,
+  store: DirtySubscriptionStore,
+  mesher: ChunkMesher,
+  options: SyncOptions = {},
+): Effect.Effect<WorldRendererAttachment> =>
+  Effect.gen(function* () {
+    const subscription = yield* store.subscribeDirty
+    const isAttached = yield* Ref.make(true)
+    const mutex = yield* Effect.makeSemaphore(1)
+
+    const update = mutex.withPermits(1)(
+      Effect.flatMap(Ref.get(isAttached), (active) =>
+        active
+          ? syncWorld(renderer, subscription, mesher, options)
+          : Effect.succeed(EMPTY_SYNC_REPORT),
+      ),
+    )
+
+    const detach = mutex.withPermits(1)(
+      Effect.flatMap(
+        Ref.getAndSet(isAttached, false),
+        (wasAttached) => wasAttached ? subscription.unsubscribe : Effect.void,
+      ),
+    )
+
+    return { update, detach, attached: Ref.get(isAttached) }
   })

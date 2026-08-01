@@ -17,6 +17,7 @@ import { Effect, Ref } from 'effect'
 import { makeWorldRenderer } from '../src/application/world-renderer'
 import {
   EMPTY_SYNC_REPORT,
+  attachWorldRenderer,
   chunkKeyOf,
   chunkOrigin,
   syncWorld,
@@ -221,6 +222,48 @@ describe('syncWorld', () => {
 
       expect(first.meshed).toBe(1)
       expect(yield* renderer.chunkKeys).toStrictEqual(['0,0'])
+    }),
+  )
+})
+
+describe('attachWorldRenderer', () => {
+  it.effect('updates, removes, and ignores dirty work after detach', () =>
+    Effect.gen(function* () {
+      const three = makeFakeThree()
+      const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT)
+      const batches = yield* Ref.make<ReadonlyArray<DirtyBatch>>([
+        { changed: [{ cx: 2, cz: 3 }], removed: [] },
+        { changed: [], removed: [{ cx: 2, cz: 3 }] },
+        { changed: [{ cx: 9, cz: 9 }], removed: [] },
+      ])
+      const unsubscribed = yield* Ref.make(0)
+      const store = {
+        subscribeDirty: Effect.succeed({
+          drain: Ref.modify(batches, ([next, ...rest]) => [
+            next ?? { changed: [], removed: [] },
+            rest,
+          ]),
+          unsubscribe: Ref.update(unsubscribed, (count) => count + 1),
+        }),
+      }
+      const attachment = yield* attachWorldRenderer(
+        renderer,
+        store,
+        () => Effect.succeed([quad()]),
+      )
+
+      expect((yield* attachment.update).meshed).toBe(1)
+      expect(yield* renderer.chunkKeys).toStrictEqual(['2,3'])
+      expect((yield* attachment.update).removed).toBe(1)
+      expect(yield* renderer.chunkKeys).toStrictEqual([])
+
+      yield* attachment.detach
+      yield* attachment.detach
+      expect(yield* attachment.attached).toBe(false)
+      expect(yield* unsubscribed).toBe(1)
+      expect(yield* attachment.update).toStrictEqual(EMPTY_SYNC_REPORT)
+      expect(yield* renderer.chunkKeys).toStrictEqual([])
+      expect(yield* batches).toHaveLength(1)
     }),
   )
 })

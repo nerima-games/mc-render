@@ -3,7 +3,13 @@ import { meshChunk, type MeshConfig } from '@nerima-games/mc-meshing'
 import { chunkCoord, type ChunkStoreApi } from '@nerima-games/mc-worldgen'
 import { Effect } from 'effect'
 import type { BlockNameLookup } from '../domain/block-texture-map'
-import type { ChunkMesher } from './world-sync'
+import type { WorldRenderer } from './world-renderer'
+import {
+  attachWorldRenderer,
+  type ChunkMesher,
+  type SyncOptions,
+  type WorldRendererAttachment,
+} from './world-sync'
 
 /** The kernel registry is the single numeric-id to texture-name authority. */
 export const blockNameFromKernel: BlockNameLookup = (blockId) => blockTypeOfId(blockId) ?? 'unknown'
@@ -23,6 +29,9 @@ export const KERNEL_MESH_CONFIG: MeshConfig = {
 /** The two store operations required to mesh one resident chunk. */
 export type MeshingChunkStore = Pick<ChunkStoreApi, 'peek' | 'neighbours'>
 
+/** The published worldgen surface needed for renderer attachment and meshing. */
+export type RendererChunkStore = Pick<ChunkStoreApi, 'peek' | 'neighbours' | 'subscribeDirty'>
+
 /** Adapt a worldgen chunk store to the renderer's pull-based meshing port. */
 export const makeChunkStoreMesher = (
   store: MeshingChunkStore,
@@ -40,3 +49,12 @@ export const makeChunkStoreMesher = (
       const layers = meshChunk(chunk, neighbours, config)
       return [...layers.opaque, ...layers.water, ...layers.transparentSolid]
     })
+
+/** Attach the renderer directly to a worldgen ChunkStore subscription. */
+export const attachChunkStoreRenderer = (
+  renderer: WorldRenderer,
+  store: RendererChunkStore,
+  options: SyncOptions = {},
+  config: MeshConfig = KERNEL_MESH_CONFIG,
+): Effect.Effect<WorldRendererAttachment> =>
+  attachWorldRenderer(renderer, store, makeChunkStoreMesher(store, config), options)
