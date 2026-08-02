@@ -32,6 +32,7 @@ import { spawnBurst } from '../src/domain/particle-pool'
 import { FAKE_CANVAS, makeFakeThree } from './support/fake-three'
 import { planRenderEnvironment } from '../src/domain/render-environment'
 import { planMobVisual } from '../src/domain/mob-visual'
+import { buildPostProcessingChain } from '../src/domain/post-processing'
 import { planWitherSkullVisual, planWitherVisual } from '../src/domain/wither-visual'
 
 const VIEWPORT = { width: 1280, height: 720 }
@@ -620,6 +621,26 @@ describe('entity meshes in the scene', () => {
 })
 
 describe('drawing', () => {
+  it.effect('retains the post-processing plan supplied by the draw port', () =>
+    Effect.gen(function* () {
+      const three = makeFakeThree()
+      const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT)
+      const quality = {
+        ssaoEnabled: true,
+        godRaysEnabled: false,
+        bloomEnabled: true,
+        dofEnabled: false,
+        smaaEnabled: true,
+        useCompositePass: true,
+      }
+      const chain = buildPostProcessingChain(quality)
+
+      yield* renderer.setPostProcessingChain(chain)
+
+      expect(yield* renderer.postProcessingChain).toStrictEqual(chain)
+    }),
+  )
+
   it.effect('manually culls a batch of chunk AABBs and disables Three sphere culling', () =>
     Effect.gen(function* () {
       const three = makeFakeThree()
@@ -859,8 +880,13 @@ describe('NO_DRAW_TARGET', () => {
       // between them is exactly the headless frames.
       yield* NO_DRAW_TARGET.draw(mirroredCameraState(poseAt(0, 0, 0, 0, 0)))
       yield* NO_DRAW_TARGET.resize(1, 1)
+      yield* NO_DRAW_TARGET.setPostProcessingChain([])
 
-      expect(Object.keys(NO_DRAW_TARGET).toSorted()).toStrictEqual(['draw', 'resize'])
+      expect(Object.keys(NO_DRAW_TARGET).toSorted()).toStrictEqual([
+        'draw',
+        'resize',
+        'setPostProcessingChain',
+      ])
     }),
   )
 })
@@ -879,6 +905,7 @@ describe('makeProductionWorldRenderer', () => {
       expect(renderer.chunkMaterial.uniforms['uAtlas']?.value).toBe(atlas)
       expect(renderer.waterMaterial.transparent).toBe(true)
       expect(renderer.waterMaterial.depthWrite).toBe(false)
+      expect(renderer.waterMaterial.forceSinglePass).toBe(true)
       expect(three.shaderMaterials()[2]?.uniforms['uAtlas']?.value).toBe(atlas)
       expect(three.scene().members()).toContain(renderer.particles.mesh)
 

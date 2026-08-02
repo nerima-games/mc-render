@@ -167,6 +167,8 @@ export type ThreeBufferAttribute = Record<never, never>
  */
 export type ThreeMaterial = {
   readonly dispose: () => void
+  /** Avoids the redundant back/front draw for flat transparent surfaces. */
+  readonly forceSinglePass?: boolean
 }
 
 /**
@@ -370,6 +372,7 @@ export type ThreeShaderMaterialParameters = {
   readonly vertexColors: true
   readonly transparent?: boolean
   readonly depthWrite?: boolean
+  readonly forceSinglePass?: boolean
 }
 
 /**

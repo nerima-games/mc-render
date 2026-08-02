@@ -91,8 +91,10 @@ import {
   planRenderEnvironment,
   type RenderEnvironmentPlan,
 } from '../domain/render-environment'
+import type { PostProcessingStep } from '../domain/post-processing'
 import type {
   ThreeBufferGeometry,
+  ThreeCamera,
   ThreeEuler,
   ThreeMaterial,
   ThreeMesh,
@@ -196,6 +198,8 @@ export type DrawPort = {
   readonly draw: (camera: MirroredCameraState) => Effect.Effect<void>
   /** Tell the renderer the drawing surface changed size. */
   readonly resize: (width: number, height: number) => Effect.Effect<void>
+  /** Select the immutable post-FX plan used by the next draw. */
+  readonly setPostProcessingChain: (chain: ReadonlyArray<PostProcessingStep>) => Effect.Effect<void>
 }
 
 /**
@@ -209,6 +213,7 @@ export type DrawPort = {
 export const NO_DRAW_TARGET: DrawPort = {
   draw: () => Effect.void,
   resize: () => Effect.void,
+  setPostProcessingChain: () => Effect.void,
 }
 
 /**
@@ -377,6 +382,7 @@ export const makeWaterMaterial = <
       vertexColors: true,
       transparent: WATER_MATERIAL_SPEC.transparent,
       depthWrite: WATER_WRITES_DEPTH,
+      forceSinglePass: true,
     }),
     uniforms,
   }
@@ -463,6 +469,8 @@ export type WorldRenderer = DrawPort & {
   readonly entitySnapshot: Effect.Effect<ReadonlyArray<RenderEntity>>
   /** Frames actually submitted to the GPU by this renderer. */
   readonly framesRendered: Effect.Effect<number>
+  /** The latest post-processing plan supplied by the frame pipeline. */
+  readonly postProcessingChain: Effect.Effect<ReadonlyArray<PostProcessingStep>>
   /** Add a renderer-adjacent mesh, such as the shared particle pool. */
   readonly attachSceneObject: (object: ThreeMesh) => Effect.Effect<void>
   /** Remove an attached mesh without assuming ownership of its resources. */
@@ -518,7 +526,22 @@ export type WorldRendererOptions<TMaterial extends ThreeMaterial = ThreeMaterial
    */
   readonly material?: MaterialFactory<TMaterial>
   readonly weather?: WeatherFrameOptions
+  /** Optional host-owned compositor; absent in headless and preview renders. */
+  readonly postProcessing?: PostProcessingRendererFactory
 }
+
+export type PostProcessingRenderer = {
+  readonly render: (chain: ReadonlyArray<PostProcessingStep>) => void
+  readonly resize: (width: number, height: number) => void
+  readonly dispose: () => void
+}
+
+export type PostProcessingRendererFactory = (surface: {
+  readonly renderer: ThreeWebGLRenderer
+  readonly scene: ThreeScene
+  readonly camera: ThreeCamera
+  readonly viewport: Viewport
+}) => PostProcessingRenderer
 
 /** The drawing surface's size in device-independent pixels. */
 export type Viewport = {
@@ -750,6 +773,12 @@ export const makeWorldRenderer = <
       nearPlane,
       farPlane,
     )
+    const postProcessing = options.postProcessing?.({
+      renderer,
+      scene,
+      camera,
+      viewport,
+    })
 
     /**
      * ONE material for every chunk, which is a draw-call decision and not a
@@ -813,6 +842,7 @@ export const makeWorldRenderer = <
     }
     const entities = yield* Ref.make(new Map<string, EntityEntry>())
     const framesRendered = yield* Ref.make(0)
+    const postProcessingChain = yield* Ref.make<ReadonlyArray<PostProcessingStep>>([])
     const entityGeometries = new Map<string, TGeometry>()
     let entityMaterial: TMaterial | undefined
 
@@ -1037,9 +1067,13 @@ export const makeWorldRenderer = <
 
       framesRendered: Ref.get(framesRendered),
 
+      postProcessingChain: Ref.get(postProcessingChain),
+
       attachSceneObject: (object) => Effect.sync(() => scene.add(object)),
 
       detachSceneObject: (object) => Effect.sync(() => scene.remove(object)),
+
+      setPostProcessingChain: (chain) => Ref.set(postProcessingChain, chain),
 
       draw: (mirrored: MirroredCameraState) =>
         Effect.gen(function* () {
@@ -1069,7 +1103,12 @@ export const makeWorldRenderer = <
                 farPlane,
               })
           }
-          renderer.render(scene, camera)
+          const chain = yield* Ref.get(postProcessingChain)
+          if (postProcessing === undefined) {
+            renderer.render(scene, camera)
+          } else {
+            postProcessing.render(chain)
+          }
           yield* Ref.update(framesRendered, (drawn) => drawn + 1)
         }),
 
@@ -1083,27 +1122,33 @@ export const makeWorldRenderer = <
           camera.updateProjectionMatrix()
           yield* Ref.set(viewportAspect, aspect)
           yield* weather.resize({ width, height })
+          postProcessing?.resize(width, height)
         }),
 
-      dispose: weather.dispose.pipe(Effect.andThen(Effect.all([
-        Ref.getAndSet(chunks, new Map()),
-        Ref.getAndSet(entities, new Map()),
-      ]).pipe(
-        Effect.map(([currentChunks, currentEntities]) => {
-          for (const entry of currentChunks.values()) {
-            releaseChunk(entry)
-          }
-          for (const entry of currentEntities.values()) {
-            releaseEntity(entry)
-          }
-          for (const geometry of entityGeometries.values()) geometry.dispose()
-          entityGeometries.clear()
-          entityMaterial?.dispose()
-          entityMaterial = undefined
-          material.dispose()
-          renderer.dispose()
-        }),
-      ))),
+      dispose: weather.dispose.pipe(
+        Effect.andThen(
+          Effect.all([
+            Ref.getAndSet(chunks, new Map()),
+            Ref.getAndSet(entities, new Map()),
+          ]).pipe(
+            Effect.map(([currentChunks, currentEntities]) => {
+              for (const entry of currentChunks.values()) {
+                releaseChunk(entry)
+              }
+              for (const entry of currentEntities.values()) {
+                releaseEntity(entry)
+              }
+              for (const geometry of entityGeometries.values()) geometry.dispose()
+              entityGeometries.clear()
+              entityMaterial?.dispose()
+              entityMaterial = undefined
+              material.dispose()
+              renderer.dispose()
+            }),
+          ),
+        ),
+        Effect.andThen(Effect.sync(() => postProcessing?.dispose())),
+      ),
     }
   })
 

@@ -79,6 +79,7 @@ import {
   type RemapOutcome,
   type WheelDeltaMode,
 } from '../domain/input-bindings'
+import type { GamepadAxes } from '../domain/gamepad-input'
 
 /**
  * One input event, as the service sees it.
@@ -216,6 +217,9 @@ export type InputEvent =
    */
   | { readonly kind: 'touchpress'; readonly action: InputAction; readonly target: ListenerTarget }
   | { readonly kind: 'touchrelease'; readonly action: InputAction; readonly target: ListenerTarget }
+  | { readonly kind: 'gamepadpress'; readonly action: InputAction; readonly target: ListenerTarget }
+  | { readonly kind: 'gamepadrelease'; readonly action: InputAction; readonly target: ListenerTarget }
+  | { readonly kind: 'gamepadtick'; readonly axes: GamepadAxes }
 
 /**
  * One click that arrived while the pointer was NOT locked, and where it landed.
@@ -330,6 +334,8 @@ export type InputSnapshot = {
    * having to Tab back to it.
    */
   readonly keyboardFocus: FocusTarget | undefined
+  /** Normalized left/right stick values for this frame, in the range [-1, 1]. */
+  readonly gamepadAxes: GamepadAxes
 }
 
 /**
@@ -572,6 +578,7 @@ type InputState = {
    * still focusing — a ring on nothing while Space activates slot 3.
    */
   readonly keyboardFocus: FocusTarget | undefined
+  readonly gamepadAxes: GamepadAxes
   readonly bindings: Bindings
 }
 
@@ -583,6 +590,7 @@ const initialState = (bindings: Bindings): InputState => ({
   wheelNotches: 0,
   pointerLockState: 'unlocked',
   keyboardFocus: undefined,
+  gamepadAxes: { leftX: 0, leftY: 0, rightX: 0, rightY: 0 },
   bindings,
 })
 
@@ -893,6 +901,16 @@ export const makeInputService = (
               return event.target === MODAL_LISTENER_TARGET
                 ? current
                 : withTouchUp(current, event.action)
+            case 'gamepadpress':
+              return event.target === MODAL_LISTENER_TARGET
+                ? current
+                : withTouchDown(current, event.action)
+            case 'gamepadrelease':
+              return event.target === MODAL_LISTENER_TARGET
+                ? current
+                : withTouchUp(current, event.action)
+            case 'gamepadtick':
+              return { ...current, gamepadAxes: event.axes }
             case 'pointerlockerror':
               // Only the lock state changes. A refused request never held the
               // pointer, so there is no delta to drop and no button to release
@@ -976,6 +994,7 @@ export const makeInputService = (
           keyboardFocus: reportsKeyboardFocus(current.pointerLockState)
             ? current.keyboardFocus
             : undefined,
+          gamepadAxes: current.gamepadAxes,
         })),
       ),
 

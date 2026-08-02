@@ -14,21 +14,21 @@ plan.md §2.3-1 の分類でいう **名詞**。「どう見えるか」の仕�
 
 | 領域 | 具体 | 状態 |
 | --- | --- | --- |
-| ポストFXチェーン | パスの確定順序、品質プリセットごとの構成、CompositePass | 順序と検証は実装済 `domain/post-processing.ts`（THREE 実体は未） |
-| マテリアル | チャンク（不透明/水/透過固体）、水面、パーティクル、`forceSinglePass` 方針 | 方針は `domain/material-policy.ts`。**ただし述語は水面を分類できない** — §2.1 |
+| ポストFXチェーン | パスの確定順序、品質プリセットごとの構成、CompositePass | 順序と検証は実装済 `domain/post-processing.ts`。THREE 実体はホスト側 `mc-compose/apps/web/post-processing.ts` が所有 |
+| マテリアル | チャンク（不透明/水/透過固体）、水面、パーティクル、`forceSinglePass` 方針 | 方針は `domain/material-policy.ts` と水面の合成判定。ShaderMaterial の生成と `forceSinglePass` の THREE 転送も実装済み。共有述語が水面を分類できない理由は §2.1 |
 | カメラ | mc-sim のスナップショットを THREE カメラへミラー、視錐台カリング | ミラーは実装済 `domain/camera-mirror.ts` |
-| パーティクル | インスタンス化パーティクルプール | **プール本体は実装済** `domain/particle-pool.ts`。容量 512 / drop-oldest / シード付き乱数、フレーム経路で無アロケーション。`InstancedMesh` への束ねは**未実装** —— THREE シームは着地したが `application/three-surface.ts` は `InstancedMesh` を**持たない**（構成子は 7 つ。§2.3） |
-| 水面 | 水マテリアル・屈折 | **方針・算術は実装済**。マテリアルは `domain/water-surface.ts`、屈折プリパスの実行判定は `domain/water-refraction.ts`。`ShaderMaterial` 実体は**未実装** —— 同上、シームは `MeshBasicMaterial` しか構成できない。**幾何（水面高さ・流向）は mc-meshing** |
+| パーティクル | インスタンス化パーティクルプール | **実装済**。`domain/particle-pool.ts` と `application/particle-system.ts` が InstancedBufferGeometry / attributes / shader binding を所有する。 |
+| 水面 | 水マテリアル・屈折 | **方針・算術・ShaderMaterial factory は実装済**。屈折プリパスの実行判定は `domain/water-refraction.ts`。アトラスの THREE 転送はホスト側アダプタの残課題。**幾何（水面高さ・流向）は mc-meshing** |
 | `WorldRenderer` | chunk ダーティ購読 → メッシュ更新 | **実装済** —— `application/world-renderer.ts` が `setChunk` / `removeChunk` / `draw` / `resize` / `setEnvironment` / `dispose` を所有し、`application/world-sync.ts` の `attachChunkStoreRenderer` が dirty 通知を直列化する。純粋側は `domain/chunk-geometry.ts` と `domain/render-environment.ts`。 |
-| ワーカープール**実装** | 地形ワーカー / メッシングワーカーのプール（Port は各所有者） | 未実装 |
-| **実行時入力サービス** | キーボード / マウス / ポインタロック / タッチ / キーリマッピング | ポート越しに実装済 `application/input-service.ts` + `window` アダプタ `application/browser-input-adapter.ts`（ゲームパッド / タッチは未） |
-| **フレーム stage 登録** | `render:input` / `render:camera-mirror` / `render:chunk-sync` / `render:draw` / `render:post-fx` | 登録位置は確定済 `stages/`。**本体は 5 本のうち 3 本が実体、2 本が FIRST CUT** —— `render:input`（`InputService` を実際に進める）/ `render:camera-mirror`（`mirroredCameraState` + ラグ計測）/ `render:draw`（`DrawPort.draw`。ブラウザでは実際に `renderer.render` が走る）は実体。`render:chunk-sync`（購読先が無いのでスクラッチ借用のみ）と `render:post-fx`（チェーンは組むが `EffectComposer` の実行が無い）は FIRST CUT |
+| ワーカープール**実装** | 地形ワーカー / メッシングワーカーのプール（Port は各所有者） | **実装済** `application/worker-pool.ts` |
+| **実行時入力サービス** | キーボード / マウス / ポインタロック / タッチ / ゲームパッド / キーリマッピング | ポート越しに実装済 `application/input-service.ts` + `window` アダプタ `application/browser-input-adapter.ts` + `application/gamepad-input-adapter.ts`。ブラウザの `GamepadList` 取得はホストの責務 |
+| **フレーム stage 登録** | `render:input` / `render:camera-mirror` / `render:chunk-sync` / `render:draw` / `render:post-fx` | 登録位置は確定済 `stages/`。5 本とも実体。`render:post-fx` はチェーンを組み、ホスト注入の `PostProcessingRenderer` が `EffectComposer` を実行する。 |
 | フレーム毎スクラッチ | 一時 `Map` の事前確保と再利用 | 実装済 `domain/frame-scratch.ts` |
 | グラフィックス品質プリセット適用 | low / medium / high / ultra | ポストFX部分のみ `domain/post-processing.ts` |
 | テクスチャアセット | アトラス画像を同梱（plan.md §5.3「独立アセットリポジトリは作らない」） | **RGBAアトラス生成とレイアウト算術は実装済**。`domain/texture-atlas.ts` が512x512画像をDOM非依存で生成する。THREEへの転送はホスト側アダプタの責務 — §2.2 |
 | ライトグリッドの**適用** | worldgen が持つ 4bit ライトグリッドを描画に反映 | **実装済** —— world adapter が sky/block light を geometry に運び、chunk shader が AO と合成する。`planRenderEnvironment` は同じ shader の日照、空色、距離フォグを決定的に同期する。 |
 
-### 2.1 `forceSinglePass` の述語は水面を分類できない（**既知の穴**）
+### 2.1 `forceSinglePass` の共有述語は水面を分類しない（設計上の境界）
 
 `domain/material-policy.ts` の規則は **`shared && transparent+DoubleSide && cutout`** である。
 水マテリアルは共有・transparent・DoubleSide だが `alphaTest` が 0（`ShaderMaterial` の既定）なので
@@ -53,7 +53,8 @@ plan.md §2.3-1 の分類でいう **名詞**。「どう見えるか」の仕�
 欠けている条項を `WATER_SURFACE_IS_FLAT` という値として置き、
 `waterForceSinglePassVerdict` で共有規則と合成した。
 アダプタは正しい答えを得て、`material-policy.ts` は自分の答えを保ち、食い違いは見えたまま残る。
-両方が `test/water-surface.test.ts` で固定してある。
+生成された水マテリアルには `forceSinglePass: true` を設定し、`test/water-surface.test.ts` と
+`test/world-renderer.test.ts` で判定と THREE 転送の両方を固定してある。
 
 **述語を広げる決定は未決。** 広げるなら `MaterialSpec` に平面性を足し、
 4 マテリアル分の判定を通し直すこと。そのとき上記テストの前半が落ちて、この節に導かれる。
@@ -97,7 +98,7 @@ water / lava / leaves / glass / cutout はパレットとアルファ値を分�
 | --- | --- |
 | パーティクルの `InstancedMesh` | シームに `InstancedMesh` が無い。**残っている** |
 | 水面の `ShaderMaterial` | シームに `ShaderMaterial` が無い。構成できるマテリアルは `MeshBasicMaterial` 1 種。**残っている** |
-| ポストFXの `EffectComposer` / 各 `Pass` | シームに無い。`render:post-fx` が FIRST CUT なのはこれが理由。**残っている** |
+| ポストFXの `EffectComposer` / 各 `Pass` | **ホスト側に実装済み**。`mc-compose/apps/web/post-processing.ts` が `RenderPass` / `GTAOPass` / `Bloom` / `Bokeh` / `SMAA` / `OutputPass` を chain 順に構築する |
 | 生成RGBAを受け取る `DataTexture` | シームに無い。§2.2。**残っている** |
 | チャンクのジオメトリ構築と描画 | **着地した**（`world-renderer.ts` / `chunk-geometry.ts`） |
 

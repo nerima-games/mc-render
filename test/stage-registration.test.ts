@@ -179,10 +179,10 @@ describe('what mc-render registers', () => {
           RENDER_STAGE_IDS.cameraMirror,
         ])
         expect(stageById(stages, RENDER_STAGE_IDS.draw).after).toStrictEqual([
-          RENDER_STAGE_IDS.chunkSync,
+          RENDER_STAGE_IDS.postFx,
         ])
         expect(stageById(stages, RENDER_STAGE_IDS.postFx).after).toStrictEqual([
-          RENDER_STAGE_IDS.draw,
+          RENDER_STAGE_IDS.chunkSync,
         ])
       }),
     ),
@@ -190,6 +190,31 @@ describe('what mc-render registers', () => {
 })
 
 describe('render:input', () => {
+  it.effect('publishes movement and jump intents through the control port', () =>
+    Effect.gen(function* () {
+      const movement = yield* Ref.make({ forward: 0, strafe: 0 })
+      const jump = yield* Ref.make(false)
+      const control = {
+        setMovementIntent: (intent: { readonly forward: number; readonly strafe: number }) =>
+          Ref.set(movement, intent),
+        setJumpIntent: (pressed: boolean) => Ref.set(jump, pressed),
+      }
+      const input = yield* InputService
+      const { stages } = yield* makeRenderStagesForPreview(undefined, undefined, control)
+
+      yield* input.dispatch({ kind: 'keydown', code: 'KeyW', target: GAMEPLAY_LISTENER_TARGET })
+      yield* input.dispatch({ kind: 'keydown', code: 'KeyD', target: GAMEPLAY_LISTENER_TARGET })
+      yield* input.dispatch({ kind: 'keydown', code: 'Space', target: GAMEPLAY_LISTENER_TARGET })
+      yield* stageById(stages, RENDER_STAGE_IDS.input).run(dt).pipe(Effect.provide(FRAME_SERVICES))
+
+      expect(yield* Ref.get(movement)).toStrictEqual({ forward: 1, strafe: 1 })
+      expect(yield* Ref.get(jump)).toBe(true)
+
+      yield* stageById(stages, RENDER_STAGE_IDS.input).run(dt).pipe(Effect.provide(FRAME_SERVICES))
+      expect(yield* Ref.get(jump)).toBe(false)
+    }).pipe(Effect.provide(InputServiceLayer())),
+  )
+
   // REGRESSION: the whole reason the stage exists. `justPressed` is an EDGE;
   // without an `endFrame` once per frame, one press of the inventory key
   // re-fires on every frame it is held.
@@ -568,6 +593,7 @@ describe('render:chunk-sync, render:draw and render:post-fx', () => {
       const port: DrawPort = {
         draw: (camera) => Ref.update(drawn, (seen) => [...seen, camera]),
         resize: () => Effect.void,
+        setPostProcessingChain: () => Effect.void,
       }
 
       yield* Effect.gen(function* () {
@@ -594,6 +620,7 @@ describe('render:chunk-sync, render:draw and render:post-fx', () => {
       const port: DrawPort = {
         draw: (camera) => Ref.update(drawn, (seen) => [...seen, camera]),
         resize: () => Effect.void,
+        setPostProcessingChain: () => Effect.void,
       }
 
       yield* Effect.gen(function* () {
@@ -664,6 +691,33 @@ describe('render:chunk-sync, render:draw and render:post-fx', () => {
         expect(before.find((entry) => entry.pass === 'composite')?.effects).toStrictEqual(['bloom'])
       }),
     ),
+  )
+
+  it.effect('forwards the selected post-FX chain to the DrawPort', () =>
+    Effect.gen(function* () {
+      const received = yield* Ref.make<ReadonlyArray<string>>([])
+      const draw: DrawPort = {
+        draw: () => Effect.void,
+        resize: () => Effect.void,
+        setPostProcessingChain: (chain) =>
+          Ref.set(received, chain.map((step) => step.pass)),
+      }
+      const { stages } = yield* makeRenderStagesForPreview(undefined, draw).pipe(
+        Effect.provide(InputServiceLayer()),
+      )
+
+      yield* stageById(stages, RENDER_STAGE_IDS.postFx)
+        .run(dt)
+        .pipe(Effect.provide(FRAME_SERVICES))
+
+      expect(yield* Ref.get(received)).toStrictEqual([
+        'render',
+        'gtao',
+        'composite',
+        'smaa',
+        'output',
+      ])
+    }),
   )
 })
 

@@ -154,6 +154,8 @@ type InputEvent =
   | { kind: 'pointerlockchange'; locked: boolean }
   | { kind: 'pointerlockerror' }
   | { kind: 'blur' }
+  | { kind: 'gamepadpress' | 'gamepadrelease'; action: InputAction; target: ListenerTarget }
+  | { kind: 'gamepadtick'; axes: GamepadAxes }
 
 type InputSnapshot = {
   readonly pressed: ReadonlySet<InputCode>       // キー + ロック中に押されたボタン
@@ -166,7 +168,29 @@ type InputSnapshot = {
   readonly wheelSteps: number                    // 整数ノッチ。ホットバーが読むのはこれ
   readonly pointerLocked: boolean                // pointerLockState === 'locked' の派生
   readonly pointerLockState: PointerLockState
+  readonly gamepadAxes: GamepadAxes
 }
+
+// domain/gamepad-input.ts
+type GamepadAxes = {
+  readonly leftX: number; readonly leftY: number
+  readonly rightX: number; readonly rightY: number
+}
+type GamepadSnapshot = {
+  readonly connected: boolean
+  readonly buttons: ReadonlyArray<{ readonly pressed: boolean; readonly value: number }>
+  readonly axes: ReadonlyArray<number>
+}
+const normalizeGamepadAxes: (axes: ReadonlyArray<number>, deadzone?: number) => GamepadAxes
+
+// application/gamepad-input-adapter.ts
+type GamepadSource = () => ReadonlyArray<GamepadSnapshot | null>
+type GamepadInputAdapter = { readonly poll: Effect<void>; readonly reset: Effect<void> }
+const makeGamepadInputAdapter: (
+  input: InputServiceApi,
+  source: GamepadSource,
+  bindings?: GamepadBindings,
+) => GamepadInputAdapter
 
 // ポインタロックの「要求」の出口。DOM 型は使わない（§2.8）
 type UiClick = { readonly button: MouseButton; readonly landing: ClickLanding }
@@ -223,8 +247,8 @@ const ESCAPE_POLICY
 | マウスボタン | `HashMap<number, boolean>` + `HashSet<number>`（:46-48）。`isMouseDown(2)` のように**番号で**読む | 名前（`MouseLeft` / `MouseMiddle` / `MouseRight`）でキーと**同じコード空間**に入れる。§2.5 |
 | クリックのエッジ | `consumeMouseClick`（:286）。**読んだら消える** | `wasButtonJustPressed`。`justPressed` と同じで `endFrame` が消す。§2.5 |
 | `contextmenu` | 無条件 `preventDefault`（:140-142） | ロック中のみ抑止。`suppressesBrowserContextMenu`。§2.6 |
-| ゲームパッド | `gamepad-input-state.ts`（152 LOC） | 未実装 |
-| タッチ / 仮想入力 | `virtual-input-state.ts`（64 LOC） | 未実装 |
+| ゲームパッド | `domain/gamepad-input.ts` + `application/gamepad-input-adapter.ts` | 実装済み。ホストが `GamepadSource` を注入し、毎フレーム `poll` する |
+| タッチ / 仮想入力 | `domain/input-bindings.ts` + `application/browser-input-adapter.ts` | 実装済み。DOM のタッチイベントを `InputEvent` に変換する |
 | スクリーンショット | `screenshot-service.ts`（50 LOC） | 未実装。**mc-render に置くか要検討**（QA API は mc-compose の責務） |
 | キーリマッピング | 参照実装では UI 側（`packages/presentation/settings`） | `remap`。**規則（Escape 不可・重複不可）をここに持つ**のが差分 |
 
@@ -1106,9 +1130,9 @@ plan.md §3.8 が参照実装の最悪の構造バグとして記録している
 | プレイヤー描画（一人称の手など） | `infrastructure/player/` | 384 | — |
 | 性能計測 HUD | `infrastructure/perf/` + `presentation/` | 698 | 開発時 |
 | レイキャスト（描画側の当たり） | `infrastructure/raycasting/` | 89 | **要検討**: voxel-DDA は mc-physics（plan.md §3.4） |
-| ワーカープール実装 | `packages/worker/infrastructure/` | ~1,100 | mc-worldgen / mc-meshing |
+| ワーカープール実装 | `src/application/worker-pool.ts` | 実装済み | mc-worldgen / mc-meshing の Port を消費 |
 | ~~`window` 入力アダプタ~~ | ~~`input-service.ts:171-205`~~ | — | **実装済。§2.9** |
-| ゲームパッド / タッチ | `gamepad-input-state.ts` / `virtual-input-state.ts` | 216 | mx-ui（モバイル） |
+| ゲームパッド / タッチ | `domain/gamepad-input.ts` / `application/gamepad-input-adapter.ts` / `application/browser-input-adapter.ts` | 実装済み | ホストがゲームパッドの読み取りと毎フレーム `poll` を担当 |
 
 `raycasting-service.ts`（89 LOC）に注意。plan.md §3.4 は
 「ブロック狙撃はレイキャストではなく voxel-DDA（参照実装で 2.3ms→0.09ms、25倍）」として

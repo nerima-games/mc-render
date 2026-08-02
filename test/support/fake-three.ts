@@ -129,6 +129,7 @@ export type FakeShaderMaterial = ThreeMaterial & {
   readonly vertexColors: true
   readonly transparent?: boolean
   readonly depthWrite?: boolean
+  readonly forceSinglePass?: boolean
   readonly disposed: () => boolean
 }
 
@@ -439,6 +440,7 @@ export const makeFakeThree = (): FakeThree => {
         vertexColors: parameters.vertexColors,
         ...(parameters.transparent === undefined ? {} : { transparent: parameters.transparent }),
         ...(parameters.depthWrite === undefined ? {} : { depthWrite: parameters.depthWrite }),
+        ...(parameters.forceSinglePass === undefined ? {} : { forceSinglePass: parameters.forceSinglePass }),
         disposed: () => disposed,
         dispose: () => {
           disposed = true

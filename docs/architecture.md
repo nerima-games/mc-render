@@ -196,8 +196,9 @@ input → simulation(physics → interactions → entities → fluids → redsto
 
 1. **`camera-mirror` は `simulation` の後**。姿勢は sim が確定させてから render がミラーする。
    逆順にすると 1 フレーム古い姿勢を描くことになり、参照実装の逆転構造が実行順序の形で復活する。
-2. **`post-fx` は `render` の後の独立段**。`domain/post-processing.ts` のチェーン順序は
-   この段の**内部**の話であって、stage 順序表とは別物である。混同しないこと。
+2. **`post-fx` は `render` の直前にチェーンを選択する独立段**。`domain/post-processing.ts` の
+   チェーン順序はこの段の**内部**の話で、選択済みの計画を `DrawPort` へ渡す。実際の
+   `EffectComposer` pass 生成・実行はブラウザ adapter の責務であり、stage 順序表とは別物である。
 
 ### 4.4 §2.3-4 プレビューは検証対象と同居
 

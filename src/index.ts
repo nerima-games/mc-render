@@ -53,6 +53,8 @@ export * from './domain/chunk-geometry'
 export * from './domain/frame-scratch'
 export * from './domain/frustum-culling'
 export * from './domain/input-bindings'
+export * from './domain/gamepad-input'
+export * from './domain/player-control'
 // `level-of-detail.ts` decides which LOD tier a chunk is drawn at, and measures
 // what that costs the picture. mc-meshing docs/responsibility.md §3.4 assigned
 // it here because it takes a DISTANCE and mc-meshing holds no coordinates; the
@@ -107,6 +109,7 @@ export * from './application/input-service'
 // why that is a narrow interface rather than `"lib": ["DOM"]`.
 export * from './application/dom-surface'
 export * from './application/browser-input-adapter'
+export * from './application/gamepad-input-adapter'
 
 // --- Application: the THREE.js adapter --------------------------------------
 // `three-surface.ts` is the whole THREE dependency, structurally — the same
