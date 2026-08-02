@@ -302,25 +302,10 @@ export const resolveClickLanding = (
  * host attached. In a browser this is the `<button>` the host drew; in a test it
  * is an object; the code that runs is the same either way.
  *
- * ---------------------------------------------------------------------------
- * Why this needed NOTHING new in `dom-surface.ts`
- * ---------------------------------------------------------------------------
- *
- * `DomInputEvent.target` already exists, already is `unknown`, and already is
- * only ever compared — it was added for `focusin` and reused for
- * `resolveClickLanding`. A tap is the third reader of the same member, so the
- * DOM surface this repository depends on is UNCHANGED by touch support: no
- * `TouchList`, no `changedTouches`, no `clientX`, and therefore nothing new for
- * the assignability proof in `test/fixtures/dom-surface.ts` to survive. That is
- * not luck. It is the consequence of resolving the ELEMENT rather than the
- * POSITION, which is possible because a control is a widget with an identity and
- * not a region with coordinates.
- *
- * `TouchEvent.target` is the element the touch STARTED on, for every event in
- * the sequence including `touchend` and `touchcancel` — it does not follow the
- * finger. So a press and its release resolve to the SAME control even if the
- * finger slid off the button first, which is the behaviour a player expects and
- * the one that cannot leave a control stuck.
+ * A touch sequence cannot rely on the event-level target for release: browsers
+ * may retarget `touchend` or `touchcancel`. The listener therefore resolves each
+ * contact from `changedTouches` on start and remembers the resulting action by
+ * touch identifier until that contact ends.
  *
  * SINGULAR, unlike `FocusGroupTargets`, which holds an array. A focus group is a
  * roving-`tabindex` set whose ORDER is the reported index; a touch control is
@@ -688,6 +673,58 @@ export const installInputListeners = (
    */
   touchControls: ReadonlyArray<TouchControlTarget> = [],
 ): InstalledInputListeners => {
+  const touchActions = new Map<number, InputAction>()
+  const touchActionCounts = new Map<InputAction, number>()
+
+  const dispatchTouchEvent = (
+    event: DomInputEvent,
+    kind: 'touchpress' | 'touchrelease',
+    target: ListenerTarget,
+  ): boolean => {
+    const changedTouches = event.changedTouches
+    if (changedTouches === undefined) {
+      return false
+    }
+
+    for (let index = 0; index < changedTouches.length; index += 1) {
+      const touch = changedTouches[index]
+      if (touch === undefined || !Number.isFinite(touch.identifier)) {
+        continue
+      }
+
+      if (kind === 'touchpress') {
+        if (touchActions.has(touch.identifier)) {
+          continue
+        }
+        const action = resolveTouchControl(touchControls, touch.target)
+        if (action === undefined) {
+          continue
+        }
+        touchActions.set(touch.identifier, action)
+        const count = touchActionCounts.get(action) ?? 0
+        touchActionCounts.set(action, count + 1)
+        if (count === 0) {
+          Effect.runSync(input.dispatch({ kind, action, target }))
+        }
+        continue
+      }
+
+      const action = touchActions.get(touch.identifier)
+      if (action === undefined) {
+        continue
+      }
+      touchActions.delete(touch.identifier)
+      const count = touchActionCounts.get(action) ?? 1
+      if (count <= 1) {
+        touchActionCounts.delete(action)
+        Effect.runSync(input.dispatch({ kind, action, target }))
+      } else {
+        touchActionCounts.set(action, count - 1)
+      }
+    }
+    return true
+  }
+
   const registrations: ReadonlyArray<ListenerRegistration> = LISTENER_PLAN.map((planned) => {
     const suppression = suppressionFor(planned.event, input)
     // Decided once, at install time, so that the per-event cost is one boolean
@@ -703,6 +740,19 @@ export const installInputListeners = (
       // under a locked canvas.
       if (suppression !== undefined && Effect.runSync(suppression)) {
         event.preventDefault()
+      }
+
+      if (
+        planned.event === 'touchstart' &&
+        dispatchTouchEvent(event, 'touchpress', planned.target)
+      ) {
+        return
+      }
+      if (
+        (planned.event === 'touchend' || planned.event === 'touchcancel') &&
+        dispatchTouchEvent(event, 'touchrelease', planned.target)
+      ) {
+        return
       }
 
       const translated = translateDomEvent(planned, event, {

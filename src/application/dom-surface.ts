@@ -155,6 +155,18 @@ export type DomInputEvent = {
    * header claims for every other member here.
    */
   readonly target?: unknown
+  /**
+   * Contacts added or removed by a touch event. Each contact keeps the target
+   * it started on, while `TouchEvent.target` may be retargeted by the browser
+   * before `touchend`/`touchcancel` reaches the window listener.
+   */
+  readonly changedTouches?: {
+    readonly length: number
+    readonly [index: number]: {
+      readonly identifier: number
+      readonly target: unknown
+    }
+  }
 }
 
 /** What `addEventListener` is given. */
