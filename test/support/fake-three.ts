@@ -66,10 +66,16 @@ import type {
   ThreeMesh,
   ThreePerspectiveCamera,
   ThreeRendererParameters,
+  ThreeInstancedBufferAttribute,
+  ThreeInstancedBufferGeometry,
   ThreeScene,
+  ThreeShaderMaterialParameters,
+  ThreeInstancedSurface,
+  ThreeShaderSurface,
   ThreeSurface,
+  ThreeUniform,
   ThreeWebGLRenderer,
-} from '../../application/three-surface'
+} from '../../src/application/three-surface'
 
 /** One `new BufferAttribute(array, itemSize, normalized)`, recorded verbatim. */
 export type RecordedAttribute = {
@@ -79,8 +85,16 @@ export type RecordedAttribute = {
 }
 
 export type FakeGeometry = ThreeBufferGeometry & {
-  /** Attributes by name, in the order `setAttribute` was called. */
-  readonly attributes: Map<string, RecordedAttribute>
+  /**
+   * Attributes by name, in the order `setAttribute` was called.
+   *
+   * The value is a UNION because the instanced geometry below is a
+   * `FakeGeometry` too, and `Map` is invariant in its value — a narrower map
+   * here would make `FakeInstancedGeometry` fail to be a subtype, and the
+   * `Mesh` constructor would then need a second overload for no reason three
+   * has one.
+   */
+  readonly attributes: Map<string, RecordedAttribute | FakeInstancedAttribute>
   readonly index: () => RecordedAttribute | undefined
   readonly boundingSphereComputations: () => number
   readonly disposed: () => boolean
@@ -92,9 +106,44 @@ export type FakeMaterial = ThreeMaterial & {
   readonly disposed: () => boolean
 }
 
+/**
+ * A `ShaderMaterial`, recorded with the source it was handed.
+ *
+ * SEPARATE FROM `FakeMaterial` for the same reason `ThreeShaderSurface` takes a
+ * fourth type parameter rather than reusing the third: they are not the same
+ * material. Collapsing them here would let a test pass that the type system is
+ * specifically arranged to reject — see `application/three-surface.ts`'s header
+ * on the first cut that obliged `MeshBasicMaterial` to return a
+ * `ShaderMaterial`.
+ *
+ * The uniform record is held BY REFERENCE, which is what lets a test assert the
+ * property the boxes exist for: writing `uniforms.uSunIntensity.value` after
+ * construction is visible through the material without a rebuild.
+ */
+export type FakeShaderMaterial = ThreeMaterial & {
+  readonly vertexShader: string
+  readonly fragmentShader: string
+  readonly uniforms: Record<string, ThreeUniform>
+  readonly vertexColors: true
+  readonly disposed: () => boolean
+}
+
+/**
+ * One `new InstancedBufferAttribute(array, itemSize)`, holding the array BY
+ * REFERENCE so a test can prove the pool's buffer is the uploaded one.
+ */
+export type FakeInstancedAttribute = ThreeInstancedBufferAttribute & {
+  readonly array: Float32Array
+  readonly itemSize: number
+}
+
+export type FakeInstancedGeometry = FakeGeometry & ThreeInstancedBufferGeometry
+
 export type FakeMesh = ThreeMesh & {
   readonly geometry: FakeGeometry
-  readonly material: FakeMaterial
+  readonly material: FakeMaterial | FakeShaderMaterial
+  readonly positions: () => ReadonlyArray<readonly [number, number, number]>
+  readonly position: { readonly set: (x: number, y: number, z: number) => void }
 }
 
 /** One `camera.position.set` / `camera.rotation.set`, recorded verbatim. */
@@ -127,11 +176,20 @@ export type FakeScene = ThreeScene & {
 /** The host's canvas, reduced to nothing. The renderer only hands it back. */
 export type FakeCanvas = { readonly id: string }
 
-export type FakeThree = ThreeSurface<FakeCanvas, FakeGeometry, FakeMaterial> & {
+export type FakeThree = ThreeSurface<FakeCanvas, FakeGeometry, FakeMaterial> &
+  ThreeShaderSurface<FakeCanvas, FakeGeometry, FakeMaterial, FakeShaderMaterial> &
+  ThreeInstancedSurface<FakeCanvas, FakeGeometry, FakeMaterial, FakeInstancedGeometry> & {
+  readonly Mesh: new (
+    geometry: FakeGeometry,
+    material: FakeMaterial | FakeShaderMaterial,
+  ) => FakeMesh
   readonly renderers: () => ReadonlyArray<FakeRenderer>
   readonly scenes: () => ReadonlyArray<FakeScene>
   readonly cameras: () => ReadonlyArray<FakeCamera>
   readonly materials: () => ReadonlyArray<FakeMaterial>
+  readonly shaderMaterials: () => ReadonlyArray<FakeShaderMaterial>
+  readonly instancedGeometries: () => ReadonlyArray<FakeInstancedGeometry>
+  readonly instancedAttributes: () => ReadonlyArray<FakeInstancedAttribute>
   readonly geometries: () => ReadonlyArray<FakeGeometry>
   readonly meshes: () => ReadonlyArray<FakeMesh>
   /** The one renderer / scene / camera, for the common case of exactly one. */
@@ -153,6 +211,9 @@ export const makeFakeThree = (): FakeThree => {
   const scenes: Array<FakeScene> = []
   const cameras: Array<FakeCamera> = []
   const materials: Array<FakeMaterial> = []
+  const shaderMaterials: Array<FakeShaderMaterial> = []
+  const instancedGeometries: Array<FakeInstancedGeometry> = []
+  const instancedAttributes: Array<FakeInstancedAttribute> = []
   const geometries: Array<FakeGeometry> = []
   const meshes: Array<FakeMesh> = []
 
@@ -303,13 +364,90 @@ export const makeFakeThree = (): FakeThree => {
     readonly wireframe: boolean
   }) => FakeMaterial
 
+  const InstancedBufferAttribute = class {
+    constructor(array: Float32Array, itemSize: number) {
+      const self: FakeInstancedAttribute = {
+        // The POOL'S array by reference, not a copy — the aliasing that
+        // `application/particle-system.ts`'s header defends. A fake that copied
+        // would make the one property worth testing untestable.
+        array,
+        itemSize,
+        needsUpdate: false,
+      }
+      instancedAttributes.push(self)
+      return self
+    }
+  } as unknown as new (array: Float32Array, itemSize: number) => ThreeInstancedBufferAttribute
+
+  const InstancedBufferGeometry = class {
+    constructor() {
+      const attributes = new Map<string, RecordedAttribute | FakeInstancedAttribute>()
+      let index: RecordedAttribute | undefined
+      let disposed = false
+      const self: FakeInstancedGeometry = {
+        instanceCount: 0,
+        attributes,
+        index: () => index,
+        boundingSphereComputations: () => 0,
+        disposed: () => disposed,
+        setAttribute: (name: string, attribute: unknown) => {
+          attributes.set(name, attribute as RecordedAttribute)
+        },
+        setIndex: (attribute: unknown) => {
+          index = (attribute ?? undefined) as RecordedAttribute | undefined
+        },
+        computeBoundingSphere: () => {},
+        dispose: () => {
+          disposed = true
+        },
+      }
+      instancedGeometries.push(self)
+      return self
+    }
+  } as unknown as new () => FakeInstancedGeometry
+
+  const ShaderMaterial = class {
+    constructor(parameters: ThreeShaderMaterialParameters) {
+      let disposed = false
+      const self: FakeShaderMaterial = {
+        vertexShader: parameters.vertexShader,
+        fragmentShader: parameters.fragmentShader,
+        // The SAME object, not a copy. A copy would make the uniform boxes
+        // untestable — the whole reason they are boxes is that a host mutates
+        // `.value` and every sharer sees it.
+        uniforms: parameters.uniforms,
+        vertexColors: parameters.vertexColors,
+        disposed: () => disposed,
+        dispose: () => {
+          disposed = true
+        },
+      }
+      shaderMaterials.push(self)
+      return self
+    }
+  } as unknown as new (parameters: ThreeShaderMaterialParameters) => FakeShaderMaterial
+
   const Mesh = class {
-    constructor(geometry: FakeGeometry, material: FakeMaterial) {
-      const self: FakeMesh = { frustumCulled: true, geometry, material }
+    constructor(geometry: FakeGeometry, material: FakeMaterial | FakeShaderMaterial) {
+      const positions: Array<readonly [number, number, number]> = []
+      const self: FakeMesh = {
+        frustumCulled: true,
+        geometry,
+        material,
+        positions: () => positions,
+        position: { set: (x, y, z) => positions.push([x, y, z]) },
+      }
       meshes.push(self)
       return self
     }
-  } as unknown as new (geometry: FakeGeometry, material: FakeMaterial) => ThreeMesh
+    // Accepts EITHER material, mirroring `ThreeShaderSurface`'s widened `Mesh`.
+    // The real `THREE.Mesh` takes any `Material`; narrowing the fake to one of
+    // them would make the shader path untestable here for a reason three does
+    // not have.
+  } as unknown as new (
+    geometry: FakeGeometry,
+    material: FakeMaterial | FakeShaderMaterial,
+  ) => FakeMesh
 
   return {
     WebGLRenderer,
@@ -319,10 +457,16 @@ export const makeFakeThree = (): FakeThree => {
     BufferAttribute,
     Mesh,
     MeshBasicMaterial,
+    ShaderMaterial,
+    InstancedBufferGeometry,
+    InstancedBufferAttribute,
     renderers: () => renderers,
     scenes: () => scenes,
     cameras: () => cameras,
     materials: () => materials,
+    shaderMaterials: () => shaderMaterials,
+    instancedGeometries: () => instancedGeometries,
+    instancedAttributes: () => instancedAttributes,
     geometries: () => geometries,
     meshes: () => meshes,
     renderer: () => theOnly('renderer', renderers),

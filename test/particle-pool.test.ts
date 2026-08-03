@@ -16,7 +16,7 @@
  */
 import { describe, expect, it } from '@effect/vitest'
 import { Effect } from 'effect'
-import { requiresForceSinglePass } from '../domain/material-policy'
+import { requiresForceSinglePass } from '../src/domain/material-policy'
 import {
   advanceParticles,
   clearParticles,
@@ -42,8 +42,8 @@ import {
   spawnBlockBurst,
   spawnBurst,
   type ParticlePool,
-} from '../domain/particle-pool'
-import { TILE_UV_SPAN, tileUvOrigin } from '../domain/texture-atlas'
+} from '../src/domain/particle-pool'
+import { TILE_UV_SPAN, tileUvOrigin } from '../src/domain/texture-atlas'
 
 /** Every live slot's remaining lifetime, ascending. Oldest first. */
 const remainingLifetimes = (pool: ParticlePool): ReadonlyArray<number> => {

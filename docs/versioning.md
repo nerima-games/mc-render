@@ -6,7 +6,7 @@
 | --- | --- |
 | `version` | `0.1.0` |
 | 公開状態 | **未公開**。GitHub Packages にも上げていない |
-| `main` / `types` / `exports` | **TypeScript ソースを直接指す**（`./index.ts`）。ビルド成果物ではない |
+| `main` / `types` / `exports` | **TypeScript ソースを直接指す**（`./src/index.ts`）。ビルド成果物ではない |
 | ビルドパイプライン | **無い**。全 tsconfig が `noEmit: true` の検査専用 |
 | `dependencies` | `effect` のみ |
 
@@ -39,10 +39,11 @@ mc-sim が `1.0.0` を出せるのは、以下がすべて満たされたとき�
 1. **[testing.md](./testing.md) §2 の完了条件を満たしている。**
    テスト green **かつ**内蔵 fixture ビューアが操作可能。
    ビューアには THREE.js アダプタが要るので、これが最大の関門である。
-2. **APIロックファイルが 4 週間変更されていない**（plan.md §6 Step 3）。
-   ツール選定（plan.md §9 の未決事項「api-extractor 相当の Effect-TS 互換手段」）は決着し、
-   `api-lock.md` / `scripts/api-lock.ts` / `pnpm api:check` として実装済み
-   （[public-api.md](./public-api.md) §8）。**計測の起点は `api-lock.md` が最後に変わったコミット。**
+2. **maintainer(take)が昇格させてよいと裁量判断する**（[RELEASE_STANDARD.md §4.2](https://github.com/nerima-games/.github/blob/main/RELEASE_STANDARD.md#42-新しい昇格ポリシー人間による裁量判断)）。
+   旧・日数計測ベースの自動ゲート（「APIロックファイルが4週間変更されていない」）は org 全体で
+   廃止された（[API_STANDARD.md §4](https://github.com/nerima-games/.github/blob/main/API_STANDARD.md)）。
+   代替の定量基準は導入しない。判断材料は上位階層（`mc-playground-kit` / `mc-compose`）が
+   実際に消費し動作確認したかどうかなど、都度異なってよい。
 3. **mc-playground-kit が実際に消費して契約を確認している。**
    使われていない界面に「壊さない」と約束しても意味がない。
 4. **[public-api.md](./public-api.md) §7 の未設計 API が埋まっている。**
@@ -66,7 +67,7 @@ mc-worldgen の ChunkStore.subscribeDirty（決定済み）
     → THREE.js アダプタが完成する
       → 内蔵 fixture ビューアが動く
         → 完了条件を満たす
-          → APIロック 4 週間
+          → maintainer の裁量判断
             → 1.0.0
 ```
 
@@ -85,7 +86,7 @@ mc-worldgen / mc-meshing が publish される（または vite alias に入る�
   → ワールドデータが mc-render に届く
     → 内蔵 fixture ビューアが動く / ライトグリッドの適用が書ける
       → 完了条件を満たす
-        → APIロック 4 週間
+        → maintainer の裁量判断
           → 1.0.0
 ```
 
@@ -221,11 +222,10 @@ kernel の語彙を取ると真実の出所が 2 つになり、上記の削除�
 
 `.gitignore` は既に `dist/` `build/` `out/` を無視するようにしてある。
 
-**APIロックの diff チェックはこの表から外れた。** 完了条件を待たずに済ませてあり、
-`pnpm api:check` が `pnpm verify` の `check:deps` と `test` の間で、また CI の
-`API lock` ステップとして走る（[public-api.md](./public-api.md) §8）。
-採用した生成器は declaration emit をメモリ上で走らせるので、上の「ビルド」行が
-埋まるのを待つ必要が無かった。
+**APIロック機構（`api-lock.md` / `scripts/api-lock.ts` / `pnpm api:check`）は org 全体で
+廃止された**（[API_STANDARD.md §4](https://github.com/nerima-games/.github/blob/main/API_STANDARD.md)）。
+公開面のレビューは PR 差分そのもので行い、日数計測ベースの自動ゲートには戻さない。
+`public-api.md` §8 の記述はこの廃止に合わせて更新が必要な既知の追従作業として残っている。
 
 **mc-render 固有の追加項目**: テクスチャアセットの同梱（plan.md §5.3
 「アセットは消費者に同梱（テクスチャ→render、音声→audio）」）。
@@ -239,7 +239,8 @@ kernel の語彙を取ると真実の出所が 2 つになり、上記の削除�
 | `effect` | `^3.20.0` | 16 リポジトリで**同一メジャーに揃える**。Context / Layer の型が跨るため、メジャーが混ざると合成できない |
 | `@nerima-games/*` | 未宣言 | publish 後は**厳密ピン**（`0.3.1` のように範囲なし）。plan.md の bottom-up publish-then-pin |
 | `three` / `@types/three` | `^0.170.0`（**devDependencies**） | §5。出荷ソースは import しない。**両者のバージョンを一致させる**（`test/three-surface.test.ts` が固定） |
-| `typescript` / `vitest` / `oxlint` | `^` 付き | ツールチェーンは揃えるが厳密ピンはしない |
+| `typescript` / `vitest` | `^` 付き | ツールチェーンは揃えるが厳密ピンはしない |
+| `oxlint` | **package.json devDependency ではない** | `flake.nix` の devShell が `pkgs.oxlint`（nixpkgs 追従）を入れる。16 リポジトリが各自 npm 解決で drift するのを防ぐため、Nix 側で一本化した単一ソース |
 | `packageManager` | `pnpm@9.15.0` | 16 リポジトリで同一 |
 
 `engines.node` は `>=22.0.0`。`flake.nix` の devShell が `nodejs_22` を入れる。

@@ -107,7 +107,7 @@
  * names that as a dependency rather than a side-quest. A particle quad is a
  * single unit face, so it has none of the merged-repeat problem above.
  */
-import type { FaceRole } from './chunk-geometry'
+import type { FaceRole, QuadTile } from './chunk-geometry'
 
 /** The three tiles a block shows: one per texturing role. */
 export type TileAssignment = Readonly<Record<FaceRole, number>>
@@ -302,6 +302,37 @@ export const tileIndexResolver =
   (blockNameOf: BlockNameLookup) =>
   (blockId: number, role: FaceRole): number =>
     tileIndexForBlockName(blockNameOf(blockId), role)
+
+/**
+ * The resolver as `buildChunkGeometry` wants it: a function of the whole quad.
+ *
+ * The adapter is three lines and exists so the two `MeshQuad` fields that decide
+ * a tile are named ONCE. `blockId` and `role` are the pair, and the second is
+ * the one a caller writing this inline would drop — `role` is what makes a grass
+ * block green on top, brown underneath and banded on the side, and a
+ * `(quad) => resolve(quad.blockId, 'side')` renders a plausible world with flat
+ * grass. That is the failure this repository's §8 lesson 2 already has one
+ * instance of: a wrong tile table looks like an art mistake, not a code one.
+ *
+ * IT LIVES HERE AND NOT IN `./chunk-geometry.ts` because the import already runs
+ * this direction — that file owns `FaceRole` and `QuadTile`, this one owns the
+ * table. Putting the adapter beside the table keeps the arrow single; putting it
+ * beside the type would make it a cycle.
+ */
+export const quadTileFromResolver =
+  (resolve: (blockId: number, role: FaceRole) => number): QuadTile =>
+  (quad) =>
+    resolve(quad.blockId, quad.role)
+
+/**
+ * The whole binding in one call: a host's `id -> name` becomes a `QuadTile`.
+ *
+ * What a textured host actually passes to `buildChunkGeometry`. The two-step
+ * spelling stays exported because the intermediate resolver is also what
+ * `./particle-pool.ts` will want — a particle has a `blockId` and no quad.
+ */
+export const quadTileForLookup = (blockNameOf: BlockNameLookup): QuadTile =>
+  quadTileFromResolver(tileIndexResolver(blockNameOf))
 
 /**
  * Every distinct tile index the table names.

@@ -79,6 +79,7 @@
     // `package.json#exports` points at TypeScript source. The emitting
     // build/publish pipeline is added when this repo reaches completion.
     "noEmit": true,
+    "baseUrl": "."
 
   }
 }

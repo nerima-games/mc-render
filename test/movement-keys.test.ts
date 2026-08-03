@@ -53,8 +53,8 @@ import {
   defaultBindings,
   GAMEPLAY_LISTENER_TARGET,
   type KeyCode,
-} from '../domain/input-bindings'
-import { makeInputService, type InputEvent } from '../application/input-service'
+} from '../src/domain/input-bindings'
+import { makeInputService, type InputEvent } from '../src/application/input-service'
 
 const SPRINT_KEY: KeyCode = 'ControlLeft'
 const JUMP_KEY: KeyCode = 'Space'

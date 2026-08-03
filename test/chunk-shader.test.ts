@@ -23,15 +23,15 @@ import {
   chunkShaderSource,
   chunkVertexShader,
   glslFloat,
-} from '../domain/chunk-shader'
+} from '../src/domain/chunk-shader'
 import {
   AO_SHADE_FLOOR,
   AO_SHADE_RANGE,
   FACE_BRIGHTNESS,
   LIGHT_SHADE_FLOOR,
   LIGHT_SHADE_RANGE,
-} from '../domain/voxel-lighting'
-import { ATLAS_COLUMNS, HALF_TEXEL_UV, TILE_UV_SPAN, uvPatchStaysInsideTile } from '../domain/texture-atlas'
+} from '../src/domain/voxel-lighting'
+import { ATLAS_COLUMNS, HALF_TEXEL_UV, TILE_UV_SPAN, uvPatchStaysInsideTile } from '../src/domain/texture-atlas'
 
 describe('glslFloat', () => {
   it.effect('REGRESSION: always emits a decimal point, because GLSL `1` is an int', () =>

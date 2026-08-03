@@ -173,11 +173,30 @@ export type RenderFrameState = {
  */
 export const makeRenderFrameState = (
   quality: GraphicsQuality = QUALITY_PRESETS.high,
+  /**
+   * Where the camera starts.
+   *
+   * A PARAMETER RATHER THAN THE CONSTANT, and the reason is the constant's own
+   * header: `UNSET_CAMERA_POSE` is the origin because "visibly wrong is better
+   * than plausibly wrong", and it is visibly wrong precisely when there is a
+   * world — the origin is at y=0, and a generated surface is nowhere near it,
+   * so the camera spawns inside solid rock and every frame renders the sky.
+   * That is what it is for, and it is also useless to a host that has a world
+   * and knows where its surface is.
+   *
+   * IT IS NOT A SPAWN POINT AND MUST NOT BECOME ONE. Choosing where a player
+   * appears is a rule, and rules are mc-sim's — the field it seeds is the one
+   * whose own comment says "FIRST CUT: written by whoever drives the frame.
+   * When mc-sim is published this is read from `PlayerService.cameraPose`". So
+   * this parameter exists to be REMOVED on that day, and the default keeps
+   * every existing caller and every preview exactly where it was.
+   */
+  initialPose: CameraPoseSnapshot = UNSET_CAMERA_POSE,
 ): Effect.Effect<RenderFrameState> =>
   Effect.gen(function* () {
-    const authoritativePose = yield* Ref.make(UNSET_CAMERA_POSE)
+    const authoritativePose = yield* Ref.make(initialPose)
     const viewOffset = yield* Ref.make(NO_VIEW_OFFSET)
-    const mirroredCamera = yield* Ref.make(mirroredCameraState(UNSET_CAMERA_POSE))
+    const mirroredCamera = yield* Ref.make(mirroredCameraState(initialPose))
     const lag = yield* Ref.make(0)
     const input = yield* Ref.make<InputSnapshot>({
       pressed: new Set<string>(),
@@ -445,11 +464,20 @@ export const renderModule = (
    * host owns what there is to draw ON.
    */
   draw: DrawPort = NO_DRAW_TARGET,
+  /**
+   * Where the camera starts. See `makeRenderFrameState`.
+   *
+   * The FOURTH thing a host supplies, after the clock, the input targets and
+   * the draw target — and, like the other three, a value rather than a branch.
+   * A host with no world leaves it at the origin, which is what every Node
+   * consumer and every preview does.
+   */
+  initialPose: CameraPoseSnapshot = UNSET_CAMERA_POSE,
 ): GameModule<InputService, never, never, InputService> => ({
   layers: InputServiceLayer(defaultBindings(), pointerLock),
   frameStages: Effect.gen(function* () {
     const input = yield* InputService
-    const state = yield* makeRenderFrameState(quality)
+    const state = yield* makeRenderFrameState(quality, initialPose)
     return renderStages(state, input, draw)
   }),
 })

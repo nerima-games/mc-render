@@ -40,7 +40,7 @@ import {
   type FrameServices,
   type GameModule,
   type StageRegistration,
-} from '../domain/kernel-vocabulary'
+} from '../src/domain/kernel-vocabulary'
 
 describe('the mirrored brands are kernel’s brands', () => {
   // REGRESSION: kernel (mc-kernel/domain/quantities.ts:37-42) refines

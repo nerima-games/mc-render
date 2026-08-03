@@ -20,8 +20,8 @@ import {
   faceNormal,
   type FaceDirection,
   type MeshQuad,
-} from '../domain/chunk-geometry'
-import { LIGHT_LEVEL_MAX } from '../domain/kernel-vocabulary'
+} from '../src/domain/chunk-geometry'
+import { LIGHT_LEVEL_MAX } from '../src/domain/kernel-vocabulary'
 import {
   AO_SHADE_FLOOR,
   AO_SHADE_RANGE,
@@ -42,7 +42,7 @@ import {
   litShade,
   type LightSampler,
   type SkyBlockLight,
-} from '../domain/voxel-lighting'
+} from '../src/domain/voxel-lighting'
 
 const FACE_DIRECTIONS: ReadonlyArray<FaceDirection> = ['xPos', 'xNeg', 'yPos', 'yNeg', 'zPos', 'zNeg']
 

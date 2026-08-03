@@ -21,7 +21,7 @@ import {
   snapshotScratch,
   withScratch,
   type ScratchMap,
-} from '../domain/frame-scratch'
+} from '../src/domain/frame-scratch'
 
 describe('reuse', () => {
   it.effect('the SAME Map object serves every frame — no allocation per frame', () =>

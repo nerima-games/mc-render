@@ -25,7 +25,7 @@ import {
   tileUvBounds,
   tileUvOrigin,
   uvPatchStaysInsideTile,
-} from '../domain/texture-atlas'
+} from '../src/domain/texture-atlas'
 
 describe('the atlas layout constants', () => {
   it.effect('are the reference values, asserted as literals', () =>

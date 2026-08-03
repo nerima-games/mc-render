@@ -147,6 +147,17 @@ export const POSITION_COMPONENTS = 3
 export const NORMAL_COMPONENTS = 3
 export const COLOR_COMPONENTS = 3
 export const UV_COMPONENTS = 2
+/**
+ * One `float` per vertex, because `./chunk-shader.ts` declares
+ * `attribute float tileIndex` and a `vec` would not link against it.
+ *
+ * A whole number in a `Float32Array` and not a `Uint16Array`, which is the
+ * shader's constraint rather than a preference: GLSL ES 1.00 has no integer
+ * attributes, so the value crosses as a float and the fragment stage rounds it
+ * back with `floor(vTileIndex + 0.5)`. Float32 carries every integer up to
+ * 2^24 exactly, and the atlas has 256 tiles.
+ */
+export const TILE_INDEX_COMPONENTS = 1
 
 /**
  * How dark each AO level draws, as an 8-bit vertex-colour channel.
@@ -369,6 +380,25 @@ export type ChunkGeometryBuffers = {
   readonly colors: Uint8Array
   /** Local block-tile coordinates, not atlas coordinates. See `quadUvExtent`. */
   readonly uvs: Float32Array
+  /**
+   * Which atlas tile each vertex draws, repeated for all four of a quad's.
+   *
+   * PRESENT UNCONDITIONALLY, including on the path that will never sample an
+   * atlas, and that is the same argument `QuadColor` above makes for its three
+   * channels: the layout is identical either way, so one builder serves both
+   * without a `textured: boolean` threaded through every caller.
+   *
+   * IT IS ALSO THE ATTRIBUTE WHOSE ABSENCE COULD NOT HAVE BEEN SEEN. Before it
+   * existed, `./chunk-shader.ts` declared `attribute float tileIndex` and this
+   * builder emitted four arrays; both files' suites were green, because each
+   * fixed its own half and nothing compared them. An unbound GL attribute reads
+   * as 0, so the whole world would have sampled tile 0 — a real texture on every
+   * surface, which is `docs/`'s recorded worst case: it looks like a mistake in
+   * the atlas rather than a missing buffer. `test/chunk-shader-geometry.test.ts`
+   * is now the comparison, and it reads the attribute names from
+   * `chunkShaderSource()` rather than restating them.
+   */
+  readonly tileIndices: Float32Array
   /** Two triangles per quad: `(0,1,2)` and `(0,2,3)`. */
   readonly indices: Uint32Array
   readonly quadCount: number
@@ -382,6 +412,7 @@ const EMPTY_BUFFERS: ChunkGeometryBuffers = {
   normals: new Float32Array(0),
   colors: new Uint8Array(0),
   uvs: new Float32Array(0),
+  tileIndices: new Float32Array(0),
   indices: new Uint32Array(0),
   quadCount: 0,
   vertexCount: 0,
@@ -450,6 +481,42 @@ export const AO_ONLY_SHADE: QuadShade = (quad) => aoShade(quad.ao)
 export const AO_ONLY_COLOR: QuadColor = greyQuadColor(AO_ONLY_SHADE)
 
 /**
+ * Which atlas tile a quad draws.
+ *
+ * THE FOURTH INJECTED PREDICATE, and injected for a sharper reason than the
+ * others. `QuadColor` could in principle have been computed here; this one
+ * cannot be, because the answer needs `blockId -> name` and the names are
+ * mc-kernel's closed 120-literal union. `./block-texture-map.ts`'s
+ * `BlockNameLookup` header records why this repository declines to mirror it —
+ * the organisation has already paid once for a PARTIAL mirror of a closed union
+ * (mc-sim's `ITEM_TYPES` at 23 of 97, invisible until `check:repoint`).
+ *
+ * So the shape is forced: the host owns the vocabulary and answers a question.
+ * `tileIndexResolver` in `./block-texture-map.ts` is the binding, and
+ * `quadTileFromResolver` there is the adapter into this type — it lives in that
+ * file and not this one because the dependency runs that way already
+ * (`block-texture-map.ts` imports `FaceRole` from here) and the reverse would
+ * close a cycle.
+ */
+export type QuadTile = (quad: MeshQuad) => number
+
+/**
+ * The default: every quad draws tile 0.
+ *
+ * NAMED FOR WHAT IT IS RATHER THAN SPELLED `() => 0`, because the two readings
+ * of a zero here are not the same claim and one of them is a bug. This is "no
+ * atlas is bound, and the unlit path does not sample one" — honest, and what
+ * every existing caller and preview is in. The other reading is "the tile
+ * lookup ran and found nothing", which is `MISSING_TILE` in
+ * `./block-texture-map.ts` and happens to be the same number.
+ *
+ * A host on the textured path that forgets to pass a resolver therefore gets a
+ * uniform world rather than a plausible-looking wrong one, and `UNTEXTURED_TILE`
+ * is greppable in a way `0` is not.
+ */
+export const UNTEXTURED_TILE: QuadTile = () => 0
+
+/**
  * Build the vertex buffers for one chunk's worth of quads.
  *
  * `originX`/`originZ` are the chunk's world-space corner; mc-meshing emits
@@ -480,6 +547,7 @@ export const buildChunkGeometry = (
   originX = 0,
   originZ = 0,
   color: QuadColor = AO_ONLY_COLOR,
+  tile: QuadTile = UNTEXTURED_TILE,
 ): ChunkGeometryBuffers => {
   const quadCount = quads.length
   if (quadCount === 0) {
@@ -493,6 +561,7 @@ export const buildChunkGeometry = (
   const normals = new Float32Array(vertexCount * NORMAL_COMPONENTS)
   const colors = new Uint8Array(vertexCount * COLOR_COMPONENTS)
   const uvs = new Float32Array(vertexCount * UV_COMPONENTS)
+  const tileIndices = new Float32Array(vertexCount * TILE_INDEX_COMPONENTS)
   const indices = new Uint32Array(indexCount)
 
   for (let quadIndex = 0; quadIndex < quadCount; quadIndex += 1) {
@@ -510,10 +579,14 @@ export const buildChunkGeometry = (
     // times and quietly quadruples the cost of a re-mesh.
     const [red, green, blue] = color(quad)
     const [uExtent, vExtent] = quadUvExtent(quad)
+    // Once per quad for the same reason `color` is: the tile joins the merge
+    // key upstream, so every cell this quad covers already agreed on it.
+    const tileIndex = tile(quad)
 
     const base = quadIndex * VERTICES_PER_QUAD
     const positionOffset = base * POSITION_COMPONENTS
     const uvOffset = base * UV_COMPONENTS
+    const tileOffset = base * TILE_INDEX_COMPONENTS
 
     // `for...of` and not an index loop: `QuadCorners` is a fixed four-tuple, and
     // under `noUncheckedIndexedAccess` a numeric index into one reads as
@@ -522,6 +595,7 @@ export const buildChunkGeometry = (
     let corner = 0
     for (const vertex of corners) {
       const at = positionOffset + corner * POSITION_COMPONENTS
+      const tileAt = tileOffset + corner * TILE_INDEX_COMPONENTS
       corner += 1
 
       positions[at] = vertex[0]
@@ -538,6 +612,10 @@ export const buildChunkGeometry = (
       colors[at] = red
       colors[at + 1] = green
       colors[at + 2] = blue
+
+      // The same tile four times. A quad is one block face; the per-vertex
+      // repetition is what an attribute is, not a claim that corners differ.
+      tileIndices[tileAt] = tileIndex
     }
 
     // `(0,0), (0,v), (u,v), (u,0)` — the reference's order at
@@ -561,7 +639,7 @@ export const buildChunkGeometry = (
     indices[indexOffset + 5] = base + 3
   }
 
-  return { positions, normals, colors, uvs, indices, quadCount, vertexCount, indexCount }
+  return { positions, normals, colors, uvs, tileIndices, indices, quadCount, vertexCount, indexCount }
 }
 
 /**

@@ -8,12 +8,10 @@
     "types": ["node"]
   },
   "include": [
-    "index.ts",
-    "domain/**/*.ts",
-    "application/**/*.ts",
-    "stages/**/*.ts",
+    "src/**/*.ts",
     "test/**/*.ts",
     "scripts/**/*.ts",
+    "apps/**/*.ts",
     "vitest.config.ts"
   ],
   // `test/fixtures/**` names DOM types deliberately and is compiled by a test

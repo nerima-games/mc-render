@@ -30,8 +30,8 @@
  * `pnpm check:deps`.
  */
 import * as THREE from 'three'
-import { makeWorldRenderer } from '../../application/world-renderer'
-import { chunkShaderSource } from '../../domain/chunk-shader'
+import { makeChunkShaderMaterial, makeWaterMaterial, makeWorldRenderer } from '../../src/application/world-renderer'
+import { chunkShaderSource } from '../../src/domain/chunk-shader'
 import type {
   ThreeBufferAttribute,
   ThreeBufferGeometry,
@@ -39,10 +39,11 @@ import type {
   ThreeMesh,
   ThreePerspectiveCamera,
   ThreeScene,
+  ThreeInstancedSurface,
   ThreeShaderSurface,
   ThreeSurface,
   ThreeWebGLRenderer,
-} from '../../application/three-surface'
+} from '../../src/application/three-surface'
 
 /**
  * THE WHOLE CLAIM, IN ONE LINE.
@@ -227,3 +228,80 @@ export const hostBuildsTheChunkMaterial: THREE.ShaderMaterial = new THREE.Shader
   uniforms: { uSunIntensity: { value: 1 }, uAtlas: { value: null } },
   vertexColors: true,
 })
+
+/**
+ * `makeChunkShaderMaterial` against the real namespace, rather than by hand.
+ *
+ * The line above spells the constructor out; this one goes through the function
+ * a host would actually call. Both are here because they check different
+ * things — that one checks the SHAPE `chunkShaderSource()` returns, this one
+ * checks that `makeChunkShaderMaterial`'s four type parameters are inferable
+ * from a real namespace, which is the property that decides whether a host has
+ * to write them out.
+ */
+export const hostBuildsTheChunkMaterialViaTheSeam = makeChunkShaderMaterial<
+  HTMLCanvasElement,
+  THREE.BufferGeometry,
+  THREE.MeshBasicMaterial,
+  THREE.ShaderMaterial
+>(THREE, new THREE.Texture())
+
+/**
+ * THE TEXTURED PATH, END TO END, AS A HOST SPELLS IT.
+ *
+ * FOUR TYPE ARGUMENTS where `hostBuildsARenderer` above needs three, and the
+ * fourth is the whole point of the material factory: `TUsedMaterial` is
+ * `ShaderMaterial` here and `MeshBasicMaterial` there, from the same namespace
+ * and the same function.
+ *
+ * This line is what makes "a host can select the packed-light path" a checked
+ * claim rather than a documented intention. Before the factory existed,
+ * `makeWorldRenderer` constructed a `MeshBasicMaterial` unconditionally and
+ * this call could not be written at all — `application/three-surface.ts`'s
+ * header said so in a NOTE, and this is that note discharged.
+ */
+export const hostBuildsATexturedRenderer = makeWorldRenderer<
+  HTMLCanvasElement,
+  THREE.BufferGeometry,
+  THREE.MeshBasicMaterial,
+  THREE.ShaderMaterial
+>(THREE, browserCanvas, { width: 1280, height: 720 }, {
+  material: () => hostBuildsTheChunkMaterialViaTheSeam.material,
+})
+
+/**
+ * The water material, against the real namespace.
+ *
+ * The second shader in the repository, and the check it adds over the chunk
+ * one is that `domain/water-shader.ts`'s uniform record — which holds a `null`,
+ * an array and four numbers — satisfies three's `{ [uniform: string]: IUniform }`.
+ * `ThreeUniform.value` is `unknown` on our side precisely so this seam never
+ * enumerates three's accepted types, and this line is what confirms the
+ * looseness is assignable rather than merely convenient.
+ */
+export const hostBuildsTheWaterMaterial = makeWaterMaterial<
+  HTMLCanvasElement,
+  THREE.BufferGeometry,
+  THREE.MeshBasicMaterial,
+  THREE.ShaderMaterial
+>(THREE, { width: 1280, height: 720 })
+
+/**
+ * THE INSTANCED PARTICLE PATH, against the real namespace.
+ *
+ * The third seam, and the one whose members are least like the others: three's
+ * `InstancedBufferAttribute` constructor takes `(array, itemSize, normalized?,
+ * meshPerAttribute?)` and ours names the first two, which holds because the
+ * remaining parameters are optional. Narrowing OUR signature is the direction
+ * that works; a third required parameter here would not.
+ *
+ * `instanceCount` is the member that would fail if `ThreeInstancedBufferGeometry`
+ * declared it `readonly` — `application/particle-system.ts` assigns it every
+ * frame, and three declares it mutable.
+ */
+export const namespaceIsAnInstancedSurface: ThreeInstancedSurface<
+  HTMLCanvasElement,
+  THREE.BufferGeometry,
+  THREE.MeshBasicMaterial,
+  THREE.InstancedBufferGeometry
+> = THREE

@@ -70,12 +70,12 @@ import {
   unboundTouchActions,
   type Bindings,
   type InputAction,
-} from '../domain/input-bindings'
+} from '../src/domain/input-bindings'
 import {
   LISTENER_PLAN,
   makeInputService,
   type InputEvent,
-} from '../application/input-service'
+} from '../src/application/input-service'
 import {
   installInputListeners,
   resolveClickLanding,
@@ -83,8 +83,8 @@ import {
   translateDomEvent,
   TRANSLATED_DOM_EVENTS,
   type TouchControlTarget,
-} from '../application/browser-input-adapter'
-import type { DomInputEvent, DomListener, DomListenerOptions } from '../application/dom-surface'
+} from '../src/application/browser-input-adapter'
+import type { DomInputEvent, DomListener, DomListenerOptions } from '../src/application/dom-surface'
 
 // ---------------------------------------------------------------------------
 // The controls a mobile host would draw
