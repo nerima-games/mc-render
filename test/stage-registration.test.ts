@@ -179,7 +179,7 @@ describe('what mc-render registers', () => {
           RENDER_STAGE_IDS.cameraMirror,
         ])
         expect(stageById(stages, RENDER_STAGE_IDS.draw).after).toStrictEqual([
-          RENDER_STAGE_IDS.postFx,
+          RENDER_STAGE_IDS.chunkSync,
         ])
         expect(stageById(stages, RENDER_STAGE_IDS.postFx).after).toStrictEqual([
           RENDER_STAGE_IDS.chunkSync,

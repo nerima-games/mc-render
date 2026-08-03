@@ -388,7 +388,7 @@ export const renderStages = (
   },
   {
     id: RENDER_STAGE_IDS.draw,
-    after: [RENDER_STAGE_IDS.postFx],
+    after: [RENDER_STAGE_IDS.chunkSync],
     // THE THREE.js RENDERER CALL, and it is no longer a FIRST CUT: `draw` is a
     // `DrawPort`, and in a browser it is `application/world-renderer.ts`'s,
     // which acquires a WebGL2 context and submits a frame.
