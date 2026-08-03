@@ -309,7 +309,7 @@ E2E でも（ポインタロックが使えないので）単体でも（DOM が
 | **`test/particle-pool.test.ts`** | **36** | **DN-17**（容量・drop-oldest・シード付き乱数） |
 | **`test/water-surface.test.ts`** | **31** | **DN-18**（水マテリアルと `forceSinglePass` の穴）/ DN-02 |
 | **`test/water-refraction.test.ts`** | **29** | **DN-18**（屈折プリパスのゲート 6 つとその順序） |
-| **`test/texture-atlas.test.ts`** | **15** | **DN-19**（アトラスのレイアウト算術とハーフテクセル） |
+| **`test/texture-atlas.test.ts`** | **19** | **DN-19**（レイアウト算術、RGBA生成、全マッピングcoverage、素材別alpha） |
 | **`test/world-renderer.test.ts`** | **20** | THREE シーム。呼び出しプロトコルのみ（§12.3） |
 | **`test/chunk-geometry.test.ts`** | **21** | merged extent と per-face AO（§12.2） |
 | **`test/three-surface.test.ts`** | **4** | 本物の `three` に対する構造的代入可能性の証明（§12.1） |
@@ -518,11 +518,11 @@ typecheck (build + test の 2 プロジェクト)
 
 | テスト | 対応 | いつ | 条件は成立したか |
 | --- | --- | --- | --- |
-| `the THREE adapter adds passes in exactly buildPostProcessingChain order` | DN-01 | `EffectComposer` がシームに入ったとき | **まだ。** シームに `EffectComposer` も `Pass` も無い（[responsibility.md](./responsibility.md) §2.3）。`render:post-fx` が FIRST CUT なのと同じ理由 |
+| `the THREE adapter adds passes in exactly buildPostProcessingChain order` | DN-01 | ホストの EffectComposer アダプタが着地したとき | **mc-compose 側で成立。** mc-render の純粋なシームには Three.js の `EffectComposer` / `Pass` を入れず、ブラウザ実装は `mc-compose/apps/web/post-processing.ts` が検証対象として所有する |
 | `every shared material built by the adapter passes auditMaterials` | DN-02 | 起動時アサーションとして | **成立した。** `makeWorldRenderer` は共有 `MeshBasicMaterial` を 1 枚作る。ただし `describeMaterialPolicy` の入力である `MaterialSpec` を組む所がまだ無い |
 | `a full frame allocates no new Map` | DN-03 | シーム着地後 | **成立した。** `render:draw` は実体になった。未着手 |
 | `no source file in this repository reads camera.position` | DN-06 | 走査テストで | **成立した。ただし優先度は下がった** —— `ThreeSurface` の `ThreeVector3` は `set` しか持たず、`ThreeCamera` は読み出し口を持たない。**読む書き方が型として存在しない**ので、走査テストは型が既に保証しているものの二重化になる。書くなら「シームに getter が生えていないこと」を見るほうが強い |
-| `blur clears gamepad and touch state too` | DN-08 | それらの実装時 | **タッチのみ成立。** `test/touch-controls.test.ts`（23 件）がある。ゲームパッドは未実装 |
+| `blur clears gamepad and touch state too` | DN-08 | それらの実装時 | **成立。** `test/touch-controls.test.ts`（25 件）と `test/gamepad-input.test.ts`（5 件）で、保持状態・軸・押下エッジを検証する |
 | ワーカープールの Port 適合 / 死んだワーカーの置き換え | DN-10 | プール実装時 | まだ |
 | fixture 描画 + スクリーンショット比較（許容差 0、SwiftShader 限定 skip 付き） | §2.5 | 描く対象が届いたとき | **アダプタ条件は成立、データ条件は未成立。** §1 の表と §2.2 を見ること。塞いでいるのはワールドデータであってアダプタではない |
 | 参照実装の入力テスト 1,261 LOC の移植 | — | 残り（[porting.md](./porting.md) §6） | — |

@@ -652,7 +652,7 @@ packages/presentation/input/input-service.ts:155-158
 | `REGRESSION: blur clears held input — the browser sends no keyup while unfocused` | `test/input.test.ts` |
 | `REGRESSION: blur releases held buttons — the browser sends no mouseup while unfocused` | 同上。参照実装のコメントは keys/**buttons** と両方を名指ししている |
 | `blur drops the wheel travel too — the reference clears it in handleBlur` | 参照実装 :167。DN-13 |
-| **（要追加）** `blur clears gamepad and touch state too` | それらの実装時 |
+| `blur clears gamepad and touch state too` | `test/touch-controls.test.ts` / `test/gamepad-input.test.ts`。実装済み |
 
 ---
 

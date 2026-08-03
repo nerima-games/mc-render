@@ -8,11 +8,13 @@
  */
 import { describe, expect, it } from '@effect/vitest'
 import { Effect } from 'effect'
+import { referencedTileIndices, TILE_BY_BLOCK_NAME } from '../src/domain/block-texture-map'
 import {
   ATLAS_COLUMNS,
   ATLAS_PIXELS,
   ATLAS_TILE_COUNT,
   atlasLayoutViolations,
+  generateTerrainAtlas,
   HALF_TEXEL_UV,
   isTileIndex,
   normaliseTileIndex,
@@ -24,8 +26,75 @@ import {
   tileRow,
   tileUvBounds,
   tileUvOrigin,
+  terrainTileKind,
   uvPatchStaysInsideTile,
 } from '../src/domain/texture-atlas'
+
+const tileBytes = (data: Uint8ClampedArray, tile: number): ReadonlyArray<number> => {
+  const bytes: Array<number> = []
+  const originX = tileColumn(tile) * TILE_PIXELS
+  const originY = tileRow(tile) * TILE_PIXELS
+  for (let y = 0; y < TILE_PIXELS; y += 1) {
+    const start = ((originY + y) * ATLAS_PIXELS + originX) * 4
+    bytes.push(...data.slice(start, start + TILE_PIXELS * 4))
+  }
+  return bytes
+}
+
+const tileAlphas = (data: Uint8ClampedArray, tile: number): ReadonlySet<number> =>
+  new Set(tileBytes(data, tile).filter((_, index) => index % 4 === 3))
+
+describe('generated terrain atlas', () => {
+  it.effect('has exact RGBA dimensions and is deterministic without sharing storage', () =>
+    Effect.sync(() => {
+      const first = generateTerrainAtlas()
+      const second = generateTerrainAtlas()
+      expect(first.width).toBe(512)
+      expect(first.height).toBe(512)
+      expect(first.data).toHaveLength(512 * 512 * 4)
+      expect(first.data).toStrictEqual(second.data)
+      expect(first.data).not.toBe(second.data)
+    }),
+  )
+
+  it.effect('gives every mapped tile distinct, non-empty pixels', () =>
+    Effect.sync(() => {
+      const atlas = generateTerrainAtlas()
+      const signatures = referencedTileIndices().map((tile) => tileBytes(atlas.data, tile).join(','))
+      expect(new Set(signatures).size).toBe(signatures.length)
+      expect(signatures.every((signature) => /[1-9]/.test(signature))).toBe(true)
+    }),
+  )
+
+  it.effect('covers every face role in all 120 block mappings', () =>
+    Effect.sync(() => {
+      const atlas = generateTerrainAtlas()
+      expect(Object.keys(TILE_BY_BLOCK_NAME)).toHaveLength(120)
+      for (const [name, assignment] of Object.entries(TILE_BY_BLOCK_NAME)) {
+        for (const role of ['top', 'bottom', 'side'] as const) {
+          const tile = assignment[role]
+          expect(tileBytes(atlas.data, tile).some((byte) => byte !== 0), `${name}.${role}`).toBe(true)
+        }
+      }
+    }),
+  )
+
+  it.effect('distinguishes water, lava, leaves, glass and cutout alpha treatments', () =>
+    Effect.sync(() => {
+      const atlas = generateTerrainAtlas()
+      expect(terrainTileKind(7)).toBe('water')
+      expect(terrainTileKind(18)).toBe('lava')
+      expect(terrainTileKind(8)).toBe('leaves')
+      expect(terrainTileKind(9)).toBe('glass')
+      expect(terrainTileKind(107)).toBe('cutout')
+      expect(tileAlphas(atlas.data, 7)).toStrictEqual(new Set([176]))
+      expect(tileAlphas(atlas.data, 18)).toStrictEqual(new Set([255]))
+      expect(tileAlphas(atlas.data, 8)).toStrictEqual(new Set([0, 255]))
+      expect(tileAlphas(atlas.data, 9)).toStrictEqual(new Set([48, 144]))
+      expect(tileAlphas(atlas.data, 107)).toStrictEqual(new Set([0, 255]))
+    }),
+  )
+})
 
 describe('the atlas layout constants', () => {
   it.effect('are the reference values, asserted as literals', () =>

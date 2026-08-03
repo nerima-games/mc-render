@@ -34,11 +34,13 @@ import { chunkShaderSource, CHUNK_SHADER_UNIFORMS } from '../src/domain/chunk-sh
 import { MISSING_TILE, quadTileForLookup, tileIndexForBlockName } from '../src/domain/block-texture-map'
 import {
   FULL_SUN_INTENSITY,
+  applyChunkShaderEnvironment,
   UNIFORM_ORIGIN,
   makeChunkShaderMaterial,
   makeWaterMaterial,
   makeWorldRenderer,
 } from '../src/application/world-renderer'
+import { planRenderEnvironment } from '../src/domain/render-environment'
 import { FAKE_CANVAS, makeFakeThree } from './support/fake-three'
 
 const VIEWPORT = { width: 1280, height: 720 }
@@ -176,7 +178,26 @@ describe('the shader material the renderer can be given', () => {
       expect(Object.keys(uniforms).sort()).toStrictEqual([...chunkShaderSource().uniformNames].sort())
       expect(uniforms[CHUNK_SHADER_UNIFORMS.atlas]?.value).toBe(atlas)
       expect(uniforms[CHUNK_SHADER_UNIFORMS.sunIntensity]?.value).toBe(FULL_SUN_INTENSITY)
+      expect(uniforms[CHUNK_SHADER_UNIFORMS.fogNear]?.value).toBe(135)
+      expect(uniforms[CHUNK_SHADER_UNIFORMS.fogFar]?.value).toBe(270)
       expect(material.vertexColors).toBe(true)
+    }),
+  )
+
+  it.effect('applies one environment plan through the existing uniform boxes', () =>
+    Effect.sync(() => {
+      const three = makeFakeThree()
+      const { material, uniforms } = makeChunkShaderMaterial(three, { id: 'atlas' })
+      const environment = planRenderEnvironment(0.25, 200)
+
+      applyChunkShaderEnvironment(uniforms, environment)
+
+      expect(material.uniforms[CHUNK_SHADER_UNIFORMS.sunIntensity]?.value).toBe(0.25)
+      expect(material.uniforms[CHUNK_SHADER_UNIFORMS.fogColor]?.value).toStrictEqual([
+        ...environment.fogColor,
+      ])
+      expect(material.uniforms[CHUNK_SHADER_UNIFORMS.fogNear]?.value).toBe(90)
+      expect(material.uniforms[CHUNK_SHADER_UNIFORMS.fogFar]?.value).toBe(180)
     }),
   )
 

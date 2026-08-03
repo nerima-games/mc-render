@@ -111,14 +111,20 @@ const rippleAxis = (layers: ReadonlyArray<RippleLayer>, driver: string, wave: st
  * water seen at a glancing angle, which is the angle water is usually seen at.
  */
 export const waterVertexShader = (): string => `
+attribute vec2 fluidDirection;
+attribute float fluidFalling;
 varying vec3 vWorldPosition;
 varying vec4 vClipPosition;
 varying vec3 vNormal;
+varying vec2 vFluidDirection;
+varying float vFluidFalling;
 
 void main() {
   vec4 worldPosition = modelMatrix * vec4(position, 1.0);
   vWorldPosition = worldPosition.xyz;
   vNormal = normalize(normalMatrix * normal);
+  vFluidDirection = fluidDirection;
+  vFluidFalling = fluidFalling;
 
   gl_Position = projectionMatrix * viewMatrix * worldPosition;
   vClipPosition = gl_Position;
@@ -156,6 +162,8 @@ uniform float uSunIntensity;
 varying vec3 vWorldPosition;
 varying vec4 vClipPosition;
 varying vec3 vNormal;
+varying vec2 vFluidDirection;
+varying float vFluidFalling;
 
 const vec4 SHALLOW = ${glslVec4(WATER_SHALLOW_COLOR)};
 const vec4 DEEP = ${glslVec4(WATER_DEEP_COLOR)};
@@ -201,6 +209,10 @@ void main() {
   // rippleOffset's comment in water-surface.ts defends it.
   float rippleU = ${rippleAxis(RIPPLE_LAYERS_U, 'vWorldPosition.z', 'waveApprox')};
   float rippleV = ${rippleAxis(RIPPLE_LAYERS_V, 'vWorldPosition.x', 'waveApproxCos')};
+  float directedWave = waveApprox(dot(vWorldPosition.xz, vFluidDirection) * 3.0 - uTime * 2.0);
+  rippleU += vFluidDirection.x * directedWave * 0.004;
+  rippleV += vFluidDirection.y * directedWave * 0.004;
+  rippleV += vFluidFalling * waveApprox(vWorldPosition.y * 4.0 + uTime * 3.0) * 0.006;
 
   // Perspective divide HERE, not in the vertex stage. See waterVertexShader.
   vec2 screenUv = (vClipPosition.xy / vClipPosition.w) * 0.5 + 0.5;

@@ -85,6 +85,7 @@ import {
   type PostProcessingStep,
 } from '../domain/post-processing'
 import { NO_DRAW_TARGET, type DrawPort } from '../application/world-renderer'
+import { NO_PLAYER_CONTROL, type PlayerControlPort } from '../domain/player-control'
 import { RENDER_STAGE_IDS, UPSTREAM_STAGE_IDS } from './stage-ids'
 
 /**
@@ -212,6 +213,7 @@ export const makeRenderFrameState = (
       // slot 0: mx-ui hides every ring for `undefined` and lights slot 0 for
       // `0`, so a frame that has heard nothing must say nothing.
       keyboardFocus: undefined,
+      gamepadAxes: { leftX: 0, leftY: 0, rightX: 0, rightY: 0 },
     })
     const visibleChunkCount = yield* Ref.make(0)
     const qualityRef = yield* Ref.make(quality)
@@ -257,6 +259,7 @@ export const renderStages = (
    * neither can be reached from a Layer this repository is able to build.
    */
   draw: DrawPort = NO_DRAW_TARGET,
+  control: PlayerControlPort = NO_PLAYER_CONTROL,
 ): ReadonlyArray<StageRegistration> => [
   {
     id: RENDER_STAGE_IDS.input,
@@ -273,6 +276,19 @@ export const renderStages = (
         // than of the stage order.
         const sampled = yield* input.snapshot
         yield* Ref.set(state.input, sampled)
+
+        const [forward, backward, left, right, jump] = yield* Effect.all([
+          input.isActionActive('moveForward'),
+          input.isActionActive('moveBackward'),
+          input.isActionActive('moveLeft'),
+          input.isActionActive('moveRight'),
+          input.wasActionJustTriggered('jump'),
+        ])
+        yield* control.setMovementIntent({
+          forward: Number(forward) - Number(backward),
+          strafe: Number(right) - Number(left),
+        })
+        yield* control.setJumpIntent(jump)
 
         // The consumer `uiClicks` did not have. A click that arrives while the
         // pointer is unlocked is the player asking to look around again, and
@@ -372,7 +388,7 @@ export const renderStages = (
   },
   {
     id: RENDER_STAGE_IDS.draw,
-    after: [RENDER_STAGE_IDS.chunkSync],
+    after: [RENDER_STAGE_IDS.postFx],
     // THE THREE.js RENDERER CALL, and it is no longer a FIRST CUT: `draw` is a
     // `DrawPort`, and in a browser it is `application/world-renderer.ts`'s,
     // which acquires a WebGL2 context and submits a frame.
@@ -402,10 +418,11 @@ export const renderStages = (
   },
   {
     id: RENDER_STAGE_IDS.postFx,
-    after: [RENDER_STAGE_IDS.draw],
+    after: [RENDER_STAGE_IDS.chunkSync],
     // plan.md §3.9 fixes the chain's INTERNAL order; `domain/post-processing.ts`
-    // owns it and builds it in canonical order by construction. This stage is
-    // the single point in the frame at which it runs.
+    // owns it and builds it in canonical order by construction. This stage
+    // selects the plan and hands it to the draw port; a browser host may
+    // translate it into EffectComposer passes, while headless ports stay no-op.
     run: () =>
       Effect.gen(function* () {
         const quality = yield* Ref.get(state.quality)
@@ -419,7 +436,7 @@ export const renderStages = (
           yield* Ref.set(state.postFxChain, buildPostProcessingChain(quality))
           yield* Ref.set(state.postFxBuiltFrom, quality)
         }
-        // FIRST CUT: running the chain is the THREE.js EffectComposer call.
+        yield* draw.setPostProcessingChain(yield* Ref.get(state.postFxChain))
       }),
   },
 ]
@@ -473,12 +490,13 @@ export const renderModule = (
    * consumer and every preview does.
    */
   initialPose: CameraPoseSnapshot = UNSET_CAMERA_POSE,
+  control: PlayerControlPort = NO_PLAYER_CONTROL,
 ): GameModule<InputService, never, never, InputService> => ({
   layers: InputServiceLayer(defaultBindings(), pointerLock),
   frameStages: Effect.gen(function* () {
     const input = yield* InputService
     const state = yield* makeRenderFrameState(quality, initialPose)
-    return renderStages(state, input, draw)
+    return renderStages(state, input, draw, control)
   }),
 })
 
@@ -493,6 +511,7 @@ export const renderModule = (
 export const makeRenderStagesForPreview = (
   quality: GraphicsQuality = QUALITY_PRESETS.high,
   draw: DrawPort = NO_DRAW_TARGET,
+  control: PlayerControlPort = NO_PLAYER_CONTROL,
 ): Effect.Effect<
   { readonly state: RenderFrameState; readonly stages: ReadonlyArray<StageRegistration> },
   never,
@@ -501,7 +520,7 @@ export const makeRenderStagesForPreview = (
   Effect.gen(function* () {
     const input = yield* InputService
     const state = yield* makeRenderFrameState(quality)
-    return { state, stages: renderStages(state, input, draw) }
+    return { state, stages: renderStages(state, input, draw, control) }
   })
 
 /**

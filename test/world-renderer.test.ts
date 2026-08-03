@@ -22,12 +22,18 @@ import {
   CAMERA_FAR_PLANE,
   CAMERA_FOV_DEGREES,
   CAMERA_NEAR_PLANE,
+  makeProductionWorldRenderer,
   makeWorldRenderer,
   NO_DRAW_TARGET,
   SKY_CLEAR_ALPHA,
   SKY_CLEAR_COLOR,
 } from '../src/application/world-renderer'
+import { spawnBurst } from '../src/domain/particle-pool'
 import { FAKE_CANVAS, makeFakeThree } from './support/fake-three'
+import { planRenderEnvironment } from '../src/domain/render-environment'
+import { planMobVisual } from '../src/domain/mob-visual'
+import { buildPostProcessingChain } from '../src/domain/post-processing'
+import { planWitherSkullVisual, planWitherVisual } from '../src/domain/wither-visual'
 
 const VIEWPORT = { width: 1280, height: 720 }
 
@@ -119,6 +125,25 @@ describe('acquiring the renderer', () => {
     }),
   )
 
+  it.effect('applies one daylight plan to the sky and injected material updater', () =>
+    Effect.gen(function* () {
+      const three = makeFakeThree()
+      const applied: unknown[] = []
+      const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT, {
+        applyMaterialEnvironment: (environment) => applied.push(environment),
+      })
+      const night = planRenderEnvironment(0, CAMERA_FAR_PLANE)
+
+      yield* renderer.setEnvironment(night)
+
+      expect(applied).toStrictEqual([planRenderEnvironment(1, CAMERA_FAR_PLANE), night])
+      expect(three.renderer().clearColors()).toStrictEqual([
+        [SKY_CLEAR_COLOR, SKY_CLEAR_ALPHA],
+        [night.skyColor, SKY_CLEAR_ALPHA],
+      ])
+    }),
+  )
+
   it.effect('builds the camera from the transcribed constants and the real aspect', () =>
     Effect.gen(function* () {
       // fov 75 / near 0.1 from `session-bootstrap-scene.ts:47,49`; far 300 is
@@ -177,7 +202,26 @@ describe('acquiring the renderer', () => {
 })
 
 describe('chunk geometry in the scene', () => {
-  it.effect('setChunk builds the five attributes with the reference item sizes and flags', () =>
+  it.effect('setChunks commits a batch while preserving replacement semantics', () =>
+    Effect.gen(function* () {
+      const three = makeFakeThree()
+      const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT)
+
+      yield* renderer.setChunks([
+        { key: '0,0', buffers: buildChunkGeometry([quad()]) },
+        { key: '1,0', buffers: buildChunkGeometry([quad()]) },
+        { key: '0,0', buffers: buildChunkGeometry([quad({ ao: 2 })]) },
+      ])
+
+      expect(yield* renderer.chunkKeys).toStrictEqual(['0,0', '1,0'])
+      expect(three.scene().members()).toHaveLength(2)
+      expect(three.geometries()[0]?.disposed()).toBe(true)
+      expect(three.geometries()[1]?.disposed()).toBe(false)
+      expect(three.geometries()[2]?.disposed()).toBe(false)
+    }),
+  )
+
+  it.effect('setChunk builds all geometry attributes with the reference item sizes and flags', () =>
     Effect.gen(function* () {
       const three = makeFakeThree()
       const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT)
@@ -194,6 +238,8 @@ describe('chunk geometry in the scene', () => {
         // Uploaded on BOTH material paths although only the shader samples it.
         // A missing attribute does not fail: GL feeds 0 to an unbound one, so
         // the whole world would draw from atlas tile 0 with nothing reported.
+        'fluidDirection',
+        'fluidFalling',
         'tileIndex',
       ])
       expect(geometry?.attributes.get('position')).toStrictEqual({
@@ -216,6 +262,16 @@ describe('chunk geometry in the scene', () => {
       // would resolve wrong.
       expect(geometry?.attributes.get('tileIndex')).toStrictEqual({
         array: buffers.tileIndices,
+        itemSize: 1,
+        normalized: false,
+      })
+      expect(geometry?.attributes.get('fluidDirection')).toStrictEqual({
+        array: buffers.fluidDirections,
+        itemSize: 2,
+        normalized: false,
+      })
+      expect(geometry?.attributes.get('fluidFalling')).toStrictEqual({
+        array: buffers.fluidFalling,
         itemSize: 1,
         normalized: false,
       })
@@ -317,7 +373,7 @@ describe('chunk geometry in the scene', () => {
 })
 
 describe('entity meshes in the scene', () => {
-  it.effect('creates distinguishable hostile and item silhouettes from renderer DTOs', () =>
+  it.effect('creates one transformed mesh per visual part from renderer DTOs', () =>
     Effect.gen(function* () {
       const three = makeFakeThree()
       const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT)
@@ -330,49 +386,56 @@ describe('entity meshes in the scene', () => {
       ])
 
       expect(yield* renderer.entityCount).toBe(4)
-      expect(three.scene().members()).toHaveLength(4)
-      expect(three.meshes().map((mesh) => mesh.positions())).toStrictEqual([
-        [[1, 64, 2]],
-        [[3, 64, 4]],
-        [[5, 64, 6]],
-        [[7, 64, 8]],
-      ])
-      const heights = three.geometries().map((geometry) => {
-        const positions = geometry.attributes.get('position')?.array
-        return positions instanceof Float32Array
-          ? Number(Math.max(...positions).toFixed(1))
-          : undefined
-      })
-      expect(heights).toStrictEqual([1.8, 1.7, 2.9, 0.3])
+      const mobPartCount = ['zombie', 'creeper', 'enderman'].reduce(
+        (total, kind) => total + planMobVisual(kind).parts.length,
+        0,
+      )
+      expect(three.scene().members()).toHaveLength(mobPartCount + 1)
+      expect(three.meshes()[0]?.positions()).toStrictEqual([[1, 65.55, 2]])
+      expect(three.meshes()[0]?.scales()).toStrictEqual([[0.5, 0.5, 0.5]])
+      expect(three.meshes().at(-1)?.positions()).toStrictEqual([[7, 64.15, 8]])
+      expect(three.meshes().at(-1)?.scales()).toStrictEqual([[0.3, 0.3, 0.3]])
+      expect(new Set(three.meshes().map(({ material }) => material))).toHaveLength(1)
     }),
   )
 
-  it.effect('reuses an unchanged id mesh, updates its position, and exposes a detached snapshot', () =>
+  it.effect('reuses every part mesh for an unchanged id and updates its animation transform', () =>
     Effect.gen(function* () {
       const three = makeFakeThree()
       const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT)
       const feetPosition = { x: 0, y: 64, z: 0 }
 
       yield* renderer.syncEntities([{ id: 'z', kind: 'zombie', feetPosition }])
-      const firstMesh = three.meshes()[0]
+      const firstMeshes = [...three.meshes()]
       feetPosition.x = 99
       yield* renderer.syncEntities([
-        { id: 'z', kind: 'zombie', feetPosition: { x: 2, y: 65, z: 3 } },
+        {
+          id: 'z',
+          kind: 'zombie',
+          feetPosition: { x: 2, y: 65, z: 3 },
+          facingRadians: Math.PI / 2,
+          animation: { state: 'walk', phaseRadians: Math.PI / 2 },
+        },
       ])
 
-      expect(three.meshes()).toHaveLength(1)
-      expect(three.meshes()[0]).toBe(firstMesh)
-      expect(firstMesh?.positions()).toStrictEqual([
-        [0, 64, 0],
-        [2, 65, 3],
-      ])
+      expect(three.meshes()).toStrictEqual(firstMeshes)
+      expect(firstMeshes.every((mesh) => mesh.positions().length === 2)).toBe(true)
+      expect(firstMeshes.every((mesh) => mesh.scales().length === 2)).toBe(true)
+      expect(firstMeshes.every((mesh) => mesh.rotations().length === 2)).toBe(true)
+      expect(firstMeshes[2]?.rotations().at(-1)?.[0]).toBeCloseTo(0.65, 12)
       expect(yield* renderer.entitySnapshot).toStrictEqual([
-        { id: 'z', kind: 'zombie', feetPosition: { x: 2, y: 65, z: 3 } },
+        {
+          id: 'z',
+          kind: 'zombie',
+          feetPosition: { x: 2, y: 65, z: 3 },
+          facingRadians: Math.PI / 2,
+          animation: { state: 'walk', phaseRadians: Math.PI / 2 },
+        },
       ])
     }),
   )
 
-  it.effect('removes missing ids and disposes only their owned resources without touching chunks', () =>
+  it.effect('removes missing ids while retaining shared resources until renderer disposal', () =>
     Effect.gen(function* () {
       const three = makeFakeThree()
       const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT)
@@ -381,7 +444,7 @@ describe('entity meshes in the scene', () => {
       yield* renderer.syncEntities([
         { id: 'z', kind: 'zombie', feetPosition: { x: 0, y: 64, z: 0 } },
       ])
-      const entityGeometry = three.geometries()[1]
+      const entityGeometries = three.geometries().slice(1)
       const entityMaterial = three.materials()[1]
       yield* renderer.syncEntities([])
 
@@ -389,12 +452,16 @@ describe('entity meshes in the scene', () => {
       expect(yield* renderer.chunkKeys).toStrictEqual(['0,0'])
       expect(three.scene().members()).toHaveLength(1)
       expect(three.geometries()[0]?.disposed()).toBe(false)
-      expect(entityGeometry?.disposed()).toBe(true)
+      expect(entityGeometries.every((geometry) => !geometry.disposed())).toBe(true)
+      expect(entityMaterial?.disposed()).toBe(false)
+
+      yield* renderer.dispose
+      expect(entityGeometries.every((geometry) => geometry.disposed())).toBe(true)
       expect(entityMaterial?.disposed()).toBe(true)
     }),
   )
 
-  it.effect('rebuilds and releases the previous mesh when an id changes visual identity', () =>
+  it.effect('rebuilds all parts when an id changes visual identity', () =>
     Effect.gen(function* () {
       const three = makeFakeThree()
       const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT)
@@ -402,21 +469,214 @@ describe('entity meshes in the scene', () => {
       yield* renderer.syncEntities([
         { id: 'same', kind: 'zombie', feetPosition: { x: 0, y: 0, z: 0 } },
       ])
-      const previousGeometry = three.geometries()[0]
-      const previousMaterial = three.materials()[1]
+      const previousMeshes = [...three.scene().members()]
+      const previousGeometries = [...three.geometries()]
+      const entityMaterial = three.materials()[1]
       yield* renderer.syncEntities([
         { id: 'same', kind: 'creeper', feetPosition: { x: 1, y: 0, z: 0 } },
       ])
 
-      expect(three.meshes()).toHaveLength(2)
-      expect(three.scene().members()).toStrictEqual([three.meshes()[1]])
-      expect(previousGeometry?.disposed()).toBe(true)
-      expect(previousMaterial?.disposed()).toBe(true)
+      const currentMeshes = three.scene().members()
+      expect(previousMeshes).toHaveLength(planMobVisual('zombie').parts.length)
+      expect(currentMeshes).toHaveLength(planMobVisual('creeper').parts.length)
+      expect(currentMeshes.every((mesh) => !previousMeshes.includes(mesh))).toBe(true)
+      expect(previousGeometries.every((geometry) => !geometry.disposed())).toBe(true)
+      expect(three.materials()[1]).toBe(entityMaterial)
+    }),
+  )
+
+  it.effect('renders unknown kinds through the stable fallback silhouette', () =>
+    Effect.gen(function* () {
+      const three = makeFakeThree()
+      const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT)
+
+      yield* renderer.syncEntities([
+        { id: 'future', kind: 'not-yet-supported', feetPosition: { x: 4, y: 5, z: 6 } },
+      ])
+
+      const fallback = planMobVisual('not-yet-supported')
+      expect(fallback.descriptorKind).toBe('unknown')
+      expect(three.scene().members()).toHaveLength(fallback.parts.length)
+      expect(three.meshes()[0]?.positions()).toStrictEqual([[4, 5.65, 6]])
+    }),
+  )
+
+  it.effect('renders Wither state at its authoritative position and facing', () =>
+    Effect.gen(function* () {
+      const three = makeFakeThree()
+      const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT)
+      const witherState = {
+        phase: 'airborne' as const,
+        healthPoints: 300,
+        chargeRemainingSecs: 0,
+        feetPosition: { x: 10, y: 20, z: 30 },
+        velocity: { x: 1, y: 0, z: 0 },
+      }
+      const visual = planWitherVisual(witherState)
+      const firstPart = visual.parts[0]
+
+      yield* renderer.syncEntities([
+        {
+          id: 'wither',
+          kind: 'wither',
+          feetPosition: { x: 0, y: 0, z: 0 },
+          facingRadians: 0,
+          witherState,
+        },
+      ])
+
+      expect(firstPart).toBeDefined()
+      expect(three.scene().members()).toHaveLength(visual.parts.length)
+      expect(three.meshes()[0]?.positions()[0]?.[0]).toBeCloseTo(
+        visual.position.x + (firstPart?.center[2] ?? 0) * -1,
+        12,
+      )
+      expect(three.meshes()[0]?.positions()[0]?.[1]).toBeCloseTo(
+        visual.position.y + (firstPart?.center[1] ?? 0),
+        12,
+      )
+      expect(three.meshes()[0]?.positions()[0]?.[2]).toBeCloseTo(
+        visual.position.z + (firstPart?.center[0] ?? 0),
+        12,
+      )
+      expect(three.meshes()[0]?.rotations()[0]?.[1]).toBeCloseTo(-Math.PI / 2, 12)
+    }),
+  )
+
+  it.effect('rebuilds charging colors and removes every part once the Wither is dead', () =>
+    Effect.gen(function* () {
+      const three = makeFakeThree()
+      const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT)
+      const baseState = {
+        healthPoints: 300,
+        feetPosition: { x: 0, y: 64, z: 0 },
+        velocity: { x: 0, y: 0, z: -1 },
+      }
+
+      yield* renderer.syncEntities([
+        {
+          id: 'wither',
+          kind: 'wither',
+          feetPosition: baseState.feetPosition,
+          witherState: { ...baseState, phase: 'charging', chargeRemainingSecs: 1.125 },
+        },
+      ])
+      const unlitMeshes = [...three.scene().members()]
+
+      yield* renderer.syncEntities([
+        {
+          id: 'wither',
+          kind: 'wither',
+          feetPosition: baseState.feetPosition,
+          witherState: { ...baseState, phase: 'charging', chargeRemainingSecs: 1 },
+        },
+      ])
+      const litMeshes = [...three.scene().members()]
+      expect(litMeshes).toHaveLength(unlitMeshes.length)
+      expect(litMeshes.every((mesh) => !unlitMeshes.includes(mesh))).toBe(true)
+
+      yield* renderer.syncEntities([
+        {
+          id: 'wither',
+          kind: 'wither',
+          feetPosition: baseState.feetPosition,
+          witherState: { ...baseState, phase: 'dead', chargeRemainingSecs: 0 },
+        },
+      ])
+      expect(yield* renderer.entityCount).toBe(1)
+      expect(three.scene().members()).toStrictEqual([])
+    }),
+  )
+
+  it.effect('renders a blue Wither skull at its origin with direction-derived angles', () =>
+    Effect.gen(function* () {
+      const three = makeFakeThree()
+      const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT)
+      const witherSkullProjectile = {
+        kind: 'wither_skull' as const,
+        variant: 'blue' as const,
+        origin: { x: 3, y: 7, z: 11 },
+        direction: { x: 1, y: 1, z: 0 },
+        speed: 20,
+        explosivePower: 1,
+        destroysResistantBlocks: true,
+      }
+      const visual = planWitherSkullVisual(witherSkullProjectile)
+
+      yield* renderer.syncEntities([
+        {
+          id: 'blue-skull',
+          kind: 'wither_skull',
+          feetPosition: { x: 0, y: 0, z: 0 },
+          witherSkullProjectile,
+        },
+      ])
+
+      expect(three.scene().members()).toHaveLength(visual.parts.length)
+      expect(three.meshes()[0]?.positions()[0]).toStrictEqual([3, 7, 11])
+      expect(three.meshes()[0]?.rotations()[0]?.[0]).toBeCloseTo(Math.PI / 4, 12)
+      expect(three.meshes()[0]?.rotations()[0]?.[1]).toBeCloseTo(-Math.PI / 2, 12)
     }),
   )
 })
 
 describe('drawing', () => {
+  it.effect('retains the post-processing plan supplied by the draw port', () =>
+    Effect.gen(function* () {
+      const three = makeFakeThree()
+      const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT)
+      const quality = {
+        ssaoEnabled: true,
+        godRaysEnabled: false,
+        bloomEnabled: true,
+        dofEnabled: false,
+        smaaEnabled: true,
+        useCompositePass: true,
+      }
+      const chain = buildPostProcessingChain(quality)
+
+      yield* renderer.setPostProcessingChain(chain)
+
+      expect(yield* renderer.postProcessingChain).toStrictEqual(chain)
+    }),
+  )
+
+  it.effect('manually culls a batch of chunk AABBs and disables Three sphere culling', () =>
+    Effect.gen(function* () {
+      const three = makeFakeThree()
+      const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, { width: 100, height: 100 })
+
+      yield* renderer.setChunk('front', buildChunkGeometry([quad({ lz: -10 })]))
+      yield* renderer.setChunk('behind', buildChunkGeometry([quad({ lz: 10 })]))
+      yield* renderer.setChunk('side', buildChunkGeometry([quad({ lx: 20, lz: -10 })]))
+      yield* renderer.draw(mirroredCameraState(poseAt(0, 0, 0, 0, 0)))
+
+      expect(three.meshes().map(({ frustumCulled }) => frustumCulled)).toStrictEqual([
+        false,
+        false,
+        false,
+      ])
+      expect(three.meshes().map(({ visible }) => visible)).toStrictEqual([true, false, false])
+      expect(three.renderer().renderCalls()).toBe(1)
+    }),
+  )
+
+  it.effect('re-evaluates empty chunks and viewport aspect before each draw', () =>
+    Effect.gen(function* () {
+      const three = makeFakeThree()
+      const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, { width: 100, height: 100 })
+
+      yield* renderer.setChunk('edge', buildChunkGeometry([quad({ lx: 10, lz: -10 })]))
+      yield* renderer.setChunk('empty', buildChunkGeometry([]))
+      yield* renderer.draw(mirroredCameraState(poseAt(0, 0, 0, 0, 0)))
+      expect(three.meshes().map(({ visible }) => visible)).toStrictEqual([false, false])
+
+      yield* renderer.resize(200, 100)
+      yield* renderer.draw(mirroredCameraState(poseAt(0, 0, 0, 0, 0)))
+      expect(three.meshes().map(({ visible }) => visible)).toStrictEqual([true, false])
+    }),
+  )
+
   it.effect('the camera is WRITTEN from the mirrored pose, and cannot be read back', () =>
     Effect.gen(function* () {
       // plan.md §3.8's inversion, checked at the one place it could reappear.
@@ -488,6 +748,73 @@ describe('drawing', () => {
   )
 })
 
+describe('canvas weather', () => {
+  it.effect('reuses a bounded GPU buffer and clears it without residue', () =>
+    Effect.gen(function* () {
+      const three = makeFakeThree()
+      const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT, {
+        weather: { particleCapacity: 2 },
+      })
+      const rain = {
+        mode: 'rain' as const,
+        intensity: 1,
+        daylight: 1,
+        temperature: 0.8,
+        seed: 42,
+      }
+
+      const first = yield* renderer.weather.frame(rain, { x: 10, y: 64, z: -5 })
+      expect(first.particles).toHaveLength(2)
+      expect(three.geometries()).toHaveLength(1)
+      expect(three.materials()).toHaveLength(2)
+      expect(three.scene().members()).toHaveLength(1)
+      const geometry = three.geometries()[0]
+      const position = geometry?.attributes.get('position')
+      expect(geometry?.drawRanges()).toStrictEqual([
+        [0, 0],
+        [0, 24],
+      ])
+      expect(position?.needsUpdate).toBe(true)
+
+      yield* renderer.weather.frame(rain, { x: 10, y: 64, z: -5 })
+      expect(three.geometries()).toHaveLength(1)
+      expect(geometry?.attributes.get('position')?.array).toBe(position?.array)
+      expect(geometry?.drawRanges().at(-1)).toStrictEqual([0, 24])
+
+      yield* renderer.resize(800, 600)
+      yield* renderer.weather.frame(
+        { ...rain, mode: 'clear' as const },
+        { x: 10, y: 64, z: -5 },
+      )
+      expect(geometry?.disposed()).toBe(true)
+      expect(three.materials()[1]?.disposed()).toBe(true)
+      expect(three.scene().members()).toStrictEqual([])
+    }),
+  )
+
+  it.effect('disposes active thunder precipitation with the world renderer', () =>
+    Effect.gen(function* () {
+      const three = makeFakeThree()
+      const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT)
+      yield* renderer.weather.frame(
+        {
+          mode: 'thunder',
+          intensity: 1,
+          daylight: 0.5,
+          temperature: 0.8,
+          seed: 9,
+          lightningSequence: 1,
+        },
+        { x: 0, y: 70, z: 0 },
+      )
+
+      yield* renderer.dispose
+      expect(three.geometries()[0]?.disposed()).toBe(true)
+      expect(three.scene().members()).toStrictEqual([])
+    }),
+  )
+})
+
 describe('teardown', () => {
   it.effect('dispose releases every chunk geometry, the material and the renderer', () =>
     Effect.gen(function* () {
@@ -516,7 +843,7 @@ describe('teardown', () => {
       ])
       yield* renderer.dispose
 
-      expect(three.geometries()[0]?.disposed()).toBe(true)
+      expect(three.geometries().every((geometry) => geometry.disposed())).toBe(true)
       expect(three.materials()[1]?.disposed()).toBe(true)
       expect(three.scene().members()).toStrictEqual([])
       expect(yield* renderer.entityCount).toBe(0)
@@ -553,8 +880,56 @@ describe('NO_DRAW_TARGET', () => {
       // between them is exactly the headless frames.
       yield* NO_DRAW_TARGET.draw(mirroredCameraState(poseAt(0, 0, 0, 0, 0)))
       yield* NO_DRAW_TARGET.resize(1, 1)
+      yield* NO_DRAW_TARGET.setPostProcessingChain([])
 
-      expect(Object.keys(NO_DRAW_TARGET).toSorted()).toStrictEqual(['draw', 'resize'])
+      expect(Object.keys(NO_DRAW_TARGET).toSorted()).toStrictEqual([
+        'draw',
+        'resize',
+        'setPostProcessingChain',
+      ])
+    }),
+  )
+})
+
+describe('makeProductionWorldRenderer', () => {
+  it.effect('owns the atlas shaders, animated water, and shared particle system', () =>
+    Effect.gen(function* () {
+      const three = makeFakeThree()
+      const atlas = { name: 'terrain-atlas' }
+      const renderer = yield* makeProductionWorldRenderer(three, FAKE_CANVAS, VIEWPORT, atlas, {
+        particles: { capacity: 4 },
+      })
+
+      expect(three.materials()).toHaveLength(0)
+      expect(three.shaderMaterials()).toHaveLength(3)
+      expect(renderer.chunkMaterial.uniforms['uAtlas']?.value).toBe(atlas)
+      expect(renderer.waterMaterial.transparent).toBe(true)
+      expect(renderer.waterMaterial.depthWrite).toBe(false)
+      expect(renderer.waterMaterial.forceSinglePass).toBe(true)
+      expect(three.shaderMaterials()[2]?.uniforms['uAtlas']?.value).toBe(atlas)
+      expect(three.scene().members()).toContain(renderer.particles.mesh)
+
+      yield* renderer.setEnvironment(planRenderEnvironment(0.25))
+      expect(renderer.chunkMaterial.uniforms['uSunIntensity']?.value).toBeCloseTo(0.25)
+      expect(renderer.waterUniforms['uSunIntensity']?.value).toBeCloseTo(0.25)
+
+      spawnBurst(renderer.particlePool, 1, 2, 3, 0, 0, 1)
+      yield* renderer.advanceFrame({
+        elapsedSecs: 2,
+        deltaSecs: 0.1,
+        cameraPosition: { x: 4, y: 5, z: 6 },
+      })
+      expect(renderer.waterUniforms['uTime']?.value).toBe(2)
+      expect(renderer.waterUniforms['uCameraPosition']?.value).toStrictEqual([4, 5, 6])
+      expect(three.instancedGeometries()[0]?.instanceCount).toBe(1)
+
+      yield* renderer.resize(640, 360)
+      expect(renderer.waterUniforms['uResolution']?.value).toStrictEqual([640, 360])
+
+      yield* renderer.dispose
+      expect(three.scene().members()).toStrictEqual([])
+      expect(three.shaderMaterials().every((material) => material.disposed())).toBe(true)
+      expect(three.renderer().disposed()).toBe(true)
     }),
   )
 })

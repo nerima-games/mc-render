@@ -1,5 +1,5 @@
 /**
- * The texture atlas, as ARITHMETIC.
+ * The texture atlas, as deterministic data and arithmetic.
  *
  * ---------------------------------------------------------------------------
  * What this file is, and what it deliberately is not
@@ -7,25 +7,22 @@
  *
  * plan.md §3.9 gives mc-render 「テクスチャ同梱」 and plan.md §5.3 says
  * 「独立アセットリポジトリは作らない」, so the atlas PNG belongs in this
- * repository. This file is NOT that PNG, and does not pretend to be.
+ * repository. Rather than checking in an opaque PNG, this module generates the
+ * same 512x512 RGBA asset deterministically. The result can be handed to a
+ * renderer-specific texture adapter without introducing DOM types here.
  *
  * An atlas is two separable things:
  *
- *   THE IMAGE      512x512 pixels of block faces. A binary asset. Loading it
- *                  needs `THREE.TextureLoader` or a `CanvasTexture`, which needs
- *                  the DOM, which `tsconfig.base.json` does not have and is not
- *                  getting (see its `lib` comment). Nothing in Node can check
- *                  that it looks right, either — see docs/testing.md §1.
+ *   THE IMAGE      512x512 pixels of block faces. `generateTerrainAtlas`
+ *                  creates its RGBA bytes without a canvas, DOM or filesystem,
+ *                  so dimensions, determinism and alpha can be tested in Node.
  *
  *   THE LAYOUT     which tile index sits at which (column, row), and what UV
  *                  rectangle that is. Pure arithmetic over two integers. Every
  *                  bug it can have is a bug a unit test can see.
  *
- * Only the LAYOUT is here. That is the same split docs/testing.md §3.1 makes
- * everywhere else in this repository: the half that can be checked mechanically
- * is turned into data and predicates, and the half that needs a screenshot is
- * named as needing a screenshot instead of being given a weaker test that looks
- * like coverage.
+ * Both halves are here as pure data. Turning those bytes into a `THREE.Texture`
+ * remains an adapter concern; generating them does not require that adapter.
  *
  * The layout half is not optional decoration. `domain/particle-pool.ts` needs a
  * per-particle UV offset to sample the block it was broken from, so the
@@ -119,6 +116,98 @@ export const ATLAS_TILE_COUNT = ATLAS_COLUMNS * ATLAS_COLUMNS
 
 /** One tile's edge, in pixels. `512 / 16`. */
 export const TILE_PIXELS = ATLAS_PIXELS / ATLAS_COLUMNS
+
+/** Semantic rendering treatment used by the generated terrain atlas. */
+export type TerrainTileKind = 'solid' | 'cutout' | 'water' | 'lava' | 'leaves' | 'glass'
+
+/** A DOM-independent RGBA image, ordered top-to-bottom and left-to-right. */
+export type RgbaAtlas = {
+  readonly width: number
+  readonly height: number
+  readonly data: Uint8ClampedArray
+}
+
+const CUTOUT_TILES = new Set([45, 85, 87, 100, 103, 104, 106, 107, 108, 109, 110, 111, 112, 115, 121, 125, 127, 149])
+
+/** The material treatment for a mapped tile. Values align with block-texture-map.ts. */
+export const terrainTileKind = (tileIndex: number): TerrainTileKind => {
+  switch (normaliseTileIndex(tileIndex)) {
+    case 7:
+    case 122:
+      return 'water'
+    case 18:
+      return 'lava'
+    case 8:
+      return 'leaves'
+    case 9:
+      return 'glass'
+    default:
+      return CUTOUT_TILES.has(normaliseTileIndex(tileIndex)) ? 'cutout' : 'solid'
+  }
+}
+
+const channel = (tile: number, multiplier: number): number => 48 + ((tile * multiplier) % 160)
+
+const writePixel = (
+  data: Uint8ClampedArray,
+  x: number,
+  y: number,
+  red: number,
+  green: number,
+  blue: number,
+  alpha: number,
+): void => {
+  const offset = (y * ATLAS_PIXELS + x) * 4
+  data[offset] = red
+  data[offset + 1] = green
+  data[offset + 2] = blue
+  data[offset + 3] = alpha
+}
+
+const tilePixel = (
+  tile: number,
+  kind: TerrainTileKind,
+  x: number,
+  y: number,
+): readonly [number, number, number, number] => {
+  const noise = (tile * 37 + Math.floor(x / 4) * 17 + Math.floor(y / 4) * 29) & 31
+  const marker = y < 4 && x < 16 && ((tile >> Math.floor(x / 2)) & 1) === 1
+
+  if (kind === 'water') return [20 + noise, 92 + noise, 178 + noise, 176]
+  if (kind === 'lava') return [224 + (noise & 15), 54 + noise * 2, noise >> 1, 255]
+  if (kind === 'leaves') return [32 + noise, 104 + noise * 2, 38 + noise, (x + y + tile) % 7 === 0 ? 0 : 255]
+  if (kind === 'glass') {
+    const edge = x < 3 || y < 3 || x >= TILE_PIXELS - 3 || y >= TILE_PIXELS - 3
+    return [marker ? 245 : 150 + noise, 220 + (noise >> 1), 230 + (noise >> 1), edge ? 144 : 48]
+  }
+
+  const alpha = kind === 'cutout' && (x * 3 + y * 5 + tile) % 11 < 3 ? 0 : 255
+  const shade = marker ? 42 : noise - 16
+  return [channel(tile, 73) + shade, channel(tile, 151) + shade, channel(tile, 199) + shade, alpha]
+}
+
+/**
+ * Generate the complete 16x16 terrain atlas as deterministic pixel-art RGBA.
+ * Every tile carries a compact binary marker derived from its index, while
+ * mapped translucent materials use recognisable, materially distinct palettes.
+ */
+export const generateTerrainAtlas = (): RgbaAtlas => {
+  const data = new Uint8ClampedArray(ATLAS_PIXELS * ATLAS_PIXELS * 4)
+
+  for (let tile = 0; tile < ATLAS_TILE_COUNT; tile += 1) {
+    const originX = tileColumn(tile) * TILE_PIXELS
+    const originY = tileRow(tile) * TILE_PIXELS
+    const kind = terrainTileKind(tile)
+
+    for (let y = 0; y < TILE_PIXELS; y += 1) {
+      for (let x = 0; x < TILE_PIXELS; x += 1) {
+        writePixel(data, originX + x, originY + y, ...tilePixel(tile, kind, x, y))
+      }
+    }
+  }
+
+  return { width: ATLAS_PIXELS, height: ATLAS_PIXELS, data }
+}
 
 /**
  * Half of one texel, in UV units.

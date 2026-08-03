@@ -30,7 +30,12 @@
  * `pnpm check:deps`.
  */
 import * as THREE from 'three'
-import { makeChunkShaderMaterial, makeWaterMaterial, makeWorldRenderer } from '../../src/application/world-renderer'
+import {
+  makeChunkShaderMaterial,
+  makeProductionWorldRenderer,
+  makeWaterMaterial,
+  makeWorldRenderer,
+} from '../../src/application/world-renderer'
 import { chunkShaderSource } from '../../src/domain/chunk-shader'
 import type {
   ThreeBufferAttribute,
@@ -285,6 +290,14 @@ export const hostBuildsTheWaterMaterial = makeWaterMaterial<
   THREE.MeshBasicMaterial,
   THREE.ShaderMaterial
 >(THREE, { width: 1280, height: 720 })
+
+export const hostBuildsAProductionRenderer = makeProductionWorldRenderer<
+  HTMLCanvasElement,
+  THREE.BufferGeometry,
+  THREE.MeshBasicMaterial,
+  THREE.InstancedBufferGeometry,
+  THREE.ShaderMaterial
+>(THREE, browserCanvas, { width: 1280, height: 720 }, new THREE.Texture())
 
 /**
  * THE INSTANCED PARTICLE PATH, against the real namespace.

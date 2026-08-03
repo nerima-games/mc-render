@@ -14,9 +14,14 @@
  */
 import { describe, expect, it } from '@effect/vitest'
 import { Effect, Ref } from 'effect'
-import { makeWorldRenderer } from '../src/application/world-renderer'
+import {
+  makeWorldRenderer,
+  type ChunkGeometryUpdate,
+  type WorldRenderer,
+} from '../src/application/world-renderer'
 import {
   EMPTY_SYNC_REPORT,
+  attachWorldRenderer,
   chunkKeyOf,
   chunkOrigin,
   syncWorld,
@@ -85,6 +90,34 @@ describe('chunkOrigin', () => {
 })
 
 describe('syncWorld', () => {
+  for (const count of [81, 289, 1089] as const) {
+    it.effect(`keeps ${String(count)} changed chunks within one registry commit`, () =>
+      Effect.gen(function* () {
+        const three = makeFakeThree()
+        const actual = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT)
+        const changed = Array.from({ length: count }, (_, index) => ({
+          cx: index,
+          cz: 0,
+        }))
+        const source = yield* scriptedSource([{ changed, removed: [] }])
+        const committedSizes: Array<number> = []
+        const renderer: WorldRenderer = {
+          ...actual,
+          setChunk: () => Effect.die('syncWorld must use the batch API'),
+          setChunks: (updates: ReadonlyArray<ChunkGeometryUpdate>) =>
+            Effect.sync(() => {
+              committedSizes.push(updates.length)
+            }),
+        }
+
+        const report = yield* syncWorld(renderer, source, () => Effect.succeed([]))
+
+        expect(report.meshed).toBe(count)
+        expect(committedSizes).toStrictEqual([count])
+      }),
+    )
+  }
+
   it.effect('meshes each changed chunk into the scene under its own key', () =>
     Effect.gen(function* () {
       const three = makeFakeThree()
@@ -221,6 +254,48 @@ describe('syncWorld', () => {
 
       expect(first.meshed).toBe(1)
       expect(yield* renderer.chunkKeys).toStrictEqual(['0,0'])
+    }),
+  )
+})
+
+describe('attachWorldRenderer', () => {
+  it.effect('updates, removes, and ignores dirty work after detach', () =>
+    Effect.gen(function* () {
+      const three = makeFakeThree()
+      const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT)
+      const batches = yield* Ref.make<ReadonlyArray<DirtyBatch>>([
+        { changed: [{ cx: 2, cz: 3 }], removed: [] },
+        { changed: [], removed: [{ cx: 2, cz: 3 }] },
+        { changed: [{ cx: 9, cz: 9 }], removed: [] },
+      ])
+      const unsubscribed = yield* Ref.make(0)
+      const store = {
+        subscribeDirty: Effect.succeed({
+          drain: Ref.modify(batches, ([next, ...rest]) => [
+            next ?? { changed: [], removed: [] },
+            rest,
+          ]),
+          unsubscribe: Ref.update(unsubscribed, (count) => count + 1),
+        }),
+      }
+      const attachment = yield* attachWorldRenderer(
+        renderer,
+        store,
+        () => Effect.succeed([quad()]),
+      )
+
+      expect((yield* attachment.update).meshed).toBe(1)
+      expect(yield* renderer.chunkKeys).toStrictEqual(['2,3'])
+      expect((yield* attachment.update).removed).toBe(1)
+      expect(yield* renderer.chunkKeys).toStrictEqual([])
+
+      yield* attachment.detach
+      yield* attachment.detach
+      expect(yield* attachment.attached).toBe(false)
+      expect(yield* unsubscribed).toBe(1)
+      expect(yield* attachment.update).toStrictEqual(EMPTY_SYNC_REPORT)
+      expect(yield* renderer.chunkKeys).toStrictEqual([])
+      expect(yield* batches).toHaveLength(1)
     }),
   )
 })

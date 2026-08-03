@@ -38,10 +38,10 @@ mc-playground-kit は devDependency 専用で出荷ビルドに入らないた�
 
 ## いま何が入っているか
 
-**pre-audit first cut（叩き台）。しかも THREE.js が 1 行も入っていない。**
+**監査後の実装段階。THREE.js はホスト注入する構造 surface 越しに利用する。**
 
 ドメインはすべて**純粋**である。ポストFXチェーンは配列、マテリアル方針は述語、
-入力バインディングは表、スクラッチバッファはただの `Map`。WebGL は無い。
+入力、chunk/world 同期、WebGL 描画、atlas shader、照明同期、空と距離フォグまで実装済み。
 これは手抜きではなく設計判断で、理由は [testing.md](./testing.md) §3 にある——
 順序規則やイベント遮蔽規則を **`environment: 'node'` の単体テストで固定できる**ようにするため。
 
@@ -60,11 +60,10 @@ mc-playground-kit は devDependency 専用で出荷ビルドに入らないた�
 | キーボードフォーカスの**観測**（Tab は奪わない。ロック中はマスクし、忘れない） | 同上 + `domain/input-bindings.ts` | DN-16 |
 | カメラのミラー（書き戻し無し） | `domain/camera-mirror.ts` | DN-06 |
 
-まだ無いもの: **THREE.js アダプタ一式**（`WorldRenderer` / マテリアル / パーティクル / 水面 /
-テクスチャ）、**キーボードフォーカスの「移動」側**（観測は入った。矢印キーでグループ内を動かす
+まだ無いもの: **mc-render 単体の fixture ビューア**、テクスチャ PNG の THREE 転送、
+テクスチャ PNG の同梱、**キーボードフォーカスの「移動」側**（観測は入った。矢印キーでグループ内を動かす
 手段は無く、閉じるには mx-ui と一緒に決める必要がある —— [design-notes.md](./design-notes.md) DN-16 §5(a)。
 なお §5(b) の「HUD の上のクリックがロック要求になる」は閉じた ——
 [public-api.md](./public-api.md) §2.11）、
-ゲームパッド / タッチ入力、ワーカープール実装、内蔵 fixture ビューア、
+内蔵 fixture ビューア、
 グラフィックス品質プリセットの残り半分（レンダースケール・影解像度・視界距離）。
-`three` / `@types/three` は**まだ依存に入れていない**（[versioning.md](./versioning.md) §5）。

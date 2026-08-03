@@ -14,21 +14,21 @@ plan.md §2.3-1 の分類でいう **名詞**。「どう見えるか」の仕�
 
 | 領域 | 具体 | 状態 |
 | --- | --- | --- |
-| ポストFXチェーン | パスの確定順序、品質プリセットごとの構成、CompositePass | 順序と検証は実装済 `domain/post-processing.ts`（THREE 実体は未） |
-| マテリアル | チャンク（不透明/水/透過固体）、水面、パーティクル、`forceSinglePass` 方針 | 方針は `domain/material-policy.ts`。**ただし述語は水面を分類できない** — §2.1 |
+| ポストFXチェーン | パスの確定順序、品質プリセットごとの構成、CompositePass | 順序と検証は実装済 `domain/post-processing.ts`。THREE 実体はホスト側 `mc-compose/apps/web/post-processing.ts` が所有 |
+| マテリアル | チャンク（不透明/水/透過固体）、水面、パーティクル、`forceSinglePass` 方針 | 方針は `domain/material-policy.ts` と水面の合成判定。ShaderMaterial の生成と `forceSinglePass` の THREE 転送も実装済み。共有述語が水面を分類できない理由は §2.1 |
 | カメラ | mc-sim のスナップショットを THREE カメラへミラー、視錐台カリング | ミラーは実装済 `domain/camera-mirror.ts` |
-| パーティクル | インスタンス化パーティクルプール | **プール本体は実装済** `domain/particle-pool.ts`。容量 512 / drop-oldest / シード付き乱数、フレーム経路で無アロケーション。`InstancedMesh` への束ねは**未実装** —— THREE シームは着地したが `application/three-surface.ts` は `InstancedMesh` を**持たない**（構成子は 7 つ。§2.3） |
-| 水面 | 水マテリアル・屈折 | **方針・算術は実装済**。マテリアルは `domain/water-surface.ts`、屈折プリパスの実行判定は `domain/water-refraction.ts`。`ShaderMaterial` 実体は**未実装** —— 同上、シームは `MeshBasicMaterial` しか構成できない。**幾何（水面高さ・流向）は mc-meshing** |
-| `WorldRenderer` | chunk ダーティ購読 → メッシュ更新 | **半分だけ実装済** —— **メッシュ更新は実装済** `application/world-renderer.ts`（`setChunk` / `removeChunk` / `draw` / `resize` / `dispose`）+ 純粋側 `domain/chunk-geometry.ts`。**ダーティ購読は未実装**。購読先は決まっている（`mc-worldgen` の `ChunkStore.subscribeDirty`。[public-api.md §3.1](./public-api.md)）が、リポジトリ内に `subscribeDirty` を呼ぶ行は 1 つも無く、`render:chunk-sync` は FIRST CUT のまま（スクラッチ借用のみ） — §2.3 |
-| ワーカープール**実装** | 地形ワーカー / メッシングワーカーのプール（Port は各所有者） | 未実装 |
-| **実行時入力サービス** | キーボード / マウス / ポインタロック / タッチ / キーリマッピング | ポート越しに実装済 `application/input-service.ts` + `window` アダプタ `application/browser-input-adapter.ts`（ゲームパッド / タッチは未） |
-| **フレーム stage 登録** | `render:input` / `render:camera-mirror` / `render:chunk-sync` / `render:draw` / `render:post-fx` | 登録位置は確定済 `stages/`。**本体は 5 本のうち 3 本が実体、2 本が FIRST CUT** —— `render:input`（`InputService` を実際に進める）/ `render:camera-mirror`（`mirroredCameraState` + ラグ計測）/ `render:draw`（`DrawPort.draw`。ブラウザでは実際に `renderer.render` が走る）は実体。`render:chunk-sync`（購読先が無いのでスクラッチ借用のみ）と `render:post-fx`（チェーンは組むが `EffectComposer` の実行が無い）は FIRST CUT |
+| パーティクル | インスタンス化パーティクルプール | **実装済**。`domain/particle-pool.ts` と `application/particle-system.ts` が InstancedBufferGeometry / attributes / shader binding を所有する。 |
+| 水面 | 水マテリアル・屈折 | **方針・算術・ShaderMaterial factory は実装済**。屈折プリパスの実行判定は `domain/water-refraction.ts`。アトラスの THREE 転送はホスト側アダプタの残課題。**幾何（水面高さ・流向）は mc-meshing** |
+| `WorldRenderer` | chunk ダーティ購読 → メッシュ更新 | **実装済** —— `application/world-renderer.ts` が `setChunk` / `removeChunk` / `draw` / `resize` / `setEnvironment` / `dispose` を所有し、`application/world-sync.ts` の `attachChunkStoreRenderer` が dirty 通知を直列化する。純粋側は `domain/chunk-geometry.ts` と `domain/render-environment.ts`。 |
+| ワーカープール**実装** | 地形ワーカー / メッシングワーカーのプール（Port は各所有者） | **実装済** `application/worker-pool.ts` |
+| **実行時入力サービス** | キーボード / マウス / ポインタロック / タッチ / ゲームパッド / キーリマッピング | ポート越しに実装済 `application/input-service.ts` + `window` アダプタ `application/browser-input-adapter.ts` + `application/gamepad-input-adapter.ts`。ブラウザの `GamepadList` 取得はホストの責務 |
+| **フレーム stage 登録** | `render:input` / `render:camera-mirror` / `render:chunk-sync` / `render:draw` / `render:post-fx` | 登録位置は確定済 `stages/`。5 本とも実体。`render:post-fx` はチェーンを組み、ホスト注入の `PostProcessingRenderer` が `EffectComposer` を実行する。 |
 | フレーム毎スクラッチ | 一時 `Map` の事前確保と再利用 | 実装済 `domain/frame-scratch.ts` |
 | グラフィックス品質プリセット適用 | low / medium / high / ultra | ポストFX部分のみ `domain/post-processing.ts` |
-| テクスチャアセット | アトラス画像を同梱（plan.md §5.3「独立アセットリポジトリは作らない」） | **半分だけ実装済**。レイアウト算術（タイル→UV、ハーフテクセル）は `domain/texture-atlas.ts`。**アトラス PNG 本体とそのローダは未実装** — §2.2 |
-| ライトグリッドの**適用** | worldgen が持つ 4bit ライトグリッドを描画に反映 | **未実装。ただし塞いでいるものが変わった** —— グリッドは mc-worldgen に**もう存在する**（`domain/light.ts`、`computeChunkLight` / `ChunkLight` / `getLightAt`、`index.ts` から export 済み）。届かない理由は「無い」ではなく「未 publish かつ mc-compose の vite alias 3 兄弟に入らない」である。`domain/chunk-geometry.ts` は 3 チャンネルとも AO を書いたまま — §3.1 |
+| テクスチャアセット | アトラス画像を同梱（plan.md §5.3「独立アセットリポジトリは作らない」） | **RGBAアトラス生成とレイアウト算術は実装済**。`domain/texture-atlas.ts` が512x512画像をDOM非依存で生成する。THREEへの転送はホスト側アダプタの責務 — §2.2 |
+| ライトグリッドの**適用** | worldgen が持つ 4bit ライトグリッドを描画に反映 | **実装済** —— world adapter が sky/block light を geometry に運び、chunk shader が AO と合成する。`planRenderEnvironment` は同じ shader の日照、空色、距離フォグを決定的に同期する。 |
 
-### 2.1 `forceSinglePass` の述語は水面を分類できない（**既知の穴**）
+### 2.1 `forceSinglePass` の共有述語は水面を分類しない（設計上の境界）
 
 `domain/material-policy.ts` の規則は **`shared && transparent+DoubleSide && cutout`** である。
 水マテリアルは共有・transparent・DoubleSide だが `alphaTest` が 0（`ShaderMaterial` の既定）なので
@@ -53,40 +53,26 @@ plan.md §2.3-1 の分類でいう **名詞**。「どう見えるか」の仕�
 欠けている条項を `WATER_SURFACE_IS_FLAT` という値として置き、
 `waterForceSinglePassVerdict` で共有規則と合成した。
 アダプタは正しい答えを得て、`material-policy.ts` は自分の答えを保ち、食い違いは見えたまま残る。
-両方が `test/water-surface.test.ts` で固定してある。
+生成された水マテリアルには `forceSinglePass: true` を設定し、`test/water-surface.test.ts` と
+`test/world-renderer.test.ts` で判定と THREE 転送の両方を固定してある。
 
 **述語を広げる決定は未決。** 広げるなら `MaterialSpec` に平面性を足し、
 4 マテリアル分の判定を通し直すこと。そのとき上記テストの前半が落ちて、この節に導かれる。
 
-### 2.2 テクスチャアセットを「半分」にした理由
+### 2.2 テクスチャアセットは純粋RGBAとして生成する
 
 アトラスは分離できる 2 つのものである。
 
 | | 中身 | ここで検査できるか |
 | --- | --- | --- |
-| **画像** | 512x512 の PNG。バイナリ資産 | **できない。** 読み込みに `TextureLoader` / `CanvasTexture` すなわち DOM が要り、`tsconfig.base.json` はそれを持たない（持たせない）。見た目が正しいかは Node では誰も確かめられない |
+| **画像** | 512x512 の RGBA | **できる。** `generateTerrainAtlas` はDOM・Canvas・ファイルシステムを使わず、決定的な `Uint8ClampedArray` を返す |
 | **レイアウト** | どのタイル番号がどの (列, 行) か、その UV 矩形は何か | **できる。** 整数 2 つの上の純粋な算術で、起こりうるバグは全部単体テストで見える |
 
-レイアウトだけを `domain/texture-atlas.ts` に入れた。§3.1 の方針
-（機械的に検査できる半分はデータと述語にし、スクリーンショットが要る半分は
-「要る」と書く）をそのまま適用したものである。
-レイアウト側は飾りではなく、パーティクルが破壊したブロックのタイルをサンプルするのに
-UV オフセットを必要とするので、パーティクル作業の**依存**である。
+全256タイルは番号由来のピクセルアートで識別できる。ブロックマッピングと同じ番号を使い、
+water / lava / leaves / glass / cutout はパレットとアルファ値を分ける。テストは寸法、決定性、
+全120ブロックの全face role、参照タイル間の差、素材別アルファを検証する。
 
-**PNG 本体は残っている作業**である。
-
-**2026-07-28 の訂正**: ここにはかつて「THREE アダプタと同時に入れるのが自然である
-（ローダがそちら側にあるため）」と書いてあった。**アダプタは着地したが PNG は入らなかった**ので、
-その予定は外れている。理由は後から見ると明快で、`application/three-surface.ts` の構成子は 7 つしかなく
-**`TextureLoader` も `CanvasTexture` もその中に無い**。アダプタが要求したのは
-`MeshBasicMaterial` + `vertexColors` までで、テクスチャは 1 つも要らなかった
-（AO を頂点カラーとして出すのに十分だったため）。
-
-したがって PNG が要るのは「アダプタを書くとき」ではなく
-**「アトラスを実際にサンプルする最初のマテリアルを書くとき」**であり、
-そのときシームに `TextureLoader`（または `CanvasTexture`）が 1 つ増える。
-それは §2.2 の表の「画像」側が Node で検査できないという事実を変えないので、
-足すときは検査可能性ではなく**ホストが何を渡すか**の決定になる。
+残るのは生成済みRGBAを `DataTexture` 等へ渡すホスト側の接続であり、画像本体ではない。
 
 ### 2.3 THREE シームが**覆っている範囲**（2026-07-28）
 
@@ -112,8 +98,8 @@ UV オフセットを必要とするので、パーティクル作業の**依存
 | --- | --- |
 | パーティクルの `InstancedMesh` | シームに `InstancedMesh` が無い。**残っている** |
 | 水面の `ShaderMaterial` | シームに `ShaderMaterial` が無い。構成できるマテリアルは `MeshBasicMaterial` 1 種。**残っている** |
-| ポストFXの `EffectComposer` / 各 `Pass` | シームに無い。`render:post-fx` が FIRST CUT なのはこれが理由。**残っている** |
-| アトラス PNG の `TextureLoader` | シームに無い。§2.2。**残っている** |
+| ポストFXの `EffectComposer` / 各 `Pass` | **ホスト側に実装済み**。`mc-compose/apps/web/post-processing.ts` が `RenderPass` / `GTAOPass` / `Bloom` / `Bokeh` / `SMAA` / `OutputPass` を chain 順に構築する |
+| 生成RGBAを受け取る `DataTexture` | シームに無い。§2.2。**残っている** |
 | チャンクのジオメトリ構築と描画 | **着地した**（`world-renderer.ts` / `chunk-geometry.ts`） |
 
 シームが小さいのは事故ではなく、`test/three-surface.test.ts` が

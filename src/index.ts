@@ -51,7 +51,10 @@ export * from './domain/block-texture-map'
 export * from './domain/camera-mirror'
 export * from './domain/chunk-geometry'
 export * from './domain/frame-scratch'
+export * from './domain/frustum-culling'
 export * from './domain/input-bindings'
+export * from './domain/gamepad-input'
+export * from './domain/player-control'
 // `level-of-detail.ts` decides which LOD tier a chunk is drawn at, and measures
 // what that costs the picture. mc-meshing docs/responsibility.md §3.4 assigned
 // it here because it takes a DISTANCE and mc-meshing holds no coordinates; the
@@ -77,10 +80,15 @@ export * from './domain/input-bindings'
 // mirror headers all promise not to do.
 export * from './domain/level-of-detail'
 export * from './domain/material-policy'
+export * from './domain/mob-visual'
 export * from './domain/particle-pool'
 export * from './domain/particle-shader'
 export * from './domain/post-processing'
+export * from './domain/render-environment'
+export * from './domain/weather-rendering'
 export * from './domain/texture-atlas'
+export * from './domain/vehicle-visual'
+export * from './domain/wither-visual'
 // The shading curve. `chunk-geometry.ts` builds buffers and does not decide how
 // bright a surface is; this holds the rule, and a host injects the light
 // readings. Its header names the noun still missing before the reference's
@@ -101,6 +109,7 @@ export * from './application/input-service'
 // why that is a narrow interface rather than `"lib": ["DOM"]`.
 export * from './application/dom-surface'
 export * from './application/browser-input-adapter'
+export * from './application/gamepad-input-adapter'
 
 // --- Application: the THREE.js adapter --------------------------------------
 // `three-surface.ts` is the whole THREE dependency, structurally — the same
@@ -115,6 +124,7 @@ export * from './application/browser-input-adapter'
 export * from './application/three-surface'
 export * from './application/world-renderer'
 export * from './application/particle-system'
+export * from './application/weather-renderer'
 export * from './application/world-sync'
 export * from './application/chunk-store-mesher'
 export * from './application/worker-pool'

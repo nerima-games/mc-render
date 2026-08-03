@@ -158,6 +158,19 @@ export const UV_COMPONENTS = 2
  * 2^24 exactly, and the atlas has 256 tiles.
  */
 export const TILE_INDEX_COMPONENTS = 1
+export const FLUID_DIRECTION_COMPONENTS = 2
+export const FLUID_FALLING_COMPONENTS = 1
+
+export type FluidQuad = {
+  readonly blockId: number
+  readonly direction: FaceDirection
+  readonly vertices: readonly [QuadVertex, QuadVertex, QuadVertex, QuadVertex]
+  readonly flow?: {
+    readonly direction: readonly [x: number, z: number]
+    readonly falling: boolean
+  }
+  readonly ao: number
+}
 
 /**
  * How dark each AO level draws, as an 8-bit vertex-colour channel.
@@ -399,6 +412,10 @@ export type ChunkGeometryBuffers = {
    * `chunkShaderSource()` rather than restating them.
    */
   readonly tileIndices: Float32Array
+  /** Horizontal animation direction; zero for solids and still fluids. */
+  readonly fluidDirections: Float32Array
+  /** One for falling fluid faces, zero otherwise. */
+  readonly fluidFalling: Float32Array
   /** Two triangles per quad: `(0,1,2)` and `(0,2,3)`. */
   readonly indices: Uint32Array
   readonly quadCount: number
@@ -413,6 +430,8 @@ const EMPTY_BUFFERS: ChunkGeometryBuffers = {
   colors: new Uint8Array(0),
   uvs: new Float32Array(0),
   tileIndices: new Float32Array(0),
+  fluidDirections: new Float32Array(0),
+  fluidFalling: new Float32Array(0),
   indices: new Uint32Array(0),
   quadCount: 0,
   vertexCount: 0,
@@ -562,6 +581,8 @@ export const buildChunkGeometry = (
   const colors = new Uint8Array(vertexCount * COLOR_COMPONENTS)
   const uvs = new Float32Array(vertexCount * UV_COMPONENTS)
   const tileIndices = new Float32Array(vertexCount * TILE_INDEX_COMPONENTS)
+  const fluidDirections = new Float32Array(vertexCount * FLUID_DIRECTION_COMPONENTS)
+  const fluidFalling = new Float32Array(vertexCount * FLUID_FALLING_COMPONENTS)
   const indices = new Uint32Array(indexCount)
 
   for (let quadIndex = 0; quadIndex < quadCount; quadIndex += 1) {
@@ -639,7 +660,124 @@ export const buildChunkGeometry = (
     indices[indexOffset + 5] = base + 3
   }
 
-  return { positions, normals, colors, uvs, tileIndices, indices, quadCount, vertexCount, indexCount }
+  return {
+    positions, normals, colors, uvs, tileIndices, fluidDirections, fluidFalling,
+    indices, quadCount, vertexCount, indexCount,
+  }
+}
+
+const fluidCellKey = (quad: FluidQuad): string => {
+  let minX = Number.POSITIVE_INFINITY
+  let minY = Number.POSITIVE_INFINITY
+  let minZ = Number.POSITIVE_INFINITY
+  for (const [x, y, z] of quad.vertices) {
+    minX = Math.min(minX, x)
+    minY = Math.min(minY, y)
+    minZ = Math.min(minZ, z)
+  }
+  const cellX = Math.floor(minX - (quad.direction === 'xPos' ? 0.5 : 0))
+  const cellZ = Math.floor(minZ - (quad.direction === 'zPos' ? 0.5 : 0))
+  return `${quad.blockId}:${cellX}:${Math.floor(minY)}:${cellZ}`
+}
+
+const safeFlowDirection = (flow: FluidQuad['flow']): readonly [number, number] => {
+  if (flow === undefined) return [0, 0]
+  const [x, z] = flow.direction
+  if (!Number.isFinite(x) || !Number.isFinite(z)) return [0, 0]
+  const length = Math.hypot(x, z)
+  return length > 0 ? [x / length, z / length] : [0, 0]
+}
+
+/** Build non-cubic fluid faces and preserve their animation metadata. */
+export const buildFluidGeometry = (
+  quads: ReadonlyArray<FluidQuad>,
+  originX = 0,
+  originZ = 0,
+  color: QuadColor = AO_ONLY_COLOR,
+  tile: QuadTile = UNTEXTURED_TILE,
+): ChunkGeometryBuffers => {
+  if (quads.length === 0) return EMPTY_BUFFERS
+  const fallingCells = new Set(
+    quads.filter((quad) => quad.direction === 'yPos' && quad.flow?.falling === true).map(fluidCellKey),
+  )
+  const proxies: MeshQuad[] = quads.map((quad) => ({
+    blockId: quad.blockId,
+    direction: quad.direction,
+    role: quad.direction === 'yPos' ? 'top' : 'side',
+    lx: 0, y: 0, lz: 0, width: 1, height: 1, ao: quad.ao,
+  }))
+  const built = buildChunkGeometry(proxies, 0, 0, color, tile)
+
+  for (let quadIndex = 0; quadIndex < quads.length; quadIndex += 1) {
+    const quad = quads[quadIndex]
+    if (quad === undefined) continue
+    const normal = faceNormal(quad.direction)
+    const topFlow = safeFlowDirection(quad.flow)
+    const falling = quad.flow?.falling === true || fallingCells.has(fluidCellKey(quad))
+    const direction: readonly [number, number] = quad.direction === 'yPos'
+      ? topFlow
+      : falling ? [normal[0], normal[2]] : [0, 0]
+    const base = quadIndex * VERTICES_PER_QUAD
+    for (let corner = 0; corner < VERTICES_PER_QUAD; corner += 1) {
+      const vertex = quad.vertices[corner]
+      if (vertex === undefined) continue
+      const positionAt = (base + corner) * POSITION_COMPONENTS
+      const flowAt = (base + corner) * FLUID_DIRECTION_COMPONENTS
+      built.positions[positionAt] = originX + vertex[0]
+      built.positions[positionAt + 1] = vertex[1]
+      built.positions[positionAt + 2] = originZ + vertex[2]
+      built.fluidDirections[flowAt] = direction[0]
+      built.fluidDirections[flowAt + 1] = direction[1]
+      built.fluidFalling[base + corner] = falling ? 1 : 0
+    }
+
+    if (quad.direction === 'yPos' && (topFlow[0] !== 0 || topFlow[1] !== 0)) {
+      const cellX = Math.floor(Math.min(...quad.vertices.map(([x]) => x)))
+      const cellZ = Math.floor(Math.min(...quad.vertices.map(([, , z]) => z)))
+      for (let corner = 0; corner < VERTICES_PER_QUAD; corner += 1) {
+        const vertex = quad.vertices[corner]
+        if (vertex === undefined) continue
+        const u = vertex[0] - cellX - 0.5
+        const v = vertex[2] - cellZ - 0.5
+        const at = (base + corner) * UV_COMPONENTS
+        built.uvs[at] = 0.5 + u * -topFlow[1] + v * topFlow[0]
+        built.uvs[at + 1] = 0.5 + u * topFlow[0] + v * topFlow[1]
+      }
+    }
+  }
+  return built
+}
+
+/** Concatenate independently generated layer buffers into one GPU geometry. */
+export const combineChunkGeometry = (...parts: ReadonlyArray<ChunkGeometryBuffers>): ChunkGeometryBuffers => {
+  const vertexCount = parts.reduce((sum, part) => sum + part.vertexCount, 0)
+  const indexCount = parts.reduce((sum, part) => sum + part.indexCount, 0)
+  const quadCount = parts.reduce((sum, part) => sum + part.quadCount, 0)
+  const positions = new Float32Array(vertexCount * POSITION_COMPONENTS)
+  const normals = new Float32Array(vertexCount * NORMAL_COMPONENTS)
+  const colors = new Uint8Array(vertexCount * COLOR_COMPONENTS)
+  const uvs = new Float32Array(vertexCount * UV_COMPONENTS)
+  const tileIndices = new Float32Array(vertexCount)
+  const fluidDirections = new Float32Array(vertexCount * FLUID_DIRECTION_COMPONENTS)
+  const fluidFalling = new Float32Array(vertexCount)
+  const indices = new Uint32Array(indexCount)
+  let vertexOffset = 0
+  let indexOffset = 0
+  for (const part of parts) {
+    positions.set(part.positions, vertexOffset * POSITION_COMPONENTS)
+    normals.set(part.normals, vertexOffset * NORMAL_COMPONENTS)
+    colors.set(part.colors, vertexOffset * COLOR_COMPONENTS)
+    uvs.set(part.uvs, vertexOffset * UV_COMPONENTS)
+    tileIndices.set(part.tileIndices, vertexOffset)
+    fluidDirections.set(part.fluidDirections, vertexOffset * FLUID_DIRECTION_COMPONENTS)
+    fluidFalling.set(part.fluidFalling, vertexOffset)
+    for (let index = 0; index < part.indexCount; index += 1) {
+      indices[indexOffset + index] = (part.indices[index] ?? 0) + vertexOffset
+    }
+    vertexOffset += part.vertexCount
+    indexOffset += part.indexCount
+  }
+  return { positions, normals, colors, uvs, tileIndices, fluidDirections, fluidFalling, indices, quadCount, vertexCount, indexCount }
 }
 
 /**

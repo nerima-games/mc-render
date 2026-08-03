@@ -144,6 +144,11 @@ const noop = (): void => undefined
 
 const domEvent = (target: unknown): DomInputEvent => ({ preventDefault: noop, target })
 
+const touchEvent = (
+  target: unknown,
+  ...touches: ReadonlyArray<{ readonly identifier: number; readonly target: unknown }>
+): DomInputEvent => ({ preventDefault: noop, target, changedTouches: touches })
+
 // ---------------------------------------------------------------------------
 // #35 — the tap and the key are the same intent
 // ---------------------------------------------------------------------------
@@ -385,6 +390,75 @@ describe('PORTED #35: the same claim through the browser adapter', () => {
       fire('touchstart', pauseButton)
       const snapshot = yield* input.snapshot
       expect(snapshot.justPressed.has(ESCAPE_KEY_CODE)).toBe(true)
+    }),
+  )
+
+  it.effect('touchend releases the action remembered at touchstart, not its retargeted element', () =>
+    Effect.gen(function* () {
+      const added: Array<{ type: string; listener: DomListener }> = []
+      const target = {
+        addEventListener: (type: string, listener: DomListener, _options?: DomListenerOptions) => {
+          added.push({ type, listener })
+        },
+        removeEventListener: noop,
+      }
+      const targets = { window: target, document: { ...target, pointerLockElement: null } }
+      const input = yield* makeInputService()
+      installInputListeners(targets, input, [], canvas, MOBILE_CONTROLS)
+
+      const fire = (type: string, event: DomInputEvent): void => {
+        for (const call of added.filter((candidate) => candidate.type === type)) {
+          call.listener(event)
+        }
+      }
+
+      fire('touchstart', touchEvent(inventoryButton, { identifier: 17, target: inventoryButton }))
+      expect(yield* input.isActionActive('openInventory')).toBe(true)
+      fire('touchend', touchEvent(canvas, { identifier: 17, target: canvas }))
+      expect(yield* input.isActionActive('openInventory')).toBe(false)
+    }),
+  )
+
+  it.effect('multiple touches release only their own action and share an action until its last finger ends', () =>
+    Effect.gen(function* () {
+      const added: Array<{ type: string; listener: DomListener }> = []
+      const target = {
+        addEventListener: (type: string, listener: DomListener, _options?: DomListenerOptions) => {
+          added.push({ type, listener })
+        },
+        removeEventListener: noop,
+      }
+      const targets = { window: target, document: { ...target, pointerLockElement: null } }
+      const input = yield* makeInputService()
+      installInputListeners(targets, input, [], canvas, MOBILE_CONTROLS)
+      const fire = (type: string, event: DomInputEvent): void => {
+        for (const call of added.filter((candidate) => candidate.type === type)) {
+          call.listener(event)
+        }
+      }
+
+      fire(
+        'touchstart',
+        touchEvent(
+          jumpButton,
+          { identifier: 1, target: jumpButton },
+          { identifier: 2, target: attackButton },
+          { identifier: 3, target: jumpButton },
+        ),
+      )
+      expect(yield* input.isActionActive('jump')).toBe(true)
+      expect(yield* input.isActionActive('attack')).toBe(true)
+
+      fire('touchcancel', touchEvent(canvas, { identifier: 1, target: canvas }))
+      expect(yield* input.isActionActive('jump')).toBe(true)
+      expect(yield* input.isActionActive('attack')).toBe(true)
+
+      fire('touchend', touchEvent(canvas, { identifier: 2, target: canvas }))
+      expect(yield* input.isActionActive('jump')).toBe(true)
+      expect(yield* input.isActionActive('attack')).toBe(false)
+
+      fire('touchend', touchEvent(canvas, { identifier: 3, target: canvas }))
+      expect(yield* input.isActionActive('jump')).toBe(false)
     }),
   )
 })

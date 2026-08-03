@@ -172,20 +172,20 @@ DOM に触るのは `window` 入力アダプタ 1 つだけで、**`tsconfig` �
 
 ### まだ無いもの
 
-- **THREE.js アダプタの残り。** シーンとチャンク描画は**入った**
-  （`application/three-surface.ts` / `application/world-renderer.ts`）。
-  入っていないのは `InstancedMesh`（パーティクル）/ `ShaderMaterial`（水面）/
-  `EffectComposer`（ポストFX）/ `TextureLoader`（アトラス PNG）で、
-  シームの構成子は現在 7 つしかない
-  （[docs/responsibility.md](./docs/responsibility.md) §2.3 に全表）。
-- **`WorldRenderer` のダーティ購読。** レンダラ本体は**入った** ——
-  `setChunk` / `removeChunk` / `draw` / `resize` / `dispose`
-  （`application/world-renderer.ts`、`test/world-renderer.test.ts` 20 件）。
-  無いのは**呼び出し元**である。購読先は決まっている
-  （**mc-worldgen** の `ChunkStore.subscribeDirty`。mc-sim ではない）が、
-  mc-worldgen は未 publish で mc-compose の vite alias にも入らないため、
-  リポジトリ内に `subscribeDirty` を呼ぶ行は 1 つも無い
-  （[`docs/public-api.md`](./docs/public-api.md) §3.1）。
+- **内蔵 fixture ビューア。** THREE.js のホストアダプタ、シーンとチャンク描画、
+  `ShaderMaterial` によるチャンク/水面、InstancedBuffer によるパーティクル、
+  `EffectComposer` によるポストFX実行は mc-compose 側に入った。アトラス転送は
+  注入可能なテクスチャ資産としてホストが担当する。
+- **`WorldRenderer` のダーティ購読と照明同期は入った。**
+  `attachChunkStoreRenderer` が mc-worldgen の `ChunkStore.subscribeDirty` を購読し、
+  ダーティチャンクを再メッシュする。各面の外側セルをワールド座標で `getLight` し、
+  AO / 天空光 / ブロック光を頂点カラーの R / G / B に格納するため、チャンク境界も
+  隣接チャンク側の光を参照できる。未ロード・範囲外は暗さ 0 とし、光レベルは 0..15 に
+  クランプする。既存の `color` または `colorForChunk` を指定すれば、この既定動作を上書きできる。
+- **空・日照・地形フォグは同じ決定的 plan で同期する。**
+  `planRenderEnvironment(daylight, farPlane)` は純粋関数として空色、日照強度、
+  フォグ色と距離を返す。`WorldRenderer.setEnvironment` は clear color と既存の
+  chunk shader uniform を更新し、material や GPU resource を再生成しない。
 - **キーボードフォーカスの「移動」側。** 観測（`focusin` / `focusout` → `InputSnapshot.keyboardFocus`）は
   **入った**が、グループ**内**を矢印キーで動かす手段は無い。ホットバーはタブストップが 1 つなので、
   Tab で入れるのはスロット 0 だけである。閉じるには `dom-surface.ts` に `focus()` が要り、
@@ -195,12 +195,11 @@ DOM に触るのは `window` 入力アダプタ 1 つだけで、**`tsconfig` �
   **同 §5(b)（HUD の上のクリックがポインタロック要求になる）は閉じた**——
   `acquiresPointerLock` がクリックの落ちた先を受け取るようになり、
   mx-ui もホストも変わっていない（[`docs/public-api.md`](./docs/public-api.md) §2.11）。
-- **ゲームパッドとタッチ入力。** 参照実装の `gamepad-input-state.ts` / `virtual-input-state.ts`
-  相当（216 LOC）。`window` 入力アダプタ本体（キー / マウス / ホイール / ポインタロック /
-  blur、登録と解除、`canvas.requestPointerLock()` に繋がる `PointerLockPort` の実装）は
-  **入った**（[`docs/public-api.md`](./docs/public-api.md) §2.9）。
-- **ワーカープール実装。** 参照実装 `packages/worker` の 1,373 LOC 相当。
-- **内蔵 fixture ビューア。** plan.md §6 Step 2 の完了条件の半分。
+- **ゲームパッドとタッチ入力。** `domain/gamepad-input.ts` と
+  `application/gamepad-input-adapter.ts` が、押下エッジ・解放・軸のデッドゾーン・切断時の
+  解放を実装する。タッチ入力も `browser-input-adapter.ts` と
+  `test/touch-controls.test.ts` に実装済み。ブラウザの `GamepadList` 取得と毎フレームの
+  `poll` 呼び出しはホストの責務で、DOM API は mc-render の型境界に入れない。
 - **グラフィックス品質プリセットの残り半分。** レンダースケール・影解像度・視界距離・
   `bloomStrength` / `godRaysSamples`・`composerRtType`。
 - **ビルド／publish はまだない。** `exports` は TypeScript ソースを直接指している。

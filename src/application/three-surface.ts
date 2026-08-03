@@ -167,6 +167,8 @@ export type ThreeBufferAttribute = Record<never, never>
  */
 export type ThreeMaterial = {
   readonly dispose: () => void
+  /** Avoids the redundant back/front draw for flat transparent surfaces. */
+  readonly forceSinglePass?: boolean
 }
 
 /**
@@ -184,6 +186,7 @@ export type ThreeMaterial = {
 export type ThreeBufferGeometry = {
   setAttribute(name: string, attribute: ThreeBufferAttribute): unknown
   setIndex(index: ThreeBufferAttribute | null): unknown
+  setDrawRange(start: number, count: number): unknown
   readonly computeBoundingSphere: () => void
   readonly dispose: () => void
 }
@@ -222,11 +225,11 @@ export type ThreeEuler = {
  * (ts-minecraft `packages/rendering/infrastructure/meshing/chunk-mesh-geometry.ts:40-41`:
  * "frustumCulled=false + manual AABB frustum culling in WorldRendererService
  * (cheaper than Three.js per-object bounding-sphere checks)"). This repository
- * has no frustum culler yet and leaves the flag at three's default; the member
- * is here so that adding one is a renderer change and not a surface change.
+ * performs that manual cull before each draw. `visible` carries its result.
  */
 export type ThreeMesh = {
   frustumCulled: boolean
+  visible: boolean
 }
 
 /**
@@ -367,6 +370,9 @@ export type ThreeShaderMaterialParameters = {
   readonly fragmentShader: string
   readonly uniforms: Record<string, ThreeUniform>
   readonly vertexColors: true
+  readonly transparent?: boolean
+  readonly depthWrite?: boolean
+  readonly forceSinglePass?: boolean
 }
 
 /**
