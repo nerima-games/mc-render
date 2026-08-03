@@ -52,11 +52,11 @@
     "verify": "pnpm typecheck && pnpm lint && pnpm test"
   },
   "dependencies": {
-    "@nerima-games/mc-kernel": "0.2.0",
+    "@nerima-games/mc-kernel": "0.2.16",
     "@nerima-games/mc-meshing": "0.1.4",
-    "@nerima-games/mc-sim": "0.1.31",
-    "@nerima-games/mc-worldgen": "0.1.2",
-    "effect": "^3.20.0"
+    "@nerima-games/mc-sim": "0.1.36",
+    "@nerima-games/mc-worldgen": "0.1.12",
+    "effect": "^3.22.0"
   },
   "devDependencies": {
     "@changesets/changelog-github": "^0.7.0",
