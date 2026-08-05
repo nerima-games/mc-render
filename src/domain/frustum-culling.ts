@@ -13,6 +13,23 @@ export type PerspectiveFrustum = {
   readonly farPlane: number
 }
 
+export type PreparedPerspectiveFrustum = {
+  readonly positionX: number
+  readonly positionY: number
+  readonly positionZ: number
+  readonly nearPlane: number
+  readonly farPlane: number
+  readonly halfHeight: number
+  readonly halfWidth: number
+  readonly cosYaw: number
+  readonly sinYaw: number
+  readonly cosPitch: number
+  readonly sinPitch: number
+  readonly cosRoll: number
+  readonly sinRoll: number
+  readonly isValid: boolean
+}
+
 export const boundsFromPositions = (positions: Float32Array): AxisAlignedBounds | undefined => {
   if (positions.length === 0 || positions.length % 3 !== 0) {
     return undefined
@@ -56,69 +73,112 @@ const finiteBounds = (bounds: AxisAlignedBounds): boolean =>
   bounds.min.y <= bounds.max.y &&
   bounds.min.z <= bounds.max.z
 
-export const aabbIntersectsPerspectiveFrustum = (
+const validProjection = (
+  verticalFovDegrees: number,
+  aspect: number,
+  nearPlane: number,
+  farPlane: number,
+): boolean =>
+  Number.isFinite(aspect) &&
+  aspect > 0 &&
+  Number.isFinite(nearPlane) &&
+  nearPlane >= 0 &&
+  Number.isFinite(farPlane) &&
+  farPlane >= nearPlane &&
+  Number.isFinite(verticalFovDegrees) &&
+  verticalFovDegrees > 0 &&
+  verticalFovDegrees < 180
+
+export const preparePerspectiveFrustum = (
+  camera: MirroredCameraState,
+  verticalFovDegrees: number,
+  aspect: number,
+  nearPlane: number,
+  farPlane: number,
+): PreparedPerspectiveFrustum => {
+  const isValid = validProjection(verticalFovDegrees, aspect, nearPlane, farPlane)
+  const halfHeight = isValid ? Math.tan((verticalFovDegrees * Math.PI) / 360) : 0
+
+  return {
+    positionX: camera.position.x,
+    positionY: camera.position.y,
+    positionZ: camera.position.z,
+    nearPlane,
+    farPlane,
+    halfHeight,
+    halfWidth: halfHeight * aspect,
+    cosYaw: Math.cos(camera.rotation.y),
+    sinYaw: Math.sin(camera.rotation.y),
+    cosPitch: Math.cos(camera.rotation.x),
+    sinPitch: Math.sin(camera.rotation.x),
+    cosRoll: Math.cos(camera.rotation.z),
+    sinRoll: Math.sin(camera.rotation.z),
+    isValid,
+  }
+}
+
+const insidePlaneMask = (
+  x: number,
+  y: number,
+  z: number,
+  frustum: PreparedPerspectiveFrustum,
+): number => {
+  const dx = x - frustum.positionX
+  const dy = y - frustum.positionY
+  const dz = z - frustum.positionZ
+
+  // Inverse of Three.js Euler YXZ: Rz(-roll) * Rx(-pitch) * Ry(-yaw).
+  const yawX = frustum.cosYaw * dx - frustum.sinYaw * dz
+  const yawZ = frustum.sinYaw * dx + frustum.cosYaw * dz
+  const pitchY = frustum.cosPitch * dy + frustum.sinPitch * yawZ
+  const pitchZ = -frustum.sinPitch * dy + frustum.cosPitch * yawZ
+  const viewX = frustum.cosRoll * yawX + frustum.sinRoll * pitchY
+  const viewY = -frustum.sinRoll * yawX + frustum.cosRoll * pitchY
+  const depth = -pitchZ
+  const tolerance =
+    Number.EPSILON * 16 * Math.max(1, Math.abs(viewX), Math.abs(viewY), Math.abs(depth), frustum.farPlane)
+  let mask = 0
+  if (depth - frustum.nearPlane >= -tolerance) mask += 1
+  if (frustum.farPlane - depth >= -tolerance) mask += 2
+  if (viewX + depth * frustum.halfWidth >= -tolerance) mask += 4
+  if (depth * frustum.halfWidth - viewX >= -tolerance) mask += 8
+  if (viewY + depth * frustum.halfHeight >= -tolerance) mask += 16
+  if (depth * frustum.halfHeight - viewY >= -tolerance) mask += 32
+  return mask
+}
+
+export const aabbIntersectsPreparedPerspectiveFrustum = (
   bounds: AxisAlignedBounds,
-  frustum: PerspectiveFrustum,
+  frustum: PreparedPerspectiveFrustum,
 ): boolean => {
-  const { aspect, nearPlane, farPlane, verticalFovDegrees, camera } = frustum
-  if (
-    !finiteBounds(bounds) ||
-    !Number.isFinite(aspect) ||
-    aspect <= 0 ||
-    !Number.isFinite(nearPlane) ||
-    nearPlane < 0 ||
-    !Number.isFinite(farPlane) ||
-    farPlane < nearPlane ||
-    !Number.isFinite(verticalFovDegrees) ||
-    verticalFovDegrees <= 0 ||
-    verticalFovDegrees >= 180
-  ) {
+  if (!finiteBounds(bounds) || !frustum.isValid) {
     return false
   }
 
-  const halfHeight = Math.tan((verticalFovDegrees * Math.PI) / 360)
-  const halfWidth = halfHeight * aspect
-  const cosYaw = Math.cos(camera.rotation.y)
-  const sinYaw = Math.sin(camera.rotation.y)
-  const cosPitch = Math.cos(camera.rotation.x)
-  const sinPitch = Math.sin(camera.rotation.x)
-  const cosRoll = Math.cos(camera.rotation.z)
-  const sinRoll = Math.sin(camera.rotation.z)
-  const planeHasInsideCorner = [false, false, false, false, false, false]
-
-  for (const x of [bounds.min.x, bounds.max.x]) {
-    for (const y of [bounds.min.y, bounds.max.y]) {
-      for (const z of [bounds.min.z, bounds.max.z]) {
-        const dx = x - camera.position.x
-        const dy = y - camera.position.y
-        const dz = z - camera.position.z
-
-        // Inverse of Three.js Euler YXZ: Rz(-roll) * Rx(-pitch) * Ry(-yaw).
-        const yawX = cosYaw * dx - sinYaw * dz
-        const yawZ = sinYaw * dx + cosYaw * dz
-        const pitchY = cosPitch * dy + sinPitch * yawZ
-        const pitchZ = -sinPitch * dy + cosPitch * yawZ
-        const viewX = cosRoll * yawX + sinRoll * pitchY
-        const viewY = -sinRoll * yawX + cosRoll * pitchY
-        const depth = -pitchZ
-        const distances = [
-          depth - nearPlane,
-          farPlane - depth,
-          viewX + depth * halfWidth,
-          depth * halfWidth - viewX,
-          viewY + depth * halfHeight,
-          depth * halfHeight - viewY,
-        ]
-        const tolerance =
-          Number.EPSILON * 16 * Math.max(1, Math.abs(viewX), Math.abs(viewY), Math.abs(depth), farPlane)
-        for (let plane = 0; plane < distances.length; plane += 1) {
-          if (distances[plane]! >= -tolerance) {
-            planeHasInsideCorner[plane] = true
-          }
-        }
-      }
-    }
-  }
-
-  return planeHasInsideCorner.every(Boolean)
+  const { min, max } = bounds
+  let mask = 0
+  mask |= insidePlaneMask(min.x, min.y, min.z, frustum)
+  mask |= insidePlaneMask(min.x, min.y, max.z, frustum)
+  mask |= insidePlaneMask(min.x, max.y, min.z, frustum)
+  mask |= insidePlaneMask(min.x, max.y, max.z, frustum)
+  mask |= insidePlaneMask(max.x, min.y, min.z, frustum)
+  mask |= insidePlaneMask(max.x, min.y, max.z, frustum)
+  mask |= insidePlaneMask(max.x, max.y, min.z, frustum)
+  mask |= insidePlaneMask(max.x, max.y, max.z, frustum)
+  return mask === 63
 }
+
+export const aabbIntersectsPerspectiveFrustum = (
+  bounds: AxisAlignedBounds,
+  frustum: PerspectiveFrustum,
+): boolean =>
+  aabbIntersectsPreparedPerspectiveFrustum(
+    bounds,
+    preparePerspectiveFrustum(
+      frustum.camera,
+      frustum.verticalFovDegrees,
+      frustum.aspect,
+      frustum.nearPlane,
+      frustum.farPlane,
+    ),
+  )

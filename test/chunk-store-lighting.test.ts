@@ -1,5 +1,6 @@
 import { describe, expect, it } from '@effect/vitest'
-import { blockPosition, type BlockPosition, type LightReading } from '@nerima-games/mc-worldgen'
+import { blockPosition, type BlockPosition } from '@nerima-games/mc-kernel'
+import type { LightReading } from '@nerima-games/mc-worldgen'
 import { Effect } from 'effect'
 import { makeChunkStoreLightColor } from '../src/application/chunk-store-mesher'
 import type { MeshQuad } from '../src/domain/chunk-geometry'

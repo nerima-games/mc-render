@@ -64,8 +64,9 @@ import {
   type WitherVisualStateInput,
 } from '../domain/wither-visual'
 import {
-  aabbIntersectsPerspectiveFrustum,
+  aabbIntersectsPreparedPerspectiveFrustum,
   boundsFromPositions,
+  preparePerspectiveFrustum,
   type AxisAlignedBounds,
 } from '../domain/frustum-culling'
 import {
@@ -1092,16 +1093,11 @@ export const makeWorldRenderer = <
             Ref.get(chunks),
             Ref.get(viewportAspect),
           ])
+          const frustum = preparePerspectiveFrustum(mirrored, fovDegrees, aspect, nearPlane, farPlane)
           for (const entry of currentChunks.values()) {
             entry.mesh.visible =
               entry.bounds !== undefined &&
-              aabbIntersectsPerspectiveFrustum(entry.bounds, {
-                camera: mirrored,
-                verticalFovDegrees: fovDegrees,
-                aspect,
-                nearPlane,
-                farPlane,
-              })
+              aabbIntersectsPreparedPerspectiveFrustum(entry.bounds, frustum)
           }
           const chain = yield* Ref.get(postProcessingChain)
           if (postProcessing === undefined) {

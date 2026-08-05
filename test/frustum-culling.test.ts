@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { mirroredCameraState } from '../src/domain/camera-mirror'
 import {
+  aabbIntersectsPreparedPerspectiveFrustum,
   aabbIntersectsPerspectiveFrustum,
   boundsFromPositions,
+  preparePerspectiveFrustum,
   type AxisAlignedBounds,
 } from '../src/domain/frustum-culling'
 import { MonotonicTimeSecs, position } from '../src/domain/kernel-vocabulary'
@@ -77,5 +79,47 @@ describe('aabbIntersectsPerspectiveFrustum', () => {
     expect(visible(bounds, { aspect: 0 })).toBe(false)
     expect(visible(bounds, { verticalFovDegrees: 180 })).toBe(false)
     expect(visible({ min: { x: 1, y: 0, z: 0 }, max: { x: 0, y: 1, z: 1 } })).toBe(false)
+  })
+
+  it('matches the legacy wrapper when the frustum is prepared once', () => {
+    const frustum = {
+      camera: camera(Math.PI / 6, Math.PI / 8, Math.PI / 12),
+      verticalFovDegrees: 75,
+      aspect: 16 / 9,
+      nearPlane: 0.5,
+      farPlane: 100,
+    }
+    const prepared = preparePerspectiveFrustum(
+      frustum.camera,
+      frustum.verticalFovDegrees,
+      frustum.aspect,
+      frustum.nearPlane,
+      frustum.farPlane,
+    )
+    const bounds = [
+      { min: { x: -2, y: -2, z: -8 }, max: { x: 2, y: 2, z: -4 } },
+      { min: { x: 80, y: 80, z: 80 }, max: { x: 82, y: 82, z: 82 } },
+      { min: { x: -100, y: -100, z: -100 }, max: { x: 100, y: 100, z: 100 } },
+    ]
+
+    for (const box of bounds) {
+      expect(aabbIntersectsPreparedPerspectiveFrustum(box, prepared)).toBe(
+        aabbIntersectsPerspectiveFrustum(box, frustum),
+      )
+    }
+  })
+
+  it('captures the camera position when preparing the frustum', () => {
+    const sourceCamera = camera()
+    const prepared = preparePerspectiveFrustum(sourceCamera, 90, 1, 1, 10)
+    const mutableCamera = sourceCamera as { position: { x: number; y: number; z: number } }
+    mutableCamera.position.z = 100
+
+    expect(
+      aabbIntersectsPreparedPerspectiveFrustum(
+        { min: { x: 0, y: 0, z: -2 }, max: { x: 0, y: 0, z: -2 } },
+        prepared,
+      ),
+    ).toBe(true)
   })
 })
