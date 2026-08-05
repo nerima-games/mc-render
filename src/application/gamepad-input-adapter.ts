@@ -26,7 +26,7 @@ export const makeGamepadInputAdapter = (
   source: GamepadSource,
   bindings: GamepadBindings = DEFAULT_GAMEPAD_BINDINGS,
 ): GamepadInputAdapter => {
-  let previousButtons: ReadonlyArray<boolean> = []
+  const previousButtons: boolean[] = []
 
   const reset = Effect.gen(function* () {
     for (let index = 0; index < previousButtons.length; index += 1) {
@@ -36,7 +36,7 @@ export const makeGamepadInputAdapter = (
         yield* input.dispatch({ kind: 'gamepadrelease', action, target: GAMEPLAY_LISTENER_TARGET })
       }
     }
-    previousButtons = []
+    previousButtons.length = 0
     yield* input.dispatch({ kind: 'gamepadtick', axes: ZERO_GAMEPAD_AXES })
   })
 
@@ -54,21 +54,20 @@ export const makeGamepadInputAdapter = (
         axes: normalizeGamepadAxes(pad.axes),
       })
 
-      const nextButtons = pad.buttons.map(gamepadButtonIsPressed)
-      const buttonCount = Math.max(previousButtons.length, nextButtons.length)
+      const buttonCount = Math.max(previousButtons.length, pad.buttons.length)
       for (let index = 0; index < buttonCount; index += 1) {
         const button = gamepadButtonForIndex(index)
         const action: InputAction | undefined = button === undefined ? undefined : bindings[button]
-        if (action === undefined) continue
         const wasPressed = previousButtons[index] ?? false
-        const isPressed = nextButtons[index] ?? false
-        if (isPressed && !wasPressed) {
+        const isPressed = gamepadButtonIsPressed(pad.buttons[index])
+        if (action !== undefined && isPressed && !wasPressed) {
           yield* input.dispatch({ kind: 'gamepadpress', action, target: GAMEPLAY_LISTENER_TARGET })
-        } else if (!isPressed && wasPressed) {
+        } else if (action !== undefined && !isPressed && wasPressed) {
           yield* input.dispatch({ kind: 'gamepadrelease', action, target: GAMEPLAY_LISTENER_TARGET })
         }
+        previousButtons[index] = isPressed
       }
-      previousButtons = nextButtons
+      previousButtons.length = pad.buttons.length
     }),
   }
 }
