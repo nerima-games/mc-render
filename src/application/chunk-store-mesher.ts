@@ -1,6 +1,11 @@
-import { blockIdsWithOpacity, blockTypeOfId } from '@nerima-games/mc-kernel'
+import {
+  blockIdsWithOpacity,
+  blockPosition,
+  blockTypeOfId,
+  chunkCoord,
+} from '@nerima-games/mc-kernel'
 import { meshChunk, type MeshConfig } from '@nerima-games/mc-meshing'
-import { blockPosition, chunkCoord, type ChunkStoreApi } from '@nerima-games/mc-worldgen'
+import type { ChunkStoreApi } from '@nerima-games/mc-worldgen'
 import { Effect } from 'effect'
 import type { BlockNameLookup } from '../domain/block-texture-map'
 import { faceNormal, type MeshQuad, type QuadColor } from '../domain/chunk-geometry'

@@ -1,5 +1,6 @@
 import { describe, expect, it } from '@effect/vitest'
-import { BlockId, chunkCoord, emptyBlocks, setBlockAt, type Chunk } from '@nerima-games/mc-worldgen'
+import { BlockId, chunkCoord } from '@nerima-games/mc-kernel'
+import { emptyBlocks, setBlockAt, type Chunk } from '@nerima-games/mc-worldgen'
 import { Effect } from 'effect'
 import { blockNameFromKernel, makeChunkStoreMesher, type MeshingChunkStore } from '../src/application/chunk-store-mesher'
 
