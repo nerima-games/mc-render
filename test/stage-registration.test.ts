@@ -1,6 +1,7 @@
 import { describe, expect, it } from '@effect/vitest'
 import { Effect, Ref } from 'effect'
 import { isMirrorStale, mirrorLagSecs, type MirroredCameraState } from '../src/domain/camera-mirror'
+import { type ChunkSyncPort } from '../src/application/world-sync'
 import { NO_DRAW_TARGET, type DrawPort } from '../src/application/world-renderer'
 import {
   GAMEPLAY_LISTENER_TARGET,
@@ -551,20 +552,33 @@ describe('render:camera-mirror', () => {
 })
 
 describe('render:chunk-sync, render:draw and render:post-fx', () => {
-  it.effect('borrows the per-frame visibility buffer and copies the result out of it', () =>
+  it.effect('runs the injected chunk-sync port once per stage execution', () =>
+    Effect.gen(function* () {
+      const updates = yield* Ref.make(0)
+      const chunkSync: ChunkSyncPort = {
+        update: Ref.update(updates, (count) => count + 1).pipe(
+          Effect.as({ meshed: 0, deferred: 0, removed: 0 }),
+        ),
+      }
+
+      yield* Effect.gen(function* () {
+        const { stages } = yield* makeRenderStagesForPreview(undefined, undefined, undefined, chunkSync)
+        const stage = stageById(stages, RENDER_STAGE_IDS.chunkSync)
+
+        yield* stage.run(dt).pipe(Effect.provide(FRAME_SERVICES))
+        expect(yield* Ref.get(updates)).toBe(1)
+      }).pipe(Effect.provide(InputServiceLayer()))
+    }),
+  )
+
+  it.effect('runs with the default no-op chunk-sync port', () =>
     withStages((stages, state) =>
       Effect.gen(function* () {
         const stage = stageById(stages, RENDER_STAGE_IDS.chunkSync)
 
         yield* stage.run(dt).pipe(Effect.provide(FRAME_SERVICES))
-        expect(yield* Ref.get(state.visibleChunkCount)).toBe(1)
-
-        // Run again: the buffer is CLEARED on borrow, so the count does not
-        // accumulate. A stage that kept a reference across the frame boundary
-        // is what `domain/frame-scratch.ts` exists to make impossible.
-        yield* stage.run(dt).pipe(Effect.provide(FRAME_SERVICES))
-        expect(yield* Ref.get(state.visibleChunkCount)).toBe(1)
-        expect(state.scratch.visibleChunks.usageCount()).toBe(2)
+        expect(yield* Ref.get(state.visibleChunkCount)).toBe(0)
+        expect(state.scratch.visibleChunks.usageCount()).toBe(0)
         expect(state.scratch.visibleChunks.borrowedCount()).toBe(0)
       }),
     ),

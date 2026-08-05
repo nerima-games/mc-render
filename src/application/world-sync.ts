@@ -148,6 +148,16 @@ export type WorldRendererAttachment = {
   readonly attached: Effect.Effect<boolean>
 }
 
+/** The one frame-driven operation `render:chunk-sync` needs. */
+export type ChunkSyncPort = {
+  readonly update: Effect.Effect<SyncReport>
+}
+
+/** Default for headless callers and previews without a world attachment. */
+export const NO_CHUNK_SYNC: ChunkSyncPort = {
+  update: Effect.succeed(EMPTY_SYNC_REPORT),
+}
+
 /**
  * Drain once, and bring the scene up to date.
  *

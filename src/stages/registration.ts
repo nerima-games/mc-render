@@ -69,7 +69,7 @@ import {
   type MirroredCameraState,
   type ViewOffset,
 } from '../domain/camera-mirror'
-import { makeFrameScratch, withScratch, type FrameScratch } from '../domain/frame-scratch'
+import { makeFrameScratch, type FrameScratch } from '../domain/frame-scratch'
 import {
   monotonicSecs,
   MonotonicTimeSecs,
@@ -85,6 +85,7 @@ import {
   type PostProcessingStep,
 } from '../domain/post-processing'
 import { NO_DRAW_TARGET, type DrawPort } from '../application/world-renderer'
+import { NO_CHUNK_SYNC, type ChunkSyncPort } from '../application/world-sync'
 import { NO_PLAYER_CONTROL, type PlayerControlPort } from '../domain/player-control'
 import { RENDER_STAGE_IDS, UPSTREAM_STAGE_IDS } from './stage-ids'
 
@@ -257,9 +258,10 @@ export const renderStages = (
    * A parameter and not a service, for the reason `PointerLockPort` is one —
    * `application/world-renderer.ts` needs a canvas and a `three` namespace, and
    * neither can be reached from a Layer this repository is able to build.
-   */
+  */
   draw: DrawPort = NO_DRAW_TARGET,
   control: PlayerControlPort = NO_PLAYER_CONTROL,
+  chunkSync: ChunkSyncPort = NO_CHUNK_SYNC,
 ): ReadonlyArray<StageRegistration> => [
   {
     id: RENDER_STAGE_IDS.input,
@@ -366,24 +368,7 @@ export const renderStages = (
     // at the edge of the screen when the player turns.
     run: () =>
       Effect.gen(function* () {
-        const camera = yield* Ref.get(state.mirroredCamera)
-        // FIRST CUT: the real body reads mc-sim's dirty-chunk notification
-        // (plan.md §3.8 keeps that on mc-sim's API rather than in the stage
-        // contract — a spike finding) and hands the dirty set to mc-meshing.
-        // Neither is published, so this does the part that is genuinely
-        // mc-render's: borrow the per-frame visibility buffer, which clears it
-        // and asserts nobody kept a reference to it across the frame boundary.
-        //
-        // `withScratch` is synchronous and throws on misuse by design — see
-        // `domain/frame-scratch.ts` on why an error channel in the hot path
-        // would reintroduce the allocation the buffer exists to avoid.
-        const visible = withScratch(state.scratch.visibleChunks, (buffer) => {
-          // The camera position is what the real frustum cull keys off; reading
-          // it here keeps the data flow honest rather than merely plausible.
-          buffer.set('camera-origin', camera.position.y)
-          return buffer.size
-        })
-        yield* Ref.set(state.visibleChunkCount, visible)
+        yield* chunkSync.update
       }),
   },
   {
@@ -491,12 +476,13 @@ export const renderModule = (
    */
   initialPose: CameraPoseSnapshot = UNSET_CAMERA_POSE,
   control: PlayerControlPort = NO_PLAYER_CONTROL,
+  chunkSync: ChunkSyncPort = NO_CHUNK_SYNC,
 ): GameModule<InputService, never, never, InputService> => ({
   layers: InputServiceLayer(defaultBindings(), pointerLock),
   frameStages: Effect.gen(function* () {
     const input = yield* InputService
     const state = yield* makeRenderFrameState(quality, initialPose)
-    return renderStages(state, input, draw, control)
+    return renderStages(state, input, draw, control, chunkSync)
   }),
 })
 
@@ -512,6 +498,7 @@ export const makeRenderStagesForPreview = (
   quality: GraphicsQuality = QUALITY_PRESETS.high,
   draw: DrawPort = NO_DRAW_TARGET,
   control: PlayerControlPort = NO_PLAYER_CONTROL,
+  chunkSync: ChunkSyncPort = NO_CHUNK_SYNC,
 ): Effect.Effect<
   { readonly state: RenderFrameState; readonly stages: ReadonlyArray<StageRegistration> },
   never,
@@ -520,7 +507,7 @@ export const makeRenderStagesForPreview = (
   Effect.gen(function* () {
     const input = yield* InputService
     const state = yield* makeRenderFrameState(quality)
-    return { state, stages: renderStages(state, input, draw, control) }
+    return { state, stages: renderStages(state, input, draw, control, chunkSync) }
   })
 
 /**
