@@ -294,7 +294,7 @@ E2E でも（ポインタロックが使えないので）単体でも（DOM が
 
 ## 4. 現在のテスト
 
-`vitest run`。**19 ファイル / 555 テスト**（2026-07-28 実測）。すべて `environment: 'node'`。
+`vitest run`。**18 ファイル / 543 テスト**（2026-07-28 実測）。すべて `environment: 'node'`。
 
 | ファイル | テスト数 | 対応 |
 | --- | ---: | --- |
@@ -314,7 +314,6 @@ E2E でも（ポインタロックが使えないので）単体でも（DOM が
 | **`test/chunk-geometry.test.ts`** | **21** | merged extent と per-face AO（§12.2） |
 | **`test/three-surface.test.ts`** | **4** | 本物の `three` に対する構造的代入可能性の証明（§12.1） |
 | `test/stage-registration.test.ts` | 29 | `stages/` のフレーム位置と順序制約（public-api.md §6-2）+ クリック→ロック要求（DN-14）+ `render:draw` の `DrawPort` 呼び出し |
-| `test/kernel-mirror.test.ts` | 12 | `domain/kernel-vocabulary.ts` が mc-kernel と同形であること（§4.1） |
 | `test/check-dependency-whitelist.test.ts` | 30 | DN-11 + 依存ホワイトリスト本体 |
 | `test/api-lock.test.ts` | 26 | APIロック生成器 `scripts/api-lock.ts` の機構（§8 / public-api.md §8） |
 
@@ -336,23 +335,11 @@ E2E でも（ポインタロックが使えないので）単体でも（DOM が
 正弦近似の誤差が 0.056 を超えないこと（**参照実装の数値を引用せず、この場で測っている**）、
 屈折ゲート 6 つの順序が答えを変えないこと（720 通り全数）。
 
-### 4.1 `test/kernel-mirror.test.ts` が守っているもの
+### 4.1 公開済み mc-kernel の直接利用
 
-`domain/kernel-vocabulary.ts` は「削除して import を publish 済みパッケージに向け直せば型検査が通る」と
-約束している。**その約束は何にも強制されておらず、ロスターの他所では既に破られていた。**
-
-- mc-sim の同じミラーは `ClockService` を 1 フィールドで持っていた（kernel は 2 フィールド）
-- mc-physics は `DeltaTimeSecs` をフレームループのクランプ `[0.001, 0.05]` に refine していた
-  （kernel は「有限かつ非負」）
-
-**どちらも `tsc` には見えない。** ブランドは**文字列**でキーされるので
-（`Brand.Brand<'DeltaTimeSecs'>`）、検証の中身がどれだけ違ってもミラーと kernel の原本は同じ型である。
-`Context.Tag` も文字列でキーされるので、Port の 2 つのミラーは実行時には同じサービスである。
-どちらも型検査器が構造的に捕まえられない失敗であり、だからテストで assert している。
-
-mc-render のミラーは Port を持たないので、ここで固定するのは**ブランドの述語**と
-`CameraPoseSnapshot` の形である。同種のテストが mc-sim と mc-playground-kit にもあり、
-あちらは Tag キーと `ClockService` の形も固定している。
+mc-kernel の語彙は公開 package から直接 import している。ローカルミラーと専用テストを
+残さないことで、実装と型契約の二重化を避け、`pnpm typecheck` が公開型との
+assignability を直接検査する。mc-kernel の変更は package の公開 API 差分としてレビューする。
 
 ## 5. テストの書き方（本リポジトリの規約）
 

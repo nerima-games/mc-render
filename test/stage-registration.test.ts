@@ -17,7 +17,7 @@ import {
   StageId,
   type CameraPoseSnapshot,
   type StageRegistration,
-} from '../src/domain/kernel-vocabulary'
+} from '@nerima-games/mc-kernel'
 import { chainPasses, QUALITY_PRESETS } from '../src/domain/post-processing'
 import {
   InputService,
@@ -473,7 +473,7 @@ describe('render:camera-mirror', () => {
   )
 
   // The one real read of `FrameServices` in this repository, and the reason
-  // mc-render's kernel mirror carries the Clock Port whole. Time comes from the
+  // mc-kernel's published FrameServices contract carries the Clock Port. Time comes from the
   // injected Port; plan.md §5.1-3 bans reading a global clock.
   it.effect('measures how stale the mirrored pose is, from the injected clock', () =>
     withStages((stages, state) =>
