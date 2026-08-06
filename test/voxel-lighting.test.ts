@@ -21,7 +21,7 @@ import {
   type FaceDirection,
   type MeshQuad,
 } from '../src/domain/chunk-geometry'
-import { LIGHT_LEVEL_MAX } from '../src/domain/kernel-vocabulary'
+import { LIGHT_LEVEL_MAX } from '@nerima-games/mc-kernel'
 import {
   AO_SHADE_FLOOR,
   AO_SHADE_RANGE,
@@ -260,7 +260,7 @@ describe('effectiveLightLevel', () => {
 
   it.effect('clamps readings arriving through the sampler seam', () =>
     Effect.sync(() => {
-      // `./kernel-vocabulary.ts`'s clampLightLevel header names a host-supplied
+      // `@nerima-games/mc-kernel`'s clampLightLevel contract names a host-supplied
       // function as exactly the seam an out-of-range value arrives through.
       expect(effectiveLightLevel({ sky: 99, block: -5 }, 1)).toBe(LIGHT_LEVEL_MAX)
       expect(effectiveLightLevel({ sky: -1, block: -1 }, 1)).toBe(0)

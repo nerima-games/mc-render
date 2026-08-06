@@ -152,7 +152,7 @@ quad → 頂点バッファ、`application/world-renderer.ts` が
   「改善」してはならない** —— per-vertex AO と greedy merge は本質的に両立しない。
 
 **`MeshQuad` はミラーである。** mc-meshing は依存グラフ上は親だが、
-publish されていないので import できない（`domain/kernel-vocabulary.ts` と同じ事情）。
+publish されていないので import できない（同じ package publication boundary にある）。
 加えて mc-compose の vite alias が解決するのは 3 兄弟だけなので、
 import するとブラウザでページが起動しなくなる。publish 時に削除する。
 
@@ -177,7 +177,7 @@ import するとブラウザでページが起動しなくなる。publish 時�
 `index.ts` から export もされている。
 
 **塞いでいるのは存在ではなく到達可能性である。** mc-worldgen は未 publish なので import できず
-（`domain/kernel-vocabulary.ts` と同じ事情）、mc-compose の vite alias が解決する 3 兄弟
+（同じ package publication boundary にある）、mc-compose の vite alias が解決する 3 兄弟
 （mc-render / mx-ui / mx-redstone）にも入っていない。この 2 つのどちらかが外れた日に、
 `chunk-geometry.ts` の G と B は**そのまま置き換えられる** —— 置き換え先が既にあるので、
 これは設計課題ではなく配線待ちである。
@@ -210,7 +210,7 @@ mc-render 側の実装が要る可能性が高い。**未決。** 実装時に�
 
 | リポジトリ | 使うもの | 未公開のため現状 |
 | --- | --- | --- |
-| `mc-kernel` | 語彙全般（`CameraPoseSnapshot`、座標、`GameModule`、Clock Port） | `domain/kernel-vocabulary.ts` に暫定ミラー |
+| `mc-kernel` | 語彙全般（`CameraPoseSnapshot`、座標、`GameModule`、Clock Port） | 公開 package から直接 import |
 | `mc-meshing` | `mesh(chunk, neighbors, config) → {opaque, water, transparentSolid}` | **未使用だが型は消費している** —— `domain/chunk-geometry.ts` が `MeshQuad` / `FaceDirection` / `FaceRole` / `tangentAxes` を**構造ミラー**として持ち、`test/chunk-geometry.test.ts` が mc-meshing の `domain/mesh.ts:149-169` に対して固定している。publish 時に削除して import に置き換える |
 | `mc-sim` | `CameraPoseSnapshot`、描画対象の状態（**チャンクダーティ購読はここではない** — `mc-worldgen`） | 未使用（`domain/camera-mirror.ts` は構造ミラーのみ） |
 | `mc-worldgen` | `Chunk` データ、ライトグリッド | 未使用 |
