@@ -156,16 +156,24 @@ export const aabbIntersectsPreparedPerspectiveFrustum = (
   }
 
   const { min, max } = bounds
+  const allPlanesMask = 63
   let mask = 0
   mask |= insidePlaneMask(min.x, min.y, min.z, frustum)
+  if (mask === allPlanesMask) return true
   mask |= insidePlaneMask(min.x, min.y, max.z, frustum)
+  if (mask === allPlanesMask) return true
   mask |= insidePlaneMask(min.x, max.y, min.z, frustum)
+  if (mask === allPlanesMask) return true
   mask |= insidePlaneMask(min.x, max.y, max.z, frustum)
+  if (mask === allPlanesMask) return true
   mask |= insidePlaneMask(max.x, min.y, min.z, frustum)
+  if (mask === allPlanesMask) return true
   mask |= insidePlaneMask(max.x, min.y, max.z, frustum)
+  if (mask === allPlanesMask) return true
   mask |= insidePlaneMask(max.x, max.y, min.z, frustum)
+  if (mask === allPlanesMask) return true
   mask |= insidePlaneMask(max.x, max.y, max.z, frustum)
-  return mask === 63
+  return mask === allPlanesMask
 }
 
 export const aabbIntersectsPerspectiveFrustum = (
