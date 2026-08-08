@@ -2,7 +2,7 @@
 
 import type { OccupantId, Vehicle, VehicleId, VehicleType } from '@nerima-games/mc-sim'
 
-export type VehicleVisualVector = readonly [x: number, y: number, z: number]
+export type VehicleVisualVector = readonly [xAxis: number, yAxis: number, zAxis: number]
 export type VehicleVisualColor = readonly [red: number, green: number, blue: number]
 export type VehicleVisualPartRole = 'body' | 'rim' | 'seat' | 'wheel'
 
@@ -22,6 +22,15 @@ export type VehicleVisualDescriptor = Readonly<{
   occupantAnchor: VehicleVisualVector
 }>
 
+/**
+ * `x`/`y`/`z` are kept short and un-renamed on purpose: `position` and
+ * `velocity` mirror the shape of mc-sim's real `Vehicle.position` /
+ * `Vehicle.velocity` objects (`@nerima-games/mc-sim`'s `Position` and
+ * `VehicleVelocity` types). `interpolateVehicle` below reads `.x`/`.y`/`.z`
+ * straight off real `Vehicle` instances to build this type. Renaming these
+ * fields would not just be a lint fix, it would desynchronise this type from
+ * the runtime objects it describes.
+ */
 export type VehicleInterpolationSample = Readonly<{
   position: Readonly<{ x: number; y: number; z: number }>
   velocity: Readonly<{ x: number; y: number; z: number }>
@@ -35,6 +44,12 @@ export type VehicleCameraContext = Readonly<{
 
 export type VehicleOccupantRenderPlan = Readonly<{
   id: OccupantId
+  /**
+   * Same `{x,y,z}` shape as `VehicleInterpolationSample['position']` above
+   * and for the same reason: it is built from that real vehicle position in
+   * `planVehicleVisual`, so keeping the field names in sync avoids two
+   * incompatible position shapes for the same render frame.
+   */
   position: Readonly<{ x: number; y: number; z: number }>
   facingRadians: number
   visible: boolean
@@ -51,38 +66,216 @@ export type VehicleRenderPlan = Readonly<{
   occupant?: VehicleOccupantRenderPlan
 }>
 
-const part = (
-  id: string,
-  role: VehicleVisualPartRole,
-  size: VehicleVisualVector,
-  center: VehicleVisualVector,
-  color: VehicleVisualColor,
-  rotation: VehicleVisualVector = [0, 0, 0],
-): VehicleVisualPartDescriptor => ({ center, color, id, role, rotation, size })
+/** The shared "no offset" / "no size" / "off" value used throughout this file's part table. */
+const ZERO = 0
+
+type VehicleVisualPartOptions = Readonly<{
+  id: string
+  role: VehicleVisualPartRole
+  size: VehicleVisualVector
+  center: VehicleVisualVector
+  color: VehicleVisualColor
+  rotation?: VehicleVisualVector
+}>
+
+const ZERO_ROTATION: VehicleVisualVector = [ZERO, ZERO, ZERO]
+
+const part = (options: VehicleVisualPartOptions): VehicleVisualPartDescriptor => ({
+  center: options.center,
+  color: options.color,
+  id: options.id,
+  role: options.role,
+  rotation: options.rotation ?? ZERO_ROTATION,
+  size: options.size,
+})
+
+// --- BOAT_VISUAL part measurements ------------------------------------------
+
+const HULL_SIZE_X = 1.4
+const HULL_SIZE_Y = 0.3
+const HULL_SIZE_Z = 2.2
+const HULL_CENTER_Y = 0.2
+const HULL_COLOR_R = 130
+const HULL_COLOR_G = 82
+const HULL_COLOR_B = 43
+
+const BOAT_RIM_COLOR_R = 155
+const BOAT_RIM_COLOR_G = 101
+const BOAT_RIM_COLOR_B = 54
+const BOAT_RIM_COLOR: VehicleVisualColor = [BOAT_RIM_COLOR_R, BOAT_RIM_COLOR_G, BOAT_RIM_COLOR_B]
+
+/** Shared by `left-rim` and `right-rim`, mirrored across x. */
+const SIDE_RIM_SIZE_X = 0.18
+const SIDE_RIM_SIZE_Y = 0.45
+const SIDE_RIM_SIZE_Z = 2.1
+const SIDE_RIM_CENTER_X = 0.7
+const SIDE_RIM_CENTER_Y = 0.48
+
+/** Shared by `bow-rim` and `stern-rim`, mirrored across z. */
+const END_RIM_SIZE_X = 1.22
+const END_RIM_SIZE_Y = 0.45
+const END_RIM_SIZE_Z = 0.18
+const END_RIM_CENTER_Y = 0.48
+const END_RIM_CENTER_Z = 1.02
+
+const SEAT_SIZE_X = 1.05
+const SEAT_SIZE_Y = 0.12
+const SEAT_SIZE_Z = 0.35
+const SEAT_CENTER_Y = 0.48
+const SEAT_COLOR_R = 109
+const SEAT_COLOR_G = 67
+const SEAT_COLOR_B = 35
+
+const BOAT_OCCUPANT_ANCHOR_Y = 0.48
 
 const BOAT_VISUAL: VehicleVisualDescriptor = {
-  occupantAnchor: [0, 0.48, 0],
+  occupantAnchor: [ZERO, BOAT_OCCUPANT_ANCHOR_Y, ZERO],
   parts: [
-    part('hull', 'body', [1.4, 0.3, 2.2], [0, 0.2, 0], [130, 82, 43]),
-    part('left-rim', 'rim', [0.18, 0.45, 2.1], [-0.7, 0.48, 0], [155, 101, 54]),
-    part('right-rim', 'rim', [0.18, 0.45, 2.1], [0.7, 0.48, 0], [155, 101, 54]),
-    part('bow-rim', 'rim', [1.22, 0.45, 0.18], [0, 0.48, -1.02], [155, 101, 54]),
-    part('stern-rim', 'rim', [1.22, 0.45, 0.18], [0, 0.48, 1.02], [155, 101, 54]),
-    part('seat', 'seat', [1.05, 0.12, 0.35], [0, 0.48, 0], [109, 67, 35]),
+    part({
+      center: [ZERO, HULL_CENTER_Y, ZERO],
+      color: [HULL_COLOR_R, HULL_COLOR_G, HULL_COLOR_B],
+      id: 'hull',
+      role: 'body',
+      size: [HULL_SIZE_X, HULL_SIZE_Y, HULL_SIZE_Z],
+    }),
+    part({
+      center: [-SIDE_RIM_CENTER_X, SIDE_RIM_CENTER_Y, ZERO],
+      color: BOAT_RIM_COLOR,
+      id: 'left-rim',
+      role: 'rim',
+      size: [SIDE_RIM_SIZE_X, SIDE_RIM_SIZE_Y, SIDE_RIM_SIZE_Z],
+    }),
+    part({
+      center: [SIDE_RIM_CENTER_X, SIDE_RIM_CENTER_Y, ZERO],
+      color: BOAT_RIM_COLOR,
+      id: 'right-rim',
+      role: 'rim',
+      size: [SIDE_RIM_SIZE_X, SIDE_RIM_SIZE_Y, SIDE_RIM_SIZE_Z],
+    }),
+    part({
+      center: [ZERO, END_RIM_CENTER_Y, -END_RIM_CENTER_Z],
+      color: BOAT_RIM_COLOR,
+      id: 'bow-rim',
+      role: 'rim',
+      size: [END_RIM_SIZE_X, END_RIM_SIZE_Y, END_RIM_SIZE_Z],
+    }),
+    part({
+      center: [ZERO, END_RIM_CENTER_Y, END_RIM_CENTER_Z],
+      color: BOAT_RIM_COLOR,
+      id: 'stern-rim',
+      role: 'rim',
+      size: [END_RIM_SIZE_X, END_RIM_SIZE_Y, END_RIM_SIZE_Z],
+    }),
+    part({
+      center: [ZERO, SEAT_CENTER_Y, ZERO],
+      color: [SEAT_COLOR_R, SEAT_COLOR_G, SEAT_COLOR_B],
+      id: 'seat',
+      role: 'seat',
+      size: [SEAT_SIZE_X, SEAT_SIZE_Y, SEAT_SIZE_Z],
+    }),
   ],
   type: 'boat',
 }
 
+// --- MINECART_VISUAL part measurements --------------------------------------
+
+const MINECART_OCCUPANT_ANCHOR_Y = 0.62
+
+const FLOOR_SIZE_X = 1
+const FLOOR_SIZE_Y = 0.18
+const FLOOR_SIZE_Z = 1.25
+const FLOOR_CENTER_Y = 0.18
+const FLOOR_COLOR_R = 112
+const FLOOR_COLOR_G = 117
+const FLOOR_COLOR_B = 119
+
+const MINECART_WALL_COLOR_R = 145
+const MINECART_WALL_COLOR_G = 150
+const MINECART_WALL_COLOR_B = 152
+const MINECART_WALL_COLOR: VehicleVisualColor = [
+  MINECART_WALL_COLOR_R,
+  MINECART_WALL_COLOR_G,
+  MINECART_WALL_COLOR_B,
+]
+
+/** Shared by `left-wall` and `right-wall`, mirrored across x. */
+const SIDE_WALL_SIZE_X = 0.16
+const SIDE_WALL_SIZE_Y = 0.62
+const SIDE_WALL_SIZE_Z = 1.25
+const SIDE_WALL_CENTER_X = 0.5
+const SIDE_WALL_CENTER_Y = 0.48
+
+/** Shared by `front-wall` and `back-wall`, mirrored across z. */
+const END_WALL_SIZE_X = 0.84
+const END_WALL_SIZE_Y = 0.62
+const END_WALL_SIZE_Z = 0.16
+const END_WALL_CENTER_Y = 0.48
+const END_WALL_CENTER_Z = 0.55
+
+const WHEEL_COLOR_R = 68
+const WHEEL_COLOR_G = 71
+const WHEEL_COLOR_B = 72
+const WHEEL_COLOR: VehicleVisualColor = [WHEEL_COLOR_R, WHEEL_COLOR_G, WHEEL_COLOR_B]
+
+/** Shared by `left-wheel` and `right-wheel`, mirrored across x. */
+const WHEEL_SIZE_X = 0.16
+const WHEEL_SIZE_Y = 0.28
+const WHEEL_SIZE_Z = 0.34
+const WHEEL_CENTER_X = 0.57
+const WHEEL_CENTER_Y = 0.12
+
 const MINECART_VISUAL: VehicleVisualDescriptor = {
-  occupantAnchor: [0, 0.62, 0],
+  occupantAnchor: [ZERO, MINECART_OCCUPANT_ANCHOR_Y, ZERO],
   parts: [
-    part('floor', 'body', [1, 0.18, 1.25], [0, 0.18, 0], [112, 117, 119]),
-    part('left-wall', 'rim', [0.16, 0.62, 1.25], [-0.5, 0.48, 0], [145, 150, 152]),
-    part('right-wall', 'rim', [0.16, 0.62, 1.25], [0.5, 0.48, 0], [145, 150, 152]),
-    part('front-wall', 'rim', [0.84, 0.62, 0.16], [0, 0.48, -0.55], [145, 150, 152]),
-    part('back-wall', 'rim', [0.84, 0.62, 0.16], [0, 0.48, 0.55], [145, 150, 152]),
-    part('left-wheel', 'wheel', [0.16, 0.28, 0.34], [-0.57, 0.12, 0], [68, 71, 72]),
-    part('right-wheel', 'wheel', [0.16, 0.28, 0.34], [0.57, 0.12, 0], [68, 71, 72]),
+    part({
+      center: [ZERO, FLOOR_CENTER_Y, ZERO],
+      color: [FLOOR_COLOR_R, FLOOR_COLOR_G, FLOOR_COLOR_B],
+      id: 'floor',
+      role: 'body',
+      size: [FLOOR_SIZE_X, FLOOR_SIZE_Y, FLOOR_SIZE_Z],
+    }),
+    part({
+      center: [-SIDE_WALL_CENTER_X, SIDE_WALL_CENTER_Y, ZERO],
+      color: MINECART_WALL_COLOR,
+      id: 'left-wall',
+      role: 'rim',
+      size: [SIDE_WALL_SIZE_X, SIDE_WALL_SIZE_Y, SIDE_WALL_SIZE_Z],
+    }),
+    part({
+      center: [SIDE_WALL_CENTER_X, SIDE_WALL_CENTER_Y, ZERO],
+      color: MINECART_WALL_COLOR,
+      id: 'right-wall',
+      role: 'rim',
+      size: [SIDE_WALL_SIZE_X, SIDE_WALL_SIZE_Y, SIDE_WALL_SIZE_Z],
+    }),
+    part({
+      center: [ZERO, END_WALL_CENTER_Y, -END_WALL_CENTER_Z],
+      color: MINECART_WALL_COLOR,
+      id: 'front-wall',
+      role: 'rim',
+      size: [END_WALL_SIZE_X, END_WALL_SIZE_Y, END_WALL_SIZE_Z],
+    }),
+    part({
+      center: [ZERO, END_WALL_CENTER_Y, END_WALL_CENTER_Z],
+      color: MINECART_WALL_COLOR,
+      id: 'back-wall',
+      role: 'rim',
+      size: [END_WALL_SIZE_X, END_WALL_SIZE_Y, END_WALL_SIZE_Z],
+    }),
+    part({
+      center: [-WHEEL_CENTER_X, WHEEL_CENTER_Y, ZERO],
+      color: WHEEL_COLOR,
+      id: 'left-wheel',
+      role: 'wheel',
+      size: [WHEEL_SIZE_X, WHEEL_SIZE_Y, WHEEL_SIZE_Z],
+    }),
+    part({
+      center: [WHEEL_CENTER_X, WHEEL_CENTER_Y, ZERO],
+      color: WHEEL_COLOR,
+      id: 'right-wheel',
+      role: 'wheel',
+      size: [WHEEL_SIZE_X, WHEEL_SIZE_Y, WHEEL_SIZE_Z],
+    }),
   ],
   type: 'minecart',
 }
@@ -95,8 +288,14 @@ const DESCRIPTORS: Readonly<Record<VehicleType, VehicleVisualDescriptor>> = {
 export const vehicleVisualDescriptor = (type: VehicleType): VehicleVisualDescriptor =>
   DESCRIPTORS[type]
 
-const clamp01 = (value: number): number =>
-  Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 0
+const CLAMP01_MAX = 1
+
+const clamp01 = (value: number): number => {
+  if (Number.isFinite(value)) {
+    return Math.max(ZERO, Math.min(CLAMP01_MAX, value))
+  }
+  return ZERO
+}
 
 const lerp = (from: number, to: number, amount: number): number =>
   from + (to - from) * amount
@@ -138,6 +337,65 @@ export const interpolateVehicle = (
   }
 }
 
+const DEFAULT_INTERPOLATION_AMOUNT = 1
+
+/** Resolve the frame's interpolation sample: a raw snapshot, or an interpolated one. */
+const resolveSample = (
+  vehicle: Vehicle,
+  previous?: Vehicle,
+  interpolation?: number,
+): VehicleInterpolationSample => {
+  if (typeof previous === 'undefined') {
+    return { position: { ...vehicle.position }, velocity: { ...vehicle.velocity }, yawRadians: vehicle.yawRadians }
+  }
+  return interpolateVehicle(previous, vehicle, interpolation ?? DEFAULT_INTERPOLATION_AMOUNT)
+}
+
+type BuildOccupantOptions = Readonly<{
+  vehicle: Vehicle
+  sample: VehicleInterpolationSample
+  anchor: VehicleVisualVector
+  camera?: VehicleCameraContext
+}>
+
+/** Place the occupant at the descriptor's anchor, or return `null` when the vehicle has none. */
+const buildOccupant = (options: BuildOccupantOptions): VehicleOccupantRenderPlan | null => {
+  const { vehicle, sample, anchor, camera } = options
+  if (typeof vehicle.occupant === 'undefined') {
+    return null
+  }
+  const [anchorX, anchorY, anchorZ] = anchor
+  const cosYaw = Math.cos(sample.yawRadians)
+  const sinYaw = Math.sin(sample.yawRadians)
+  return {
+    facingRadians: sample.yawRadians,
+    id: vehicle.occupant,
+    position: {
+      x: sample.position.x + anchorX * cosYaw - anchorZ * sinYaw,
+      y: sample.position.y + anchorY,
+      z: sample.position.z + anchorX * sinYaw + anchorZ * cosYaw,
+    },
+    visible: !(
+      camera?.localOccupantId === vehicle.occupant &&
+      (camera.perspective ?? 'first-person') === 'first-person'
+    ),
+  }
+}
+
+const planWithoutOccupant = (
+  vehicle: Vehicle,
+  descriptor: VehicleVisualDescriptor,
+  sample: VehicleInterpolationSample,
+): Omit<VehicleRenderPlan, 'occupant'> => ({
+  dimension: vehicle.dimension,
+  id: vehicle.id,
+  parts: descriptor.parts,
+  position: sample.position,
+  type: vehicle.type,
+  velocity: sample.velocity,
+  yawRadians: sample.yawRadians,
+})
+
 /** Build backend-neutral vehicle and occupant transforms for one render frame. */
 export const planVehicleVisual = (
   vehicle: Vehicle,
@@ -147,35 +405,12 @@ export const planVehicleVisual = (
     camera?: VehicleCameraContext
   }> = {},
 ): VehicleRenderPlan => {
-  const sample = options.previous === undefined
-    ? { position: { ...vehicle.position }, velocity: { ...vehicle.velocity }, yawRadians: vehicle.yawRadians }
-    : interpolateVehicle(options.previous, vehicle, options.interpolation ?? 1)
+  const sample = resolveSample(vehicle, options.previous, options.interpolation)
   const descriptor = vehicleVisualDescriptor(vehicle.type)
-  const cosYaw = Math.cos(sample.yawRadians)
-  const sinYaw = Math.sin(sample.yawRadians)
-  const [anchorX, anchorY, anchorZ] = descriptor.occupantAnchor
-  const occupant = vehicle.occupant === undefined ? undefined : {
-    facingRadians: sample.yawRadians,
-    id: vehicle.occupant,
-    position: {
-      x: sample.position.x + anchorX * cosYaw - anchorZ * sinYaw,
-      y: sample.position.y + anchorY,
-      z: sample.position.z + anchorX * sinYaw + anchorZ * cosYaw,
-    },
-    visible: !(
-      options.camera?.localOccupantId === vehicle.occupant &&
-      (options.camera.perspective ?? 'first-person') === 'first-person'
-    ),
+  const occupant = buildOccupant({ anchor: descriptor.occupantAnchor, camera: options.camera, sample, vehicle })
+  const base = planWithoutOccupant(vehicle, descriptor, sample)
+  if (occupant === null) {
+    return base
   }
-
-  return {
-    dimension: vehicle.dimension,
-    id: vehicle.id,
-    parts: descriptor.parts,
-    position: sample.position,
-    type: vehicle.type,
-    velocity: sample.velocity,
-    yawRadians: sample.yawRadians,
-    ...(occupant === undefined ? {} : { occupant }),
-  }
+  return { ...base, occupant }
 }

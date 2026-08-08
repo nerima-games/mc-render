@@ -145,9 +145,9 @@ describe('spawning', () => {
 
       for (let slot = 0; slot < DEFAULT_BURST_PARTICLES; slot += 1) {
         const particle = readSlot(pool, slot)
-        expect(particle?.x).toBe(1)
-        expect(particle?.y).toBe(2)
-        expect(particle?.z).toBe(3)
+        expect(particle?.positionX).toBe(1)
+        expect(particle?.positionY).toBe(2)
+        expect(particle?.positionZ).toBe(3)
         expect(particle?.remainingSecs).toBeCloseTo(PARTICLE_LIFETIME_SECS, 6)
         // Visible in THIS frame, before advanceParticles has ever run.
         expect(particle?.scale).toBe(1)
@@ -314,7 +314,7 @@ describe('integration', () => {
       advanceParticles(pool, 0.05)
 
       const expectedVy = launch - PARTICLE_GRAVITY_M_PER_S2 * 0.05
-      expect(readSlot(pool, 0)?.y ?? 0).toBeCloseTo(10 + expectedVy * 0.05, 4)
+      expect(readSlot(pool, 0)?.positionY ?? 0).toBeCloseTo(10 + expectedVy * 0.05, 4)
     }),
   )
 
@@ -378,7 +378,7 @@ describe('integration', () => {
       advanceParticles(clamped, 30)
       advanceParticles(stepped, MAX_PARTICLE_STEP_SECS)
 
-      expect(readSlot(clamped, 0)?.y ?? 0).toBeCloseTo(readSlot(stepped, 0)?.y ?? 0, 5)
+      expect(readSlot(clamped, 0)?.positionY ?? 0).toBeCloseTo(readSlot(stepped, 0)?.positionY ?? 0, 5)
     }),
   )
 
@@ -392,8 +392,8 @@ describe('integration', () => {
       expect(advanceParticles(pool, Number.NaN)).toBe(0)
       expect(advanceParticles(pool, Number.POSITIVE_INFINITY)).toBe(0)
 
-      expect(readSlot(pool, 0)?.x).toBe(1)
-      expect(readSlot(pool, 0)?.y).toBe(2)
+      expect(readSlot(pool, 0)?.positionX).toBe(1)
+      expect(readSlot(pool, 0)?.positionY).toBe(2)
       expect(readSlot(pool, 0)?.remainingSecs).toBeCloseTo(PARTICLE_LIFETIME_SECS, 6)
       expect(pool.activeCount()).toBe(2)
     }),
@@ -588,9 +588,9 @@ describe('reading slots', () => {
         const particle = readSlot(pool, slot)
         const vectorBase = slot * PARTICLE_VECTOR_STRIDE
         const uvBase = slot * PARTICLE_UV_STRIDE
-        expect(particle?.x).toBe(pool.positions[vectorBase])
-        expect(particle?.y).toBe(pool.positions[vectorBase + 1])
-        expect(particle?.z).toBe(pool.positions[vectorBase + 2])
+        expect(particle?.positionX).toBe(pool.positions[vectorBase])
+        expect(particle?.positionY).toBe(pool.positions[vectorBase + 1])
+        expect(particle?.positionZ).toBe(pool.positions[vectorBase + 2])
         expect(particle?.scale).toBe(pool.scales[slot])
         expect(particle?.uvU).toBe(pool.uvOffsets[uvBase])
         expect(particle?.uvV).toBe(pool.uvOffsets[uvBase + 1])
