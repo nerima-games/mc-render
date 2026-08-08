@@ -172,5 +172,81 @@
     "no-param-reassign": "off",
     "no-plusplus": "off"
   },
+  // Scoped strictness (org policy decided 2026-08-08, first applied on
+  // mc-audio/mc-noise): src/ (the shipped library) stays fully strict --
+  // every category default and every rule above stays "warn"/"error" there,
+  // and a violation must be fixed in source, never suppressed. test/**,
+  // scripts/**, and apps/** are relaxed below, each for reasons specific to
+  // this repository's actual code, not a blanket "non-src is exempt" policy:
+  //
+  //  - test/**: assertions are written against literal expected values by
+  //    design (`expect(x).toBe(0.42)`), so `no-magic-numbers` fires on
+  //    correctness-bearing numbers whose whole point is to be a literal, not
+  //    a named constant. `id-length`, `sort-keys`, `sort-imports`,
+  //    `capitalized-comments`, `max-params`/`max-statements` flag the terse,
+  //    table-driven, high-arity style normal for test fixtures and don't
+  //    track a real defect.
+  //  - scripts/**: dev-only tooling, never shipped, never imported by src/.
+  //    `no-console` would ban the console output that is a script's entire
+  //    purpose; `no-ternary`/`no-nested-ternary`, `no-undefined`, and the
+  //    same literal-heavy rules as test/** fire on ordinary CLI-reporting
+  //    code.
+  //  - apps/**: apps/preview-render is dev/preview tooling (`pnpm preview`),
+  //    never shipped as part of the published package -- same rationale as
+  //    scripts/**.
+  //
+  // `overrides[].files` glob-matches against paths relative to the config
+  // file and layers rules on top of the base `rules` block above rather than
+  // replacing it, so anything not listed per-override (e.g. `no-eval`, the
+  // `no-restricted-imports` Tier2 dependency rule) still applies inside
+  // test/, scripts/, and apps/ too.
+  "overrides": [
+    {
+      "files": ["test/**"],
+      "rules": {
+        "no-magic-numbers": "off",
+        "id-length": "off",
+        "sort-keys": "off",
+        "sort-imports": "off",
+        "capitalized-comments": "off",
+        "max-params": "off",
+        "max-statements": "off"
+      }
+    },
+    {
+      "files": ["scripts/**"],
+      "rules": {
+        "no-magic-numbers": "off",
+        "id-length": "off",
+        "sort-keys": "off",
+        "sort-imports": "off",
+        "capitalized-comments": "off",
+        "max-params": "off",
+        "max-statements": "off",
+        "no-console": "off",
+        "no-ternary": "off",
+        "no-nested-ternary": "off",
+        "no-undefined": "off",
+        "new-cap": "off"
+      }
+    },
+    {
+      "files": ["apps/**"],
+      "rules": {
+        "no-magic-numbers": "off",
+        "id-length": "off",
+        "sort-keys": "off",
+        "sort-imports": "off",
+        "capitalized-comments": "off",
+        "max-params": "off",
+        "max-statements": "off",
+        "no-console": "off",
+        "no-ternary": "off",
+        "no-nested-ternary": "off",
+        "no-undefined": "off",
+        "new-cap": "off"
+      }
+    }
+  ],
   "ignorePatterns": ["node_modules/**", "coverage/**", "dist/**", ".git/**", "*.config.ts", "docs/**"]
 }
