@@ -55,7 +55,7 @@ mc-sim が `1.0.0` を出せるのは、以下がすべて満たされたとき�
    worldgen 側で、sim 経由にすると毎フレーム全チャンクのポーリングになる）。
    §2.1 に `render → worldgen` のエッジは既にあるので、購読に新しい依存は要らない。
 5. `domain/kernel-vocabulary.ts` が削除され、`@nerima-games/mc-kernel` を
-   `dependencies` から参照している（§5 参照）。
+   `dependencies` から直接参照している（§6 参照）。
 
 ### 3.1 ブロッカーの連鎖 —— **2026-07-28 に前半が反証された**
 
@@ -175,34 +175,19 @@ addons のパス構成は THREE のバージョンで変わったことがある
 
 `GodRaysPass` と `CompositePass` は参照実装の**自作**で、別ライブラリではない。
 
-## 6. `domain/kernel-vocabulary.ts` の削除
+## 6. mc-kernel 直接依存への移行
 
-**publish 運用より前に片付ける負債。**
+mc-kernel は公開済みなので、mc-render は共有語彙をローカルミラーせず
+`@nerima-games/mc-kernel` から直接 import する。移行時には次を確認する:
 
-nothing-is-published のブートストラップ問題を回避するため、mc-kernel の語彙のうち
-mc-render が使う分だけを `domain/kernel-vocabulary.ts` にミラーしてある。
-mc-kernel が publish されたら:
+1. `@nerima-games/mc-kernel` が `package.json#dependencies` に厳密な version である
+2. `domain/kernel-vocabulary.ts` と `test/kernel-mirror.test.ts` が存在しない
+3. source にローカルミラーへの import が残っていない
+4. `pnpm typecheck` と `pnpm test` が成功する
 
-1. `@nerima-games/mc-kernel` を `package.json#dependencies` に追加
-2. `domain/kernel-vocabulary.ts` を削除
-3. `from './kernel-vocabulary'` を `from '@nerima-games/mc-kernel'` に置換
-
-**これで型検査が通らなければ、ミラーが drift しており、その drift 自体がバグである。**
-ミラーは意図的に最小（mc-render が実際に使う分だけ）にしてあり、これは「正直に保つ対象を小さくする」ため。
-
-**ただし「最小」だけでは drift は防げない。** ブランドは**文字列**でキーされるので
-（`Brand.Brand<'DeltaTimeSecs'>`）、ミラーが kernel と違う述語で refine していても
-TypeScript にとっては同じ型である。`Context.Tag` も同様で、同じキーの 2 つのクラスは
-実行時には同じサービスである。**型検査器が構造的に捕まえられない種類の drift** であり、
-ロスター内で実際に 2 件起きていた（mc-sim の 1 フィールド `ClockService`、
-mc-physics の `[0.001, 0.05]` に refine された `DeltaTimeSecs`）。
-
-そこで `test/kernel-mirror.test.ts` が、ブランドの述語と `CameraPoseSnapshot` の形を
-kernel の文書化された定義に対して assert している（[testing.md](./testing.md) §4.1）。
-上の 3 手順の約束は、このテストによってはじめて実効性を持つ。
-
-なお `index.ts` はこのミラーを **re-export していない**。consumer が mc-render 経由で
-kernel の語彙を取ると真実の出所が 2 つになり、上記の削除が破壊的変更に化けるためである。
+`index.ts` は mc-kernel の語彙を再 export しない。consumer が mc-render 経由で
+kernel の語彙を取得すると真実の出所が二重になるためである。公開型の変更は
+mc-kernel の API 差分としてレビューする。
 
 ## 7. ビルド / publish パイプライン（完了時に追加）
 

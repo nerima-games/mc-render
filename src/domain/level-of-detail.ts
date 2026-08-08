@@ -129,8 +129,8 @@ import { LOD_LEVELS, STEP_FOR_LOD, CHUNK_SIZE, type LodLevel } from './lod-vocab
  * reason is worth a line: this file needs only "two integers to subtract", and
  * kernel's coordinate types are branded, so mirroring one would oblige every
  * caller to brand its inputs before it could ask which tier a chunk is at.
- * `./kernel-vocabulary.ts` mirrors what this repository USES; a brand imposed
- * for a subtraction is not use.
+ * This local coordinate pair mirrors only what this repository USES; a brand
+ * imposed for a subtraction is not use.
  */
 export type ChunkXZ = {
   readonly chunkX: number

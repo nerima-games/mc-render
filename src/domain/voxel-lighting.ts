@@ -86,7 +86,7 @@
  * adds the shader — with a measurement, which this repository has eight recorded
  * reasons to insist on.
  */
-import { LIGHT_LEVEL_MAX, clampLightLevel } from './kernel-vocabulary'
+import { LIGHT_LEVEL_MAX, clampLightLevel } from '@nerima-games/mc-kernel'
 import {
   aoShade,
   faceNormal,
@@ -167,7 +167,7 @@ export const MAX_SHADE_FACTOR = 1
  * The block term is NOT attenuated — a torch is as bright at midnight.
  *
  * Both readings are clamped, because they arrive through an injected sampler
- * and `./kernel-vocabulary.ts`'s `clampLightLevel` header lists a host-supplied
+ * and `@nerima-games/mc-kernel.ts`'s `clampLightLevel` header lists a host-supplied
  * function as exactly the seam an out-of-range value comes through.
  */
 export const effectiveLightLevel = (light: SkyBlockLight, skyIntensity: number): number =>

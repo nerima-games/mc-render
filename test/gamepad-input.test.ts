@@ -76,6 +76,20 @@ describe('gamepad input', () => {
     }),
   )
 
+  it.effect('releases a held action when its button is no longer reported', () =>
+    Effect.gen(function* () {
+      let current: ReadonlyArray<GamepadSnapshot | null> = [pad([{ pressed: true }])]
+      const input = yield* makeInputService()
+      const adapter = makeGamepadInputAdapter(input, () => current)
+
+      yield* adapter.poll
+      expect(yield* input.isActionActive('jump')).toBe(true)
+      current = [pad([])]
+      yield* adapter.poll
+      expect(yield* input.isActionActive('jump')).toBe(false)
+    }),
+  )
+
   it.effect('keeps modal shielding identical to keyboard and touch input', () =>
     Effect.gen(function* () {
       const input = yield* makeInputService()

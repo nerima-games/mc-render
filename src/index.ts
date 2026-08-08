@@ -60,9 +60,8 @@ export * from './domain/player-control'
 // it here because it takes a DISTANCE and mc-meshing holds no coordinates; the
 // level vocabulary stayed there and `domain/lod-vocabulary.ts` mirrors it back.
 //
-// THAT MIRROR IS NOT EXPORTED FROM THIS BARREL, and neither is
-// `domain/kernel-vocabulary.ts`. Both exclusions are deliberate and both are
-// pinned by tests; this one was added because `check:repoint` FAILED WITHOUT IT,
+// THAT MIRROR IS NOT EXPORTED FROM THIS BARREL. This exclusion is deliberate
+// and pinned by tests because `check:repoint` FAILED WITHOUT IT,
 // which is worth recording because the failure is invisible from inside this
 // repository.
 //
@@ -138,7 +137,5 @@ export * from './stages/registration'
 export * from './stages/stage-ids'
 
 // --- Provisional -------------------------------------------------------------
-// `domain/kernel-vocabulary.ts` is a temporary local mirror of
-// @nerima-games/mc-kernel and is NOT re-exported: consumers must take that
-// vocabulary from kernel, not from mc-render, or the mirror would become a
-// second source of truth and its scheduled deletion would break them.
+// Kernel vocabulary is not re-exported from this package: consumers import it
+// from `@nerima-games/mc-kernel`, keeping one source of truth.

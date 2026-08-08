@@ -30,9 +30,9 @@ mc-playground-kit は devDependency 専用で出荷ビルドに入らないた�
 レンダラは衝突判定をやり直さないし、セーブファイルも読まない。
 `mc-playground-kit` には**依存しない**（devDependency 専用。§2.3-2）。
 
-**現在の `dependencies` は `effect` のみ。** 上記 4 つはまだ publish されていないため
-（plan.md §6 Step 3 の bottom-up publish-then-pin）、kernel の語彙は
-`domain/kernel-vocabulary.ts` に暫定ミラーしてある。kernel 公開時に削除する。
+`@nerima-games/mc-kernel` は公開済みの直接依存で、共有語彙を同パッケージから直接 import している。
+`mc-meshing` / `mc-sim` / `mc-worldgen` は引き続き publication boundary のため直接 import せず、
+レンダラの境界は Port と構造ミラーで保つ。
 
 **`three` / `@types/three` は `devDependencies` に入った**（`^0.170.0`、参照実装と同じ）。
 `dependencies` ではない。**出荷ソースは THREE.js を 1 行も import していない** ——
@@ -205,11 +205,9 @@ DOM に触るのは `window` 入力アダプタ 1 つだけで、**`tsconfig` �
 - **ビルド／publish はまだない。** `exports` は TypeScript ソースを直接指している。
   `version` は `0.x` に留める（[`docs/versioning.md`](./docs/versioning.md)）。
 - **カバレッジ閾値は未設定。** 99% ゲートは完了条件到達時に有効化する。
-- **`domain/kernel-vocabulary.ts` は暫定ミラー。** mc-kernel 公開時に削除する。
+- **mc-kernel の語彙は公開 package から直接 import。** ローカルミラーと専用テストは削除済み。
   `index.ts` から re-export していないのは、真実の出所を 2 つにしないため。
-  ミラーが kernel と食い違っても `tsc` は気づかない（ブランドも `Context.Tag` も**文字列**でキーされる）ので、
-  `test/kernel-mirror.test.ts` がブランドの述語と `CameraPoseSnapshot` の形を kernel の定義に対して固定している
-  （[`docs/testing.md`](./docs/testing.md) §4.1）。
+  公開型との assignability は `pnpm typecheck` と各 domain test が検査する。
 
 ## ドキュメント
 

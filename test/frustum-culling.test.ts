@@ -7,7 +7,7 @@ import {
   preparePerspectiveFrustum,
   type AxisAlignedBounds,
 } from '../src/domain/frustum-culling'
-import { MonotonicTimeSecs, position } from '../src/domain/kernel-vocabulary'
+import { MonotonicTimeSecs, position } from '@nerima-games/mc-kernel'
 
 const camera = (yaw = 0, pitch = 0, roll = 0) => ({
   ...mirroredCameraState({
