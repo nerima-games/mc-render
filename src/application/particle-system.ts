@@ -139,9 +139,9 @@ export const makeParticleSystem = <
       readonly spec: { readonly name: string; readonly stride: number }
       readonly array: Float32Array
     }> = [
-      { spec: PARTICLE_INSTANCE_ATTRIBUTES.position, array: pool.positions },
-      { spec: PARTICLE_INSTANCE_ATTRIBUTES.scale, array: pool.scales },
-      { spec: PARTICLE_INSTANCE_ATTRIBUTES.uvOffset, array: pool.uvOffsets },
+      { array: pool.positions, spec: PARTICLE_INSTANCE_ATTRIBUTES.position },
+      { array: pool.scales, spec: PARTICLE_INSTANCE_ATTRIBUTES.scale },
+      { array: pool.uvOffsets, spec: PARTICLE_INSTANCE_ATTRIBUTES.uvOffset },
     ]
     const instanced: ReadonlyArray<ThreeInstancedBufferAttribute> = bindings.map(
       ({ spec, array }) => {
@@ -156,18 +156,25 @@ export const makeParticleSystem = <
       [PARTICLE_SHADER_UNIFORMS.atlas]: { value: atlasTexture },
     }
     const material = new three.ShaderMaterial({
-      vertexShader: source.vertexShader,
+      depthWrite: PARTICLE_DEPTH_WRITE,
       fragmentShader: source.fragmentShader,
+      transparent: true,
       uniforms,
       vertexColors: true,
-      transparent: true,
-      depthWrite: PARTICLE_DEPTH_WRITE,
+      vertexShader: source.vertexShader,
     })
 
     const mesh = new three.Mesh(geometry, material)
     const drawn = yield* Ref.make(0)
 
     return {
+      dispose: Effect.sync(() => {
+        geometry.dispose()
+        material.dispose()
+      }),
+
+      drawnInstances: Ref.get(drawn),
+
       mesh,
 
       sync: Effect.gen(function* () {
@@ -181,13 +188,6 @@ export const makeParticleSystem = <
         const active = pool.activeCount()
         geometry.instanceCount = active
         yield* Ref.set(drawn, active)
-      }),
-
-      drawnInstances: Ref.get(drawn),
-
-      dispose: Effect.sync(() => {
-        geometry.dispose()
-        material.dispose()
       }),
     }
   })

@@ -56,6 +56,7 @@ import {
   RIPPLE_AMPLITUDE_UV,
   RIPPLE_LAYERS_U,
   RIPPLE_LAYERS_V,
+  type RippleLayer,
   TWO_PI,
   WATER_DEEP_COLOR,
   WATER_DEPTH_FACTOR_FLOOR,
@@ -66,7 +67,6 @@ import {
   WATER_SUN_RANGE,
   WATER_SURFACE_ALPHA,
   WATER_UNIFORM_NAMES,
-  type RippleLayer,
   type WaterColor,
 } from './water-surface'
 import { glslFloat } from './chunk-shader'
@@ -249,7 +249,7 @@ export type WaterShaderSource = {
  * by parsing the emitted GLSL. Neither the list nor the source can move alone.
  */
 export const waterShaderSource = (): WaterShaderSource => ({
-  vertexShader: waterVertexShader(),
   fragmentShader: waterFragmentShader(),
   uniformNames: WATER_UNIFORM_NAMES,
+  vertexShader: waterVertexShader(),
 })

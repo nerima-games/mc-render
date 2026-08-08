@@ -1,12 +1,12 @@
 import { Effect } from 'effect'
 import {
   DEFAULT_GAMEPAD_BINDINGS,
+  type GamepadBindings,
+  type GamepadSnapshot,
+  ZERO_GAMEPAD_AXES,
   gamepadButtonForIndex,
   gamepadButtonIsPressed,
   normalizeGamepadAxes,
-  ZERO_GAMEPAD_AXES,
-  type GamepadBindings,
-  type GamepadSnapshot,
 } from '../domain/gamepad-input'
 import { GAMEPLAY_LISTENER_TARGET, type InputAction } from '../domain/input-bindings'
 import type { InputServiceApi } from './input-service'
@@ -33,15 +33,14 @@ export const makeGamepadInputAdapter = (
       const button = gamepadButtonForIndex(index)
       const action = button === undefined ? undefined : bindings[button]
       if (previousButtons[index] && action !== undefined) {
-        yield* input.dispatch({ kind: 'gamepadrelease', action, target: GAMEPLAY_LISTENER_TARGET })
+        yield* input.dispatch({ action, kind: 'gamepadrelease', target: GAMEPLAY_LISTENER_TARGET })
       }
     }
     previousButtons.length = 0
-    yield* input.dispatch({ kind: 'gamepadtick', axes: ZERO_GAMEPAD_AXES })
+    yield* input.dispatch({ axes: ZERO_GAMEPAD_AXES, kind: 'gamepadtick' })
   })
 
   return {
-    reset,
     poll: Effect.gen(function* () {
       const pad = firstConnected(source())
       if (pad === undefined) {
@@ -69,5 +68,6 @@ export const makeGamepadInputAdapter = (
       }
       previousButtons.length = pad.buttons.length
     }),
+    reset,
   }
 }

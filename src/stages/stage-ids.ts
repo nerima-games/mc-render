@@ -78,12 +78,6 @@ import { StageId } from '@nerima-games/mc-kernel'
  */
 export const RENDER_STAGE_IDS = {
   /**
-   * Sample input, then close the frame's input edges.
-   *
-   * The stage the shipped build did not have. See the module header.
-   */
-  input: StageId('render:input'),
-  /**
    * Copy mc-sim's authoritative camera pose into renderer state.
    *
    * plan.md §3.8 / §5.1-2: mc-sim owns the pose and the renderer mirrors it.
@@ -94,6 +88,12 @@ export const RENDER_STAGE_IDS = {
   chunkSync: StageId('render:chunk-sync'),
   /** Draw. */
   draw: StageId('render:draw'),
+  /**
+   * Sample input, then close the frame's input edges.
+   *
+   * The stage the shipped build did not have. See the module header.
+   */
+  input: StageId('render:input'),
   /**
    * The post-processing chain.
    *

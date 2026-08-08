@@ -79,7 +79,7 @@ const part = (
   center: WitherVisualVector,
   color: WitherVisualColor,
   rotation: WitherVisualVector = [0, 0, 0],
-): WitherVisualPartDescriptor => ({ id, role, size, center, rotation, color })
+): WitherVisualPartDescriptor => ({ center, color, id, role, rotation, size })
 
 const WITHER_BODY_COLOR: WitherVisualColor = [44, 47, 51]
 const WITHER_BONE_COLOR: WitherVisualColor = [70, 73, 77]
@@ -111,22 +111,22 @@ const BLUE_SKULL_COLOR: WitherVisualColor = [72, 139, 170]
 export const WITHER_SKULL_VISUAL_DESCRIPTORS: Readonly<
   Record<WitherSkullVisualVariant, WitherSkullVisualDescriptor>
 > = {
-  normal: {
-    kind: 'wither_skull',
-    variant: 'normal',
-    parts: [
-      part('skull', 'projectile', [0.48, 0.48, 0.48], [0, 0, 0], NORMAL_SKULL_COLOR),
-      part('skull-eyes', 'eye', [0.25, 0.06, 0.03], [0, 0.07, -0.255], [194, 202, 210]),
-    ],
-  },
   blue: {
     kind: 'wither_skull',
-    variant: 'blue',
     parts: [
       part('blue-skull', 'projectile', [0.52, 0.52, 0.52], [0, 0, 0], BLUE_SKULL_COLOR),
       part('blue-skull-eyes', 'eye', [0.27, 0.07, 0.03], [0, 0.08, -0.275], [184, 239, 255]),
       part('blue-aura', 'armour', [0.13, 0.13, 0.7], [0, 0, 0.38], [94, 191, 225]),
     ],
+    variant: 'blue',
+  },
+  normal: {
+    kind: 'wither_skull',
+    parts: [
+      part('skull', 'projectile', [0.48, 0.48, 0.48], [0, 0, 0], NORMAL_SKULL_COLOR),
+      part('skull-eyes', 'eye', [0.25, 0.06, 0.03], [0, 0.07, -0.255], [194, 202, 210]),
+    ],
+    variant: 'normal',
   },
 }
 
@@ -143,7 +143,7 @@ const directionAngles = (direction: WitherVisualPosition): readonly [yaw: number
   const y = finiteOrZero(direction.y)
   const z = finiteOrZero(direction.z)
   const horizontalLength = Math.hypot(x, z)
-  if (horizontalLength === 0 && y === 0) return [0, 0]
+  if (horizontalLength === 0 && y === 0) {return [0, 0]}
   return [horizontalLength === 0 ? 0 : Math.atan2(-x, -z), Math.atan2(y, horizontalLength)]
 }
 
@@ -164,19 +164,19 @@ export const planWitherVisual = (state: WitherVisualStateInput): WitherVisualPla
   const [yawRadians] = directionAngles(state.velocity)
   if (state.phase === 'dead') {
     return {
-      kind: 'wither',
-      phase: state.phase,
-      visible: false,
       chargingFlashOn: false,
-      position,
-      yawRadians,
+      kind: 'wither',
       parts: [],
+      phase: state.phase,
+      position,
+      visible: false,
+      yawRadians,
     }
   }
 
   const remaining = Math.max(0, finiteOrZero(state.chargeRemainingSecs))
   const chargingFlashOn = state.phase === 'charging' && Math.floor(remaining * 8) % 2 === 0
-  let parts = WITHER_VISUAL_DESCRIPTOR.parts
+  let {parts} = WITHER_VISUAL_DESCRIPTOR
   if (state.phase === 'armoured') {
     parts = [
       ...parts.map((source) => withColor(
@@ -193,13 +193,13 @@ export const planWitherVisual = (state: WitherVisualStateInput): WitherVisualPla
   }
 
   return {
-    kind: 'wither',
-    phase: state.phase,
-    visible: true,
     chargingFlashOn,
-    position,
-    yawRadians,
+    kind: 'wither',
     parts,
+    phase: state.phase,
+    position,
+    visible: true,
+    yawRadians,
   }
 }
 
@@ -225,10 +225,10 @@ export const planWitherSkullVisual = (
   const descriptor = WITHER_SKULL_VISUAL_DESCRIPTORS[projectile.variant]
   return {
     kind: 'wither_skull',
-    variant: projectile.variant,
-    position: copyPosition(projectile.origin),
-    yawRadians,
-    pitchRadians,
     parts: descriptor.parts.map((source) => pitchPart(source, pitchRadians)),
+    pitchRadians,
+    position: copyPosition(projectile.origin),
+    variant: projectile.variant,
+    yawRadians,
   }
 }

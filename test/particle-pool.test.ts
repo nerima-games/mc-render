@@ -485,7 +485,7 @@ describe('eviction, when the pool is full', () => {
       // Growing would reallocate five typed arrays and the InstancedMesh behind
       // them, in the frame that is already busiest.
       const pool = makeParticlePool({ capacity: 4, seed: 7 })
-      const positions = pool.positions
+      const {positions} = pool
       const lifetimes = pool.lifetimesSecs
 
       for (let burst = 0; burst < 50; burst += 1) {

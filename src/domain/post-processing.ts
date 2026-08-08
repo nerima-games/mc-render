@@ -195,36 +195,36 @@ export type GraphicsQuality = {
 export type QualityPreset = 'low' | 'medium' | 'high' | 'ultra'
 
 export const QUALITY_PRESETS: Readonly<Record<QualityPreset, GraphicsQuality>> = {
-  low: {
-    ssaoEnabled: false,
+  high: {
+    bloomEnabled: true,
+    dofEnabled: false,
     godRaysEnabled: false,
+    smaaEnabled: true,
+    ssaoEnabled: true,
+    useCompositePass: true,
+  },
+  low: {
     bloomEnabled: false,
     dofEnabled: false,
+    godRaysEnabled: false,
     smaaEnabled: false,
+    ssaoEnabled: false,
     useCompositePass: false,
   },
   medium: {
-    ssaoEnabled: false,
-    godRaysEnabled: false,
     bloomEnabled: false,
     dofEnabled: false,
+    godRaysEnabled: false,
     smaaEnabled: false,
+    ssaoEnabled: false,
     useCompositePass: false,
   },
-  high: {
-    ssaoEnabled: true,
-    godRaysEnabled: false,
-    bloomEnabled: true,
-    dofEnabled: false,
-    smaaEnabled: true,
-    useCompositePass: true,
-  },
   ultra: {
-    ssaoEnabled: true,
-    godRaysEnabled: true,
     bloomEnabled: true,
     dofEnabled: true,
+    godRaysEnabled: true,
     smaaEnabled: true,
+    ssaoEnabled: true,
     useCompositePass: true,
   },
 }
@@ -263,7 +263,7 @@ export const chainPasses = (
 ): ReadonlyArray<PostProcessingPass> => chain.map((step) => step.pass)
 
 /** An ordinary pass: it performs itself, and nothing else. */
-const step = (pass: PostProcessingPass): PostProcessingStep => ({ pass, effects: [pass] })
+const step = (pass: PostProcessingPass): PostProcessingStep => ({ effects: [pass], pass })
 
 /**
  * Build the pass chain for a quality setting.
@@ -301,7 +301,6 @@ export const buildPostProcessingChain = (
     // would have done" is true by construction rather than by transcription.
     // `isCompositeActive` guarantees this list is non-empty.
     chain.push({
-      pass: 'composite',
       effects: POST_PROCESSING_PASS_ORDER.filter(
         (pass) =>
           COMPOSITE_SUBSUMES.has(pass) &&
@@ -309,6 +308,7 @@ export const buildPostProcessingChain = (
             (pass === 'bloom' && quality.bloomEnabled) ||
             (pass === 'bokeh' && quality.dofEnabled)),
       ),
+      pass: 'composite',
     })
   }
   if (quality.smaaEnabled) {
@@ -350,8 +350,8 @@ export const validatePostProcessingChain = (
   for (const mandatory of MANDATORY_PASSES) {
     if (!chain.includes(mandatory)) {
       violations.push({
-        rule: 'missing-mandatory',
         message: `the chain has no '${mandatory}' pass; it is required whatever the quality preset.`,
+        rule: 'missing-mandatory',
       })
     }
   }
@@ -359,7 +359,7 @@ export const validatePostProcessingChain = (
   const seen = new Set<PostProcessingPass>()
   for (const pass of chain) {
     if (seen.has(pass)) {
-      violations.push({ rule: 'duplicate', message: `'${pass}' appears more than once.` })
+      violations.push({ message: `'${pass}' appears more than once.`, rule: 'duplicate' })
     }
     seen.add(pass)
   }
@@ -372,10 +372,10 @@ export const validatePostProcessingChain = (
     }
     if (passOrderIndex(previous) >= passOrderIndex(current)) {
       violations.push({
-        rule: 'out-of-order',
         message:
           `'${previous}' runs before '${current}', but the canonical order is ` +
           `${POST_PROCESSING_PASS_ORDER.join(' -> ')}.`,
+        rule: 'out-of-order',
       })
     }
   }
@@ -384,10 +384,10 @@ export const validatePostProcessingChain = (
     for (const subsumed of COMPOSITE_SUBSUMES) {
       if (seen.has(subsumed)) {
         violations.push({
-          rule: 'composite-conflict',
           message:
             `'${subsumed}' is present alongside 'composite', which already performs it. ` +
             'Running both does the work twice and doubles the full-screen bandwidth.',
+          rule: 'composite-conflict',
         })
       }
     }
@@ -399,8 +399,8 @@ export const validatePostProcessingChain = (
   const last = chain[chain.length - 1]
   if (chain.length > 0 && last !== 'output') {
     violations.push({
-      rule: 'trailing-pass',
       message: `the chain ends with '${String(last)}'; 'output' must always be last (tone mapping + colour space).`,
+      rule: 'trailing-pass',
     })
   }
 

@@ -78,7 +78,7 @@ describe('dispatch', () => {
   it.effect('a job goes straight to an idle worker', () =>
     Effect.gen(function* () {
       const [worker] = workers(1)
-      if (worker === undefined) throw new Error('no worker')
+      if (worker === undefined) {throw new Error('no worker')}
       const pool = yield* makeWorkerPool([worker])
 
       const fiber = yield* Effect.fork(pool.submit('0,0', { chunk: '0,0' }))
@@ -132,7 +132,7 @@ describe('dispatch', () => {
   it.effect('a freed worker picks up the next queued job', () =>
     Effect.gen(function* () {
       const [worker] = workers(1)
-      if (worker === undefined) throw new Error('no worker')
+      if (worker === undefined) {throw new Error('no worker')}
       const pool = yield* makeWorkerPool([worker])
 
       const first = yield* Effect.fork(pool.submit('a', { chunk: 'a' }))
@@ -159,7 +159,7 @@ describe('cancellation', () => {
       // THE CASE THE POOL EXISTS FOR: a chunk queued for meshing, then walked
       // away from before its job ran.
       const [worker] = workers(1)
-      if (worker === undefined) throw new Error('no worker')
+      if (worker === undefined) {throw new Error('no worker')}
       const pool = yield* makeWorkerPool([worker])
 
       yield* Effect.fork(pool.submit('a', { chunk: 'a' }))
@@ -185,7 +185,7 @@ describe('cancellation', () => {
       // happen is the result being delivered — the chunk is gone from the
       // scene, and handing back a mesh would put it back.
       const [worker] = workers(1)
-      if (worker === undefined) throw new Error('no worker')
+      if (worker === undefined) {throw new Error('no worker')}
       const pool = yield* makeWorkerPool([worker])
 
       const running = yield* Effect.fork(pool.submit('a', { chunk: 'a' }))
@@ -216,7 +216,7 @@ describe('cancellation', () => {
       // which presents as "chunks stop appearing after a few minutes of
       // walking", with no error anywhere.
       const [worker] = workers(1)
-      if (worker === undefined) throw new Error('no worker')
+      if (worker === undefined) {throw new Error('no worker')}
       const pool = yield* makeWorkerPool([worker])
 
       yield* Effect.fork(pool.submit('a', { chunk: 'a' }))
@@ -241,7 +241,7 @@ describe('cancellation', () => {
   it.effect('cancelling a key nobody submitted affects nothing', () =>
     Effect.gen(function* () {
       const [worker] = workers(1)
-      if (worker === undefined) throw new Error('no worker')
+      if (worker === undefined) {throw new Error('no worker')}
       const pool = yield* makeWorkerPool([worker])
 
       expect(yield* pool.cancel('never-submitted')).toBe(0)
@@ -253,7 +253,7 @@ describe('cancellation', () => {
       // `world-sync` can dirty the same chunk twice before the first result
       // lands. Two live jobs share a key; `cancel` is about the key.
       const [worker] = workers(1)
-      if (worker === undefined) throw new Error('no worker')
+      if (worker === undefined) {throw new Error('no worker')}
       const pool = yield* makeWorkerPool([worker])
 
       const first = yield* Effect.fork(pool.submit('a', { chunk: 'a' }))
@@ -279,7 +279,7 @@ describe('backpressure', () => {
       // likely to be behind the player. Dropping the newest would discard the
       // chunk they are walking into.
       const [worker] = workers(1)
-      if (worker === undefined) throw new Error('no worker')
+      if (worker === undefined) {throw new Error('no worker')}
       const pool = yield* makeWorkerPool([worker], { maxQueued: 2 })
 
       yield* Effect.fork(pool.submit('running', { chunk: 'running' }))
@@ -337,7 +337,7 @@ describe('shutdown', () => {
       // The alternative is a promise that never settles, which in a frame loop
       // is a leak that looks like nothing at all.
       const [worker] = workers(1)
-      if (worker === undefined) throw new Error('no worker')
+      if (worker === undefined) {throw new Error('no worker')}
       const pool = yield* makeWorkerPool([worker])
 
       yield* pool.shutdown
@@ -353,7 +353,7 @@ describe('shutdown', () => {
       // A real worker can already be mid-task when `terminate()` is called and
       // the platform does not promise the message queue is empty.
       const [worker] = workers(1)
-      if (worker === undefined) throw new Error('no worker')
+      if (worker === undefined) {throw new Error('no worker')}
       const pool = yield* makeWorkerPool([worker])
 
       yield* Effect.fork(pool.submit('a', { chunk: 'a' }))

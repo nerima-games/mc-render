@@ -112,6 +112,14 @@ export const makeThreeWeatherPrecipitation = <
   let disposed = false
 
   return {
+    dispose: Effect.sync(() => {
+      if (disposed) return
+      disposed = true
+      scene.remove(mesh)
+      geometry.dispose()
+      material.dispose()
+    }),
+    resize: () => Effect.void,
     update: (particles) =>
       Effect.sync(() => {
         if (disposed) return
@@ -131,13 +139,5 @@ export const makeThreeWeatherPrecipitation = <
         geometry.setDrawRange(0, count * VERTICES_PER_PARTICLE)
         mesh.visible = count > 0
       }),
-    resize: () => Effect.void,
-    dispose: Effect.sync(() => {
-      if (disposed) return
-      disposed = true
-      scene.remove(mesh)
-      geometry.dispose()
-      material.dispose()
-    }),
   }
 }

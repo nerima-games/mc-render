@@ -174,7 +174,7 @@
  */
 
 import { type MaterialSpec } from './material-policy'
-import { tileUvOrigin, TILE_UV_SPAN } from './texture-atlas'
+import { TILE_UV_SPAN, tileUvOrigin } from './texture-atlas'
 
 // --- Constants transcribed from the reference ------------------------------
 //
@@ -420,21 +420,21 @@ export const makeParticlePool = (options?: ParticlePoolOptions): ParticlePool =>
   const capacity = Number.isInteger(requested) && requested > 0 ? requested : 1
 
   const pool: PoolInternals = {
-    capacity,
-    positions: new Float32Array(capacity * PARTICLE_VECTOR_STRIDE),
-    velocities: new Float32Array(capacity * PARTICLE_VECTOR_STRIDE),
-    lifetimesSecs: new Float32Array(capacity),
-    scales: new Float32Array(capacity),
-    uvOffsets: new Float32Array(capacity * PARTICLE_UV_STRIDE),
     activeCount: () => pool.state.active,
-    seed: () => pool.state.seedState,
+    capacity,
     evictionCount: () => pool.state.evictions,
+    lifetimesSecs: new Float32Array(capacity),
+    positions: new Float32Array(capacity * PARTICLE_VECTOR_STRIDE),
+    scales: new Float32Array(capacity),
+    seed: () => pool.state.seedState,
     state: {
       active: 0,
-      seedState: normaliseSeed(options?.seed ?? DEFAULT_PARTICLE_SEED),
       evictions: 0,
       nextSlot: 0,
+      seedState: normaliseSeed(options?.seed ?? DEFAULT_PARTICLE_SEED),
     },
+    uvOffsets: new Float32Array(capacity * PARTICLE_UV_STRIDE),
+    velocities: new Float32Array(capacity * PARTICLE_VECTOR_STRIDE),
   }
 
   return pool
@@ -752,16 +752,16 @@ export const readSlot = (pool: ParticlePool, slot: number): ParticleSlotState | 
   const uvBase = slot * PARTICLE_UV_STRIDE
 
   return {
-    x: readFloat(pool.positions, vectorBase),
-    y: readFloat(pool.positions, vectorBase + 1),
-    z: readFloat(pool.positions, vectorBase + 2),
-    velocityX: readFloat(pool.velocities, vectorBase),
-    velocityY: readFloat(pool.velocities, vectorBase + 1),
-    velocityZ: readFloat(pool.velocities, vectorBase + 2),
     remainingSecs: readFloat(pool.lifetimesSecs, slot),
     scale: readFloat(pool.scales, slot),
     uvU: readFloat(pool.uvOffsets, uvBase),
     uvV: readFloat(pool.uvOffsets, uvBase + 1),
+    velocityX: readFloat(pool.velocities, vectorBase),
+    velocityY: readFloat(pool.velocities, vectorBase + 1),
+    velocityZ: readFloat(pool.velocities, vectorBase + 2),
+    x: readFloat(pool.positions, vectorBase),
+    y: readFloat(pool.positions, vectorBase + 1),
+    z: readFloat(pool.positions, vectorBase + 2),
   }
 }
 
@@ -791,11 +791,11 @@ export const readSlot = (pool: ParticlePool, slot: number): ParticleSlotState | 
 export const PARTICLE_ALPHA_TEST = 0.5
 
 export const PARTICLE_MATERIAL_SPEC: MaterialSpec = {
-  name: 'particleMaterial',
-  transparent: true,
-  side: 'double',
   alphaTest: PARTICLE_ALPHA_TEST,
+  name: 'particleMaterial',
   shared: true,
+  side: 'double',
+  transparent: true,
 }
 
 /**

@@ -78,13 +78,13 @@ export const bar = (value: number, total: number, width: number): string => {
 /** A signed bar centred on zero, for the pointer delta and the wheel accumulator. */
 export const signedBar = (value: number, span: number, halfWidth: number): string => {
   if (!Number.isFinite(value) || span <= 0) {
-    return ' '.repeat(halfWidth) + '|' + ' '.repeat(halfWidth)
+    return `${' '.repeat(halfWidth)  }|${  ' '.repeat(halfWidth)}`
   }
   const clamped = Math.max(-1, Math.min(1, value / span))
   const cells = Math.round(Math.abs(clamped) * halfWidth)
   const left = clamped < 0 ? '.'.repeat(halfWidth - cells) + '<'.repeat(cells) : ' '.repeat(halfWidth)
   const right = clamped > 0 ? '>'.repeat(cells) + '.'.repeat(halfWidth - cells) : ' '.repeat(halfWidth)
-  return left + '|' + right
+  return `${left  }|${  right}`
 }
 
 /** `yes` / `no`, so a boolean column reads without a legend. */

@@ -147,12 +147,12 @@ export const CHUNK_SHADER_ATTRIBUTES = {
 export const CHUNK_SHADER_UNIFORMS = {
   /** `sampler2D`. The atlas image. */
   atlas: 'uAtlas',
-  /** `float` 0..1. The day/night cycle's one input; scales the sky channel only. */
-  sunIntensity: 'uSunIntensity',
   /** `vec3`. Linear interpolation target for distance fog. */
   fogColor: 'uFogColor',
-  fogNear: 'uFogNear',
   fogFar: 'uFogFar',
+  fogNear: 'uFogNear',
+  /** `float` 0..1. The day/night cycle's one input; scales the sky channel only. */
+  sunIntensity: 'uSunIntensity',
 } as const
 
 /**
@@ -307,8 +307,8 @@ export type ChunkShaderSource = {
  * or miss one it does.
  */
 export const chunkShaderSource = (): ChunkShaderSource => ({
-  vertexShader: chunkVertexShader(),
-  fragmentShader: chunkFragmentShader(),
   attributeNames: Object.values(CHUNK_SHADER_ATTRIBUTES),
+  fragmentShader: chunkFragmentShader(),
   uniformNames: Object.values(CHUNK_SHADER_UNIFORMS),
+  vertexShader: chunkVertexShader(),
 })

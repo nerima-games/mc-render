@@ -73,7 +73,7 @@ export type ViewOffset = {
   readonly rollRadians: number
 }
 
-export const NO_VIEW_OFFSET: ViewOffset = { right: 0, up: 0, rollRadians: 0 }
+export const NO_VIEW_OFFSET: ViewOffset = { right: 0, rollRadians: 0, up: 0 }
 
 /**
  * Renderer-side camera state: exactly what a THREE camera needs to be set to.
@@ -118,10 +118,10 @@ export const mirroredCameraState = (
       snapshot.position.z - offset.right * sinYaw,
     ),
     rotation: {
+      order: 'YXZ',
       x: snapshot.pitchRadians,
       y: snapshot.yawRadians,
       z: offset.rollRadians,
-      order: 'YXZ',
     },
     sourceCapturedAtSecs: snapshot.capturedAtSecs,
   }

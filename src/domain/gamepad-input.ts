@@ -42,18 +42,18 @@ export type GamepadBindings = Readonly<Record<GamepadButton, InputAction | undef
 export const DEFAULT_GAMEPAD_BINDINGS: GamepadBindings = {
   a: 'jump',
   b: 'sneak',
-  x: 'attack',
-  y: 'use',
-  leftShoulder: 'hotbarSlot9',
-  rightShoulder: 'hotbarSlot1',
   back: 'openInventory',
-  start: 'escape',
-  leftStick: 'sprint',
-  rightStick: undefined,
-  dpadUp: 'moveForward',
   dpadDown: 'moveBackward',
   dpadLeft: 'moveLeft',
   dpadRight: 'moveRight',
+  dpadUp: 'moveForward',
+  leftShoulder: 'hotbarSlot9',
+  leftStick: 'sprint',
+  rightShoulder: 'hotbarSlot1',
+  rightStick: undefined,
+  start: 'escape',
+  x: 'attack',
+  y: 'use',
 }
 
 const axis = (value: number | undefined): number =>
@@ -61,7 +61,7 @@ const axis = (value: number | undefined): number =>
 
 const applyDeadzone = (value: number, deadzone: number): number => {
   const magnitude = Math.abs(value)
-  if (magnitude <= deadzone) return 0
+  if (magnitude <= deadzone) {return 0}
   return Math.sign(value) * ((magnitude - deadzone) / (1 - deadzone))
 }
 

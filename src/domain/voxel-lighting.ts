@@ -88,12 +88,12 @@
  */
 import { LIGHT_LEVEL_MAX, clampLightLevel } from '@nerima-games/mc-kernel'
 import {
-  aoShade,
-  faceNormal,
-  greyQuadColor,
   type FaceDirection,
   type QuadColor,
   type QuadShade,
+  aoShade,
+  faceNormal,
+  greyQuadColor,
 } from './chunk-geometry'
 
 /**
@@ -120,10 +120,10 @@ export type SkyBlockLight = {
 }
 
 /** Fully lit, from both sources. The reading for a face with no grid behind it. */
-export const FULL_LIGHT: SkyBlockLight = { sky: LIGHT_LEVEL_MAX, block: LIGHT_LEVEL_MAX }
+export const FULL_LIGHT: SkyBlockLight = { block: LIGHT_LEVEL_MAX, sky: LIGHT_LEVEL_MAX }
 
 /** Fully dark. The reading for a sealed cave face. */
-export const NO_LIGHT: SkyBlockLight = { sky: 0, block: 0 }
+export const NO_LIGHT: SkyBlockLight = { block: 0, sky: 0 }
 
 /**
  * The floor of the light term: how lit a surface at level 0 still draws.
@@ -238,12 +238,12 @@ export const aoShadeFactor = (aoLevel: number): number =>
  * and this repository has the enum.
  */
 export const FACE_BRIGHTNESS: Readonly<Record<FaceDirection, number>> = {
-  yPos: 1,
-  yNeg: 0.5,
-  xPos: 0.6,
   xNeg: 0.6,
-  zPos: 0.8,
+  xPos: 0.6,
+  yNeg: 0.5,
+  yPos: 1,
   zNeg: 0.8,
+  zPos: 0.8,
 }
 
 /** The fixed brightness of a face direction. Total by the type of the table. */

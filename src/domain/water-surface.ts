@@ -175,7 +175,7 @@
  * belong.
  */
 
-import { describeMaterialPolicy, type MaterialPolicyVerdict, type MaterialSpec } from './material-policy'
+import { type MaterialPolicyVerdict, type MaterialSpec, describeMaterialPolicy } from './material-policy'
 
 // --- The uniform vocabulary -------------------------------------------------
 
@@ -241,10 +241,10 @@ export type WaterColor = {
  *
  * TRANSCRIBED. See the header on what cannot be checked here.
  */
-export const WATER_SHALLOW_COLOR: WaterColor = { r: 0.13, g: 0.38, b: 0.78, a: 0.84 }
+export const WATER_SHALLOW_COLOR: WaterColor = { a: 0.84, b: 0.78, g: 0.38, r: 0.13 }
 
 /** Water seen at a glancing angle. `deepColor` at water-material.ts:84. */
-export const WATER_DEEP_COLOR: WaterColor = { r: 0.03, g: 0.12, b: 0.45, a: 0.92 }
+export const WATER_DEEP_COLOR: WaterColor = { a: 0.92, b: 0.45, g: 0.12, r: 0.03 }
 
 /**
  * The alpha the fragment shader forces at the very end, overriding whatever the
@@ -292,10 +292,10 @@ export const waterDepthFactor = (fresnel: number): number => {
 export const mixWaterColor = (from: WaterColor, to: WaterColor, t: number): WaterColor => {
   const k = Number.isFinite(t) ? Math.min(1, Math.max(0, t)) : 0
   return {
-    r: from.r + (to.r - from.r) * k,
-    g: from.g + (to.g - from.g) * k,
-    b: from.b + (to.b - from.b) * k,
     a: from.a + (to.a - from.a) * k,
+    b: from.b + (to.b - from.b) * k,
+    g: from.g + (to.g - from.g) * k,
+    r: from.r + (to.r - from.r) * k,
   }
 }
 
@@ -470,14 +470,14 @@ export const RIPPLE_AMPLITUDE_UV = 0.014
  * pattern. Both axes are listed rather than one being assumed a copy.
  */
 export const RIPPLE_LAYERS_U: ReadonlyArray<RippleLayer> = [
-  { spatialFrequency: 3, temporalSpeed: 1.8, amplitudeScale: 1 },
-  { spatialFrequency: 2, temporalSpeed: 0.9, amplitudeScale: 0.5 },
+  { amplitudeScale: 1, spatialFrequency: 3, temporalSpeed: 1.8 },
+  { amplitudeScale: 0.5, spatialFrequency: 2, temporalSpeed: 0.9 },
 ]
 
 /** The V component's layers. water-material.ts:69. */
 export const RIPPLE_LAYERS_V: ReadonlyArray<RippleLayer> = [
-  { spatialFrequency: 3, temporalSpeed: 1.6, amplitudeScale: 1 },
-  { spatialFrequency: 2, temporalSpeed: 1.1, amplitudeScale: 0.5 },
+  { amplitudeScale: 1, spatialFrequency: 3, temporalSpeed: 1.6 },
+  { amplitudeScale: 0.5, spatialFrequency: 2, temporalSpeed: 1.1 },
 ]
 
 /** A UV displacement. */
@@ -587,11 +587,11 @@ export const waterSunAttenuation = (sunIntensity: number): number =>
  * in `waterForceSinglePassVerdict` rather than by adjusting it. See the header.
  */
 export const WATER_MATERIAL_SPEC: MaterialSpec = {
-  name: 'waterSurfaceMaterial',
-  transparent: true,
-  side: 'double',
   alphaTest: 0,
+  name: 'waterSurfaceMaterial',
   shared: true,
+  side: 'double',
+  transparent: true,
 }
 
 /**

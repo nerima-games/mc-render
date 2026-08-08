@@ -4,25 +4,25 @@ import {
   blockTypeOfId,
   chunkCoord,
 } from '@nerima-games/mc-kernel'
-import { meshChunk, type MeshConfig } from '@nerima-games/mc-meshing'
+import { type MeshConfig, meshChunk } from '@nerima-games/mc-meshing'
 import type { ChunkStoreApi } from '@nerima-games/mc-worldgen'
 import { Effect } from 'effect'
 import type { BlockNameLookup } from '../domain/block-texture-map'
-import { faceNormal, type MeshQuad, type QuadColor } from '../domain/chunk-geometry'
+import { type MeshQuad, type QuadColor, faceNormal } from '../domain/chunk-geometry'
 import { CHUNK_SIZE } from '../domain/lod-vocabulary'
 import {
-  lightSamplePoint,
-  NO_LIGHT,
-  packedLightColor,
   type LightSampler,
+  NO_LIGHT,
   type SkyBlockLight,
+  lightSamplePoint,
+  packedLightColor,
 } from '../domain/voxel-lighting'
 import type { WorldRenderer } from './world-renderer'
 import {
-  attachWorldRenderer,
   type ChunkMesher,
   type SyncOptions,
   type WorldRendererAttachment,
+  attachWorldRenderer,
 } from './world-sync'
 
 /** The kernel registry is the single numeric-id to texture-name authority. */
@@ -36,9 +36,9 @@ export const blockNameFromKernel: BlockNameLookup = (blockId) => blockTypeOfId(b
  * still visible as cubes and routed to their correct material layer.
  */
 export const KERNEL_MESH_CONFIG: MeshConfig = {
-  waterBlockIds: blockIdsWithOpacity('fluid'),
   fluidMaxLevels: new Map([[6, 7], [11, 3]]),
   transparentSolidBlockIds: blockIdsWithOpacity('transparentSolid'),
+  waterBlockIds: blockIdsWithOpacity('fluid'),
 }
 
 /** The two store operations required to mesh one resident chunk. */
@@ -73,7 +73,7 @@ export const makeChunkStoreLightColor = (
       Effect.map(store.getLight(blockPosition(x, y, z)), (reading) => {
         readings.set(
           key,
-          reading._tag === 'Light' ? { sky: reading.sky, block: reading.block } : NO_LIGHT,
+          reading._tag === 'Light' ? { block: reading.block, sky: reading.sky } : NO_LIGHT,
         )
       }),
     )

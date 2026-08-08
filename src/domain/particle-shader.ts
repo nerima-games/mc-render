@@ -156,10 +156,10 @@ export type ParticleShaderSource = {
 
 /** The pair, plus the names an adapter has to bind. Derived, never restated. */
 export const particleShaderSource = (): ParticleShaderSource => ({
-  vertexShader: particleVertexShader(),
-  fragmentShader: particleFragmentShader(),
   attributeNames: Object.values(PARTICLE_INSTANCE_ATTRIBUTES).map((attribute) => attribute.name),
+  fragmentShader: particleFragmentShader(),
   uniformNames: Object.values(PARTICLE_SHADER_UNIFORMS),
+  vertexShader: particleVertexShader(),
 })
 
 /**

@@ -3,7 +3,6 @@ import type { RenderEnvironmentPlan } from '../domain/render-environment'
 import { planRenderEnvironment } from '../domain/render-environment'
 import {
   INITIAL_WEATHER_RENDER_STATE,
-  planWeatherFrame,
   type PrecipitationKind,
   type PrecipitationParticle,
   type WeatherCameraPosition,
@@ -11,6 +10,7 @@ import {
   type WeatherRenderPlan,
   type WeatherRenderState,
   type WorldWeatherSnapshot,
+  planWeatherFrame,
 } from '../domain/weather-rendering'
 import type { Viewport } from './world-renderer'
 
@@ -51,7 +51,7 @@ export const makeWeatherRenderer = (
     let viewport: Viewport | undefined
 
     const release = Effect.gen(function* () {
-      if (resource !== undefined) yield* resource.dispose
+      if (resource !== undefined) {yield* resource.dispose}
       resource = undefined
       resourceKind = undefined
     })
@@ -64,6 +64,8 @@ export const makeWeatherRenderer = (
       })
 
     return {
+      dispose: stop(),
+
       frame: (snapshot, camera) =>
         Effect.gen(function* () {
           const next = planWeatherFrame(snapshot, camera, renderState, options)
@@ -90,8 +92,8 @@ export const makeWeatherRenderer = (
           if (resource !== undefined) yield* resource.resize(nextViewport)
         }),
 
-      stop,
       state: Effect.sync(() => renderState),
-      dispose: stop(),
+
+      stop,
     }
   })

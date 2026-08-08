@@ -120,7 +120,7 @@
  * `lodForDistance` is a pure function of a distance and holds no cache: the
  * cache belongs to whatever owns the chunk meshes, not to the level rule.
  */
-import { LOD_LEVELS, STEP_FOR_LOD, CHUNK_SIZE, type LodLevel } from './lod-vocabulary'
+import { CHUNK_SIZE, LOD_LEVELS, type LodLevel, STEP_FOR_LOD } from './lod-vocabulary'
 
 /**
  * A chunk coordinate pair. Not a world position — the units are CHUNKS.
@@ -287,8 +287,8 @@ export type ViewingConditions = {
  * the two agree rather than trusting that they do.
  */
 export const REFERENCE_VIEWING_CONDITIONS: ViewingConditions = {
-  viewportHeightPixels: 1080,
   verticalFovDegrees: 75,
+  viewportHeightPixels: 1080,
 }
 
 /** Degrees to radians. `Math` has no such constant and the conversion appears twice. */

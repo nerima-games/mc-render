@@ -33,7 +33,7 @@
  * can be seen. The batch is the unit of work because the frame is.
  */
 import { Effect, Ref } from 'effect'
-import { buildChunkGeometry, buildFluidGeometry, combineChunkGeometry, type FluidQuad, type MeshQuad, type QuadColor, type QuadTile } from '../domain/chunk-geometry'
+import { type FluidQuad, type MeshQuad, type QuadColor, type QuadTile, buildChunkGeometry, buildFluidGeometry, combineChunkGeometry } from '../domain/chunk-geometry'
 import { CHUNK_SIZE } from '../domain/lod-vocabulary'
 import type { ChunkGeometryUpdate, ChunkKey, WorldRenderer } from './world-renderer'
 
@@ -124,7 +124,7 @@ export type SyncReport = {
 }
 
 /** Nothing changed. Allocation-free, and the common case once a world settles. */
-export const EMPTY_SYNC_REPORT: SyncReport = { meshed: 0, deferred: 0, removed: 0 }
+export const EMPTY_SYNC_REPORT: SyncReport = { deferred: 0, meshed: 0, removed: 0 }
 
 /** Everything a caller may vary. */
 export type SyncOptions = {
@@ -205,17 +205,17 @@ export const syncWorld = (
         ? options.color
         : yield* options.colorForChunk(chunk, quads)
       updates.push({
-        key: chunkKeyOf(chunk),
         buffers: combineChunkGeometry(
           buildChunkGeometry(quads, originX, originZ, color, options.tile),
           buildFluidGeometry(fluids, originX, originZ, color, options.tile),
         ),
+        key: chunkKeyOf(chunk),
       })
       meshed += 1
     }
     yield* renderer.setChunks(updates)
 
-    return { meshed, deferred, removed }
+    return { deferred, meshed, removed }
   })
 
 /**
@@ -253,5 +253,5 @@ export const attachWorldRenderer = (
       ),
     )
 
-    return { update, detach, attached: Ref.get(isAttached) }
+    return { attached: Ref.get(isAttached), detach, update }
   })

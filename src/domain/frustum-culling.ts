@@ -57,8 +57,8 @@ export const boundsFromPositions = (positions: Float32Array): AxisAlignedBounds 
   }
 
   return {
-    min: { x: minX, y: minY, z: minZ },
     max: { x: maxX, y: maxY, z: maxZ },
+    min: { x: minX, y: minY, z: minZ },
   }
 }
 
@@ -100,20 +100,20 @@ export const preparePerspectiveFrustum = (
   const halfHeight = isValid ? Math.tan((verticalFovDegrees * Math.PI) / 360) : 0
 
   return {
-    positionX: camera.position.x,
-    positionY: camera.position.y,
-    positionZ: camera.position.z,
-    nearPlane,
+    cosPitch: Math.cos(camera.rotation.x),
+    cosRoll: Math.cos(camera.rotation.z),
+    cosYaw: Math.cos(camera.rotation.y),
     farPlane,
     halfHeight,
     halfWidth: halfHeight * aspect,
-    cosYaw: Math.cos(camera.rotation.y),
-    sinYaw: Math.sin(camera.rotation.y),
-    cosPitch: Math.cos(camera.rotation.x),
-    sinPitch: Math.sin(camera.rotation.x),
-    cosRoll: Math.cos(camera.rotation.z),
-    sinRoll: Math.sin(camera.rotation.z),
     isValid,
+    nearPlane,
+    positionX: camera.position.x,
+    positionY: camera.position.y,
+    positionZ: camera.position.z,
+    sinPitch: Math.sin(camera.rotation.x),
+    sinRoll: Math.sin(camera.rotation.z),
+    sinYaw: Math.sin(camera.rotation.y),
   }
 }
 
@@ -138,12 +138,12 @@ const insidePlaneMask = (
   const tolerance =
     Number.EPSILON * 16 * Math.max(1, Math.abs(viewX), Math.abs(viewY), Math.abs(depth), frustum.farPlane)
   let mask = 0
-  if (depth - frustum.nearPlane >= -tolerance) mask += 1
-  if (frustum.farPlane - depth >= -tolerance) mask += 2
-  if (viewX + depth * frustum.halfWidth >= -tolerance) mask += 4
-  if (depth * frustum.halfWidth - viewX >= -tolerance) mask += 8
-  if (viewY + depth * frustum.halfHeight >= -tolerance) mask += 16
-  if (depth * frustum.halfHeight - viewY >= -tolerance) mask += 32
+  if (depth - frustum.nearPlane >= -tolerance) {mask += 1}
+  if (frustum.farPlane - depth >= -tolerance) {mask += 2}
+  if (viewX + depth * frustum.halfWidth >= -tolerance) {mask += 4}
+  if (depth * frustum.halfWidth - viewX >= -tolerance) {mask += 8}
+  if (viewY + depth * frustum.halfHeight >= -tolerance) {mask += 16}
+  if (depth * frustum.halfHeight - viewY >= -tolerance) {mask += 32}
   return mask
 }
 
@@ -159,19 +159,19 @@ export const aabbIntersectsPreparedPerspectiveFrustum = (
   const allPlanesMask = 63
   let mask = 0
   mask |= insidePlaneMask(min.x, min.y, min.z, frustum)
-  if (mask === allPlanesMask) return true
+  if (mask === allPlanesMask) {return true}
   mask |= insidePlaneMask(min.x, min.y, max.z, frustum)
-  if (mask === allPlanesMask) return true
+  if (mask === allPlanesMask) {return true}
   mask |= insidePlaneMask(min.x, max.y, min.z, frustum)
-  if (mask === allPlanesMask) return true
+  if (mask === allPlanesMask) {return true}
   mask |= insidePlaneMask(min.x, max.y, max.z, frustum)
-  if (mask === allPlanesMask) return true
+  if (mask === allPlanesMask) {return true}
   mask |= insidePlaneMask(max.x, min.y, min.z, frustum)
-  if (mask === allPlanesMask) return true
+  if (mask === allPlanesMask) {return true}
   mask |= insidePlaneMask(max.x, min.y, max.z, frustum)
-  if (mask === allPlanesMask) return true
+  if (mask === allPlanesMask) {return true}
   mask |= insidePlaneMask(max.x, max.y, min.z, frustum)
-  if (mask === allPlanesMask) return true
+  if (mask === allPlanesMask) {return true}
   mask |= insidePlaneMask(max.x, max.y, max.z, frustum)
   return mask === allPlanesMask
 }

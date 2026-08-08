@@ -198,14 +198,14 @@ export const makeWorkerPool = <TPayload, TResult>(
     const maxQueued = options.maxQueued ?? DEFAULT_MAX_QUEUED
 
     const state = yield* Ref.make<PoolState<TPayload, TResult>>({
+      cancelledBeforeStart: 0,
+      completed: 0,
+      discardedAfterStart: 0,
+      droppedForBackpressure: 0,
+      idle: ports.map((_, index) => index),
       nextId: 1,
       queue: [],
       running: new Map(),
-      idle: ports.map((_, index) => index),
-      completed: 0,
-      cancelledBeforeStart: 0,
-      discardedAfterStart: 0,
-      droppedForBackpressure: 0,
       shuttingDown: false,
     })
 
@@ -225,10 +225,10 @@ export const makeWorkerPool = <TPayload, TResult>(
           return
         }
         current.running.set(job.id, {
-          key: job.key,
-          workerIndex,
-          resume: job.resume,
           discarded: false,
+          key: job.key,
+          resume: job.resume,
+          workerIndex,
         })
         ports[workerIndex]?.post({ id: job.id, payload: job.payload })
       }
@@ -262,39 +262,6 @@ export const makeWorkerPool = <TPayload, TResult>(
     })
 
     return {
-      submit: (key, payload) =>
-        Effect.async<JobOutcome<TResult>>((resume) => {
-          Effect.runSync(
-            Ref.update(state, (current) => {
-              if (current.shuttingDown) {
-                resume(Effect.succeed({ _tag: 'cancelled' as const }))
-                return current
-              }
-
-              const id = current.nextId
-              current.nextId += 1
-              current.queue.push({
-                id,
-                key,
-                payload,
-                resume: (outcome) => resume(Effect.succeed(outcome)),
-              })
-
-              // Drop the OLDEST waiting job, not this one. See `maxQueued`.
-              while (current.queue.length > maxQueued) {
-                const dropped = current.queue.shift()
-                if (dropped !== undefined) {
-                  current.droppedForBackpressure += 1
-                  dropped.resume({ _tag: 'cancelled' })
-                }
-              }
-
-              pump(current)
-              return current
-            }),
-          )
-        }),
-
       cancel: (key) =>
         Ref.modify(state, (current) => {
           let affected = 0
@@ -327,17 +294,6 @@ export const makeWorkerPool = <TPayload, TResult>(
           return [affected, current]
         }),
 
-      stats: Ref.get(state).pipe(
-        Effect.map((current) => ({
-          busy: current.running.size,
-          queued: current.queue.length,
-          completed: current.completed,
-          cancelledBeforeStart: current.cancelledBeforeStart,
-          discardedAfterStart: current.discardedAfterStart,
-          droppedForBackpressure: current.droppedForBackpressure,
-        })),
-      ),
-
       shutdown: Ref.update(state, (current) => {
         current.shuttingDown = true
         for (const job of current.queue.splice(0)) {
@@ -356,5 +312,49 @@ export const makeWorkerPool = <TPayload, TResult>(
         }
         return current
       }),
+
+      stats: Ref.get(state).pipe(
+        Effect.map((current) => ({
+          busy: current.running.size,
+          queued: current.queue.length,
+          completed: current.completed,
+          cancelledBeforeStart: current.cancelledBeforeStart,
+          discardedAfterStart: current.discardedAfterStart,
+          droppedForBackpressure: current.droppedForBackpressure,
+        })),
+      ),
+
+      submit: (key, payload) =>
+        Effect.async<JobOutcome<TResult>>((resume) => {
+          Effect.runSync(
+            Ref.update(state, (current) => {
+              if (current.shuttingDown) {
+                resume(Effect.succeed({ _tag: 'cancelled' as const }))
+                return current
+              }
+
+              const id = current.nextId
+              current.nextId += 1
+              current.queue.push({
+                id,
+                key,
+                payload,
+                resume: (outcome) => resume(Effect.succeed(outcome)),
+              })
+
+              // Drop the OLDEST waiting job, not this one. See `maxQueued`.
+              while (current.queue.length > maxQueued) {
+                const dropped = current.queue.shift()
+                if (dropped !== undefined) {
+                  current.droppedForBackpressure += 1
+                  dropped.resume({ _tag: 'cancelled' })
+                }
+              }
+
+              pump(current)
+              return current
+            }),
+          )
+        }),
     }
   })

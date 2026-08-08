@@ -425,17 +425,17 @@ export type ChunkGeometryBuffers = {
 
 /** The buffers for a chunk with no visible faces. Allocation-free. */
 const EMPTY_BUFFERS: ChunkGeometryBuffers = {
-  positions: new Float32Array(0),
-  normals: new Float32Array(0),
   colors: new Uint8Array(0),
-  uvs: new Float32Array(0),
-  tileIndices: new Float32Array(0),
   fluidDirections: new Float32Array(0),
   fluidFalling: new Float32Array(0),
-  indices: new Uint32Array(0),
-  quadCount: 0,
-  vertexCount: 0,
   indexCount: 0,
+  indices: new Uint32Array(0),
+  normals: new Float32Array(0),
+  positions: new Float32Array(0),
+  quadCount: 0,
+  tileIndices: new Float32Array(0),
+  uvs: new Float32Array(0),
+  vertexCount: 0,
 }
 
 /**
@@ -661,8 +661,7 @@ export const buildChunkGeometry = (
   }
 
   return {
-    positions, normals, colors, uvs, tileIndices, fluidDirections, fluidFalling,
-    indices, quadCount, vertexCount, indexCount,
+    colors, fluidDirections, fluidFalling, indexCount, indices, normals, positions, quadCount, tileIndices, uvs, vertexCount,
   }
 }
 
@@ -681,9 +680,9 @@ const fluidCellKey = (quad: FluidQuad): string => {
 }
 
 const safeFlowDirection = (flow: FluidQuad['flow']): readonly [number, number] => {
-  if (flow === undefined) return [0, 0]
+  if (flow === undefined) {return [0, 0]}
   const [x, z] = flow.direction
-  if (!Number.isFinite(x) || !Number.isFinite(z)) return [0, 0]
+  if (!Number.isFinite(x) || !Number.isFinite(z)) {return [0, 0]}
   const length = Math.hypot(x, z)
   return length > 0 ? [x / length, z / length] : [0, 0]
 }
@@ -696,21 +695,26 @@ export const buildFluidGeometry = (
   color: QuadColor = AO_ONLY_COLOR,
   tile: QuadTile = UNTEXTURED_TILE,
 ): ChunkGeometryBuffers => {
-  if (quads.length === 0) return EMPTY_BUFFERS
+  if (quads.length === 0) {return EMPTY_BUFFERS}
   const fallingCells = new Set(
     quads.filter((quad) => quad.direction === 'yPos' && quad.flow?.falling === true).map(fluidCellKey),
   )
   const proxies: MeshQuad[] = quads.map((quad) => ({
+    ao: quad.ao,
     blockId: quad.blockId,
     direction: quad.direction,
+    height: 1,
+    lx: 0,
+    lz: 0,
     role: quad.direction === 'yPos' ? 'top' : 'side',
-    lx: 0, y: 0, lz: 0, width: 1, height: 1, ao: quad.ao,
+    width: 1,
+    y: 0,
   }))
   const built = buildChunkGeometry(proxies, 0, 0, color, tile)
 
   for (let quadIndex = 0; quadIndex < quads.length; quadIndex += 1) {
     const quad = quads[quadIndex]
-    if (quad === undefined) continue
+    if (quad === undefined) {continue}
     const normal = faceNormal(quad.direction)
     const topFlow = safeFlowDirection(quad.flow)
     const falling = quad.flow?.falling === true || fallingCells.has(fluidCellKey(quad))
@@ -720,7 +724,7 @@ export const buildFluidGeometry = (
     const base = quadIndex * VERTICES_PER_QUAD
     for (let corner = 0; corner < VERTICES_PER_QUAD; corner += 1) {
       const vertex = quad.vertices[corner]
-      if (vertex === undefined) continue
+      if (vertex === undefined) {continue}
       const positionAt = (base + corner) * POSITION_COMPONENTS
       const flowAt = (base + corner) * FLUID_DIRECTION_COMPONENTS
       built.positions[positionAt] = originX + vertex[0]
@@ -736,7 +740,7 @@ export const buildFluidGeometry = (
       const cellZ = Math.floor(Math.min(...quad.vertices.map(([, , z]) => z)))
       for (let corner = 0; corner < VERTICES_PER_QUAD; corner += 1) {
         const vertex = quad.vertices[corner]
-        if (vertex === undefined) continue
+        if (vertex === undefined) {continue}
         const u = vertex[0] - cellX - 0.5
         const v = vertex[2] - cellZ - 0.5
         const at = (base + corner) * UV_COMPONENTS
@@ -777,7 +781,7 @@ export const combineChunkGeometry = (...parts: ReadonlyArray<ChunkGeometryBuffer
     vertexOffset += part.vertexCount
     indexOffset += part.indexCount
   }
-  return { positions, normals, colors, uvs, tileIndices, fluidDirections, fluidFalling, indices, quadCount, vertexCount, indexCount }
+  return { colors, fluidDirections, fluidFalling, indexCount, indices, normals, positions, quadCount, tileIndices, uvs, vertexCount }
 }
 
 /**

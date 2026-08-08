@@ -319,9 +319,9 @@ export const WHEEL_LINES_PER_NOTCH = 3
 export const WHEEL_PAGES_PER_NOTCH = 1
 
 const NOTCHES_PER_UNIT: Readonly<Record<WheelDeltaMode, number>> = {
-  pixel: WHEEL_PIXELS_PER_NOTCH,
   line: WHEEL_LINES_PER_NOTCH,
   page: WHEEL_PAGES_PER_NOTCH,
+  pixel: WHEEL_PIXELS_PER_NOTCH,
 }
 
 /**
@@ -502,11 +502,11 @@ export const remap = (bindings: Bindings, action: InputAction, key: InputCode): 
     return {
       kind: 'rejected',
       rejection: {
-        reason: 'escape-is-not-bindable',
         message:
           'escape is not a bindable action: it is owned by the single frame-level handler ' +
           `(ESCAPE_OWNER = '${ESCAPE_OWNER}'). A second owner is how one key press closes a modal ` +
           'AND opens the pause menu.',
+        reason: 'escape-is-not-bindable',
       },
     }
   }
@@ -514,8 +514,8 @@ export const remap = (bindings: Bindings, action: InputAction, key: InputCode): 
     return {
       kind: 'rejected',
       rejection: {
-        reason: 'escape-is-not-bindable',
         message: `${ESCAPE_KEY_CODE} cannot be bound to '${action}': it is owned by the frame-level handler.`,
+        reason: 'escape-is-not-bindable',
       },
     }
   }
@@ -523,18 +523,18 @@ export const remap = (bindings: Bindings, action: InputAction, key: InputCode): 
     return {
       kind: 'rejected',
       rejection: {
-        reason: 'key-reserved-by-user-agent',
         message:
           `${FOCUS_NAVIGATION_KEY_CODE} cannot be bound to '${action}': it belongs to the user agent ` +
           `(FOCUS_NAVIGATION_OWNER = '${FOCUS_NAVIGATION_OWNER}'), which moves keyboard focus with it. ` +
           'The only way to stop that is preventDefault(), which traps keyboard users inside the canvas.',
+        reason: 'key-reserved-by-user-agent',
       },
     }
   }
   if (!INPUT_ACTIONS.includes(action)) {
     return {
       kind: 'rejected',
-      rejection: { reason: 'unknown-action', message: `'${String(action)}' is not a known input action.` },
+      rejection: { message: `'${String(action)}' is not a known input action.`, reason: 'unknown-action' },
     }
   }
 
@@ -543,13 +543,13 @@ export const remap = (bindings: Bindings, action: InputAction, key: InputCode): 
     return {
       kind: 'rejected',
       rejection: {
-        reason: 'key-already-bound',
         message: `${key} is already bound to '${conflict[0]}'. Unbind it first.`,
+        reason: 'key-already-bound',
       },
     }
   }
 
-  return { kind: 'ok', bindings: { ...bindings, [action]: key } }
+  return { bindings: { ...bindings, [action]: key }, kind: 'ok' }
 }
 
 /**
@@ -1137,20 +1137,20 @@ export const touchLookStep = (
   point: TouchPoint,
 ): TouchLookStep => {
   if (phase === 'release') {
-    return { state: TOUCH_LOOK_IDLE, delta: NO_TOUCH_DELTA }
+    return { delta: NO_TOUCH_DELTA, state: TOUCH_LOOK_IDLE }
   }
   const current = finiteTouchPoint(point)
   if (current === undefined) {
     // A coordinate that cannot be used, and the anchor is LEFT ALONE rather than
     // replaced. Anchoring on a NaN would end the gesture in all but name: every
     // later `move` would subtract from it and emit NaN forever.
-    return { state, delta: NO_TOUCH_DELTA }
+    return { delta: NO_TOUCH_DELTA, state }
   }
   if (phase === 'press') {
-    return { state: { anchor: current }, delta: NO_TOUCH_DELTA }
+    return { delta: NO_TOUCH_DELTA, state: { anchor: current } }
   }
-  const anchor = state.anchor
+  const {anchor} = state
   return anchor === undefined
-    ? { state, delta: NO_TOUCH_DELTA }
-    : { state: { anchor: current }, delta: { x: current.x - anchor.x, y: current.y - anchor.y } }
+    ? { delta: NO_TOUCH_DELTA, state }
+    : { delta: { x: current.x - anchor.x, y: current.y - anchor.y }, state: { anchor: current } }
 }

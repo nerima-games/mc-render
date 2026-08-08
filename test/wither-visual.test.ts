@@ -73,8 +73,8 @@ describe('Wither visual descriptors', () => {
 
 describe('Wither skull visual descriptors', () => {
   it('publishes distinct normal and blue projectile silhouettes', () => {
-    const normal = WITHER_SKULL_VISUAL_DESCRIPTORS.normal
-    const blue = WITHER_SKULL_VISUAL_DESCRIPTORS.blue
+    const {normal} = WITHER_SKULL_VISUAL_DESCRIPTORS
+    const {blue} = WITHER_SKULL_VISUAL_DESCRIPTORS
 
     expect(normal.variant).toBe('normal')
     expect(blue.variant).toBe('blue')

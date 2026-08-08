@@ -58,10 +58,9 @@ const part = (
   center: VehicleVisualVector,
   color: VehicleVisualColor,
   rotation: VehicleVisualVector = [0, 0, 0],
-): VehicleVisualPartDescriptor => ({ id, role, size, center, rotation, color })
+): VehicleVisualPartDescriptor => ({ center, color, id, role, rotation, size })
 
 const BOAT_VISUAL: VehicleVisualDescriptor = {
-  type: 'boat',
   occupantAnchor: [0, 0.48, 0],
   parts: [
     part('hull', 'body', [1.4, 0.3, 2.2], [0, 0.2, 0], [130, 82, 43]),
@@ -71,10 +70,10 @@ const BOAT_VISUAL: VehicleVisualDescriptor = {
     part('stern-rim', 'rim', [1.22, 0.45, 0.18], [0, 0.48, 1.02], [155, 101, 54]),
     part('seat', 'seat', [1.05, 0.12, 0.35], [0, 0.48, 0], [109, 67, 35]),
   ],
+  type: 'boat',
 }
 
 const MINECART_VISUAL: VehicleVisualDescriptor = {
-  type: 'minecart',
   occupantAnchor: [0, 0.62, 0],
   parts: [
     part('floor', 'body', [1, 0.18, 1.25], [0, 0.18, 0], [112, 117, 119]),
@@ -85,6 +84,7 @@ const MINECART_VISUAL: VehicleVisualDescriptor = {
     part('left-wheel', 'wheel', [0.16, 0.28, 0.34], [-0.57, 0.12, 0], [68, 71, 72]),
     part('right-wheel', 'wheel', [0.16, 0.28, 0.34], [0.57, 0.12, 0], [68, 71, 72]),
   ],
+  type: 'minecart',
 }
 
 const DESCRIPTORS: Readonly<Record<VehicleType, VehicleVisualDescriptor>> = {
@@ -155,13 +155,13 @@ export const planVehicleVisual = (
   const sinYaw = Math.sin(sample.yawRadians)
   const [anchorX, anchorY, anchorZ] = descriptor.occupantAnchor
   const occupant = vehicle.occupant === undefined ? undefined : {
+    facingRadians: sample.yawRadians,
     id: vehicle.occupant,
     position: {
       x: sample.position.x + anchorX * cosYaw - anchorZ * sinYaw,
       y: sample.position.y + anchorY,
       z: sample.position.z + anchorX * sinYaw + anchorZ * cosYaw,
     },
-    facingRadians: sample.yawRadians,
     visible: !(
       options.camera?.localOccupantId === vehicle.occupant &&
       (options.camera.perspective ?? 'first-person') === 'first-person'
@@ -169,13 +169,13 @@ export const planVehicleVisual = (
   }
 
   return {
-    id: vehicle.id,
-    type: vehicle.type,
     dimension: vehicle.dimension,
+    id: vehicle.id,
+    parts: descriptor.parts,
     position: sample.position,
+    type: vehicle.type,
     velocity: sample.velocity,
     yawRadians: sample.yawRadians,
-    parts: descriptor.parts,
     ...(occupant === undefined ? {} : { occupant }),
   }
 }

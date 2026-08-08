@@ -122,10 +122,8 @@ export const makeScratchMap = <K, V>(name: string, initialCapacity?: number): Sc
   let borrowed = 0
 
   const leased: LeasedScratchMap<K, V> = {
-    name: initialCapacity === undefined ? name : `${name}[~${String(initialCapacity)}]`,
-    buffer,
-    usageCount: () => usage,
     borrowedCount: () => borrowed,
+    buffer,
     lease: {
       enter: () => {
         usage += 1
@@ -135,6 +133,8 @@ export const makeScratchMap = <K, V>(name: string, initialCapacity?: number): Sc
         borrowed -= 1
       },
     },
+    name: initialCapacity === undefined ? name : `${name}[~${String(initialCapacity)}]`,
+    usageCount: () => usage,
   }
 
   return leased
@@ -169,10 +169,10 @@ export const withScratch = <K, V, A>(scratch: ScratchMap<K, V>, use: (buffer: Ma
 
   if (scratch.borrowedCount() > 0) {
     throw new ScratchMisuseError({
-      rule: 're-entrant-borrow',
       message:
         `scratch buffer '${scratch.name}' is already borrowed. Two concurrent users share one ` +
         'mutable buffer and will clobber each other. Give the inner operation its own buffer.',
+      rule: 're-entrant-borrow',
     })
   }
 
@@ -182,11 +182,11 @@ export const withScratch = <K, V, A>(scratch: ScratchMap<K, V>, use: (buffer: Ma
     const result = use(scratch.buffer)
     if ((result as unknown) === scratch.buffer) {
       throw new ScratchMisuseError({
-        rule: 'escaped-buffer',
         message:
           `a caller returned scratch buffer '${scratch.name}' from withScratch. The buffer is ` +
           'cleared and refilled every frame, so the escaped reference would silently change ' +
           'under its holder. Copy what you need out of it instead.',
+        rule: 'escaped-buffer',
       })
     }
     return result
@@ -220,7 +220,7 @@ export type FrameScratch = {
 }
 
 export const makeFrameScratch = (): FrameScratch => ({
-  visibleChunks: makeScratchMap<string, number>('visibleChunks', 512),
   entityInstances: makeScratchMap<string, number>('entityInstances', 256),
   lightUpdates: makeScratchMap<string, number>('lightUpdates', 64),
+  visibleChunks: makeScratchMap<string, number>('visibleChunks', 512),
 })

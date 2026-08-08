@@ -32,11 +32,11 @@ export const planRenderEnvironment = (
   const skyColor = interpolateColor(NIGHT_SKY_COLOR, DAY_SKY_COLOR, safeDaylight)
   return {
     daylight: safeDaylight,
-    sunIntensity: safeDaylight,
-    skyColor,
     fogColor: [channel(skyColor, 16) / 255, channel(skyColor, 8) / 255, channel(skyColor, 0) / 255],
-    fogNear: safeFar * 0.45,
     fogFar: safeFar * 0.9,
+    fogNear: safeFar * 0.45,
+    skyColor,
+    sunIntensity: safeDaylight,
   }
 }
 

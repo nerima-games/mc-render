@@ -86,33 +86,33 @@
  */
 import { Effect, Layer, Scope } from 'effect'
 import {
-  defaultBindings,
-  mouseButtonForIndex,
-  wheelDeltaModeForIndex,
   type Bindings,
   type ClickLanding,
   type FocusTarget,
   type InputAction,
   type ListenerTarget,
+  defaultBindings,
+  mouseButtonForIndex,
+  wheelDeltaModeForIndex,
 } from '../domain/input-bindings'
 import {
-  InputService,
-  LISTENER_PLAN,
-  makeInputService,
-  UNAVAILABLE_POINTER_LOCK,
   type InputEvent,
+  InputService,
   type InputServiceApi,
+  LISTENER_PLAN,
   type PointerLockPort,
   type PointerLockRequestOutcome,
+  UNAVAILABLE_POINTER_LOCK,
+  makeInputService,
 } from './input-service'
 import {
-  isPointerLockHeld,
   type DomDocument,
   type DomEventTarget,
   type DomInputEvent,
   type DomListener,
   type DomListenerOptions,
   type PointerLockTarget,
+  isPointerLockHeld,
 } from './dom-surface'
 
 /**
@@ -476,12 +476,12 @@ export const translateDomEvent = (
 ): InputEvent | undefined => {
   switch (planned.event) {
     case 'keydown': {
-      const code = event.code
-      return code === undefined ? undefined : { kind: 'keydown', code, target: planned.target }
+      const {code} = event
+      return code === undefined ? undefined : { code, kind: 'keydown', target: planned.target }
     }
     case 'keyup': {
-      const code = event.code
-      return code === undefined ? undefined : { kind: 'keyup', code, target: planned.target }
+      const {code} = event
+      return code === undefined ? undefined : { code, kind: 'keyup', target: planned.target }
     }
     case 'mousedown': {
       const button = event.button === undefined ? undefined : mouseButtonForIndex(event.button)
@@ -493,15 +493,15 @@ export const translateDomEvent = (
       return button === undefined
         ? undefined
         : {
-            kind: 'mousedown',
             button,
-            target: planned.target,
+            kind: 'mousedown',
             landing: resolveClickLanding(context.pointerLockTarget, context.focusGroups, event.target),
+            target: planned.target,
           }
     }
     case 'mouseup': {
       const button = event.button === undefined ? undefined : mouseButtonForIndex(event.button)
-      return button === undefined ? undefined : { kind: 'mouseup', button, target: planned.target }
+      return button === undefined ? undefined : { button, kind: 'mouseup', target: planned.target }
     }
     case 'contextmenu':
       // Carries NO button state by design — `mousedown` already recorded button
@@ -518,7 +518,7 @@ export const translateDomEvent = (
       const deltaY = finiteOrUndefined(event.movementY)
       return deltaX === undefined && deltaY === undefined
         ? undefined
-        : { kind: 'pointermove', deltaX: deltaX ?? 0, deltaY: deltaY ?? 0 }
+        : { deltaX: deltaX ?? 0, deltaY: deltaY ?? 0, kind: 'pointermove' }
     }
     case 'wheel': {
       // NUMBER to NAME, and nothing else. How many pixels make a notch is
@@ -526,10 +526,10 @@ export const translateDomEvent = (
       // policy `environment: 'node'` cannot test, and there is no browser test
       // that could reach the locked branch either.
       const deltaMode = event.deltaMode === undefined ? undefined : wheelDeltaModeForIndex(event.deltaMode)
-      const deltaY = event.deltaY
+      const {deltaY} = event
       return deltaMode === undefined || deltaY === undefined
         ? undefined
-        : { kind: 'wheel', deltaY, deltaMode }
+        : { deltaMode, deltaY, kind: 'wheel' }
     }
     case 'pointerlockchange':
       // The event itself says nothing; `document.pointerLockElement` is the
@@ -550,7 +550,7 @@ export const translateDomEvent = (
       // to `undefined`, which is a REPORT ("focus left our UI") and not a drop:
       // dropping it would leave the ring lit on the slot the player just Tabbed
       // away from.
-      return { kind: 'focuschange', focus: resolveFocusTarget(context.focusGroups, event.target) }
+      return { focus: resolveFocusTarget(context.focusGroups, event.target), kind: 'focuschange' }
     case 'touchstart': {
       // ELEMENT to NAME, at the boundary, in exactly one place — the third
       // reader of `event.target` and the same conversion `focusin` and
@@ -561,7 +561,7 @@ export const translateDomEvent = (
       const action = resolveTouchControl(context.touchControls ?? [], event.target)
       return action === undefined
         ? undefined
-        : { kind: 'touchpress', action, target: planned.target }
+        : { action, kind: 'touchpress', target: planned.target }
     }
     case 'touchend':
     case 'touchcancel': {
@@ -579,7 +579,7 @@ export const translateDomEvent = (
       const action = resolveTouchControl(context.touchControls ?? [], event.target)
       return action === undefined
         ? undefined
-        : { kind: 'touchrelease', action, target: planned.target }
+        : { action, kind: 'touchrelease', target: planned.target }
     }
     case 'focusout':
       // Never resolves anything. `focusout` fires on the element being LEFT, so
@@ -588,7 +588,7 @@ export const translateDomEvent = (
       // move, in that order and in the same task, so the arrival overwrites
       // this before any frame can read it; a departure to nothing has no
       // arrival, and this is the whole of what says so.
-      return { kind: 'focuschange', focus: undefined }
+      return { focus: undefined, kind: 'focuschange' }
     default:
       // An event name the plan grew without this switch growing with it. Dropped
       // rather than guessed, and a test asserts the two lists agree so that the
@@ -681,7 +681,7 @@ export const installInputListeners = (
     kind: 'touchpress' | 'touchrelease',
     target: ListenerTarget,
   ): boolean => {
-    const changedTouches = event.changedTouches
+    const {changedTouches} = event
     if (changedTouches === undefined) {
       return false
     }
@@ -704,7 +704,7 @@ export const installInputListeners = (
         const count = touchActionCounts.get(action) ?? 0
         touchActionCounts.set(action, count + 1)
         if (count === 0) {
-          Effect.runSync(input.dispatch({ kind, action, target }))
+          Effect.runSync(input.dispatch({ action, kind, target }))
         }
         continue
       }
@@ -717,7 +717,7 @@ export const installInputListeners = (
       const count = touchActionCounts.get(action) ?? 1
       if (count <= 1) {
         touchActionCounts.delete(action)
-        Effect.runSync(input.dispatch({ kind, action, target }))
+        Effect.runSync(input.dispatch({ action, kind, target }))
       } else {
         touchActionCounts.set(action, count - 1)
       }
@@ -756,8 +756,8 @@ export const installInputListeners = (
       }
 
       const translated = translateDomEvent(planned, event, {
-        pointerLockHeld: readsLockElement && isPointerLockHeld(targets.document),
         focusGroups,
+        pointerLockHeld: readsLockElement && isPointerLockHeld(targets.document),
         pointerLockTarget,
         touchControls,
       })
@@ -768,9 +768,9 @@ export const installInputListeners = (
 
     return {
       event: planned.event,
-      target: planned.target,
       listener,
       options: listenerOptionsFor(planned.event),
+      target: planned.target,
     }
   })
 
@@ -880,7 +880,7 @@ const ignore = (): void => undefined
  */
 export const makeBrowserPointerLockPort = (options: BrowserPointerLockOptions): PointerLockPort => ({
   request: Effect.sync((): PointerLockRequestOutcome => {
-    const canvas = options.canvas
+    const {canvas} = options
     if (typeof canvas.requestPointerLock !== 'function') {
       return 'unavailable'
     }
@@ -952,14 +952,14 @@ export type BrowserInputOptions = {
 }
 
 const pointerLockPortFor = (options: BrowserInputOptions): PointerLockPort => {
-  const canvas = options.canvas
+  const {canvas} = options
   if (canvas === undefined) {
     return UNAVAILABLE_POINTER_LOCK
   }
   return makeBrowserPointerLockPort(
     options.allowsPointerLock === undefined
       ? { canvas }
-      : { canvas, allowsPointerLock: options.allowsPointerLock },
+      : { allowsPointerLock: options.allowsPointerLock, canvas },
   )
 }
 

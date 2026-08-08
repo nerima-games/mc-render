@@ -53,31 +53,31 @@
  */
 import { Context, Effect, Layer, Ref } from 'effect'
 import {
-  codeForTouchAction,
-  defaultBindings,
+  type Bindings,
+  type ClickLanding,
   ESCAPE_KEY_CODE,
   ESCAPE_OWNER,
   FOCUS_NAVIGATION_KEY_CODE,
   FOCUS_NAVIGATION_OWNER,
+  type FocusTarget,
   GAMEPLAY_LISTENER_TARGET,
-  isMouseButton,
+  type InputAction,
+  type InputCode,
+  type KeyCode,
+  type ListenerTarget,
   MODAL_LISTENER_TARGET,
+  type MouseButton,
+  type PointerLockState,
+  type RemapOutcome,
+  type WheelDeltaMode,
+  codeForTouchAction,
+  defaultBindings,
+  isMouseButton,
   notchesForWheelDelta,
   remap,
   reportsKeyboardFocus,
   suppressesBrowserContextMenu,
   suppressesBrowserScroll,
-  type Bindings,
-  type ClickLanding,
-  type FocusTarget,
-  type InputAction,
-  type InputCode,
-  type KeyCode,
-  type ListenerTarget,
-  type MouseButton,
-  type PointerLockState,
-  type RemapOutcome,
-  type WheelDeltaMode,
 } from '../domain/input-bindings'
 import type { GamepadAxes } from '../domain/gamepad-input'
 
@@ -583,15 +583,15 @@ type InputState = {
 }
 
 const initialState = (bindings: Bindings): InputState => ({
-  pressed: new Set<InputCode>(),
-  justPressed: new Set<InputCode>(),
-  uiClicks: [],
-  pointerDelta: { x: 0, y: 0 },
-  wheelNotches: 0,
-  pointerLockState: 'unlocked',
-  keyboardFocus: undefined,
-  gamepadAxes: { leftX: 0, leftY: 0, rightX: 0, rightY: 0 },
   bindings,
+  gamepadAxes: { leftX: 0, leftY: 0, rightX: 0, rightY: 0 },
+  justPressed: new Set<InputCode>(),
+  keyboardFocus: undefined,
+  pointerDelta: { x: 0, y: 0 },
+  pointerLockState: 'unlocked',
+  pressed: new Set<InputCode>(),
+  uiClicks: [],
+  wheelNotches: 0,
 })
 
 /** Mouselook is live. The one question most readers of the lock state ask. */
@@ -606,8 +606,8 @@ const withCodeDown = (state: InputState, code: InputCode): InputState => {
   const alreadyHeld = state.pressed.has(code)
   return {
     ...state,
-    pressed: new Set([...state.pressed, code]),
     justPressed: alreadyHeld ? state.justPressed : new Set([...state.justPressed, code]),
+    pressed: new Set([...state.pressed, code]),
   }
 }
 
@@ -726,8 +726,8 @@ const withTouchUp = (state: InputState, action: InputAction): InputState => {
  */
 const withoutHeldButtons = (state: InputState): InputState => ({
   ...state,
-  pressed: new Set([...state.pressed].filter((code) => !isMouseButton(code))),
   justPressed: new Set([...state.justPressed].filter((code) => !isMouseButton(code))),
+  pressed: new Set([...state.pressed].filter((code) => !isMouseButton(code))),
 })
 
 /**
@@ -962,8 +962,8 @@ export const makeInputService = (
               // clears it, and that event arrives on its own.
               return {
                 ...initialState(current.bindings),
-                pointerLockState: current.pointerLockState === 'refused' ? 'refused' : 'unlocked',
                 keyboardFocus: current.keyboardFocus,
+                pointerLockState: current.pointerLockState === 'refused' ? 'refused' : 'unlocked',
               }
             default:
               return current
@@ -1090,8 +1090,8 @@ export const makeInputService = (
       // wrong.
       clearHeld: Ref.update(state, (current) => ({
         ...initialState(current.bindings),
-        pointerLockState: current.pointerLockState,
         keyboardFocus: current.keyboardFocus,
+        pointerLockState: current.pointerLockState,
       })),
 
       bindings: Ref.get(state).pipe(Effect.map((current) => current.bindings)),
@@ -1128,10 +1128,10 @@ export const LISTENER_PLAN: ReadonlyArray<{
 }> = [
   {
     event: 'keydown',
-    target: GAMEPLAY_LISTENER_TARGET,
     note: 'bubble phase on window, so a modal that stopPropagation()s on document shields it',
+    target: GAMEPLAY_LISTENER_TARGET,
   },
-  { event: 'keyup', target: GAMEPLAY_LISTENER_TARGET, note: 'same target as keydown, or keys stick' },
+  { event: 'keyup', note: 'same target as keydown, or keys stick', target: GAMEPLAY_LISTENER_TARGET },
   // `mousedown` / `mouseup` sit on `window` with the keys, and NOT on
   // `document` where the reference puts them (:181-182). The reference's
   // placement was safe when no button carried a gameplay action; now that left
@@ -1142,51 +1142,51 @@ export const LISTENER_PLAN: ReadonlyArray<{
   // move costs nothing.
   {
     event: 'mousedown',
-    target: GAMEPLAY_LISTENER_TARGET,
     note: 'attack/use edge; shielded by modals exactly as keydown is',
+    target: GAMEPLAY_LISTENER_TARGET,
   },
   {
     event: 'mouseup',
-    target: GAMEPLAY_LISTENER_TARGET,
     note: 'same target as mousedown, or a held button sticks (hold-to-break never stops)',
+    target: GAMEPLAY_LISTENER_TARGET,
   },
   // The pointer/wheel events below sit on `document` because that is where the
   // browser dispatches them, not because of the modal-shielding rule. Only the
   // key and button events participate in that rule, and only they use the named
   // constants.
-  { event: 'mousemove', target: 'document', note: 'pointer delta; only meaningful while locked' },
+  { event: 'mousemove', note: 'pointer delta; only meaningful while locked', target: 'document' },
   {
     event: 'pointerlockchange',
-    target: 'document',
     note: 'document-only event; the GRANT half of the answer to requestPointerLock',
+    target: 'document',
   },
   {
     event: 'pointerlockerror',
-    target: 'document',
     note:
       'document-only event; the REFUSAL half of the answer to requestPointerLock. Without it a ' +
       'refused request is indistinguishable from never having asked, and the player is told nothing',
+    target: 'document',
   },
   {
     event: 'wheel',
-    target: 'document',
     note:
       'passive: false, so the handler MAY call preventDefault() — but only when ' +
       'shouldSuppressWheelScroll says so, or an unlocked player cannot scroll their own settings ' +
       'screen; deltaMode is translated by wheelDeltaModeForIndex and normalised to notches in the domain',
+    target: 'document',
   },
   {
     event: 'contextmenu',
-    target: 'document',
     note:
       'preventDefault() while the pointer is locked, so right-click places a block instead of ' +
       'opening the browser menu; the decision is shouldSuppressContextMenu, and dispatching the ' +
       'event records NO button state (mousedown already did)',
+    target: 'document',
   },
   {
     event: 'blur',
-    target: GAMEPLAY_LISTENER_TARGET,
     note: 'clears held input; the browser sends no keyup while unfocused (stuck-controls report)',
+    target: GAMEPLAY_LISTENER_TARGET,
   },
   // The touch trio. On `window` with the keys and the mouse buttons, and NOT on
   // `document` where the other pointer events sit: a tap is gameplay input that
@@ -1196,22 +1196,22 @@ export const LISTENER_PLAN: ReadonlyArray<{
   // whether it was shielded would depend on registration order.
   {
     event: 'touchstart',
-    target: GAMEPLAY_LISTENER_TARGET,
     note:
       'an on-screen control was pressed; the roster resolves the ELEMENT to an action and ' +
       'codeForTouchAction resolves the action to whatever the player has bound (triage #35)',
+    target: GAMEPLAY_LISTENER_TARGET,
   },
   {
     event: 'touchend',
-    target: GAMEPLAY_LISTENER_TARGET,
     note: 'same target as touchstart, or a held control sticks — the stuck-key report, on glass',
+    target: GAMEPLAY_LISTENER_TARGET,
   },
   {
     event: 'touchcancel',
-    target: GAMEPLAY_LISTENER_TARGET,
     note:
       'the platform took the gesture (system edge-swipe, incoming call) and NO touchend will ' +
       'follow. Without this entry the control stays pressed for the rest of the session',
+    target: GAMEPLAY_LISTENER_TARGET,
   },
   // The focus pair. On `document` because `focusin`/`focusout` BUBBLE and
   // `focus`/`blur` do not — which is the whole reason these two event names are
@@ -1225,17 +1225,17 @@ export const LISTENER_PLAN: ReadonlyArray<{
   // `preventDefault()` to stop the platform's own version running as well.
   {
     event: 'focusin',
-    target: 'document',
     note:
       'bubbles (unlike `focus`), so ONE listener covers every slot mx-ui ever creates; the event ' +
       "target is resolved against the host's focus roster and reported as a FocusTarget",
+    target: 'document',
   },
   {
     event: 'focusout',
-    target: 'document',
     note:
       'the departure half. Always reports NO focus: a move fires focusout then focusin in the same ' +
       'DOM task, so the arrival overwrites this, and a departure to nothing correctly leaves it',
+    target: 'document',
   },
 ]
 
@@ -1248,11 +1248,11 @@ export const LISTENER_PLAN: ReadonlyArray<{
 export const ESCAPE_POLICY = {
   key: ESCAPE_KEY_CODE,
   owner: ESCAPE_OWNER,
-  registeredBy: 'nobody — the frame-level handler reads it, no binding maps to it',
   rationale:
     'Two owners means one press both closes the modal and opens the pause menu. ' +
     'The reference has exactly one frame-level handler ' +
     '(ts-minecraft/packages/app/application/frame/stages/input-stage-menu.ts:6, called only from input-stage.ts:33).',
+  registeredBy: 'nobody — the frame-level handler reads it, no binding maps to it',
 } as const
 
 /**
@@ -1277,8 +1277,6 @@ export const FOCUS_NAVIGATION_POLICY = {
   key: FOCUS_NAVIGATION_KEY_CODE,
   owner: FOCUS_NAVIGATION_OWNER,
   preventDefault: false,
-  registeredBy:
-    'nobody — the browser moves focus, and `focusin`/`focusout` on document report where it went',
   rationale:
     'Suppressing Tab traps a keyboard user inside the canvas with no way to reach the browser ' +
     'chrome, the next control, or the settings screen that would let them rebind their way out ' +
@@ -1287,4 +1285,6 @@ export const FOCUS_NAVIGATION_POLICY = {
     'no lock state in which suppressing it is defensible — so there is no predicate for it, only ' +
     'this record. `remap` refuses to bind Tab for the same reason: the owner that cannot be ' +
     'removed must not be given a second.',
+  registeredBy:
+    'nobody — the browser moves focus, and `focusin`/`focusout` on document report where it went',
 } as const

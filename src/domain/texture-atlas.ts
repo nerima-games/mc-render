@@ -173,9 +173,9 @@ const tilePixel = (
   const noise = (tile * 37 + Math.floor(x / 4) * 17 + Math.floor(y / 4) * 29) & 31
   const marker = y < 4 && x < 16 && ((tile >> Math.floor(x / 2)) & 1) === 1
 
-  if (kind === 'water') return [20 + noise, 92 + noise, 178 + noise, 176]
-  if (kind === 'lava') return [224 + (noise & 15), 54 + noise * 2, noise >> 1, 255]
-  if (kind === 'leaves') return [32 + noise, 104 + noise * 2, 38 + noise, (x + y + tile) % 7 === 0 ? 0 : 255]
+  if (kind === 'water') {return [20 + noise, 92 + noise, 178 + noise, 176]}
+  if (kind === 'lava') {return [224 + (noise & 15), 54 + noise * 2, noise >> 1, 255]}
+  if (kind === 'leaves') {return [32 + noise, 104 + noise * 2, 38 + noise, (x + y + tile) % 7 === 0 ? 0 : 255]}
   if (kind === 'glass') {
     const edge = x < 3 || y < 3 || x >= TILE_PIXELS - 3 || y >= TILE_PIXELS - 3
     return [marker ? 245 : 150 + noise, 220 + (noise >> 1), 230 + (noise >> 1), edge ? 144 : 48]
@@ -206,7 +206,7 @@ export const generateTerrainAtlas = (): RgbaAtlas => {
     }
   }
 
-  return { width: ATLAS_PIXELS, height: ATLAS_PIXELS, data }
+  return { data, height: ATLAS_PIXELS, width: ATLAS_PIXELS }
 }
 
 /**
@@ -296,8 +296,8 @@ export const tileUvBounds = (tileIndex: number): TileUvBounds => {
 
   return {
     u0: column / ATLAS_COLUMNS + HALF_TEXEL_UV,
-    v0: 1 - (row + 1) / ATLAS_COLUMNS + HALF_TEXEL_UV,
     u1: (column + 1) / ATLAS_COLUMNS - HALF_TEXEL_UV,
+    v0: 1 - (row + 1) / ATLAS_COLUMNS + HALF_TEXEL_UV,
     v1: 1 - row / ATLAS_COLUMNS - HALF_TEXEL_UV,
   }
 }

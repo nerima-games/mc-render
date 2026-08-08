@@ -55,37 +55,37 @@
 import { Effect, Ref } from 'effect'
 import {
   InputService,
-  InputServiceLayer,
-  UNAVAILABLE_POINTER_LOCK,
   type InputServiceApi,
+  InputServiceLayer,
   type InputSnapshot,
   type PointerLockPort,
+  UNAVAILABLE_POINTER_LOCK,
 } from '../application/input-service'
-import { acquiresPointerLock, defaultBindings, type MouseButton } from '../domain/input-bindings'
+import { type MouseButton, acquiresPointerLock, defaultBindings } from '../domain/input-bindings'
 import {
-  mirroredCameraState,
-  mirrorLagSecs,
-  NO_VIEW_OFFSET,
   type MirroredCameraState,
+  NO_VIEW_OFFSET,
   type ViewOffset,
+  mirrorLagSecs,
+  mirroredCameraState,
 } from '../domain/camera-mirror'
-import { makeFrameScratch, type FrameScratch } from '../domain/frame-scratch'
+import { type FrameScratch, makeFrameScratch } from '../domain/frame-scratch'
 import {
-  monotonicSecs,
-  MonotonicTimeSecs,
-  position,
   type CameraPoseSnapshot,
   type GameModule,
+  MonotonicTimeSecs,
   type StageRegistration,
+  monotonicSecs,
+  position,
 } from '@nerima-games/mc-kernel'
 import {
-  buildPostProcessingChain,
-  QUALITY_PRESETS,
   type GraphicsQuality,
   type PostProcessingStep,
+  QUALITY_PRESETS,
+  buildPostProcessingChain,
 } from '../domain/post-processing'
-import { NO_DRAW_TARGET, type DrawPort } from '../application/world-renderer'
-import { NO_CHUNK_SYNC, type ChunkSyncPort } from '../application/world-sync'
+import { type DrawPort, NO_DRAW_TARGET } from '../application/world-renderer'
+import { type ChunkSyncPort, NO_CHUNK_SYNC } from '../application/world-sync'
 import { NO_PLAYER_CONTROL, type PlayerControlPort } from '../domain/player-control'
 import { RENDER_STAGE_IDS, UPSTREAM_STAGE_IDS } from './stage-ids'
 
@@ -97,10 +97,10 @@ import { RENDER_STAGE_IDS, UPSTREAM_STAGE_IDS } from './stage-ids'
  * that visibly wrong is better than making it plausibly wrong.
  */
 export const UNSET_CAMERA_POSE: CameraPoseSnapshot = {
+  capturedAtSecs: MonotonicTimeSecs(0),
+  pitchRadians: 0,
   position: position(0, 0, 0),
   yawRadians: 0,
-  pitchRadians: 0,
-  capturedAtSecs: MonotonicTimeSecs(0),
 }
 
 /**
@@ -223,17 +223,17 @@ export const makeRenderFrameState = (
     const framesDrawn = yield* Ref.make(0)
 
     return {
-      scratch: makeFrameScratch(),
       authoritativePose,
-      viewOffset,
-      mirroredCamera,
-      mirrorLagSecs: lag,
-      input,
-      visibleChunkCount,
-      quality: qualityRef,
-      postFxChain,
-      postFxBuiltFrom,
       framesDrawn,
+      input,
+      mirrorLagSecs: lag,
+      mirroredCamera,
+      postFxBuiltFrom,
+      postFxChain,
+      quality: qualityRef,
+      scratch: makeFrameScratch(),
+      viewOffset,
+      visibleChunkCount,
     }
   })
 
@@ -478,12 +478,12 @@ export const renderModule = (
   control: PlayerControlPort = NO_PLAYER_CONTROL,
   chunkSync: ChunkSyncPort = NO_CHUNK_SYNC,
 ): GameModule<InputService, never, never, InputService> => ({
-  layers: InputServiceLayer(defaultBindings(), pointerLock),
   frameStages: Effect.gen(function* () {
     const input = yield* InputService
     const state = yield* makeRenderFrameState(quality, initialPose)
     return renderStages(state, input, draw, control, chunkSync)
   }),
+  layers: InputServiceLayer(defaultBindings(), pointerLock),
 })
 
 /**
@@ -507,7 +507,7 @@ export const makeRenderStagesForPreview = (
   Effect.gen(function* () {
     const input = yield* InputService
     const state = yield* makeRenderFrameState(quality)
-    return { state, stages: renderStages(state, input, draw, control, chunkSync) }
+    return { stages: renderStages(state, input, draw, control, chunkSync), state }
   })
 
 /**

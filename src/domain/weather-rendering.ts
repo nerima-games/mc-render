@@ -1,7 +1,7 @@
 import {
   DEFAULT_ENVIRONMENT_FAR_PLANE,
-  planRenderEnvironment,
   type RenderEnvironmentPlan,
+  planRenderEnvironment,
 } from './render-environment'
 
 export type WeatherMode = 'clear' | 'rain' | 'thunder' | 'snow'
@@ -93,8 +93,8 @@ const precipitationFor = (
   snapshot: WorldWeatherSnapshot,
   snowTemperature: number,
 ): PrecipitationKind | undefined => {
-  if (snapshot.mode === 'clear') return undefined
-  if (snapshot.mode === 'snow') return 'snow'
+  if (snapshot.mode === 'clear') {return undefined}
+  if (snapshot.mode === 'snow') {return 'snow'}
   return snapshot.temperature <= snowTemperature ? 'snow' : 'rain'
 }
 
@@ -113,15 +113,15 @@ const weatherEnvironment = (
   const fogScale = 1 - cover * 0.45
   return {
     daylight: base.daylight,
-    sunIntensity: clamp01(base.sunIntensity * (1 - darkness) + flash * 0.6),
-    skyColor,
     fogColor: [
       colorChannel(skyColor, 16) / 255,
       colorChannel(skyColor, 8) / 255,
       colorChannel(skyColor, 0) / 255,
     ],
-    fogNear: base.fogNear * fogScale,
     fogFar: base.fogFar * fogScale,
+    fogNear: base.fogNear * fogScale,
+    skyColor,
+    sunIntensity: clamp01(base.sunIntensity * (1 - darkness) + flash * 0.6),
   }
 }
 
@@ -135,7 +135,7 @@ const precipitationParticles = (
   radius: number,
   height: number,
 ): ReadonlyArray<PrecipitationParticle> => {
-  if (kind === undefined) return []
+  if (kind === undefined) {return []}
   const count = Math.floor(capacity * intensity)
   return Array.from({ length: count }, (_, id) => {
     const particleSeed = safeInteger(snapshot.seed) ^ Math.imul(id + 1, 0x85ebca6b)
@@ -148,11 +148,11 @@ const precipitationParticles = (
     return {
       id,
       kind,
+      opacity: kind === 'rain' ? 0.72 : 0.88,
+      velocityY,
       x,
       y,
       z,
-      velocityY,
-      opacity: kind === 'rain' ? 0.72 : 0.88,
     }
   })
 }
@@ -184,14 +184,15 @@ export const planWeatherFrame = (
   const environment = weatherEnvironment(snapshot, intensity, lightningFlash, farPlane)
   const state: WeatherRenderState = {
     frame: previous.frame + 1,
-    lightningFramesRemaining: framesRemaining,
     lastLightningSequence: snapshot.lightningSequence ?? previous.lastLightningSequence,
+    lightningFramesRemaining: framesRemaining,
   }
   return {
-    state,
     plan: {
+      brightness: environment.sunIntensity,
+      environment,
+      lightningFlash,
       mode: snapshot.mode,
-      precipitation,
       particles: precipitationParticles(
         snapshot,
         camera,
@@ -202,9 +203,8 @@ export const planWeatherFrame = (
         radius,
         height,
       ),
-      environment,
-      brightness: environment.sunIntensity,
-      lightningFlash,
+      precipitation,
     },
+    state,
   }
 }

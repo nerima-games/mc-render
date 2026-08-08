@@ -134,9 +134,9 @@ import { type QualityPreset } from './post-processing'
  * why it is not that here.
  */
 export const REFRACTION_INTERVAL_FRAMES: Readonly<Record<QualityPreset, number>> = {
+  high: 2,
   low: 0,
   medium: 0,
-  high: 2,
   ultra: 1,
 }
 
@@ -159,9 +159,9 @@ export const REFRACTION_INTERVAL_FRAMES: Readonly<Record<QualityPreset, number>>
  * would otherwise silently acquire whatever default a missing entry produced.
  */
 export const REFRACTION_MIN_SCREEN_RATIO: Readonly<Record<QualityPreset, number>> = {
+  high: 0.005,
   low: 0.05,
   medium: 0.05,
-  high: 0.005,
   ultra: 0.005,
 }
 
