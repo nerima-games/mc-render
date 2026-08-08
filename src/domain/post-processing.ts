@@ -118,8 +118,12 @@ const PASS_ORDER_INDEX: ReadonlyMap<PostProcessingPass, number> = new Map(
   POST_PROCESSING_PASS_ORDER.map((pass, index) => [pass, index]),
 )
 
+/** Sentinel returned by `passOrderIndex` for a pass absent from the canonical order. */
+const PASS_NOT_FOUND_INDEX = -1
+
 /** Position of a pass in the canonical order. Total, because the type is closed. */
-export const passOrderIndex = (pass: PostProcessingPass): number => PASS_ORDER_INDEX.get(pass) ?? -1
+export const passOrderIndex = (pass: PostProcessingPass): number =>
+  PASS_ORDER_INDEX.get(pass) ?? PASS_NOT_FOUND_INDEX
 
 /**
  * Graphics quality settings that decide which optional passes exist.
@@ -266,57 +270,77 @@ export const chainPasses = (
 const step = (pass: PostProcessingPass): PostProcessingStep => ({ effects: [pass], pass })
 
 /**
+ * The composite step: a single fragment shader performing every subsumed
+ * effect the flags ask for, in canonical order.
+ *
+ * Emitted from the SAME flags the individual passes are tested against in
+ * `OPTIONAL_INDIVIDUAL_PASSES`, so "composite does what those passes would
+ * have done" is true by construction rather than by transcription.
+ * `isCompositeActive` guarantees this list is non-empty whenever this is
+ * called.
+ */
+const buildCompositeStep = (quality: GraphicsQuality): PostProcessingStep => ({
+  effects: POST_PROCESSING_PASS_ORDER.filter(
+    (pass) =>
+      COMPOSITE_SUBSUMES.has(pass) &&
+      ((pass === 'godRays' && quality.godRaysEnabled) ||
+        (pass === 'bloom' && quality.bloomEnabled) ||
+        (pass === 'bokeh' && quality.dofEnabled)),
+  ),
+  pass: 'composite',
+})
+
+/**
+ * The three subsumed passes plus GTAO, each with the condition that decides
+ * whether it belongs in the chain on its own.
+ *
+ * The three subsumed passes are emitted ONLY when the composite shader is not
+ * doing their work. The reference builds them and disables them; not building
+ * them also saves their render targets (:53-56 documents GTAO costing 30-60
+ * MB of VRAM even while disabled, which is the same lesson). GTAO itself is
+ * never subsumed by the composite shader, so its condition ignores it.
+ */
+const OPTIONAL_INDIVIDUAL_PASSES: ReadonlyArray<{
+  readonly isEnabled: (quality: GraphicsQuality, composite: boolean) => boolean
+  readonly pass: PostProcessingPass
+}> = [
+  { isEnabled: (quality) => quality.ssaoEnabled, pass: 'gtao' },
+  { isEnabled: (quality, composite) => quality.godRaysEnabled && !composite, pass: 'godRays' },
+  { isEnabled: (quality, composite) => quality.bloomEnabled && !composite, pass: 'bloom' },
+  { isEnabled: (quality, composite) => quality.dofEnabled && !composite, pass: 'bokeh' },
+]
+
+/** The composite pass, then SMAA — both single steps gated on their own flag. */
+const TRAILING_PASSES: ReadonlyArray<{
+  readonly isEnabled: (quality: GraphicsQuality, composite: boolean) => boolean
+  readonly toStep: (quality: GraphicsQuality) => PostProcessingStep
+}> = [
+  { isEnabled: (quality, composite) => composite, toStep: buildCompositeStep },
+  { isEnabled: (quality) => quality.smaaEnabled, toStep: () => step('smaa') },
+]
+
+/**
  * Build the pass chain for a quality setting.
  *
- * Returns passes in canonical order by construction — the function emits them
- * in declaration order rather than sorting afterwards, so the order cannot be
- * lost to an unstable sort or a comparator bug. `validatePostProcessingChain`
- * then checks the result independently, which is the belt to this brace.
+ * Returns passes in canonical order by construction — `render` first,
+ * `output` last, and every optional pass emitted in the declaration order of
+ * `OPTIONAL_INDIVIDUAL_PASSES` / `TRAILING_PASSES` rather than sorted
+ * afterwards, so the order cannot be lost to an unstable sort or a comparator
+ * bug. `validatePostProcessingChain` then checks the result independently,
+ * which is the belt to this brace.
  */
 export const buildPostProcessingChain = (
   quality: GraphicsQuality,
 ): ReadonlyArray<PostProcessingStep> => {
   const composite = isCompositeActive(quality)
-  const chain: Array<PostProcessingStep> = [step('render')]
+  const optionalSteps = OPTIONAL_INDIVIDUAL_PASSES.filter((optional) =>
+    optional.isEnabled(quality, composite),
+  ).map((optional) => step(optional.pass))
+  const trailingSteps = TRAILING_PASSES.filter((trailing) =>
+    trailing.isEnabled(quality, composite),
+  ).map((trailing) => trailing.toStep(quality))
 
-  if (quality.ssaoEnabled) {
-    chain.push(step('gtao'))
-  }
-  // The three subsumed passes are emitted ONLY when the composite shader is
-  // not doing their work. The reference builds them and disables them; not
-  // building them also saves their render targets (:53-56 documents GTAO
-  // costing 30-60 MB of VRAM even while disabled, which is the same lesson).
-  if (quality.godRaysEnabled && !composite) {
-    chain.push(step('godRays'))
-  }
-  if (quality.bloomEnabled && !composite) {
-    chain.push(step('bloom'))
-  }
-  if (quality.dofEnabled && !composite) {
-    chain.push(step('bokeh'))
-  }
-  if (composite) {
-    // Emitted in canonical order, from the SAME flags the individual passes
-    // were tested against just above, so "composite does what those passes
-    // would have done" is true by construction rather than by transcription.
-    // `isCompositeActive` guarantees this list is non-empty.
-    chain.push({
-      effects: POST_PROCESSING_PASS_ORDER.filter(
-        (pass) =>
-          COMPOSITE_SUBSUMES.has(pass) &&
-          ((pass === 'godRays' && quality.godRaysEnabled) ||
-            (pass === 'bloom' && quality.bloomEnabled) ||
-            (pass === 'bokeh' && quality.dofEnabled)),
-      ),
-      pass: 'composite',
-    })
-  }
-  if (quality.smaaEnabled) {
-    chain.push(step('smaa'))
-  }
-  chain.push(step('output'))
-
-  return chain
+  return [step('render'), ...optionalSteps, ...trailingSteps, step('output')]
 }
 
 /** Everything the chain will actually draw, in canonical order. */
@@ -327,6 +351,104 @@ export const chainEffects = (
 export type ChainViolation = {
   readonly rule: 'out-of-order' | 'missing-mandatory' | 'duplicate' | 'composite-conflict' | 'trailing-pass'
   readonly message: string
+}
+
+/** A chain is missing a pass that is required whatever the quality preset. */
+const checkMandatoryPasses = (chain: ReadonlyArray<PostProcessingPass>): ReadonlyArray<ChainViolation> => {
+  const violations: Array<ChainViolation> = []
+  for (const mandatory of MANDATORY_PASSES) {
+    if (!chain.includes(mandatory)) {
+      violations.push({
+        message: `the chain has no '${mandatory}' pass; it is required whatever the quality preset.`,
+        rule: 'missing-mandatory',
+      })
+    }
+  }
+  return violations
+}
+
+/**
+ * A pass appears more than once. Also returns the full set of passes seen,
+ * since the composite-conflict check needs it and building it twice would be
+ * wasted work.
+ */
+const checkDuplicates = (
+  chain: ReadonlyArray<PostProcessingPass>,
+): {
+  readonly seen: ReadonlySet<PostProcessingPass>
+  readonly violations: ReadonlyArray<ChainViolation>
+} => {
+  const violations: Array<ChainViolation> = []
+  const seen = new Set<PostProcessingPass>()
+  for (const pass of chain) {
+    if (seen.has(pass)) {
+      violations.push({ message: `'${pass}' appears more than once.`, rule: 'duplicate' })
+    }
+    seen.add(pass)
+  }
+  return { seen, violations }
+}
+
+/** A pass runs before one that must precede it in `POST_PROCESSING_PASS_ORDER`. */
+const checkPairwiseOrder = (chain: ReadonlyArray<PostProcessingPass>): ReadonlyArray<ChainViolation> => {
+  const violations: Array<ChainViolation> = []
+  const ADJACENT_PASS_OFFSET = 1
+  for (let index = ADJACENT_PASS_OFFSET; index < chain.length; index += ADJACENT_PASS_OFFSET) {
+    const previous = chain[index - ADJACENT_PASS_OFFSET]
+    const current = chain[index]
+    if (
+      typeof previous !== 'undefined' &&
+      typeof current !== 'undefined' &&
+      passOrderIndex(previous) >= passOrderIndex(current)
+    ) {
+      violations.push({
+        message:
+          `'${previous}' runs before '${current}', but the canonical order is ` +
+          `${POST_PROCESSING_PASS_ORDER.join(' -> ')}.`,
+        rule: 'out-of-order',
+      })
+    }
+  }
+  return violations
+}
+
+/** A subsumed pass runs alongside `composite`, which already performs it. */
+const checkCompositeConflict = (seen: ReadonlySet<PostProcessingPass>): ReadonlyArray<ChainViolation> => {
+  const violations: Array<ChainViolation> = []
+  if (seen.has('composite')) {
+    for (const subsumed of COMPOSITE_SUBSUMES) {
+      if (seen.has(subsumed)) {
+        violations.push({
+          message:
+            `'${subsumed}' is present alongside 'composite', which already performs it. ` +
+            'Running both does the work twice and doubles the full-screen bandwidth.',
+          rule: 'composite-conflict',
+        })
+      }
+    }
+  }
+  return violations
+}
+
+/**
+ * The chain does not end with `output`.
+ *
+ * Stated separately from the pairwise order check so the diagnostic names the
+ * actual mistake: SMAA anti-aliases the final image, and OutputPass tone-maps
+ * it. A pass appended after either undoes what it just did.
+ */
+const checkTrailingPass = (chain: ReadonlyArray<PostProcessingPass>): ReadonlyArray<ChainViolation> => {
+  const violations: Array<ChainViolation> = []
+  const LAST_ELEMENT_OFFSET = 1
+  const EMPTY_CHAIN_LENGTH = 0
+  const last = chain[chain.length - LAST_ELEMENT_OFFSET]
+  if (chain.length > EMPTY_CHAIN_LENGTH && last !== 'output') {
+    violations.push({
+      message: `the chain ends with '${String(last)}'; 'output' must always be last (tone mapping + colour space).`,
+      rule: 'trailing-pass',
+    })
+  }
+  return violations
 }
 
 /**
@@ -345,68 +467,19 @@ export type ChainViolation = {
 export const validatePostProcessingChain = (
   chain: ReadonlyArray<PostProcessingPass>,
 ): ReadonlyArray<ChainViolation> => {
-  const violations: Array<ChainViolation> = []
+  const duplicateCheck = checkDuplicates(chain)
 
-  for (const mandatory of MANDATORY_PASSES) {
-    if (!chain.includes(mandatory)) {
-      violations.push({
-        message: `the chain has no '${mandatory}' pass; it is required whatever the quality preset.`,
-        rule: 'missing-mandatory',
-      })
-    }
-  }
-
-  const seen = new Set<PostProcessingPass>()
-  for (const pass of chain) {
-    if (seen.has(pass)) {
-      violations.push({ message: `'${pass}' appears more than once.`, rule: 'duplicate' })
-    }
-    seen.add(pass)
-  }
-
-  for (let index = 1; index < chain.length; index += 1) {
-    const previous = chain[index - 1]
-    const current = chain[index]
-    if (previous === undefined || current === undefined) {
-      continue
-    }
-    if (passOrderIndex(previous) >= passOrderIndex(current)) {
-      violations.push({
-        message:
-          `'${previous}' runs before '${current}', but the canonical order is ` +
-          `${POST_PROCESSING_PASS_ORDER.join(' -> ')}.`,
-        rule: 'out-of-order',
-      })
-    }
-  }
-
-  if (seen.has('composite')) {
-    for (const subsumed of COMPOSITE_SUBSUMES) {
-      if (seen.has(subsumed)) {
-        violations.push({
-          message:
-            `'${subsumed}' is present alongside 'composite', which already performs it. ` +
-            'Running both does the work twice and doubles the full-screen bandwidth.',
-          rule: 'composite-conflict',
-        })
-      }
-    }
-  }
-
-  // Stated separately from the pairwise order check so the diagnostic names the
-  // actual mistake: SMAA anti-aliases the final image, and OutputPass tone-maps
-  // it. A pass appended after either undoes what it just did.
-  const last = chain[chain.length - 1]
-  if (chain.length > 0 && last !== 'output') {
-    violations.push({
-      message: `the chain ends with '${String(last)}'; 'output' must always be last (tone mapping + colour space).`,
-      rule: 'trailing-pass',
-    })
-  }
-
-  return violations
+  return [
+    ...checkMandatoryPasses(chain),
+    ...duplicateCheck.violations,
+    ...checkPairwiseOrder(chain),
+    ...checkCompositeConflict(duplicateCheck.seen),
+    ...checkTrailingPass(chain),
+  ]
 }
+
+const NO_VIOLATIONS = 0
 
 /** True when a chain satisfies every rule. */
 export const isCanonicalChain = (chain: ReadonlyArray<PostProcessingPass>): boolean =>
-  validatePostProcessingChain(chain).length === 0
+  validatePostProcessingChain(chain).length === NO_VIOLATIONS

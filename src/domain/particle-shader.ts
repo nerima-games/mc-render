@@ -171,12 +171,54 @@ export const particleShaderSource = (): ParticleShaderSource => ({
  * half a size up and right of where the pool says it is — a discrepancy small
  * enough to look like a physics tuning problem.
  */
+/** Half the quad's edge length in local space; the quad spans `[-HALF, HALF]` on x and y. */
+const QUAD_HALF_EXTENT = 0.5
+/** The quad is flat in local space: every corner shares this z. */
+const QUAD_LOCAL_Z = 0
+
 export const PARTICLE_QUAD_POSITIONS: ReadonlyArray<number> = [
-  -0.5, -0.5, 0, 0.5, -0.5, 0, 0.5, 0.5, 0, -0.5, 0.5, 0,
+  -QUAD_HALF_EXTENT,
+  -QUAD_HALF_EXTENT,
+  QUAD_LOCAL_Z,
+  QUAD_HALF_EXTENT,
+  -QUAD_HALF_EXTENT,
+  QUAD_LOCAL_Z,
+  QUAD_HALF_EXTENT,
+  QUAD_HALF_EXTENT,
+  QUAD_LOCAL_Z,
+  -QUAD_HALF_EXTENT,
+  QUAD_HALF_EXTENT,
+  QUAD_LOCAL_Z,
 ]
 
+/** The two ends of the `[0, 1]` UV range each corner sits at. */
+const UV_MIN = 0
+const UV_MAX = 1
+
 /** The base quad's UVs, in the same winding. `vUv` scales these by the tile span. */
-export const PARTICLE_QUAD_UVS: ReadonlyArray<number> = [0, 0, 1, 0, 1, 1, 0, 1]
+export const PARTICLE_QUAD_UVS: ReadonlyArray<number> = [
+  UV_MIN,
+  UV_MIN,
+  UV_MAX,
+  UV_MIN,
+  UV_MAX,
+  UV_MAX,
+  UV_MIN,
+  UV_MAX,
+]
+
+/** The quad's four corners, in `PARTICLE_QUAD_POSITIONS`/`PARTICLE_QUAD_UVS` order. */
+const QUAD_CORNER_A = 0
+const QUAD_CORNER_B = 1
+const QUAD_CORNER_C = 2
+const QUAD_CORNER_D = 3
 
 /** Two triangles, sharing the diagonal. Matches `chunk-geometry.ts`'s winding. */
-export const PARTICLE_QUAD_INDICES: ReadonlyArray<number> = [0, 1, 2, 0, 2, 3]
+export const PARTICLE_QUAD_INDICES: ReadonlyArray<number> = [
+  QUAD_CORNER_A,
+  QUAD_CORNER_B,
+  QUAD_CORNER_C,
+  QUAD_CORNER_A,
+  QUAD_CORNER_C,
+  QUAD_CORNER_D,
+]

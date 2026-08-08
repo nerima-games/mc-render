@@ -103,6 +103,15 @@
  * survives whatever you happened to test with. `tileIndexForUvOrigin` inverts
  * the whole mapping so a round-trip test can catch it, which is a check no
  * amount of staring at the formula provides.
+ *
+ * ---------------------------------------------------------------------------
+ * Ordering note (lint cleanup)
+ * ---------------------------------------------------------------------------
+ *
+ * The tile-index primitives (`isTileIndex`, `normaliseTileIndex`, `tileColumn`,
+ * `tileRow`) are declared before anything that calls them — `terrainTileKind`
+ * and `generateTerrainAtlas` — rather than after, as pure reordering with no
+ * behaviour change. `no-use-before-define` is enforced strictly in this file.
  */
 
 /** Tiles per atlas row. The atlas is square, so also tiles per column. */
@@ -127,121 +136,8 @@ export type RgbaAtlas = {
   readonly data: Uint8ClampedArray
 }
 
-const CUTOUT_TILES = new Set([45, 85, 87, 100, 103, 104, 106, 107, 108, 109, 110, 111, 112, 115, 121, 125, 127, 149])
-
-/** The material treatment for a mapped tile. Values align with block-texture-map.ts. */
-export const terrainTileKind = (tileIndex: number): TerrainTileKind => {
-  switch (normaliseTileIndex(tileIndex)) {
-    case 7:
-    case 122:
-      return 'water'
-    case 18:
-      return 'lava'
-    case 8:
-      return 'leaves'
-    case 9:
-      return 'glass'
-    default:
-      return CUTOUT_TILES.has(normaliseTileIndex(tileIndex)) ? 'cutout' : 'solid'
-  }
-}
-
-const channel = (tile: number, multiplier: number): number => 48 + ((tile * multiplier) % 160)
-
-const writePixel = (
-  data: Uint8ClampedArray,
-  x: number,
-  y: number,
-  red: number,
-  green: number,
-  blue: number,
-  alpha: number,
-): void => {
-  const offset = (y * ATLAS_PIXELS + x) * 4
-  data[offset] = red
-  data[offset + 1] = green
-  data[offset + 2] = blue
-  data[offset + 3] = alpha
-}
-
-const tilePixel = (
-  tile: number,
-  kind: TerrainTileKind,
-  x: number,
-  y: number,
-): readonly [number, number, number, number] => {
-  const noise = (tile * 37 + Math.floor(x / 4) * 17 + Math.floor(y / 4) * 29) & 31
-  const marker = y < 4 && x < 16 && ((tile >> Math.floor(x / 2)) & 1) === 1
-
-  if (kind === 'water') {return [20 + noise, 92 + noise, 178 + noise, 176]}
-  if (kind === 'lava') {return [224 + (noise & 15), 54 + noise * 2, noise >> 1, 255]}
-  if (kind === 'leaves') {return [32 + noise, 104 + noise * 2, 38 + noise, (x + y + tile) % 7 === 0 ? 0 : 255]}
-  if (kind === 'glass') {
-    const edge = x < 3 || y < 3 || x >= TILE_PIXELS - 3 || y >= TILE_PIXELS - 3
-    return [marker ? 245 : 150 + noise, 220 + (noise >> 1), 230 + (noise >> 1), edge ? 144 : 48]
-  }
-
-  const alpha = kind === 'cutout' && (x * 3 + y * 5 + tile) % 11 < 3 ? 0 : 255
-  const shade = marker ? 42 : noise - 16
-  return [channel(tile, 73) + shade, channel(tile, 151) + shade, channel(tile, 199) + shade, alpha]
-}
-
-/**
- * Generate the complete 16x16 terrain atlas as deterministic pixel-art RGBA.
- * Every tile carries a compact binary marker derived from its index, while
- * mapped translucent materials use recognisable, materially distinct palettes.
- */
-export const generateTerrainAtlas = (): RgbaAtlas => {
-  const data = new Uint8ClampedArray(ATLAS_PIXELS * ATLAS_PIXELS * 4)
-
-  for (let tile = 0; tile < ATLAS_TILE_COUNT; tile += 1) {
-    const originX = tileColumn(tile) * TILE_PIXELS
-    const originY = tileRow(tile) * TILE_PIXELS
-    const kind = terrainTileKind(tile)
-
-    for (let y = 0; y < TILE_PIXELS; y += 1) {
-      for (let x = 0; x < TILE_PIXELS; x += 1) {
-        writePixel(data, originX + x, originY + y, ...tilePixel(tile, kind, x, y))
-      }
-    }
-  }
-
-  return { data, height: ATLAS_PIXELS, width: ATLAS_PIXELS }
-}
-
-/**
- * Half of one texel, in UV units.
- *
- * The inset applied to every side of every tile rectangle. See the header for
- * why half and not zero, and not one.
- */
-export const HALF_TEXEL_UV = 0.5 / ATLAS_PIXELS
-
-/** One tile's edge in UV units, WITHOUT the inset. `1 / 16`. */
-export const TILE_UV_PITCH = 1 / ATLAS_COLUMNS
-
-/**
- * One tile's usable edge in UV units, WITH the inset on both sides.
- *
- * This, and not `TILE_UV_PITCH`, is the width a quad anchored at an inset origin
- * may span. The reference uses `TILE_UV_PITCH` for the particle quad and
- * `TILE_UV_PITCH` minus the inset for chunk faces; see the header.
- */
-export const TILE_UV_SPAN = TILE_UV_PITCH - 2 * HALF_TEXEL_UV
-
-/** A rectangle in UV space. `u0 < u1` and `v0 < v1` for every tile. */
-export type TileUvBounds = {
-  readonly u0: number
-  readonly v0: number
-  readonly u1: number
-  readonly v1: number
-}
-
-/** A point in UV space. The bottom-left corner of a tile's usable rectangle. */
-export type UvOrigin = {
-  readonly u: number
-  readonly v: number
-}
+/** The lowest tile index the atlas can hold. */
+const MIN_TILE_INDEX = 0
 
 /**
  * True when `tileIndex` names a tile the atlas actually has.
@@ -252,7 +148,10 @@ export type UvOrigin = {
  * own — mc-worldgen does.
  */
 export const isTileIndex = (tileIndex: number): boolean =>
-  Number.isInteger(tileIndex) && tileIndex >= 0 && tileIndex < ATLAS_TILE_COUNT
+  Number.isInteger(tileIndex) && tileIndex >= MIN_TILE_INDEX && tileIndex < ATLAS_TILE_COUNT
+
+/** Tile 0 is dirt in the reference's map — see `normaliseTileIndex` below. */
+const DIRT_FALLBACK_TILE_INDEX = 0
 
 /**
  * Fold any number into a tile the atlas has.
@@ -269,8 +168,12 @@ export const isTileIndex = (tileIndex: number): boolean =>
  * wrong texture — the failure mode that looks like a texture-map bug and costs a
  * day. Everything unknown landing on one known tile is diagnosable at a glance.
  */
-export const normaliseTileIndex = (tileIndex: number): number =>
-  isTileIndex(tileIndex) ? tileIndex : 0
+export const normaliseTileIndex = (tileIndex: number): number => {
+  if (isTileIndex(tileIndex)) {
+    return tileIndex
+  }
+  return DIRT_FALLBACK_TILE_INDEX
+}
 
 /** The atlas column a tile sits in, counting from the left. */
 export const tileColumn = (tileIndex: number): number => normaliseTileIndex(tileIndex) % ATLAS_COLUMNS
@@ -285,6 +188,403 @@ export const tileRow = (tileIndex: number): number =>
   Math.floor(normaliseTileIndex(tileIndex) / ATLAS_COLUMNS)
 
 /**
+ * Tile indices that render as `cutout` (leaves-like alpha patterns) rather than
+ * `solid`, transcribed from the reference's block-texture-map.ts. Named by
+ * their atlas index — this repository has the reference's resulting index set
+ * but not its per-tile block-name table, so a more specific name would be
+ * invented rather than transcribed.
+ */
+const CUTOUT_TILE_INDEX_45 = 45
+const CUTOUT_TILE_INDEX_85 = 85
+const CUTOUT_TILE_INDEX_87 = 87
+const CUTOUT_TILE_INDEX_100 = 100
+const CUTOUT_TILE_INDEX_103 = 103
+const CUTOUT_TILE_INDEX_104 = 104
+const CUTOUT_TILE_INDEX_106 = 106
+const CUTOUT_TILE_INDEX_107 = 107
+const CUTOUT_TILE_INDEX_108 = 108
+const CUTOUT_TILE_INDEX_109 = 109
+const CUTOUT_TILE_INDEX_110 = 110
+const CUTOUT_TILE_INDEX_111 = 111
+const CUTOUT_TILE_INDEX_112 = 112
+const CUTOUT_TILE_INDEX_115 = 115
+const CUTOUT_TILE_INDEX_121 = 121
+const CUTOUT_TILE_INDEX_125 = 125
+const CUTOUT_TILE_INDEX_127 = 127
+const CUTOUT_TILE_INDEX_149 = 149
+
+const CUTOUT_TILES = new Set([
+  CUTOUT_TILE_INDEX_45,
+  CUTOUT_TILE_INDEX_85,
+  CUTOUT_TILE_INDEX_87,
+  CUTOUT_TILE_INDEX_100,
+  CUTOUT_TILE_INDEX_103,
+  CUTOUT_TILE_INDEX_104,
+  CUTOUT_TILE_INDEX_106,
+  CUTOUT_TILE_INDEX_107,
+  CUTOUT_TILE_INDEX_108,
+  CUTOUT_TILE_INDEX_109,
+  CUTOUT_TILE_INDEX_110,
+  CUTOUT_TILE_INDEX_111,
+  CUTOUT_TILE_INDEX_112,
+  CUTOUT_TILE_INDEX_115,
+  CUTOUT_TILE_INDEX_121,
+  CUTOUT_TILE_INDEX_125,
+  CUTOUT_TILE_INDEX_127,
+  CUTOUT_TILE_INDEX_149,
+])
+
+/** The two tiles the reference maps to `water` (block-texture-map.ts). */
+const WATER_TILE_INDEX_7 = 7
+const WATER_TILE_INDEX_122 = 122
+const LAVA_TILE_INDEX_18 = 18
+const LEAVES_TILE_INDEX_8 = 8
+const GLASS_TILE_INDEX_9 = 9
+
+/** The material treatment for a mapped tile. Values align with block-texture-map.ts. */
+export const terrainTileKind = (tileIndex: number): TerrainTileKind => {
+  switch (normaliseTileIndex(tileIndex)) {
+    case WATER_TILE_INDEX_7:
+    case WATER_TILE_INDEX_122:
+      return 'water'
+    case LAVA_TILE_INDEX_18:
+      return 'lava'
+    case LEAVES_TILE_INDEX_8:
+      return 'leaves'
+    case GLASS_TILE_INDEX_9:
+      return 'glass'
+    default: {
+      if (CUTOUT_TILES.has(normaliseTileIndex(tileIndex))) {
+        return 'cutout'
+      }
+      return 'solid'
+    }
+  }
+}
+
+const CHANNEL_BASE = 48
+const CHANNEL_MODULUS = 160
+
+const channel = (tile: number, multiplier: number): number => CHANNEL_BASE + ((tile * multiplier) % CHANNEL_MODULUS)
+
+/** Bytes per pixel in an RGBA image. */
+const RGBA_STRIDE = 4
+const GREEN_CHANNEL_OFFSET = 1
+const BLUE_CHANNEL_OFFSET = 2
+const ALPHA_CHANNEL_OFFSET = 3
+
+type PixelWrite = {
+  readonly pixelX: number
+  readonly pixelY: number
+  readonly red: number
+  readonly green: number
+  readonly blue: number
+  readonly alpha: number
+}
+
+const writePixel = (data: Uint8ClampedArray, pixel: PixelWrite): void => {
+  const offset = (pixel.pixelY * ATLAS_PIXELS + pixel.pixelX) * RGBA_STRIDE
+  data[offset] = pixel.red
+  data[offset + GREEN_CHANNEL_OFFSET] = pixel.green
+  data[offset + BLUE_CHANNEL_OFFSET] = pixel.blue
+  data[offset + ALPHA_CHANNEL_OFFSET] = pixel.alpha
+}
+
+/** A pixel's position within its tile, and the tile's own index (for tile-derived noise/markers). */
+type TilePixelContext = {
+  readonly tile: number
+  readonly pixelX: number
+  readonly pixelY: number
+}
+
+type TilePixelRgba = readonly [number, number, number, number]
+
+const NOISE_TILE_WEIGHT = 37
+const NOISE_BLOCK_DIVISOR = 4
+const NOISE_X_WEIGHT = 17
+const NOISE_Y_WEIGHT = 29
+/** `noise`'s range is `[0, NOISE_RANGE)`; every tile/pixel input is non-negative, so a modulo here is exactly the `& 31` bit-mask it replaces. */
+const NOISE_RANGE = 32
+
+const noiseFor = (context: TilePixelContext): number =>
+  (context.tile * NOISE_TILE_WEIGHT +
+    Math.floor(context.pixelX / NOISE_BLOCK_DIVISOR) * NOISE_X_WEIGHT +
+    Math.floor(context.pixelY / NOISE_BLOCK_DIVISOR) * NOISE_Y_WEIGHT) %
+  NOISE_RANGE
+
+const MARKER_ROW_LIMIT = 4
+const MARKER_COLUMN_LIMIT = 16
+const MARKER_BIT_DIVISOR = 2
+const MARKER_BIT_MASK = 1
+
+/**
+ * True for the pixels that draw the tile's compact binary marker.
+ *
+ * `(tile >> shift) & 1` reads one BIT of the tile index to decide whether this
+ * pixel column draws the marker — genuine bit-flag extraction with no equally
+ * clear arithmetic phrasing, unlike the RGB byte-packing elsewhere in this
+ * codebase (see `render-environment.ts`). `no-bitwise` is left un-silenced
+ * here rather than worked around; see this file's lint report.
+ */
+const markerFor = (context: TilePixelContext): boolean =>
+  context.pixelY < MARKER_ROW_LIMIT &&
+  context.pixelX < MARKER_COLUMN_LIMIT &&
+  ((context.tile >> Math.floor(context.pixelX / MARKER_BIT_DIVISOR)) & MARKER_BIT_MASK) === MARKER_BIT_MASK
+
+const WATER_BASE_RED = 20
+const WATER_BASE_GREEN = 92
+const WATER_BASE_BLUE = 178
+const WATER_ALPHA = 176
+
+const waterPixel = (noise: number): TilePixelRgba => [
+  WATER_BASE_RED + noise,
+  WATER_BASE_GREEN + noise,
+  WATER_BASE_BLUE + noise,
+  WATER_ALPHA,
+]
+
+const LAVA_BASE_RED = 224
+/** `noise & 15`, replaced with the equivalent modulo since `noise` is never negative. */
+const LAVA_RED_NOISE_RANGE = 16
+const LAVA_GREEN_BASE = 54
+const LAVA_GREEN_NOISE_WEIGHT = 2
+/** `noise >> 1`, replaced with the equivalent halving division. */
+const LAVA_BLUE_NOISE_DIVISOR = 2
+const LAVA_ALPHA = 255
+
+const lavaPixel = (noise: number): TilePixelRgba => [
+  LAVA_BASE_RED + (noise % LAVA_RED_NOISE_RANGE),
+  LAVA_GREEN_BASE + noise * LAVA_GREEN_NOISE_WEIGHT,
+  Math.floor(noise / LAVA_BLUE_NOISE_DIVISOR),
+  LAVA_ALPHA,
+]
+
+const LEAVES_BASE_RED = 32
+const LEAVES_GREEN_BASE = 104
+const LEAVES_GREEN_NOISE_WEIGHT = 2
+const LEAVES_BASE_BLUE = 38
+const LEAVES_HOLE_MODULUS = 7
+const LEAVES_HOLE_REMAINDER = 0
+const LEAVES_HOLE_ALPHA = 0
+const LEAVES_SOLID_ALPHA = 255
+
+const leavesAlpha = (context: TilePixelContext): number => {
+  const isHole =
+    (context.pixelX + context.pixelY + context.tile) % LEAVES_HOLE_MODULUS === LEAVES_HOLE_REMAINDER
+  if (isHole) {
+    return LEAVES_HOLE_ALPHA
+  }
+  return LEAVES_SOLID_ALPHA
+}
+
+const leavesPixel = (context: TilePixelContext, noise: number): TilePixelRgba => [
+  LEAVES_BASE_RED + noise,
+  LEAVES_GREEN_BASE + noise * LEAVES_GREEN_NOISE_WEIGHT,
+  LEAVES_BASE_BLUE + noise,
+  leavesAlpha(context),
+]
+
+const GLASS_EDGE_MARGIN = 3
+const GLASS_MARKER_RED = 245
+const GLASS_BASE_RED = 150
+const GLASS_GREEN_BASE = 220
+/** `noise >> 1`, replaced with the equivalent halving division; shared by the green and blue channels. */
+const GLASS_NOISE_HALF_DIVISOR = 2
+const GLASS_BLUE_BASE = 230
+const GLASS_EDGE_ALPHA = 144
+const GLASS_INTERIOR_ALPHA = 48
+
+const isGlassEdge = (context: TilePixelContext): boolean =>
+  context.pixelX < GLASS_EDGE_MARGIN ||
+  context.pixelY < GLASS_EDGE_MARGIN ||
+  context.pixelX >= TILE_PIXELS - GLASS_EDGE_MARGIN ||
+  context.pixelY >= TILE_PIXELS - GLASS_EDGE_MARGIN
+
+const glassRed = (marker: boolean, noise: number): number => {
+  if (marker) {
+    return GLASS_MARKER_RED
+  }
+  return GLASS_BASE_RED + noise
+}
+
+const glassAlpha = (context: TilePixelContext): number => {
+  if (isGlassEdge(context)) {
+    return GLASS_EDGE_ALPHA
+  }
+  return GLASS_INTERIOR_ALPHA
+}
+
+const glassPixel = (context: TilePixelContext, noise: number, marker: boolean): TilePixelRgba => [
+  glassRed(marker, noise),
+  GLASS_GREEN_BASE + Math.floor(noise / GLASS_NOISE_HALF_DIVISOR),
+  GLASS_BLUE_BASE + Math.floor(noise / GLASS_NOISE_HALF_DIVISOR),
+  glassAlpha(context),
+]
+
+const CUTOUT_ALPHA_X_WEIGHT = 3
+const CUTOUT_ALPHA_Y_WEIGHT = 5
+const CUTOUT_ALPHA_MODULUS = 11
+const CUTOUT_ALPHA_THRESHOLD = 3
+const CUTOUT_HOLE_ALPHA = 0
+const OPAQUE_ALPHA = 255
+const MARKER_SHADE = 42
+const NOISE_SHADE_OFFSET = 16
+const SOLID_RED_MULTIPLIER = 73
+const SOLID_GREEN_MULTIPLIER = 151
+const SOLID_BLUE_MULTIPLIER = 199
+
+const solidOrCutoutAlpha = (kind: TerrainTileKind, context: TilePixelContext): number => {
+  if (kind !== 'cutout') {
+    return OPAQUE_ALPHA
+  }
+  const isHole =
+    (context.pixelX * CUTOUT_ALPHA_X_WEIGHT + context.pixelY * CUTOUT_ALPHA_Y_WEIGHT + context.tile) %
+      CUTOUT_ALPHA_MODULUS <
+    CUTOUT_ALPHA_THRESHOLD
+  if (isHole) {
+    return CUTOUT_HOLE_ALPHA
+  }
+  return OPAQUE_ALPHA
+}
+
+const shadeFor = (marker: boolean, noise: number): number => {
+  if (marker) {
+    return MARKER_SHADE
+  }
+  return noise - NOISE_SHADE_OFFSET
+}
+
+/** The two per-pixel values every renderer derives from a `TilePixelContext`. */
+type ShadedSample = {
+  readonly noise: number
+  readonly marker: boolean
+}
+
+const solidOrCutoutPixel = (
+  kind: TerrainTileKind,
+  context: TilePixelContext,
+  sample: ShadedSample,
+): TilePixelRgba => {
+  const shade = shadeFor(sample.marker, sample.noise)
+  return [
+    channel(context.tile, SOLID_RED_MULTIPLIER) + shade,
+    channel(context.tile, SOLID_GREEN_MULTIPLIER) + shade,
+    channel(context.tile, SOLID_BLUE_MULTIPLIER) + shade,
+    solidOrCutoutAlpha(kind, context),
+  ]
+}
+
+type TilePixelRenderer = (context: TilePixelContext, noise: number, marker: boolean) => TilePixelRgba
+
+const renderWater: TilePixelRenderer = (context, noise) => waterPixel(noise)
+const renderLava: TilePixelRenderer = (context, noise) => lavaPixel(noise)
+const renderLeaves: TilePixelRenderer = (context, noise) => leavesPixel(context, noise)
+const renderGlass: TilePixelRenderer = (context, noise, marker) => glassPixel(context, noise, marker)
+const renderSolid: TilePixelRenderer = (context, noise, marker) =>
+  solidOrCutoutPixel('solid', context, { marker, noise })
+const renderCutout: TilePixelRenderer = (context, noise, marker) =>
+  solidOrCutoutPixel('cutout', context, { marker, noise })
+
+const TILE_PIXEL_RENDERERS: Readonly<Record<TerrainTileKind, TilePixelRenderer>> = {
+  cutout: renderCutout,
+  glass: renderGlass,
+  lava: renderLava,
+  leaves: renderLeaves,
+  solid: renderSolid,
+  water: renderWater,
+}
+
+/**
+ * Every tile carries a compact binary marker derived from its index (`markerFor`),
+ * while mapped translucent materials (water/lava/leaves/glass) use recognisable,
+ * materially distinct palettes instead.
+ */
+const tilePixel = (kind: TerrainTileKind, context: TilePixelContext): TilePixelRgba => {
+  const noise = noiseFor(context)
+  const marker = markerFor(context)
+  return TILE_PIXEL_RENDERERS[kind](context, noise, marker)
+}
+
+/** The step every atlas-generation loop below advances by. */
+const LOOP_STEP = 1
+
+/**
+ * Generate the complete 16x16 terrain atlas as deterministic pixel-art RGBA.
+ * Every tile carries a compact binary marker derived from its index, while
+ * mapped translucent materials use recognisable, materially distinct palettes.
+ */
+export const generateTerrainAtlas = (): RgbaAtlas => {
+  const data = new Uint8ClampedArray(ATLAS_PIXELS * ATLAS_PIXELS * RGBA_STRIDE)
+
+  for (let tile = 0; tile < ATLAS_TILE_COUNT; tile += LOOP_STEP) {
+    const originX = tileColumn(tile) * TILE_PIXELS
+    const originY = tileRow(tile) * TILE_PIXELS
+    const kind = terrainTileKind(tile)
+
+    for (let pixelY = 0; pixelY < TILE_PIXELS; pixelY += LOOP_STEP) {
+      for (let pixelX = 0; pixelX < TILE_PIXELS; pixelX += LOOP_STEP) {
+        const [red, green, blue, alpha] = tilePixel(kind, { pixelX, pixelY, tile })
+        writePixel(data, { alpha, blue, green, pixelX: originX + pixelX, pixelY: originY + pixelY, red })
+      }
+    }
+  }
+
+  return { data, height: ATLAS_PIXELS, width: ATLAS_PIXELS }
+}
+
+/** `0.5` texels, the fraction `HALF_TEXEL_UV` converts to UV units. */
+const HALF_TEXEL_FRACTION = 0.5
+
+/**
+ * Half of one texel, in UV units.
+ *
+ * The inset applied to every side of every tile rectangle. See the header for
+ * why half and not zero, and not one.
+ */
+export const HALF_TEXEL_UV = HALF_TEXEL_FRACTION / ATLAS_PIXELS
+
+/** The full UV range's top edge, and — separately — one whole tile's worth of the range. */
+const UV_UNIT = 1
+
+/** One tile's edge in UV units, WITHOUT the inset. `1 / 16`. */
+export const TILE_UV_PITCH = UV_UNIT / ATLAS_COLUMNS
+
+/** The inset is applied on both sides of a tile: this is that count. */
+const TEXEL_INSET_SIDES = 2
+
+/**
+ * One tile's usable edge in UV units, WITH the inset on both sides.
+ *
+ * This, and not `TILE_UV_PITCH`, is the width a quad anchored at an inset origin
+ * may span. The reference uses `TILE_UV_PITCH` for the particle quad and
+ * `TILE_UV_PITCH` minus the inset for chunk faces; see the header.
+ */
+export const TILE_UV_SPAN = TILE_UV_PITCH - TEXEL_INSET_SIDES * HALF_TEXEL_UV
+
+/** A rectangle in UV space. `u0 < u1` and `v0 < v1` for every tile. */
+export type TileUvBounds = {
+  readonly u0: number
+  readonly v0: number
+  readonly u1: number
+  readonly v1: number
+}
+
+/**
+ * A point in UV space. The bottom-left corner of a tile's usable rectangle.
+ *
+ * `u`/`v` are load-bearing domain vocabulary here (UV texture coordinates) and
+ * are destructured by name in `src/domain/particle-pool.ts`, an out-of-scope
+ * file this change must not touch — left as `id-length` exceptions.
+ */
+export type UvOrigin = {
+  readonly u: number
+  readonly v: number
+}
+
+/** One tile over: the offset from a tile's own column/row to the next one's. */
+const NEXT_TILE_OFFSET = 1
+
+/**
  * The inset UV rectangle of one tile.
  *
  * Transcribed from `getTileUVs` (block-texture-map.ts:14-26), including the V
@@ -296,9 +596,9 @@ export const tileUvBounds = (tileIndex: number): TileUvBounds => {
 
   return {
     u0: column / ATLAS_COLUMNS + HALF_TEXEL_UV,
-    u1: (column + 1) / ATLAS_COLUMNS - HALF_TEXEL_UV,
-    v0: 1 - (row + 1) / ATLAS_COLUMNS + HALF_TEXEL_UV,
-    v1: 1 - row / ATLAS_COLUMNS - HALF_TEXEL_UV,
+    u1: (column + NEXT_TILE_OFFSET) / ATLAS_COLUMNS - HALF_TEXEL_UV,
+    v0: UV_UNIT - (row + NEXT_TILE_OFFSET) / ATLAS_COLUMNS + HALF_TEXEL_UV,
+    v1: UV_UNIT - row / ATLAS_COLUMNS - HALF_TEXEL_UV,
   }
 }
 
@@ -316,6 +616,9 @@ export const tileUvOrigin = (tileIndex: number): UvOrigin => {
   return { u: bounds.u0, v: bounds.v0 }
 }
 
+/** The smallest UV span `uvPatchStaysInsideTile` accepts. */
+const MIN_UV_SPAN = 0
+
 /**
  * True when a quad of UV width `span`, anchored at a tile's inset origin, stays
  * inside that tile.
@@ -331,7 +634,10 @@ export const tileUvOrigin = (tileIndex: number): UvOrigin => {
  * not quietly accept a span that is wrong by a little.
  */
 export const uvPatchStaysInsideTile = (span: number): boolean =>
-  Number.isFinite(span) && span >= 0 && span <= TILE_UV_SPAN
+  Number.isFinite(span) && span >= MIN_UV_SPAN && span <= TILE_UV_SPAN
+
+/** `tileIndexForUvOrigin`'s result when no tile matches. */
+const TILE_NOT_FOUND = -1
 
 /**
  * The tile whose inset origin is `origin`, or -1 when no tile has that origin.
@@ -349,15 +655,15 @@ export const uvPatchStaysInsideTile = (span: number): boolean =>
  */
 export const tileIndexForUvOrigin = (origin: UvOrigin): number => {
   if (!Number.isFinite(origin.u) || !Number.isFinite(origin.v)) {
-    return -1
+    return TILE_NOT_FOUND
   }
 
   const column = Math.round((origin.u - HALF_TEXEL_UV) * ATLAS_COLUMNS)
   const rowFromBottom = Math.round((origin.v - HALF_TEXEL_UV) * ATLAS_COLUMNS)
-  const row = ATLAS_COLUMNS - 1 - rowFromBottom
+  const row = ATLAS_COLUMNS - NEXT_TILE_OFFSET - rowFromBottom
 
-  if (column < 0 || column >= ATLAS_COLUMNS || row < 0 || row >= ATLAS_COLUMNS) {
-    return -1
+  if (column < MIN_TILE_INDEX || column >= ATLAS_COLUMNS || row < MIN_TILE_INDEX || row >= ATLAS_COLUMNS) {
+    return TILE_NOT_FOUND
   }
 
   return row * ATLAS_COLUMNS + column
@@ -386,13 +692,13 @@ export const atlasLayoutViolations = (): ReadonlyArray<string> => {
     )
   }
 
-  if (HALF_TEXEL_UV * 2 * ATLAS_COLUMNS >= TILE_UV_PITCH * ATLAS_COLUMNS) {
+  if (HALF_TEXEL_UV * TEXEL_INSET_SIDES * ATLAS_COLUMNS >= TILE_UV_PITCH * ATLAS_COLUMNS) {
     violations.push(
       'the half-texel inset consumes a whole tile: HALF_TEXEL_UV is not derived from ATLAS_PIXELS.',
     )
   }
 
-  if (TILE_UV_SPAN <= 0) {
+  if (TILE_UV_SPAN <= MIN_UV_SPAN) {
     violations.push('TILE_UV_SPAN is not positive, so no quad can sample a tile at all.')
   }
 

@@ -226,6 +226,22 @@ export const PER_FRAME_WATER_UNIFORMS: ReadonlyArray<WaterUniformName> = [
   'uSunIntensity',
 ]
 
+/**
+ * The `[0, 1]` range several water quantities clamp into: depth factor, colour
+ * mix/blend amount, Fresnel cosine, and sun intensity. Shared across the
+ * Palette, Refraction and Fresnel, and Sun response sections below.
+ */
+const UNIT_INTERVAL_MIN = 0
+const UNIT_INTERVAL_MAX = 1
+
+/** Clamp into `[0, 1]`; a non-finite input (`NaN`, `±Infinity`) clamps to the bottom of the range. */
+const clampUnitInterval = (value: number): number => {
+  if (!Number.isFinite(value)) {
+    return UNIT_INTERVAL_MIN
+  }
+  return Math.min(UNIT_INTERVAL_MAX, Math.max(UNIT_INTERVAL_MIN, value))
+}
+
 // --- Palette ----------------------------------------------------------------
 
 /** A linear colour with alpha, each channel in `[0, 1]`. */
@@ -284,18 +300,18 @@ export const WATER_DEPTH_FACTOR_FLOOR = 0.55
 export const WATER_DEPTH_FACTOR_RANGE = 0.4
 
 export const waterDepthFactor = (fresnel: number): number => {
-  const factor = WATER_DEPTH_FACTOR_FLOOR + (1 - fresnel) * WATER_DEPTH_FACTOR_RANGE
-  return Math.min(1, Math.max(0, factor))
+  const factor = WATER_DEPTH_FACTOR_FLOOR + (UNIT_INTERVAL_MAX - fresnel) * WATER_DEPTH_FACTOR_RANGE
+  return Math.min(UNIT_INTERVAL_MAX, Math.max(UNIT_INTERVAL_MIN, factor))
 }
 
-/** Mix two colours channel-wise. `t` is clamped, so callers need not be careful. */
-export const mixWaterColor = (from: WaterColor, to: WaterColor, t: number): WaterColor => {
-  const k = Number.isFinite(t) ? Math.min(1, Math.max(0, t)) : 0
+/** Mix two colours channel-wise. `blendFactor` is clamped, so callers need not be careful. */
+export const mixWaterColor = (from: WaterColor, to: WaterColor, blendFactor: number): WaterColor => {
+  const clampedBlend = clampUnitInterval(blendFactor)
   return {
-    a: from.a + (to.a - from.a) * k,
-    b: from.b + (to.b - from.b) * k,
-    g: from.g + (to.g - from.g) * k,
-    r: from.r + (to.r - from.r) * k,
+    a: from.a + (to.a - from.a) * clampedBlend,
+    b: from.b + (to.b - from.b) * clampedBlend,
+    g: from.g + (to.g - from.g) * clampedBlend,
+    r: from.r + (to.r - from.r) * clampedBlend,
   }
 }
 
@@ -324,10 +340,16 @@ export const WATER_INDEX_OF_REFRACTION = 1.333
  * merely stored next to it.
  */
 export const fresnelF0ForIor = (ior: number): number => {
-  if (!Number.isFinite(ior) || ior <= 0) {
-    return 0
+  /** Below this, an index of refraction is not physical. */
+  const MIN_VALID_IOR = 0
+  /** No reflectance is reported for a non-physical IOR, rather than an extrapolated value. */
+  const NO_REFLECTANCE = 0
+  if (!Number.isFinite(ior) || ior <= MIN_VALID_IOR) {
+    return NO_REFLECTANCE
   }
-  const ratio = (1 - ior) / (1 + ior)
+  /** `n1` in the Schlick formula above: air's index of refraction. */
+  const AIR_INDEX_OF_REFRACTION = 1
+  const ratio = (AIR_INDEX_OF_REFRACTION - ior) / (AIR_INDEX_OF_REFRACTION + ior)
   return ratio * ratio
 }
 
@@ -356,11 +378,11 @@ export const WATER_FRESNEL_F0 = 0.02
  * that need to be argued equal.
  */
 export const schlickFresnel = (cosTheta: number): number => {
-  const clamped = Number.isFinite(cosTheta) ? Math.min(1, Math.max(0, cosTheta)) : 0
-  const base = 1 - clamped
+  const clamped = clampUnitInterval(cosTheta)
+  const base = UNIT_INTERVAL_MAX - clamped
   const squared = base * base
   const quintic = squared * squared * base
-  return WATER_FRESNEL_F0 + (1 - WATER_FRESNEL_F0) * quintic
+  return WATER_FRESNEL_F0 + (UNIT_INTERVAL_MAX - WATER_FRESNEL_F0) * quintic
 }
 
 // --- The ripple field -------------------------------------------------------
@@ -415,20 +437,39 @@ export const WAVE_APPROX_MAX_ERROR = 0.0561
  * Reduced into `[-π, π]` CENTRED, not into `[0, 2π)` then shifted: the shift is
  * what makes the reference's version compute `-sin`. See the header.
  */
-export const waveApprox = (x: number): number => {
-  if (!Number.isFinite(x)) {
-    return 0
+/** `waveApprox`'s result for a non-finite input: no displacement. */
+const NO_DISPLACEMENT = 0
+
+/** The period divides in half to decide which side of `[0, 2π)` centres negative. */
+const HALF_TURN_DIVISOR = 2
+
+/** `wrapped`, or `wrapped` shifted back a full period if it fell in the upper half of `[0, 2π)`. */
+const centreWrappedPhase = (wrapped: number): number => {
+  if (wrapped > TWO_PI / HALF_TURN_DIVISOR) {
+    return wrapped - TWO_PI
   }
-  // Into [0, 2π), then into [-π, π) by subtracting a full period from the upper
-  // half rather than by subtracting π from everything.
-  const wrapped = ((x % TWO_PI) + TWO_PI) % TWO_PI
-  const centred = wrapped > TWO_PI / 2 ? wrapped - TWO_PI : wrapped
+  return wrapped
+}
+
+export const waveApprox = (radians: number): number => {
+  if (!Number.isFinite(radians)) {
+    return NO_DISPLACEMENT
+  }
+
+  /* Into [0, 2π), then into [-π, π) by subtracting a full period from the upper
+   * half rather than by subtracting π from everything. */
+  const wrapped = ((radians % TWO_PI) + TWO_PI) % TWO_PI
+  const centred = centreWrappedPhase(wrapped)
 
   return centred * (BHASKARA_LINEAR - BHASKARA_QUADRATIC * Math.abs(centred))
 }
 
+/** The period divides in quarters to advance the phase by one quarter-turn. */
+const QUARTER_TURN_DIVISOR = 4
+
 /** The cosine of the same approximation. A quarter period ahead. */
-export const waveApproxCos = (x: number): number => waveApprox(x + TWO_PI / 4)
+export const waveApproxCos = (radians: number): number =>
+  waveApprox(radians + TWO_PI / QUARTER_TURN_DIVISOR)
 
 /**
  * One layer of the ripple field.
@@ -532,7 +573,13 @@ export const rippleOffset = (worldX: number, worldZ: number, timeSecs: number): 
  * of the screen samples the refraction map far from the fragment being shaded,
  * which reads as the water smearing unrelated scenery across itself.
  */
-export const MAX_RIPPLE_OFFSET_UV = RIPPLE_AMPLITUDE_UV * 1.5 * (1 + WAVE_APPROX_MAX_ERROR)
+/** `waveApprox`'s peak magnitude before error is added — a `sin`-like approximation is bounded by 1. */
+const WAVE_APPROX_PEAK_MAGNITUDE = 1
+/** The two ripple layers' amplitude scales (1 and 0.5) sum to this; see `RIPPLE_LAYERS_U`/`_V`. */
+const RIPPLE_LAYER_AMPLITUDE_SUM = 1.5
+
+export const MAX_RIPPLE_OFFSET_UV =
+  RIPPLE_AMPLITUDE_UV * RIPPLE_LAYER_AMPLITUDE_SUM * (WAVE_APPROX_PEAK_MAGNITUDE + WAVE_APPROX_MAX_ERROR)
 
 // --- Sun response -----------------------------------------------------------
 
@@ -545,12 +592,7 @@ export const MAX_RIPPLE_OFFSET_UV = RIPPLE_AMPLITUDE_UV * 1.5 * (1 + WAVE_APPROX
  * and a value outside the range would blow out the colour in one place and
  * invert the sky mix in the other, from one bad write.
  */
-export const clampSunIntensity = (sunIntensity: number): number => {
-  if (!Number.isFinite(sunIntensity)) {
-    return 0
-  }
-  return Math.min(1, Math.max(0, sunIntensity))
-}
+export const clampSunIntensity = (sunIntensity: number): number => clampUnitInterval(sunIntensity)
 
 /**
  * How much of its colour the surface keeps at a given sun intensity.
