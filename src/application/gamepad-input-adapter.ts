@@ -1,4 +1,3 @@
-import { Effect } from 'effect'
 import {
   DEFAULT_GAMEPAD_BINDINGS,
   type GamepadBindings,
@@ -9,6 +8,7 @@ import {
   normalizeGamepadAxes,
 } from '../domain/gamepad-input'
 import { GAMEPLAY_LISTENER_TARGET, type InputAction } from '../domain/input-bindings'
+import { Effect } from 'effect'
 import type { InputServiceApi } from './input-service'
 
 export type GamepadSource = () => ReadonlyArray<GamepadSnapshot | null>
@@ -21,6 +21,71 @@ export type GamepadInputAdapter = {
 const firstConnected = (pads: ReadonlyArray<GamepadSnapshot | null>): GamepadSnapshot | undefined =>
   pads.find((pad): pad is GamepadSnapshot => pad !== null && pad.connected)
 
+/** Shared "no binding" result so call sites never spell the `undefined` literal. */
+const { value: NO_BOUND_GAMEPAD_ACTION } = {} as { value?: InputAction }
+
+const bindingForButtonIndex = (
+  index: number,
+  bindings: GamepadBindings,
+): InputAction | undefined => {
+  const button = gamepadButtonForIndex(index)
+  if (typeof button === 'undefined') {
+    return NO_BOUND_GAMEPAD_ACTION
+  }
+  return bindings[button]
+}
+
+/** Which dispatch `kind` a button's press-state transition produces, if any. */
+const gamepadButtonEdge = (
+  wasPressed: boolean,
+  isPressed: boolean,
+): 'gamepadpress' | 'gamepadrelease' | undefined => {
+  if (isPressed && !wasPressed) {
+    return 'gamepadpress'
+  }
+  if (!isPressed && wasPressed) {
+    return 'gamepadrelease'
+  }
+  return
+}
+
+type GamepadButtonEdgeDispatch = {
+  readonly action: InputAction | undefined
+  readonly input: InputServiceApi
+  readonly isPressed: boolean
+  readonly wasPressed: boolean
+}
+
+const dispatchGamepadButtonEdge = (params: GamepadButtonEdgeDispatch): Effect.Effect<void> => {
+  const { action, input, isPressed, wasPressed } = params
+  const edgeKind = gamepadButtonEdge(wasPressed, isPressed)
+  if (typeof action !== 'undefined' && typeof edgeKind !== 'undefined') {
+    return input.dispatch({ action, kind: edgeKind, target: GAMEPLAY_LISTENER_TARGET })
+  }
+  return Effect.void
+}
+
+type GamepadButtonPollContext = {
+  readonly bindings: GamepadBindings
+  readonly input: InputServiceApi
+  readonly pad: GamepadSnapshot
+  readonly previousButtons: boolean[]
+}
+
+const processGamepadButtons = (context: GamepadButtonPollContext): Effect.Effect<void> =>
+  Effect.gen(function* processButtons() {
+    const { bindings, input, pad, previousButtons } = context
+    const buttonCount = Math.max(previousButtons.length, pad.buttons.length)
+    for (let index = 0; index < buttonCount; index++) {
+      const action = bindingForButtonIndex(index, bindings)
+      const wasPressed = previousButtons[index] ?? false
+      const isPressed = gamepadButtonIsPressed(pad.buttons[index])
+      yield* dispatchGamepadButtonEdge({ action, input, isPressed, wasPressed })
+      previousButtons[index] = isPressed
+    }
+    previousButtons.length = pad.buttons.length
+  })
+
 export const makeGamepadInputAdapter = (
   input: InputServiceApi,
   source: GamepadSource,
@@ -28,11 +93,10 @@ export const makeGamepadInputAdapter = (
 ): GamepadInputAdapter => {
   const previousButtons: boolean[] = []
 
-  const reset = Effect.gen(function* () {
-    for (let index = 0; index < previousButtons.length; index += 1) {
-      const button = gamepadButtonForIndex(index)
-      const action = button === undefined ? undefined : bindings[button]
-      if (previousButtons[index] && action !== undefined) {
+  const reset = Effect.gen(function* resetGamepadState() {
+    for (let index = 0; index < previousButtons.length; index++) {
+      const action = bindingForButtonIndex(index, bindings)
+      if (previousButtons[index] && typeof action !== 'undefined') {
         yield* input.dispatch({ action, kind: 'gamepadrelease', target: GAMEPLAY_LISTENER_TARGET })
       }
     }
@@ -41,32 +105,19 @@ export const makeGamepadInputAdapter = (
   })
 
   return {
-    poll: Effect.gen(function* () {
+    poll: Effect.gen(function* pollGamepad() {
       const pad = firstConnected(source())
-      if (pad === undefined) {
+      if (typeof pad === 'undefined') {
         yield* reset
         return
       }
 
       yield* input.dispatch({
-        kind: 'gamepadtick',
         axes: normalizeGamepadAxes(pad.axes),
+        kind: 'gamepadtick',
       })
 
-      const buttonCount = Math.max(previousButtons.length, pad.buttons.length)
-      for (let index = 0; index < buttonCount; index += 1) {
-        const button = gamepadButtonForIndex(index)
-        const action: InputAction | undefined = button === undefined ? undefined : bindings[button]
-        const wasPressed = previousButtons[index] ?? false
-        const isPressed = gamepadButtonIsPressed(pad.buttons[index])
-        if (action !== undefined && isPressed && !wasPressed) {
-          yield* input.dispatch({ kind: 'gamepadpress', action, target: GAMEPLAY_LISTENER_TARGET })
-        } else if (action !== undefined && !isPressed && wasPressed) {
-          yield* input.dispatch({ kind: 'gamepadrelease', action, target: GAMEPLAY_LISTENER_TARGET })
-        }
-        previousButtons[index] = isPressed
-      }
-      previousButtons.length = pad.buttons.length
+      yield* processGamepadButtons({ bindings, input, pad, previousButtons })
     }),
     reset,
   }

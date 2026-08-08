@@ -84,7 +84,6 @@
  * silently does nothing, which is why the options object is stored rather than
  * rebuilt.
  */
-import { Effect, Layer, Scope } from 'effect'
 import {
   type Bindings,
   type ClickLanding,
@@ -96,6 +95,16 @@ import {
   wheelDeltaModeForIndex,
 } from '../domain/input-bindings'
 import {
+  type DomDocument,
+  type DomEventTarget,
+  type DomInputEvent,
+  type DomListener,
+  type DomListenerOptions,
+  type PointerLockTarget,
+  isPointerLockHeld,
+} from './dom-surface'
+import { Effect, Layer, Scope } from 'effect'
+import {
   type InputEvent,
   InputService,
   type InputServiceApi,
@@ -105,15 +114,6 @@ import {
   UNAVAILABLE_POINTER_LOCK,
   makeInputService,
 } from './input-service'
-import {
-  type DomDocument,
-  type DomEventTarget,
-  type DomInputEvent,
-  type DomListener,
-  type DomListenerOptions,
-  type PointerLockTarget,
-  isPointerLockHeld,
-} from './dom-surface'
 
 /**
  * The two objects the plan's two `ListenerTarget`s name.
@@ -212,20 +212,23 @@ export type FocusGroupTargets = {
  * clamp — would light the ring on slot 0 whenever the player Tabbed to the
  * address bar.
  */
+/** What `Array.prototype.indexOf` returns for a member it never found. */
+const NOT_FOUND_INDEX = -1
+
 export const resolveFocusTarget = (
   groups: ReadonlyArray<FocusGroupTargets>,
   target: unknown,
 ): FocusTarget | undefined => {
-  if (target === undefined || target === null) {
-    return undefined
+  if (typeof target === 'undefined' || target === null) {
+    return
   }
   for (const group of groups) {
     const index = group.targets.indexOf(target)
-    if (index >= 0) {
+    if (index > NOT_FOUND_INDEX) {
       return { group: group.group, index }
     }
   }
-  return undefined
+  return
 }
 
 /**
@@ -281,17 +284,24 @@ export const resolveClickLanding = (
   groups: ReadonlyArray<FocusGroupTargets>,
   target: unknown,
 ): ClickLanding => {
-  if (target === undefined || target === null) {
-    // A click the host cannot place. NOT the lock target even when the host
-    // named none: `undefined === undefined` would otherwise make every
-    // unplaceable click acquire the pointer in exactly the hosts that declared
-    // nothing, which is the failure this whole predicate exists to prevent.
+  if (typeof target === 'undefined' || target === null) {
+    /* A click the host cannot place. NOT the lock target even when the host
+       named none: `undefined === undefined` would otherwise make every
+       unplaceable click acquire the pointer in exactly the hosts that declared
+       nothing, which is the failure this whole predicate exists to prevent. */
     return 'elsewhere'
   }
-  if (pointerLockTarget !== undefined && pointerLockTarget !== null && target === pointerLockTarget) {
+  if (
+    typeof pointerLockTarget !== 'undefined' &&
+    pointerLockTarget !== null &&
+    target === pointerLockTarget
+  ) {
     return 'lock-target'
   }
-  return resolveFocusTarget(groups, target) === undefined ? 'elsewhere' : 'ui'
+  if (typeof resolveFocusTarget(groups, target) === 'undefined') {
+    return 'elsewhere'
+  }
+  return 'ui'
 }
 
 /**
@@ -341,8 +351,8 @@ export const resolveTouchControl = (
   controls: ReadonlyArray<TouchControlTarget>,
   target: unknown,
 ): InputAction | undefined => {
-  if (target === undefined || target === null) {
-    return undefined
+  if (typeof target === 'undefined' || target === null) {
+    return
   }
   return controls.find((control) => control.target === target)?.action
 }
@@ -437,8 +447,12 @@ export const mayPreventDefault = (eventName: string): boolean =>
  * `removeEventListener(t, l, { capture: true })` are a leak that no type can
  * catch. Passing the same object to both is the cheapest way to make them agree.
  */
-export const listenerOptionsFor = (eventName: string): DomListenerOptions =>
-  mayPreventDefault(eventName) ? { capture: false, passive: false } : { capture: false }
+export const listenerOptionsFor = (eventName: string): DomListenerOptions => {
+  if (mayPreventDefault(eventName)) {
+    return { capture: false, passive: false }
+  }
+  return { capture: false }
+}
 
 /**
  * A number the adapter is willing to pass on, or `undefined`.
@@ -448,8 +462,12 @@ export const listenerOptionsFor = (eventName: string): DomListenerOptions =>
  * the rest of the session — the same failure `notchesForWheelDelta` guards
  * against on its own side.
  */
-const finiteOrUndefined = (value: number | undefined): number | undefined =>
-  value !== undefined && Number.isFinite(value) ? value : undefined
+const finiteOrUndefined = (value: number | undefined): number | undefined => {
+  if (typeof value !== 'undefined' && Number.isFinite(value)) {
+    return value
+  }
+  return
+}
 
 /**
  * One DOM event, translated — or `undefined` when it carries no usable payload.
@@ -469,137 +487,206 @@ const finiteOrUndefined = (value: number | undefined): number | undefined =>
  * `LISTENER_PLAN` and the events this produces become modal-tagged, which
  * `dispatch` then ignores — the policy breaks visibly instead of silently.
  */
+/** Shared "no report" value so call sites never spell the `undefined` literal. */
+const { focus: NO_FOCUS_TARGET } = {} as { focus?: FocusTarget }
+
+/** The zero delta a `pointermove` reports when only one axis moved this frame. */
+const NO_POINTER_DELTA = 0
+
+const resolvedMouseButton = (index: number | undefined) => {
+  if (typeof index === 'undefined') {
+    return
+  }
+  return mouseButtonForIndex(index)
+}
+
+const resolvedWheelDeltaMode = (index: number | undefined) => {
+  if (typeof index === 'undefined') {
+    return
+  }
+  return wheelDeltaModeForIndex(index)
+}
+
+const translateKeyEvent = (
+  kind: 'keydown' | 'keyup',
+  event: DomInputEvent,
+  target: ListenerTarget,
+): InputEvent | undefined => {
+  const { code } = event
+  if (typeof code === 'undefined') {
+    return
+  }
+  return { code, kind, target }
+}
+
+type DomTranslationInput = {
+  readonly context: DomEventContext
+  readonly event: DomInputEvent
+  readonly planned: PlannedListener
+}
+
+const translateMouseButtonEvent = (
+  kind: 'mousedown' | 'mouseup',
+  input: DomTranslationInput,
+): InputEvent | undefined => {
+  const { context, event, planned } = input
+  const button = resolvedMouseButton(event.button)
+  if (typeof button === 'undefined') {
+    return
+  }
+  if (kind === 'mouseup') {
+    return { button, kind, target: planned.target }
+  }
+  /* ELEMENT to NAME, at the boundary, exactly as `focusin` below does it and
+     for the same reason: the decision that follows (`acquiresPointerLock`)
+     is a pure predicate over names, so it stays testable in Node with fakes
+     — which matters more here than anywhere, because plan.md §3.10 records
+     that Playwright cannot do pointer lock at all. */
+  return {
+    button,
+    kind,
+    landing: resolveClickLanding(context.pointerLockTarget, context.focusGroups, event.target),
+    target: planned.target,
+  }
+}
+
+const translatePointerMove = (event: DomInputEvent): InputEvent | undefined => {
+  /* The DOM event is `mousemove`; the model calls it `pointermove`. This
+     rename is the whole of the mapping — `movementX/Y` is already a DELTA,
+     which is why the service can accumulate it without knowing where the
+     pointer is. */
+  const deltaX = finiteOrUndefined(event.movementX)
+  const deltaY = finiteOrUndefined(event.movementY)
+  if (typeof deltaX === 'undefined' && typeof deltaY === 'undefined') {
+    return
+  }
+  return {
+    deltaX: deltaX ?? NO_POINTER_DELTA,
+    deltaY: deltaY ?? NO_POINTER_DELTA,
+    kind: 'pointermove',
+  }
+}
+
+const translateWheel = (event: DomInputEvent): InputEvent | undefined => {
+  /* NUMBER to NAME, and nothing else. How many pixels make a notch is
+     `notchesForWheelDelta`'s to know (DN-13): a policy in an adapter is a
+     policy `environment: 'node'` cannot test, and there is no browser test
+     that could reach the locked branch either. */
+  const deltaMode = resolvedWheelDeltaMode(event.deltaMode)
+  const { deltaY } = event
+  if (typeof deltaMode === 'undefined' || typeof deltaY === 'undefined') {
+    return
+  }
+  return { deltaMode, deltaY, kind: 'wheel' }
+}
+
+const translateFocusIn = (event: DomInputEvent, context: DomEventContext): InputEvent => ({
+  focus: resolveFocusTarget(context.focusGroups, event.target),
+  kind: 'focuschange',
+})
+
+const translateTouchEdge = (
+  kind: 'touchpress' | 'touchrelease',
+  input: DomTranslationInput,
+): InputEvent | undefined => {
+  const { context, event, planned } = input
+  const action = resolveTouchControl(context.touchControls ?? [], event.target)
+  if (typeof action === 'undefined') {
+    return
+  }
+  return { action, kind, target: planned.target }
+}
+
 export const translateDomEvent = (
   planned: PlannedListener,
   event: DomInputEvent,
   context: DomEventContext,
 ): InputEvent | undefined => {
+  const input: DomTranslationInput = { context, event, planned }
   switch (planned.event) {
-    case 'keydown': {
-      const {code} = event
-      return code === undefined ? undefined : { code, kind: 'keydown', target: planned.target }
-    }
-    case 'keyup': {
-      const {code} = event
-      return code === undefined ? undefined : { code, kind: 'keyup', target: planned.target }
-    }
-    case 'mousedown': {
-      const button = event.button === undefined ? undefined : mouseButtonForIndex(event.button)
-      // ELEMENT to NAME, at the boundary, exactly as `focusin` below does it and
-      // for the same reason: the decision that follows (`acquiresPointerLock`)
-      // is a pure predicate over names, so it stays testable in Node with fakes
-      // — which matters more here than anywhere, because plan.md §3.10 records
-      // that Playwright cannot do pointer lock at all.
-      return button === undefined
-        ? undefined
-        : {
-            button,
-            kind: 'mousedown',
-            landing: resolveClickLanding(context.pointerLockTarget, context.focusGroups, event.target),
-            target: planned.target,
-          }
-    }
-    case 'mouseup': {
-      const button = event.button === undefined ? undefined : mouseButtonForIndex(event.button)
-      return button === undefined ? undefined : { button, kind: 'mouseup', target: planned.target }
-    }
+    case 'keydown':
+      return translateKeyEvent('keydown', event, planned.target)
+    case 'keyup':
+      return translateKeyEvent('keyup', event, planned.target)
+    case 'mousedown':
+      return translateMouseButtonEvent('mousedown', input)
+    case 'mouseup':
+      return translateMouseButtonEvent('mouseup', input)
     case 'contextmenu':
-      // Carries NO button state by design — `mousedown` already recorded button
-      // 2, and recording it again fires `use` twice for one right-click
-      // (reference :137-139). The event is dispatched anyway so that "and does
-      // nothing" is a property a test can assert.
+      /* Carries NO button state by design — `mousedown` already recorded button
+         2, and recording it again fires `use` twice for one right-click
+         (reference :137-139). The event is dispatched anyway so that "and does
+         nothing" is a property a test can assert. */
       return { kind: 'contextmenu', target: planned.target }
-    case 'mousemove': {
-      // The DOM event is `mousemove`; the model calls it `pointermove`. This
-      // rename is the whole of the mapping — `movementX/Y` is already a DELTA,
-      // which is why the service can accumulate it without knowing where the
-      // pointer is.
-      const deltaX = finiteOrUndefined(event.movementX)
-      const deltaY = finiteOrUndefined(event.movementY)
-      return deltaX === undefined && deltaY === undefined
-        ? undefined
-        : { deltaX: deltaX ?? 0, deltaY: deltaY ?? 0, kind: 'pointermove' }
-    }
-    case 'wheel': {
-      // NUMBER to NAME, and nothing else. How many pixels make a notch is
-      // `notchesForWheelDelta`'s to know (DN-13): a policy in an adapter is a
-      // policy `environment: 'node'` cannot test, and there is no browser test
-      // that could reach the locked branch either.
-      const deltaMode = event.deltaMode === undefined ? undefined : wheelDeltaModeForIndex(event.deltaMode)
-      const {deltaY} = event
-      return deltaMode === undefined || deltaY === undefined
-        ? undefined
-        : { deltaMode, deltaY, kind: 'wheel' }
-    }
+    case 'mousemove':
+      return translatePointerMove(event)
+    case 'wheel':
+      return translateWheel(event)
     case 'pointerlockchange':
-      // The event itself says nothing; `document.pointerLockElement` is the
-      // answer, and `locked: false` here means the lock ENDED — never that it
-      // was refused. Only `pointerlockerror` says refused (DN-14).
+      /* The event itself says nothing; `document.pointerLockElement` is the
+         answer, and `locked: false` here means the lock ENDED — never that it
+         was refused. Only `pointerlockerror` says refused (DN-14). */
       return { kind: 'pointerlockchange', locked: context.pointerLockHeld }
     case 'pointerlockerror':
       return { kind: 'pointerlockerror' }
     case 'blur':
-      // The browser sends no keyup while unfocused, so a key held across a tab
-      // switch stays pressed forever and the player walks on return (DN-08,
-      // reference :155-158 — a user report, not a theory).
+      /* The browser sends no keyup while unfocused, so a key held across a tab
+         switch stays pressed forever and the player walks on return (DN-08,
+         reference :155-158 — a user report, not a theory). */
       return { kind: 'blur' }
     case 'focusin':
-      // ELEMENT to NAME, at the boundary, in exactly one place — the same
-      // conversion `mouseButtonForIndex` and `wheelDeltaModeForIndex` are, with
-      // an element where they have a number. An element in no roster resolves
-      // to `undefined`, which is a REPORT ("focus left our UI") and not a drop:
-      // dropping it would leave the ring lit on the slot the player just Tabbed
-      // away from.
-      return { focus: resolveFocusTarget(context.focusGroups, event.target), kind: 'focuschange' }
-    case 'touchstart': {
-      // ELEMENT to NAME, at the boundary, in exactly one place — the third
-      // reader of `event.target` and the same conversion `focusin` and
-      // `mousedown` already perform. What comes out is an ACTION and not a
-      // code, because the code depends on the player's current bindings and
-      // those live in the service (`withTouchDown`), not here. An adapter that
-      // resolved the code would keep pressing `KeyE` after a rebind.
-      const action = resolveTouchControl(context.touchControls ?? [], event.target)
-      return action === undefined
-        ? undefined
-        : { action, kind: 'touchpress', target: planned.target }
-    }
+      /* ELEMENT to NAME, at the boundary, in exactly one place — the same
+         conversion `mouseButtonForIndex` and `wheelDeltaModeForIndex` are, with
+         an element where they have a number. An element in no roster resolves
+         to `undefined`, which is a REPORT ("focus left our UI") and not a drop:
+         dropping it would leave the ring lit on the slot the player just Tabbed
+         away from. */
+      return translateFocusIn(event, context)
+    case 'touchstart':
+      /* ELEMENT to NAME, at the boundary, in exactly one place — the third
+         reader of `event.target` and the same conversion `focusin` and
+         `mousedown` already perform. What comes out is an ACTION and not a
+         code, because the code depends on the player's current bindings and
+         those live in the service (`withTouchDown`), not here. An adapter that
+         resolved the code would keep pressing `KeyE` after a rebind. */
+      return translateTouchEdge('touchpress', input)
     case 'touchend':
-    case 'touchcancel': {
-      // ONE case for two events, and it is the only place this switch collapses
-      // two DOM names — for the reason `focuschange` collapses `focusin` and
-      // `focusout`. A cancel and an end are the same fact to everything
-      // downstream: the finger is off the control. They differ only in whose
-      // decision it was, and nothing here can act on that difference.
-      //
-      // Handling `touchcancel` is not optional. The platform fires it INSTEAD
-      // of `touchend` when it takes the gesture over, so an adapter that
-      // listened only for `touchend` would leave the control held for the rest
-      // of the session — the player swipes in from the screen edge while
-      // holding the forward button and walks into a wall until they reload.
-      const action = resolveTouchControl(context.touchControls ?? [], event.target)
-      return action === undefined
-        ? undefined
-        : { action, kind: 'touchrelease', target: planned.target }
-    }
+    case 'touchcancel':
+      /* ONE case for two events, and it is the only place this switch collapses
+         two DOM names — for the reason `focuschange` collapses `focusin` and
+         `focusout`. A cancel and an end are the same fact to everything
+         downstream: the finger is off the control. They differ only in whose
+         decision it was, and nothing here can act on that difference.
+
+         Handling `touchcancel` is not optional. The platform fires it INSTEAD
+         of `touchend` when it takes the gesture over, so an adapter that
+         listened only for `touchend` would leave the control held for the rest
+         of the session — the player swipes in from the screen edge while
+         holding the forward button and walks into a wall until they reload. */
+      return translateTouchEdge('touchrelease', input)
     case 'focusout':
-      // Never resolves anything. `focusout` fires on the element being LEFT, so
-      // resolving its target would report the slot the keyboard just departed
-      // as the slot it is on. The browser fires focusout then focusin for a
-      // move, in that order and in the same task, so the arrival overwrites
-      // this before any frame can read it; a departure to nothing has no
-      // arrival, and this is the whole of what says so.
-      return { focus: undefined, kind: 'focuschange' }
+      /* Never resolves anything. `focusout` fires on the element being LEFT, so
+         resolving its target would report the slot the keyboard just departed
+         as the slot it is on. The browser fires focusout then focusin for a
+         move, in that order and in the same task, so the arrival overwrites
+         this before any frame can read it; a departure to nothing has no
+         arrival, and this is the whole of what says so. */
+      return { focus: NO_FOCUS_TARGET, kind: 'focuschange' }
     default:
-      // An event name the plan grew without this switch growing with it. Dropped
-      // rather than guessed, and a test asserts the two lists agree so that the
-      // drop cannot be how anyone finds out.
-      return undefined
+      /* An event name the plan grew without this switch growing with it. Dropped
+         rather than guessed, and a test asserts the two lists agree so that the
+         drop cannot be how anyone finds out. */
+      return
   }
 }
 
 /** The object a `ListenerTarget` names. A lookup, not a policy. */
-const objectFor = (targets: BrowserInputTargets, target: ListenerTarget): DomEventTarget =>
-  target === 'window' ? targets.window : targets.document
+const objectFor = (targets: BrowserInputTargets, target: ListenerTarget): DomEventTarget => {
+  if (target === 'window') {
+    return targets.window
+  }
+  return targets.document
+}
 
 /**
  * The suppression question for an event, or `undefined` if it has none.
@@ -618,7 +705,7 @@ const suppressionFor = (
   if (eventName === 'contextmenu') {
     return input.shouldSuppressContextMenu
   }
-  return undefined
+  return
 }
 
 /**
@@ -635,9 +722,7 @@ const suppressionFor = (
  * luck: `dispatch` is a `Ref.update`, `shouldSuppressWheelScroll` is a
  * `Ref.get`, and neither can fail, suspend or need a service.
  */
-export const installInputListeners = (
-  targets: BrowserInputTargets,
-  input: InputServiceApi,
+export type InstallInputListenersOptions = {
   /**
    * The focusable UI groups this host wants reported, in tab order.
    *
@@ -648,7 +733,7 @@ export const installInputListeners = (
    * any. It is also what keeps the listener table identical in every host, so
    * `LISTENER_PLAN` stays the single answer to what is registered.
    */
-  focusGroups: ReadonlyArray<FocusGroupTargets> = [],
+  readonly focusGroups?: ReadonlyArray<FocusGroupTargets>
   /**
    * The element the pointer lock would be granted to — the canvas.
    *
@@ -656,13 +741,13 @@ export const installInputListeners = (
    * the element that will receive the lock is the element you must click to ask
    * for it. `browserInputLayer` passes `options.canvas` here automatically, so a
    * host using it declares nothing new; a host that builds the port itself has
-   * to hand the canvas over twice, and this parameter is where.
+   * to hand the canvas over twice, and this option is where.
    *
    * Omitted means "this host has no lock target", which is the same host that
    * gets `UNAVAILABLE_POINTER_LOCK` — no click resolves as `lock-target`, and
    * none could have locked anyway.
    */
-  pointerLockTarget?: unknown,
+  readonly pointerLockTarget?: unknown
   /**
    * The on-screen controls this host drew, in no particular order.
    *
@@ -671,86 +756,131 @@ export const installInputListeners = (
    * reported index — because a control is resolved by identity to an action and
    * never to a position.
    */
-  touchControls: ReadonlyArray<TouchControlTarget> = [],
-): InstalledInputListeners => {
-  const touchActions = new Map<number, InputAction>()
-  const touchActionCounts = new Map<InputAction, number>()
+  readonly touchControls?: ReadonlyArray<TouchControlTarget>
+}
 
-  const dispatchTouchEvent = (
-    event: DomInputEvent,
-    kind: 'touchpress' | 'touchrelease',
-    target: ListenerTarget,
-  ): boolean => {
-    const {changedTouches} = event
-    if (changedTouches === undefined) {
-      return false
-    }
+/** One `changedTouches` entry: the DOM's `Touch`, reduced to what this file reads. */
+type TouchContact = NonNullable<DomInputEvent['changedTouches']>[number]
 
-    for (let index = 0; index < changedTouches.length; index += 1) {
-      const touch = changedTouches[index]
-      if (touch === undefined || !Number.isFinite(touch.identifier)) {
-        continue
-      }
+/** How many fingers are holding an action down before the current contact is applied. */
+const NO_FINGERS_HOLDING = 0
+const ONE_FINGER_HOLDING = 1
 
+type TouchDispatchState = {
+  readonly input: InputServiceApi
+  readonly touchActionCounts: Map<InputAction, number>
+  readonly touchActions: Map<number, InputAction>
+  readonly touchControls: ReadonlyArray<TouchControlTarget>
+}
+
+const dispatchTouchPress = (
+  state: TouchDispatchState,
+  contact: TouchContact,
+  target: ListenerTarget,
+): void => {
+  if (state.touchActions.has(contact.identifier)) {
+    return
+  }
+  const action = resolveTouchControl(state.touchControls, contact.target)
+  if (typeof action === 'undefined') {
+    return
+  }
+  state.touchActions.set(contact.identifier, action)
+  const count = state.touchActionCounts.get(action) ?? NO_FINGERS_HOLDING
+  state.touchActionCounts.set(action, count + ONE_FINGER_HOLDING)
+  if (count === NO_FINGERS_HOLDING) {
+    Effect.runSync(state.input.dispatch({ action, kind: 'touchpress', target }))
+  }
+}
+
+const dispatchTouchRelease = (
+  state: TouchDispatchState,
+  contact: TouchContact,
+  target: ListenerTarget,
+): void => {
+  const action = state.touchActions.get(contact.identifier)
+  if (typeof action === 'undefined') {
+    return
+  }
+  state.touchActions.delete(contact.identifier)
+  const count = state.touchActionCounts.get(action) ?? ONE_FINGER_HOLDING
+  if (count <= ONE_FINGER_HOLDING) {
+    state.touchActionCounts.delete(action)
+    Effect.runSync(state.input.dispatch({ action, kind: 'touchrelease', target }))
+    return
+  }
+  state.touchActionCounts.set(action, count - ONE_FINGER_HOLDING)
+}
+
+type TouchDispatchRequest = {
+  readonly event: DomInputEvent
+  readonly kind: 'touchpress' | 'touchrelease'
+  readonly target: ListenerTarget
+}
+
+const dispatchTouchEvent = (state: TouchDispatchState, request: TouchDispatchRequest): boolean => {
+  const {
+    event: { changedTouches },
+    kind,
+    target,
+  } = request
+  if (typeof changedTouches === 'undefined') {
+    return false
+  }
+  for (let index = 0; index < changedTouches.length; index++) {
+    const touch = changedTouches[index]
+    if (typeof touch !== 'undefined' && Number.isFinite(touch.identifier)) {
       if (kind === 'touchpress') {
-        if (touchActions.has(touch.identifier)) {
-          continue
-        }
-        const action = resolveTouchControl(touchControls, touch.target)
-        if (action === undefined) {
-          continue
-        }
-        touchActions.set(touch.identifier, action)
-        const count = touchActionCounts.get(action) ?? 0
-        touchActionCounts.set(action, count + 1)
-        if (count === 0) {
-          Effect.runSync(input.dispatch({ action, kind, target }))
-        }
-        continue
-      }
-
-      const action = touchActions.get(touch.identifier)
-      if (action === undefined) {
-        continue
-      }
-      touchActions.delete(touch.identifier)
-      const count = touchActionCounts.get(action) ?? 1
-      if (count <= 1) {
-        touchActionCounts.delete(action)
-        Effect.runSync(input.dispatch({ action, kind, target }))
+        dispatchTouchPress(state, touch, target)
       } else {
-        touchActionCounts.set(action, count - 1)
+        dispatchTouchRelease(state, touch, target)
       }
     }
-    return true
+  }
+  return true
+}
+
+export const installInputListeners = (
+  targets: BrowserInputTargets,
+  input: InputServiceApi,
+  options: InstallInputListenersOptions = {},
+): InstalledInputListeners => {
+  const focusGroups = options.focusGroups ?? []
+  const { pointerLockTarget } = options
+  const touchControls = options.touchControls ?? []
+  const touchState: TouchDispatchState = {
+    input,
+    touchActionCounts: new Map<InputAction, number>(),
+    touchActions: new Map<number, InputAction>(),
+    touchControls,
   }
 
   const registrations: ReadonlyArray<ListenerRegistration> = LISTENER_PLAN.map((planned) => {
     const suppression = suppressionFor(planned.event, input)
-    // Decided once, at install time, so that the per-event cost is one boolean
-    // test rather than a property read on `document` for every mousemove.
+    /* Decided once, at install time, so that the per-event cost is one boolean
+       test rather than a property read on `document` for every mousemove. */
     const readsLockElement = planned.event === 'pointerlockchange'
 
     const listener: DomListener = (event) => {
-      // BEFORE the dispatch. The two are independent for the two events that
-      // have a suppression — neither `wheel` nor `contextmenu` changes the lock
-      // state — but doing it first means the browser default is suppressed even
-      // when the event turns out to be untranslatable. A wheel whose
-      // `deltaMode` cannot be named must still not scroll the page out from
-      // under a locked canvas.
-      if (suppression !== undefined && Effect.runSync(suppression)) {
+      /* BEFORE the dispatch. The two are independent for the two events that
+         have a suppression — neither `wheel` nor `contextmenu` changes the lock
+         state — but doing it first means the browser default is suppressed even
+         when the event turns out to be untranslatable. A wheel whose
+         `deltaMode` cannot be named must still not scroll the page out from
+         under a locked canvas. */
+      if (typeof suppression !== 'undefined' && Effect.runSync(suppression)) {
         event.preventDefault()
       }
 
       if (
         planned.event === 'touchstart' &&
-        dispatchTouchEvent(event, 'touchpress', planned.target)
+        dispatchTouchEvent(touchState, { event, kind: 'touchpress', target: planned.target })
       ) {
         return
       }
       if (
         (planned.event === 'touchend' || planned.event === 'touchcancel') &&
-        dispatchTouchEvent(event, 'touchrelease', planned.target)
+        dispatchTouchEvent(touchState, { event, kind: 'touchrelease', target: planned.target })
       ) {
         return
       }
@@ -761,7 +891,7 @@ export const installInputListeners = (
         pointerLockTarget,
         touchControls,
       })
-      if (translated !== undefined) {
+      if (typeof translated !== 'undefined') {
         Effect.runSync(input.dispatch(translated))
       }
     }
@@ -811,14 +941,10 @@ export const installInputListeners = (
 export const scopedInputListeners = (
   targets: BrowserInputTargets,
   input: InputServiceApi,
-  focusGroups: ReadonlyArray<FocusGroupTargets> = [],
-  pointerLockTarget?: unknown,
-  touchControls: ReadonlyArray<TouchControlTarget> = [],
+  options: InstallInputListenersOptions = {},
 ): Effect.Effect<InstalledInputListeners, never, Scope.Scope> =>
   Effect.acquireRelease(
-    Effect.sync(() =>
-      installInputListeners(targets, input, focusGroups, pointerLockTarget, touchControls),
-    ),
+    Effect.sync(() => installInputListeners(targets, input, options)),
     (installed) =>
       Effect.sync(() => {
         installed.remove()
@@ -853,7 +979,9 @@ type ThenableLike = {
 const isThenable = (value: unknown): value is ThenableLike =>
   typeof value === 'object' && value !== null && typeof (value as { then?: unknown }).then === 'function'
 
-const ignore = (): void => undefined
+const ignore = (): void => {
+  // No-op: swallow a settled promise so it never becomes an unhandled rejection.
+}
 
 /**
  * The browser's `PointerLockPort`.
@@ -878,27 +1006,32 @@ const ignore = (): void => undefined
  * so the event answers the ask and the rejection is only swallowed to stop it
  * becoming an unhandled rejection that takes the host down.
  */
+/** The try/catch/thenable-swallowing core of one pointer-lock request. */
+const attemptPointerLockRequest = (canvas: PointerLockTarget): PointerLockRequestOutcome => {
+  if (typeof canvas.requestPointerLock !== 'function') {
+    return 'unavailable'
+  }
+  try {
+    /* Called as a method so that `this` is the canvas, which is what the DOM
+       requires and what a `const request = canvas.requestPointerLock` would
+       have quietly broken. */
+    const result: unknown = canvas.requestPointerLock()
+    if (isThenable(result)) {
+      result.then(ignore, ignore)
+    }
+    return 'sent'
+  } catch {
+    return 'unavailable'
+  }
+}
+
 export const makeBrowserPointerLockPort = (options: BrowserPointerLockOptions): PointerLockPort => ({
   request: Effect.sync((): PointerLockRequestOutcome => {
-    const {canvas} = options
-    if (typeof canvas.requestPointerLock !== 'function') {
+    const { canvas } = options
+    if (typeof options.allowsPointerLock !== 'undefined' && !options.allowsPointerLock()) {
       return 'unavailable'
     }
-    if (options.allowsPointerLock !== undefined && !options.allowsPointerLock()) {
-      return 'unavailable'
-    }
-    try {
-      // Called as a method so that `this` is the canvas, which is what the DOM
-      // requires and what a `const request = canvas.requestPointerLock` would
-      // have quietly broken.
-      const result: unknown = canvas.requestPointerLock()
-      if (isThenable(result)) {
-        result.then(ignore, ignore)
-      }
-      return 'sent'
-    } catch {
-      return 'unavailable'
-    }
+    return attemptPointerLockRequest(canvas)
   }),
 })
 
@@ -952,15 +1085,14 @@ export type BrowserInputOptions = {
 }
 
 const pointerLockPortFor = (options: BrowserInputOptions): PointerLockPort => {
-  const {canvas} = options
-  if (canvas === undefined) {
+  const { canvas } = options
+  if (typeof canvas === 'undefined') {
     return UNAVAILABLE_POINTER_LOCK
   }
-  return makeBrowserPointerLockPort(
-    options.allowsPointerLock === undefined
-      ? { canvas }
-      : { allowsPointerLock: options.allowsPointerLock, canvas },
-  )
+  if (typeof options.allowsPointerLock === 'undefined') {
+    return makeBrowserPointerLockPort({ canvas })
+  }
+  return makeBrowserPointerLockPort({ allowsPointerLock: options.allowsPointerLock, canvas })
 }
 
 /**
@@ -979,23 +1111,21 @@ const pointerLockPortFor = (options: BrowserInputOptions): PointerLockPort => {
 export const browserInputLayer = (options: BrowserInputOptions): Layer.Layer<InputService> =>
   Layer.scoped(
     InputService,
-    Effect.gen(function* () {
+    Effect.gen(function* makeBrowserInputService() {
       const input = yield* makeInputService(
         options.bindings ?? defaultBindings(),
         pointerLockPortFor(options),
       )
-      // `options.canvas` twice, on purpose and in one place: it is what the port
-      // ASKS and what a click has to LAND ON to be allowed to ask. Deriving the
-      // second from the first is what makes the fix cost a browser host nothing
-      // — the declaration it already had to make now also scopes the
-      // acquisition (DN-16 §5(b)).
-      yield* scopedInputListeners(
-        options.targets,
-        input,
-        options.focusGroups ?? [],
-        options.canvas,
-        options.touchControls ?? [],
-      )
+      /* `options.canvas` twice, on purpose and in one place: it is what the port
+         ASKS and what a click has to LAND ON to be allowed to ask. Deriving the
+         second from the first is what makes the fix cost a browser host nothing
+         — the declaration it already had to make now also scopes the
+         acquisition (DN-16 §5(b)). */
+      yield* scopedInputListeners(options.targets, input, {
+        focusGroups: options.focusGroups ?? [],
+        pointerLockTarget: options.canvas,
+        touchControls: options.touchControls ?? [],
+      })
       return input
     }),
   )

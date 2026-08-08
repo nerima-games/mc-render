@@ -1101,9 +1101,9 @@ describe('the adapter observes focus the way a browser would deliver it', () => 
       const dom = makeFakeDom()
       const input = yield* makeInputService()
       const slots = makeSlots(9)
-      installInputListeners(dom.targets, input, [
-        { group: HOTBAR_FOCUS_GROUP, targets: slots },
-      ])
+      installInputListeners(dom.targets, input, {
+        focusGroups: [{ group: HOTBAR_FOCUS_GROUP, targets: slots }],
+      })
 
       dom.fire('focusin', { target: slots[2] })
 
@@ -1123,9 +1123,9 @@ describe('the adapter observes focus the way a browser would deliver it', () => 
       const dom = makeFakeDom()
       const input = yield* makeInputService()
       const slots = makeSlots(9)
-      installInputListeners(dom.targets, input, [
-        { group: HOTBAR_FOCUS_GROUP, targets: slots },
-      ])
+      installInputListeners(dom.targets, input, {
+        focusGroups: [{ group: HOTBAR_FOCUS_GROUP, targets: slots }],
+      })
       dom.fire('focusin', { target: slots[0] })
 
       dom.fire('focusout', { target: slots[0] })
@@ -1143,9 +1143,9 @@ describe('the adapter observes focus the way a browser would deliver it', () => 
       const dom = makeFakeDom()
       const input = yield* makeInputService()
       const slots = makeSlots(9)
-      installInputListeners(dom.targets, input, [
-        { group: HOTBAR_FOCUS_GROUP, targets: slots },
-      ])
+      installInputListeners(dom.targets, input, {
+        focusGroups: [{ group: HOTBAR_FOCUS_GROUP, targets: slots }],
+      })
       dom.fire('focusin', { target: slots[8] })
 
       // The last slot, Tab again: the browser leaves the group entirely.
@@ -1167,9 +1167,9 @@ describe('the adapter observes focus the way a browser would deliver it', () => 
       const dom = makeFakeDom()
       const input = yield* lockedInput
       const slots = makeSlots(9)
-      installInputListeners(dom.targets, input, [
-        { group: HOTBAR_FOCUS_GROUP, targets: slots },
-      ])
+      installInputListeners(dom.targets, input, {
+        focusGroups: [{ group: HOTBAR_FOCUS_GROUP, targets: slots }],
+      })
 
       dom.fire('keydown', { code: 'Tab' })
       dom.fire('focusin', { target: slots[1] })
@@ -1377,7 +1377,7 @@ describe('REGRESSION: clicking the HUD does not take the pointer', () => {
       const dom = makeFakeDom()
       const page = makePage()
       const input = yield* makeInputService()
-      installInputListeners(dom.targets, input, page.focusGroups, page.canvas)
+      installInputListeners(dom.targets, input, { focusGroups: page.focusGroups, pointerLockTarget: page.canvas })
 
       // `tabindex="-1"` focuses on click, so this arrives first, and it is
       // correct — it is what lights the ring.
@@ -1404,7 +1404,7 @@ describe('REGRESSION: clicking the HUD does not take the pointer', () => {
       const dom = makeFakeDom()
       const page = makePage()
       const input = yield* makeInputService()
-      installInputListeners(dom.targets, input, page.focusGroups, page.canvas)
+      installInputListeners(dom.targets, input, { focusGroups: page.focusGroups, pointerLockTarget: page.canvas })
 
       dom.fire('focusin', { target: page.slots[3] })
       dom.fire('mousedown', { button: 0, target: page.slots[3] })
@@ -1419,7 +1419,7 @@ describe('REGRESSION: clicking the HUD does not take the pointer', () => {
       const dom = makeFakeDom()
       const page = makePage()
       const input = yield* makeInputService()
-      installInputListeners(dom.targets, input, page.focusGroups, page.canvas)
+      installInputListeners(dom.targets, input, { focusGroups: page.focusGroups, pointerLockTarget: page.canvas })
 
       dom.fire('mousedown', { button: 0, target: page.canvas })
 
@@ -1440,7 +1440,7 @@ describe('REGRESSION: clicking the HUD does not take the pointer', () => {
       const dom = makeFakeDom()
       const page = makePage()
       const input = yield* makeInputService()
-      installInputListeners(dom.targets, input, page.focusGroups, page.canvas)
+      installInputListeners(dom.targets, input, { focusGroups: page.focusGroups, pointerLockTarget: page.canvas })
 
       dom.fire('mousedown', { button: 0, target: { letterbox: true } })
 
@@ -1514,7 +1514,7 @@ describe('REGRESSION: clicking the HUD does not take the pointer', () => {
       const dom = makeFakeDom()
       const page = makePage()
       const input = yield* lockedInput
-      installInputListeners(dom.targets, input, page.focusGroups, page.canvas)
+      installInputListeners(dom.targets, input, { focusGroups: page.focusGroups, pointerLockTarget: page.canvas })
 
       dom.fire('mousedown', { button: 0, target: page.slots[3] })
 
@@ -1532,7 +1532,7 @@ describe('REGRESSION: clicking the HUD does not take the pointer', () => {
       const dom = makeFakeDom()
       const page = makePage()
       const input = yield* makeInputService()
-      installInputListeners(dom.targets, input, page.focusGroups, page.canvas)
+      installInputListeners(dom.targets, input, { focusGroups: page.focusGroups, pointerLockTarget: page.canvas })
 
       dom.fire('mousedown', { button: 0, target: page.slots[3] })
       dom.fire('mousedown', { button: 0, target: page.canvas })
