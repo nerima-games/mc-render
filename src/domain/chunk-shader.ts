@@ -111,7 +111,6 @@
  * every vertex of a quad carries the same index, so the interpolated value is
  * that index up to float error, and rounding recovers it exactly.
  */
-import { ATLAS_COLUMNS, HALF_TEXEL_UV } from './texture-atlas'
 import {
   AO_SHADE_FLOOR,
   AO_SHADE_RANGE,
@@ -119,6 +118,7 @@ import {
   LIGHT_SHADE_FLOOR,
   LIGHT_SHADE_RANGE,
 } from './voxel-lighting'
+import { ATLAS_COLUMNS, HALF_TEXEL_UV } from './texture-atlas'
 
 /**
  * Render a number as a GLSL float literal.
@@ -135,7 +135,9 @@ import {
  * omits, and six places is well inside the precision of the constants involved
  * (the coarsest is 0.05).
  */
-export const glslFloat = (value: number): string => value.toFixed(6)
+const GLSL_FLOAT_DECIMAL_PLACES = 6
+
+export const glslFloat = (value: number): string => value.toFixed(GLSL_FLOAT_DECIMAL_PLACES)
 
 /** Attribute names the geometry must supply. */
 export const CHUNK_SHADER_ATTRIBUTES = {

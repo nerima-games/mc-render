@@ -726,6 +726,12 @@ export const spawnBurst = (
  * frame and not per particle — which is the boundary this file draws: the frame
  * path allocates nothing, an input event may allocate a small constant amount.
  * A caller in a genuinely hot loop can call `spawnBurst` with a hoisted origin.
+ *
+ * `max-params` stays un-silenced despite the allocation allowance above: an
+ * options object here is still a signature change, and `test/particle-pool.test.ts`
+ * calls this positionally (`spawnBlockBurst(pool, 0, 0, 0, 7, 2)`), which is
+ * out of scope for a lint-only pass. The allowance is about the runtime cost,
+ * not about the shape of the parameter list.
  */
 export const spawnBlockBurst = (
   pool: ParticlePool,

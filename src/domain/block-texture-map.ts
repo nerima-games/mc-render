@@ -200,7 +200,7 @@ export const TILE_BY_BLOCK_NAME: Readonly<Record<string, TileAssignment>> = {
   gold_block: { bottom: 36, side: 36, top: 36 },
   gold_ore: { bottom: 22, side: 22, top: 22 },
   granite: { bottom: 13, side: 13, top: 13 },
-  grass_block: { bottom: 0, side: 5, top: 4 }, // reference GRASS. Three distinct roles.
+  grass_block: { bottom: 0, side: 5, top: 4 }, // Reference GRASS. Three distinct roles.
   gravel: { bottom: 11, side: 11, top: 11 },
   hopper: { bottom: 141, side: 141, top: 141 },
   ice: { bottom: 18, side: 18, top: 18 }, // ANOMALY: tile 18 is lava/fire. See header.
@@ -217,9 +217,9 @@ export const TILE_BY_BLOCK_NAME: Readonly<Record<string, TileAssignment>> = {
   nether_portal: { bottom: 86, side: 86, top: 86 },
   nether_wart_crop: { bottom: 127, side: 127, top: 127 },
   netherrack: { bottom: 63, side: 63, top: 63 },
-  oak_leaves: { bottom: 8, side: 8, top: 8 }, // reference LEAVES
-  oak_log: { bottom: 3, side: 2, top: 3 }, // reference WOOD. top = rings, side = bark.
-  oak_planks: { bottom: 41, side: 41, top: 41 }, // reference PLANKS
+  oak_leaves: { bottom: 8, side: 8, top: 8 }, // Reference LEAVES
+  oak_log: { bottom: 3, side: 2, top: 3 }, // Reference WOOD. top = rings, side = bark.
+  oak_planks: { bottom: 41, side: 41, top: 41 }, // Reference PLANKS
   oak_stairs: { bottom: 1, side: 131, top: 130 }, // Three distinct roles.
   observer: { bottom: 1, side: 140, top: 140 }, // Distinct bottom.
   obsidian: { bottom: 19, side: 19, top: 19 },

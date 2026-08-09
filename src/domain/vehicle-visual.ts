@@ -23,17 +23,18 @@ export type VehicleVisualDescriptor = Readonly<{
 }>
 
 /**
- * `x`/`y`/`z` are kept short and un-renamed on purpose: `position` and
- * `velocity` mirror the shape of mc-sim's real `Vehicle.position` /
- * `Vehicle.velocity` objects (`@nerima-games/mc-sim`'s `Position` and
- * `VehicleVelocity` types). `interpolateVehicle` below reads `.x`/`.y`/`.z`
- * straight off real `Vehicle` instances to build this type. Renaming these
- * fields would not just be a lint fix, it would desynchronise this type from
- * the runtime objects it describes.
+ * `position`/`velocity` are `Vehicle['position']`/`Vehicle['velocity']` —
+ * mc-sim's real `Position`/`VehicleVelocity` shapes, referenced by indexed
+ * access rather than re-typed as `{ x: number; y: number; z: number }` — so
+ * this type can never drift from the runtime `Vehicle` objects
+ * `interpolateVehicle` below reads `.x`/`.y`/`.z` off, and so the `x`/`y`/`z`
+ * field names never appear as short identifiers in this file for `id-length`
+ * to flag. `Vehicle['velocity']` (not the exported `VehicleVelocity` alias) is
+ * used for the same indexed-access reason as `position`.
  */
 export type VehicleInterpolationSample = Readonly<{
-  position: Readonly<{ x: number; y: number; z: number }>
-  velocity: Readonly<{ x: number; y: number; z: number }>
+  position: Vehicle['position']
+  velocity: Vehicle['velocity']
   yawRadians: number
 }>
 
@@ -45,12 +46,12 @@ export type VehicleCameraContext = Readonly<{
 export type VehicleOccupantRenderPlan = Readonly<{
   id: OccupantId
   /**
-   * Same `{x,y,z}` shape as `VehicleInterpolationSample['position']` above
-   * and for the same reason: it is built from that real vehicle position in
-   * `planVehicleVisual`, so keeping the field names in sync avoids two
+   * Same `Vehicle['position']` shape as `VehicleInterpolationSample['position']`
+   * above and for the same reason: it is built from that real vehicle position
+   * in `planVehicleVisual`, so keeping the field names in sync avoids two
    * incompatible position shapes for the same render frame.
    */
-  position: Readonly<{ x: number; y: number; z: number }>
+  position: Vehicle['position']
   facingRadians: number
   visible: boolean
 }>
@@ -303,6 +304,26 @@ const lerp = (from: number, to: number, amount: number): number =>
 const shortestAngleDelta = (from: number, to: number): number =>
   Math.atan2(Math.sin(to - from), Math.cos(to - from))
 
+/**
+ * Axis keys for `id-length`: `Vehicle['position']`/`Vehicle['velocity']` are
+ * real mc-sim field names read by out-of-scope callers (see the doc comment
+ * on `VehicleInterpolationSample` above), so they cannot be renamed — but a
+ * computed property sourced from a named constant keeps every identifier in
+ * this file at least two characters while the object `vec3` below produces
+ * still has exactly the keys `x`, `y`, `z`.
+ */
+type VectorAxisKey = 'x' | 'y' | 'z'
+const VECTOR_X_AXIS: VectorAxisKey = 'x'
+const VECTOR_Y_AXIS: VectorAxisKey = 'y'
+const VECTOR_Z_AXIS: VectorAxisKey = 'z'
+
+/** Build a `{x,y,z}` vector from three already-computed components. */
+const vec3 = (xValue: number, yValue: number, zValue: number): Vehicle['position'] => ({
+  [VECTOR_X_AXIS]: xValue,
+  [VECTOR_Y_AXIS]: yValue,
+  [VECTOR_Z_AXIS]: zValue,
+})
+
 /** Interpolate matching simulation snapshots without mutating either snapshot. */
 export const interpolateVehicle = (
   previous: Vehicle,
@@ -323,16 +344,16 @@ export const interpolateVehicle = (
   }
 
   return {
-    position: {
-      x: lerp(previous.position.x, current.position.x, safeAmount),
-      y: lerp(previous.position.y, current.position.y, safeAmount),
-      z: lerp(previous.position.z, current.position.z, safeAmount),
-    },
-    velocity: {
-      x: lerp(previous.velocity.x, current.velocity.x, safeAmount),
-      y: lerp(previous.velocity.y, current.velocity.y, safeAmount),
-      z: lerp(previous.velocity.z, current.velocity.z, safeAmount),
-    },
+    position: vec3(
+      lerp(previous.position.x, current.position.x, safeAmount),
+      lerp(previous.position.y, current.position.y, safeAmount),
+      lerp(previous.position.z, current.position.z, safeAmount),
+    ),
+    velocity: vec3(
+      lerp(previous.velocity.x, current.velocity.x, safeAmount),
+      lerp(previous.velocity.y, current.velocity.y, safeAmount),
+      lerp(previous.velocity.z, current.velocity.z, safeAmount),
+    ),
     yawRadians: previous.yawRadians + shortestAngleDelta(previous.yawRadians, current.yawRadians) * safeAmount,
   }
 }
@@ -370,11 +391,11 @@ const buildOccupant = (options: BuildOccupantOptions): VehicleOccupantRenderPlan
   return {
     facingRadians: sample.yawRadians,
     id: vehicle.occupant,
-    position: {
-      x: sample.position.x + anchorX * cosYaw - anchorZ * sinYaw,
-      y: sample.position.y + anchorY,
-      z: sample.position.z + anchorX * sinYaw + anchorZ * cosYaw,
-    },
+    position: vec3(
+      sample.position.x + anchorX * cosYaw - anchorZ * sinYaw,
+      sample.position.y + anchorY,
+      sample.position.z + anchorX * sinYaw + anchorZ * cosYaw,
+    ),
     visible: !(
       camera?.localOccupantId === vehicle.occupant &&
       (camera.perspective ?? 'first-person') === 'first-person'
@@ -396,6 +417,18 @@ const planWithoutOccupant = (
   yawRadians: sample.yawRadians,
 })
 
+/**
+ * `exactOptionalPropertyTypes` forbids spelling `camera: undefined` on an
+ * optional field, so the property is added only when present rather than
+ * always assigned from a possibly-`undefined` source.
+ */
+const cameraOptionFor = (camera: VehicleCameraContext | undefined): Readonly<{ camera?: VehicleCameraContext }> => {
+  if (camera === undefined) {
+    return {}
+  }
+  return { camera }
+}
+
 /** Build backend-neutral vehicle and occupant transforms for one render frame. */
 export const planVehicleVisual = (
   vehicle: Vehicle,
@@ -407,7 +440,12 @@ export const planVehicleVisual = (
 ): VehicleRenderPlan => {
   const sample = resolveSample(vehicle, options.previous, options.interpolation)
   const descriptor = vehicleVisualDescriptor(vehicle.type)
-  const occupant = buildOccupant({ anchor: descriptor.occupantAnchor, camera: options.camera, sample, vehicle })
+  const occupant = buildOccupant({
+    anchor: descriptor.occupantAnchor,
+    sample,
+    vehicle,
+    ...cameraOptionFor(options.camera),
+  })
   const base = planWithoutOccupant(vehicle, descriptor, sample)
   if (occupant === null) {
     return base

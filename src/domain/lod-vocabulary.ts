@@ -69,7 +69,11 @@ import { Schema } from 'effect'
  * `LodLevel | undefined`. `lodForDistance` in `./level-of-detail.ts` is total
  * because of this: there is no distance for which it has nothing to return.
  */
-export const LOD_LEVELS = [0, 1, 2] as const
+const LOD_LEVEL_FINEST = 0
+const LOD_LEVEL_MEDIUM = 1
+const LOD_LEVEL_COARSEST = 2
+
+export const LOD_LEVELS = [LOD_LEVEL_FINEST, LOD_LEVEL_MEDIUM, LOD_LEVEL_COARSEST] as const
 
 /** MIRRORS `mc-meshing/domain/lod.ts:65`. */
 export type LodLevel = (typeof LOD_LEVELS)[number]

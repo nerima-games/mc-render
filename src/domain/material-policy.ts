@@ -123,11 +123,14 @@ export type MaterialSpec = {
 export const takesTwoPassPath = (material: MaterialSpec): boolean =>
   material.transparent && material.side === 'double'
 
+/** `alphaTest` at or below this value means no cutout is applied. */
+const ALPHA_TEST_DISABLED = 0
+
 /**
  * True when the material is a cutout: every fragment is opaque or discarded, so
  * back-to-front ordering resolves nothing.
  */
-export const isCutout = (material: MaterialSpec): boolean => material.alphaTest > 0
+export const isCutout = (material: MaterialSpec): boolean => material.alphaTest > ALPHA_TEST_DISABLED
 
 /**
  * THE RULE. `forceSinglePass: true` is required exactly when a material is

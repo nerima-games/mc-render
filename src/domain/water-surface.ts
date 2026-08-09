@@ -545,23 +545,23 @@ export const rippleOffset = (worldX: number, worldZ: number, timeSecs: number): 
     return { u: 0, v: 0 }
   }
 
-  let u = 0
+  let uOffset = 0
   for (const layer of RIPPLE_LAYERS_U) {
-    u +=
+    uOffset +=
       waveApprox(worldZ * layer.spatialFrequency + timeSecs * layer.temporalSpeed) *
       RIPPLE_AMPLITUDE_UV *
       layer.amplitudeScale
   }
 
-  let v = 0
+  let vOffset = 0
   for (const layer of RIPPLE_LAYERS_V) {
-    v +=
+    vOffset +=
       waveApproxCos(worldX * layer.spatialFrequency + timeSecs * layer.temporalSpeed) *
       RIPPLE_AMPLITUDE_UV *
       layer.amplitudeScale
   }
 
-  return { u, v }
+  return { u: uOffset, v: vOffset }
 }
 
 /**

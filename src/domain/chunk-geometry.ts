@@ -166,7 +166,7 @@ export type FluidQuad = {
   readonly direction: FaceDirection
   readonly vertices: readonly [QuadVertex, QuadVertex, QuadVertex, QuadVertex]
   readonly flow?: {
-    readonly direction: readonly [x: number, z: number]
+    readonly direction: readonly [flowX: number, flowZ: number]
     readonly falling: boolean
   }
   readonly ao: number
@@ -191,13 +191,36 @@ export type FluidQuad = {
  * the range here would put a shader's job in a geometry builder, and the number
  * to divide by is a property of a shader that has not been written.
  */
-export const AO_SHADE_BY_LEVEL: ReadonlyArray<number> = [255, 204, 153, 102]
+/** 8-bit shade for AO level 0: fully unoccluded. */
+const AO_LEVEL_0_SHADE = 255
+/** 8-bit shade for AO level 1. */
+const AO_LEVEL_1_SHADE = 204
+/** 8-bit shade for AO level 2. */
+const AO_LEVEL_2_SHADE = 153
+/** 8-bit shade for AO level 3: the most occluded level. Equal to `AO_DARKEST`. */
+const AO_LEVEL_3_SHADE = 102
+
+export const AO_SHADE_BY_LEVEL: ReadonlyArray<number> = [
+  AO_LEVEL_0_SHADE,
+  AO_LEVEL_1_SHADE,
+  AO_LEVEL_2_SHADE,
+  AO_LEVEL_3_SHADE,
+]
 
 /** Levels `AO_SHADE_BY_LEVEL` covers. Mirrors mc-meshing's `AO_LEVELS`. */
 export const AO_LEVELS = AO_SHADE_BY_LEVEL.length
 
+/** Converts a count (here, `AO_LEVELS`) to its highest valid index. */
+const INDEX_FROM_COUNT = 1
+
 /** Highest (darkest) level. Mirrors mc-meshing's `AO_MAX`. */
-export const AO_MAX = AO_LEVELS - 1
+export const AO_MAX = AO_LEVELS - INDEX_FROM_COUNT
+
+/** The lowest AO level: fully unoccluded. The floor `aoShade` clamps to. */
+const AO_MIN_LEVEL = 0
+
+/** The shade of the most occluded level. See `aoShade` on why it is a fallback. */
+const AO_DARKEST = AO_LEVEL_3_SHADE
 
 /**
  * The shade for a level, saturating at both ends.
@@ -210,18 +233,15 @@ export const AO_MAX = AO_LEVELS - 1
  * instead, which is visibly wrong in the right place.
  */
 export const aoShade = (level: number): number => {
-  const clamped = Math.min(Math.max(Math.trunc(level), 0), AO_MAX)
-  // `?? AO_DARKEST` is unreachable: `clamped` is in `[0, AO_MAX]` by the line
-  // above and `AO_MAX` is derived from this array's own length, so the read
-  // cannot miss. `noUncheckedIndexedAccess` types it `number | undefined`
-  // regardless, and the fallback is the DARKEST shade rather than 0 or 255 so
-  // that if the impossible ever happens it degrades to "fully occluded" — the
-  // conservative direction for something whose only job is to darken.
+  const clamped = Math.min(Math.max(Math.trunc(level), AO_MIN_LEVEL), AO_MAX)
+  /* `?? AO_DARKEST` is unreachable: `clamped` is in `[0, AO_MAX]` by the line
+     above and `AO_MAX` is derived from this array's own length, so the read
+     cannot miss. `noUncheckedIndexedAccess` types it `number | undefined`
+     regardless, and the fallback is the DARKEST shade rather than 0 or 255 so
+     that if the impossible ever happens it degrades to "fully occluded" — the
+     conservative direction for something whose only job is to darken. */
   return AO_SHADE_BY_LEVEL[clamped] ?? AO_DARKEST
 }
-
-/** The shade of the most occluded level. See `aoShade` on why it is a fallback. */
-const AO_DARKEST = 102
 
 /** One corner of a quad, in world coordinates. */
 export type QuadVertex = readonly [number, number, number]
@@ -229,21 +249,28 @@ export type QuadVertex = readonly [number, number, number]
 /** The four corners of a quad, in winding order. */
 export type QuadCorners = readonly [QuadVertex, QuadVertex, QuadVertex, QuadVertex]
 
+/** A unit normal's component along its own axis, pointing toward positive infinity. */
+const AXIS_POSITIVE = 1
+/** A unit normal's component along its own axis, pointing toward negative infinity. */
+const AXIS_NEGATIVE = -1
+/** A unit normal's component along an axis it does not point along. */
+const AXIS_NONE = 0
+
 /** The unit normal of a face direction. */
 export const faceNormal = (direction: FaceDirection): QuadVertex => {
   switch (direction) {
     case 'xPos':
-      return [1, 0, 0]
+      return [AXIS_POSITIVE, AXIS_NONE, AXIS_NONE]
     case 'xNeg':
-      return [-1, 0, 0]
+      return [AXIS_NEGATIVE, AXIS_NONE, AXIS_NONE]
     case 'yPos':
-      return [0, 1, 0]
+      return [AXIS_NONE, AXIS_POSITIVE, AXIS_NONE]
     case 'yNeg':
-      return [0, -1, 0]
+      return [AXIS_NONE, AXIS_NEGATIVE, AXIS_NONE]
     case 'zPos':
-      return [0, 0, 1]
+      return [AXIS_NONE, AXIS_NONE, AXIS_POSITIVE]
     default:
-      return [0, 0, -1]
+      return [AXIS_NONE, AXIS_NONE, AXIS_NEGATIVE]
   }
 }
 
@@ -273,65 +300,84 @@ export const faceNormal = (direction: FaceDirection): QuadVertex => {
  * makes `side: FrontSide` — three's default, and `domain/material-policy.ts`'s
  * `'front'` — cull the back of the world rather than the front of it.
  */
+/**
+ * One whole block: the offset from a face's minimum corner to its maximum one
+ * along the face's own normal axis.
+ */
+const BLOCK_UNIT = 1
+
+/** One step forward through an index- or vertex-counting loop. */
+const LOOP_STEP = 1
+
+/** A face's minimum corner and extents: what every direction's corner builder needs. */
+type QuadFaceOrigin = {
+  readonly x0: number
+  readonly y0: number
+  readonly z0: number
+  readonly width: number
+  readonly height: number
+}
+
+/**
+ * One corner builder per direction, keyed so `quadCorners` is a lookup and not
+ * a fourteen-statement switch — the split this file's `tangentAxes` already
+ * makes for the same reason: a table a reader and a writer can each check
+ * independently, direction by direction.
+ */
+const CORNER_BUILDERS: Readonly<Record<FaceDirection, (origin: QuadFaceOrigin) => QuadCorners>> = {
+  xNeg: ({ x0, y0, z0, width, height }) => [
+    [x0, y0, z0 + height],
+    [x0, y0 + width, z0 + height],
+    [x0, y0 + width, z0],
+    [x0, y0, z0],
+  ],
+  xPos: ({ x0, y0, z0, width, height }) => {
+    const faceX = x0 + BLOCK_UNIT
+    return [
+      [faceX, y0, z0],
+      [faceX, y0 + width, z0],
+      [faceX, y0 + width, z0 + height],
+      [faceX, y0, z0 + height],
+    ]
+  },
+  yNeg: ({ x0, y0, z0, width, height }) => [
+    [x0 + width, y0, z0],
+    [x0 + width, y0, z0 + height],
+    [x0, y0, z0 + height],
+    [x0, y0, z0],
+  ],
+  yPos: ({ x0, y0, z0, width, height }) => {
+    const faceY = y0 + BLOCK_UNIT
+    return [
+      [x0, faceY, z0],
+      [x0, faceY, z0 + height],
+      [x0 + width, faceY, z0 + height],
+      [x0 + width, faceY, z0],
+    ]
+  },
+  zNeg: ({ x0, y0, z0, width, height }) => [
+    [x0, y0, z0],
+    [x0, y0 + height, z0],
+    [x0 + width, y0 + height, z0],
+    [x0 + width, y0, z0],
+  ],
+  zPos: ({ x0, y0, z0, width, height }) => {
+    const faceZ = z0 + BLOCK_UNIT
+    return [
+      [x0 + width, y0, faceZ],
+      [x0 + width, y0 + height, faceZ],
+      [x0, y0 + height, faceZ],
+      [x0, y0, faceZ],
+    ]
+  },
+}
+
 export const quadCorners = (quad: MeshQuad, originX: number, originZ: number): QuadCorners => {
   const x0 = originX + quad.lx
   const y0 = quad.y
   const z0 = originZ + quad.lz
   const { width, height } = quad
-
-  switch (quad.direction) {
-    case 'xPos': {
-      const x = x0 + 1
-      return [
-        [x, y0, z0],
-        [x, y0 + width, z0],
-        [x, y0 + width, z0 + height],
-        [x, y0, z0 + height],
-      ]
-    }
-    case 'xNeg': {
-      return [
-        [x0, y0, z0 + height],
-        [x0, y0 + width, z0 + height],
-        [x0, y0 + width, z0],
-        [x0, y0, z0],
-      ]
-    }
-    case 'yPos': {
-      const y = y0 + 1
-      return [
-        [x0, y, z0],
-        [x0, y, z0 + height],
-        [x0 + width, y, z0 + height],
-        [x0 + width, y, z0],
-      ]
-    }
-    case 'yNeg': {
-      return [
-        [x0 + width, y0, z0],
-        [x0 + width, y0, z0 + height],
-        [x0, y0, z0 + height],
-        [x0, y0, z0],
-      ]
-    }
-    case 'zPos': {
-      const z = z0 + 1
-      return [
-        [x0 + width, y0, z],
-        [x0 + width, y0 + height, z],
-        [x0, y0 + height, z],
-        [x0, y0, z],
-      ]
-    }
-    default: {
-      return [
-        [x0, y0, z0],
-        [x0, y0 + height, z0],
-        [x0 + width, y0 + height, z0],
-        [x0 + width, y0, z0],
-      ]
-    }
-  }
+  return CORNER_BUILDERS[quad.direction]({ height, width, x0, y0, z0 })
 }
 
 /**
@@ -423,19 +469,25 @@ export type ChunkGeometryBuffers = {
   readonly indexCount: number
 }
 
+/** The length of an allocation that holds nothing. */
+const EMPTY_LENGTH = 0
+
+/** The count for a geometry that covers no quads, vertices or indices. */
+const EMPTY_COUNT = 0
+
 /** The buffers for a chunk with no visible faces. Allocation-free. */
 const EMPTY_BUFFERS: ChunkGeometryBuffers = {
-  colors: new Uint8Array(0),
-  fluidDirections: new Float32Array(0),
-  fluidFalling: new Float32Array(0),
-  indexCount: 0,
-  indices: new Uint32Array(0),
-  normals: new Float32Array(0),
-  positions: new Float32Array(0),
-  quadCount: 0,
-  tileIndices: new Float32Array(0),
-  uvs: new Float32Array(0),
-  vertexCount: 0,
+  colors: new Uint8Array(EMPTY_LENGTH),
+  fluidDirections: new Float32Array(EMPTY_LENGTH),
+  fluidFalling: new Float32Array(EMPTY_LENGTH),
+  indexCount: EMPTY_COUNT,
+  indices: new Uint32Array(EMPTY_LENGTH),
+  normals: new Float32Array(EMPTY_LENGTH),
+  positions: new Float32Array(EMPTY_LENGTH),
+  quadCount: EMPTY_COUNT,
+  tileIndices: new Float32Array(EMPTY_LENGTH),
+  uvs: new Float32Array(EMPTY_LENGTH),
+  vertexCount: EMPTY_COUNT,
 }
 
 /**
@@ -519,6 +571,9 @@ export const AO_ONLY_COLOR: QuadColor = greyQuadColor(AO_ONLY_SHADE)
  */
 export type QuadTile = (quad: MeshQuad) => number
 
+/** The tile index every quad draws when no atlas is bound. See `UNTEXTURED_TILE`. */
+const UNTEXTURED_TILE_INDEX = 0
+
 /**
  * The default: every quad draws tile 0.
  *
@@ -533,7 +588,196 @@ export type QuadTile = (quad: MeshQuad) => number
  * uniform world rather than a plausible-looking wrong one, and `UNTEXTURED_TILE`
  * is greppable in a way `0` is not.
  */
-export const UNTEXTURED_TILE: QuadTile = () => 0
+export const UNTEXTURED_TILE: QuadTile = () => UNTEXTURED_TILE_INDEX
+
+/** Default chunk-local origin: a caller that does not offset the mesh. */
+const DEFAULT_CHUNK_ORIGIN = 0
+
+/** The quad, vertex or index count of an empty input. */
+const EMPTY_QUAD_COUNT = 0
+
+/** Offsets of the y and z components within a 3-component position or normal write; x is the base offset. */
+const Y_COMPONENT_OFFSET = 1
+const Z_COMPONENT_OFFSET = 2
+
+/** Offsets of the green and blue channels within a 3-component colour write; red is the base offset. */
+const GREEN_CHANNEL_OFFSET = 1
+const BLUE_CHANNEL_OFFSET = 2
+
+/** The offset of the second value in a 2-component pair write: a flow direction's z, or a UV's v. */
+const PAIR_SECOND_OFFSET = 1
+
+/** Slot offsets within a quad's 8-value UV block: two components per corner. */
+const CORNER_0_U_OFFSET = 0
+const CORNER_0_V_OFFSET = 1
+const CORNER_1_U_OFFSET = 2
+const CORNER_1_V_OFFSET = 3
+const CORNER_2_U_OFFSET = 4
+const CORNER_2_V_OFFSET = 5
+const CORNER_3_U_OFFSET = 6
+const CORNER_3_V_OFFSET = 7
+
+/** The `u` and `v` coordinate at a quad's own origin corner. */
+const UV_ORIGIN = 0
+
+/** A quad's second, third and fourth vertices, by position within its 4-vertex block. */
+const VERTEX_1 = 1
+const VERTEX_2 = 2
+const VERTEX_3 = 3
+
+/** Index-buffer slot offsets for a quad's six indices: two triangles, three each. */
+const INDEX_SLOT_1 = 1
+const INDEX_SLOT_2 = 2
+const INDEX_SLOT_3 = 3
+const INDEX_SLOT_4 = 4
+const INDEX_SLOT_5 = 5
+
+type ChunkWriteBuffers = {
+  readonly positions: Float32Array
+  readonly normals: Float32Array
+  readonly colors: Uint8Array
+  readonly uvs: Float32Array
+  readonly tileIndices: Float32Array
+  readonly fluidDirections: Float32Array
+  readonly fluidFalling: Float32Array
+  readonly indices: Uint32Array
+}
+
+const allocateChunkWriteBuffers = (vertexCount: number, indexCount: number): ChunkWriteBuffers => ({
+  colors: new Uint8Array(vertexCount * COLOR_COMPONENTS),
+  fluidDirections: new Float32Array(vertexCount * FLUID_DIRECTION_COMPONENTS),
+  fluidFalling: new Float32Array(vertexCount * FLUID_FALLING_COMPONENTS),
+  indices: new Uint32Array(indexCount),
+  normals: new Float32Array(vertexCount * NORMAL_COMPONENTS),
+  positions: new Float32Array(vertexCount * POSITION_COMPONENTS),
+  tileIndices: new Float32Array(vertexCount * TILE_INDEX_COMPONENTS),
+  uvs: new Float32Array(vertexCount * UV_COMPONENTS),
+})
+
+type ChunkBuildContext = {
+  readonly buffers: ChunkWriteBuffers
+  readonly originX: number
+  readonly originZ: number
+  readonly color: QuadColor
+  readonly tile: QuadTile
+}
+
+type QuadAttributes = {
+  readonly corners: QuadCorners
+  readonly normal: QuadVertex
+  readonly color: readonly [number, number, number]
+  readonly tileIndex: number
+}
+
+type VertexWrite = {
+  readonly buffers: ChunkWriteBuffers
+  readonly at: number
+  readonly tileAt: number
+  readonly vertex: QuadVertex
+  readonly normal: QuadVertex
+  readonly color: readonly [number, number, number]
+  readonly tileIndex: number
+}
+
+/** Write one vertex's position and normal. Split from colour/tile so each stays a small function. */
+const writeVertexPositionAndNormal = (write: VertexWrite): void => {
+  const { buffers, at, vertex, normal } = write
+  const [vertexX, vertexY, vertexZ] = vertex
+  const [normalX, normalY, normalZ] = normal
+  buffers.positions[at] = vertexX
+  buffers.positions[at + Y_COMPONENT_OFFSET] = vertexY
+  buffers.positions[at + Z_COMPONENT_OFFSET] = vertexZ
+  buffers.normals[at] = normalX
+  buffers.normals[at + Y_COMPONENT_OFFSET] = normalY
+  buffers.normals[at + Z_COMPONENT_OFFSET] = normalZ
+}
+
+/**
+ * Write one vertex's colour and tile index.
+ *
+ * The same shade and the same tile four times per quad — see `processQuad`'s
+ * header on why both are computed once per quad and written once per vertex.
+ */
+const writeVertexColorAndTile = (write: VertexWrite): void => {
+  const { buffers, at, tileAt, color, tileIndex } = write
+  const [red, green, blue] = color
+  buffers.colors[at] = red
+  buffers.colors[at + GREEN_CHANNEL_OFFSET] = green
+  buffers.colors[at + BLUE_CHANNEL_OFFSET] = blue
+  buffers.tileIndices[tileAt] = tileIndex
+}
+
+/**
+ * Write a quad's four corners into the position, normal, colour and tile
+ * buffers.
+ *
+ * `for...of` and not an index loop: `QuadCorners` is a fixed four-tuple, and
+ * under `noUncheckedIndexedAccess` a numeric index into one reads as
+ * `QuadVertex | undefined` while iteration does not. The alternative is four
+ * non-null assertions in the hot path.
+ */
+const writeQuadCorners = (buffers: ChunkWriteBuffers, base: number, attributes: QuadAttributes): void => {
+  const { corners, normal, color, tileIndex } = attributes
+  let corner = 0
+  for (const vertex of corners) {
+    const at = (base + corner) * POSITION_COMPONENTS
+    const tileAt = (base + corner) * TILE_INDEX_COMPONENTS
+    corner += LOOP_STEP
+    const write: VertexWrite = { at, buffers, color, normal, tileAt, tileIndex, vertex }
+    writeVertexPositionAndNormal(write)
+    writeVertexColorAndTile(write)
+  }
+}
+
+/**
+ * Write a quad's UVs: `(0,0), (0,v), (u,v), (u,0)` — the reference's order at
+ * `greedy-meshing-accumulator.ts:158-161`, which is the winding order of
+ * `quadCorners` and must stay in step with it.
+ */
+const writeQuadUVs = (uvs: Float32Array, uvOffset: number, extent: readonly [number, number]): void => {
+  const [uExtent, vExtent] = extent
+  uvs[uvOffset + CORNER_0_U_OFFSET] = UV_ORIGIN
+  uvs[uvOffset + CORNER_0_V_OFFSET] = UV_ORIGIN
+  uvs[uvOffset + CORNER_1_U_OFFSET] = UV_ORIGIN
+  uvs[uvOffset + CORNER_1_V_OFFSET] = vExtent
+  uvs[uvOffset + CORNER_2_U_OFFSET] = uExtent
+  uvs[uvOffset + CORNER_2_V_OFFSET] = vExtent
+  uvs[uvOffset + CORNER_3_U_OFFSET] = uExtent
+  uvs[uvOffset + CORNER_3_V_OFFSET] = UV_ORIGIN
+}
+
+/** Write a quad's two triangles: `(0,1,2)` and `(0,2,3)`. See `ChunkGeometryBuffers.indices`. */
+const writeQuadIndices = (indices: Uint32Array, indexOffset: number, base: number): void => {
+  indices[indexOffset] = base
+  indices[indexOffset + INDEX_SLOT_1] = base + VERTEX_1
+  indices[indexOffset + INDEX_SLOT_2] = base + VERTEX_2
+  indices[indexOffset + INDEX_SLOT_3] = base
+  indices[indexOffset + INDEX_SLOT_4] = base + VERTEX_2
+  indices[indexOffset + INDEX_SLOT_5] = base + VERTEX_3
+}
+
+/**
+ * Everything one quad contributes to the buffers: corners, colour, UVs, tile
+ * and the index triangles.
+ *
+ * ONE CALL PER QUAD, not per vertex, for `color` and `tile`: the four vertices
+ * of a quad share a shade for the reason the header gives for AO — the value
+ * joins the merge key, so every cell the quad covers already agreed on it —
+ * and a per-vertex call would invite a `shade` implementation that samples
+ * four times and quietly quadruples the cost of a re-mesh. Once per quad for
+ * the same reason `tile` is: the tile joins the merge key upstream too.
+ */
+const processQuad = (context: ChunkBuildContext, quad: MeshQuad, quadIndex: number): void => {
+  const corners = quadCorners(quad, context.originX, context.originZ)
+  const normal = faceNormal(quad.direction)
+  const color = context.color(quad)
+  const [uExtent, vExtent] = quadUvExtent(quad)
+  const tileIndex = context.tile(quad)
+  const base = quadIndex * VERTICES_PER_QUAD
+  writeQuadCorners(context.buffers, base, { color, corners, normal, tileIndex })
+  writeQuadUVs(context.buffers.uvs, base * UV_COMPONENTS, [uExtent, vExtent])
+  writeQuadIndices(context.buffers.indices, quadIndex * INDICES_PER_QUAD, base)
+}
 
 /**
  * Build the vertex buffers for one chunk's worth of quads.
@@ -552,7 +796,9 @@ export const UNTEXTURED_TILE: QuadTile = () => 0
  * `let` + `for` and direct typed-array writes, which is the same performance
  * exemption mc-meshing takes for its own inner loops (plan.md §5.2): this runs
  * once per re-meshed chunk over every visible face in it, and a functional
- * formulation would allocate four tuples and three arrays per quad.
+ * formulation would allocate four tuples and three arrays per quad. The
+ * per-quad work itself is `processQuad`, above, split out so this function's
+ * own body stays a plain allocate-then-loop shape.
  *
  * EVERY QUAD IS EMITTED. There is no culling, no LOD and no layer separation
  * here — `MeshLayers` has three quad lists plus plants and fluids, and choosing
@@ -563,225 +809,345 @@ export const UNTEXTURED_TILE: QuadTile = () => 0
  */
 export const buildChunkGeometry = (
   quads: ReadonlyArray<MeshQuad>,
-  originX = 0,
-  originZ = 0,
+  originX = DEFAULT_CHUNK_ORIGIN,
+  originZ = DEFAULT_CHUNK_ORIGIN,
   color: QuadColor = AO_ONLY_COLOR,
   tile: QuadTile = UNTEXTURED_TILE,
 ): ChunkGeometryBuffers => {
   const quadCount = quads.length
-  if (quadCount === 0) {
+  if (quadCount === EMPTY_QUAD_COUNT) {
     return EMPTY_BUFFERS
   }
 
-  const vertexCount = quadCount * VERTICES_PER_QUAD
-  const indexCount = quadCount * INDICES_PER_QUAD
-
-  const positions = new Float32Array(vertexCount * POSITION_COMPONENTS)
-  const normals = new Float32Array(vertexCount * NORMAL_COMPONENTS)
-  const colors = new Uint8Array(vertexCount * COLOR_COMPONENTS)
-  const uvs = new Float32Array(vertexCount * UV_COMPONENTS)
-  const tileIndices = new Float32Array(vertexCount * TILE_INDEX_COMPONENTS)
-  const fluidDirections = new Float32Array(vertexCount * FLUID_DIRECTION_COMPONENTS)
-  const fluidFalling = new Float32Array(vertexCount * FLUID_FALLING_COMPONENTS)
-  const indices = new Uint32Array(indexCount)
-
-  for (let quadIndex = 0; quadIndex < quadCount; quadIndex += 1) {
+  const buffers = allocateChunkWriteBuffers(quadCount * VERTICES_PER_QUAD, quadCount * INDICES_PER_QUAD)
+  const context: ChunkBuildContext = { buffers, color, originX, originZ, tile }
+  for (let quadIndex = 0; quadIndex < quadCount; quadIndex += LOOP_STEP) {
     const quad = quads[quadIndex]
-    if (quad === undefined) {
-      continue
+    if (quad) {
+      processQuad(context, quad, quadIndex)
     }
-
-    const corners = quadCorners(quad, originX, originZ)
-    const normal = faceNormal(quad.direction)
-    // ONE CALL PER QUAD, not per vertex. The four vertices of a quad share a
-    // shade for the reason the header gives for AO — the value joins the merge
-    // key, so every cell the quad covers already agreed on it — and a
-    // per-vertex call would invite a `shade` implementation that samples four
-    // times and quietly quadruples the cost of a re-mesh.
-    const [red, green, blue] = color(quad)
-    const [uExtent, vExtent] = quadUvExtent(quad)
-    // Once per quad for the same reason `color` is: the tile joins the merge
-    // key upstream, so every cell this quad covers already agreed on it.
-    const tileIndex = tile(quad)
-
-    const base = quadIndex * VERTICES_PER_QUAD
-    const positionOffset = base * POSITION_COMPONENTS
-    const uvOffset = base * UV_COMPONENTS
-    const tileOffset = base * TILE_INDEX_COMPONENTS
-
-    // `for...of` and not an index loop: `QuadCorners` is a fixed four-tuple, and
-    // under `noUncheckedIndexedAccess` a numeric index into one reads as
-    // `QuadVertex | undefined` while iteration does not. The alternative is four
-    // non-null assertions in the hot path.
-    let corner = 0
-    for (const vertex of corners) {
-      const at = positionOffset + corner * POSITION_COMPONENTS
-      const tileAt = tileOffset + corner * TILE_INDEX_COMPONENTS
-      corner += 1
-
-      positions[at] = vertex[0]
-      positions[at + 1] = vertex[1]
-      positions[at + 2] = vertex[2]
-
-      normals[at] = normal[0]
-      normals[at + 1] = normal[1]
-      normals[at + 2] = normal[2]
-
-      // The same shade four times. See the header: AO is per FACE, and the
-      // four-value write is kept so that a light grid can differ per corner
-      // without changing the buffer layout.
-      colors[at] = red
-      colors[at + 1] = green
-      colors[at + 2] = blue
-
-      // The same tile four times. A quad is one block face; the per-vertex
-      // repetition is what an attribute is, not a claim that corners differ.
-      tileIndices[tileAt] = tileIndex
-    }
-
-    // `(0,0), (0,v), (u,v), (u,0)` — the reference's order at
-    // `greedy-meshing-accumulator.ts:158-161`, which is the winding order of
-    // `quadCorners` and must stay in step with it.
-    uvs[uvOffset] = 0
-    uvs[uvOffset + 1] = 0
-    uvs[uvOffset + 2] = 0
-    uvs[uvOffset + 3] = vExtent
-    uvs[uvOffset + 4] = uExtent
-    uvs[uvOffset + 5] = vExtent
-    uvs[uvOffset + 6] = uExtent
-    uvs[uvOffset + 7] = 0
-
-    const indexOffset = quadIndex * INDICES_PER_QUAD
-    indices[indexOffset] = base
-    indices[indexOffset + 1] = base + 1
-    indices[indexOffset + 2] = base + 2
-    indices[indexOffset + 3] = base
-    indices[indexOffset + 4] = base + 2
-    indices[indexOffset + 5] = base + 3
   }
 
   return {
-    colors, fluidDirections, fluidFalling, indexCount, indices, normals, positions, quadCount, tileIndices, uvs, vertexCount,
+    ...buffers,
+    indexCount: quadCount * INDICES_PER_QUAD,
+    quadCount,
+    vertexCount: quadCount * VERTICES_PER_QUAD,
   }
+}
+
+/** Half a block: the offset applied to a fluid cell key along its quad's own scan axis. */
+const CELL_KEY_HALF_BLOCK = 0.5
+/** No offset: the axis a fluid cell key's quad direction does not need adjusting along. */
+const CELL_KEY_NO_OFFSET = 0
+
+/** The axis offset a fluid cell key applies, or none, depending on whether the quad's direction matches. */
+const cellKeyAxisOffset = (matchesQuadDirection: boolean): number => {
+  if (matchesQuadDirection) {
+    return CELL_KEY_HALF_BLOCK
+  }
+  return CELL_KEY_NO_OFFSET
 }
 
 const fluidCellKey = (quad: FluidQuad): string => {
   let minX = Number.POSITIVE_INFINITY
   let minY = Number.POSITIVE_INFINITY
   let minZ = Number.POSITIVE_INFINITY
-  for (const [x, y, z] of quad.vertices) {
-    minX = Math.min(minX, x)
-    minY = Math.min(minY, y)
-    minZ = Math.min(minZ, z)
+  for (const [vertexX, vertexY, vertexZ] of quad.vertices) {
+    minX = Math.min(minX, vertexX)
+    minY = Math.min(minY, vertexY)
+    minZ = Math.min(minZ, vertexZ)
   }
-  const cellX = Math.floor(minX - (quad.direction === 'xPos' ? 0.5 : 0))
-  const cellZ = Math.floor(minZ - (quad.direction === 'zPos' ? 0.5 : 0))
+  const cellX = Math.floor(minX - cellKeyAxisOffset(quad.direction === 'xPos'))
+  const cellZ = Math.floor(minZ - cellKeyAxisOffset(quad.direction === 'zPos'))
   return `${quad.blockId}:${cellX}:${Math.floor(minY)}:${cellZ}`
 }
 
+/** The x and z flow components when there is no usable flow. */
+const ZERO_FLOW = 0
+const NO_FLOW_DIRECTION: readonly [number, number] = [ZERO_FLOW, ZERO_FLOW]
+
 const safeFlowDirection = (flow: FluidQuad['flow']): readonly [number, number] => {
-  if (flow === undefined) {return [0, 0]}
-  const [x, z] = flow.direction
-  if (!Number.isFinite(x) || !Number.isFinite(z)) {return [0, 0]}
-  const length = Math.hypot(x, z)
-  return length > 0 ? [x / length, z / length] : [0, 0]
+  if (!flow) {
+    return NO_FLOW_DIRECTION
+  }
+  const [flowX, flowZ] = flow.direction
+  if (!Number.isFinite(flowX) || !Number.isFinite(flowZ)) {
+    return NO_FLOW_DIRECTION
+  }
+  const length = Math.hypot(flowX, flowZ)
+  if (length === ZERO_FLOW) {
+    return NO_FLOW_DIRECTION
+  }
+  return [flowX / length, flowZ / length]
+}
+
+const roleForFluidDirection = (direction: FaceDirection): FaceRole => {
+  if (direction === 'yPos') {
+    return 'top'
+  }
+  return 'side'
+}
+
+/** Extents mirror a unit block face: fluid faces are meshed one block at a time. */
+const FLUID_PROXY_EXTENT = 1
+/** A fluid proxy quad's local position: `buildFluidGeometry` supplies world coordinates separately. */
+const FLUID_PROXY_ORIGIN = 0
+
+const fluidProxyQuad = (quad: FluidQuad): MeshQuad => ({
+  ao: quad.ao,
+  blockId: quad.blockId,
+  direction: quad.direction,
+  height: FLUID_PROXY_EXTENT,
+  lx: FLUID_PROXY_ORIGIN,
+  lz: FLUID_PROXY_ORIGIN,
+  role: roleForFluidDirection(quad.direction),
+  width: FLUID_PROXY_EXTENT,
+  y: FLUID_PROXY_ORIGIN,
+})
+
+const isFallingFluidQuad = (quad: FluidQuad, fallingCells: ReadonlySet<string>): boolean =>
+  quad.flow?.falling === true || fallingCells.has(fluidCellKey(quad))
+
+type FlowDirectionInputs = {
+  readonly quad: FluidQuad
+  readonly normal: QuadVertex
+  readonly topFlow: readonly [number, number]
+  readonly falling: boolean
+}
+
+/** A fluid quad's animated flow direction: the sampled flow on top, the face normal on a falling side, else none. */
+const fluidFlowDirection = (inputs: FlowDirectionInputs): readonly [number, number] => {
+  const { quad, normal, topFlow, falling } = inputs
+  if (quad.direction === 'yPos') {
+    return topFlow
+  }
+  if (falling) {
+    const [normalX, , normalZ] = normal
+    return [normalX, normalZ]
+  }
+  return NO_FLOW_DIRECTION
+}
+
+const FALLING_FLAG = 1
+const NOT_FALLING_FLAG = 0
+
+const writeFluidFalling = (built: ChunkGeometryBuffers, fallingAt: number, falling: boolean): void => {
+  if (falling) {
+    built.fluidFalling[fallingAt] = FALLING_FLAG
+  } else {
+    built.fluidFalling[fallingAt] = NOT_FALLING_FLAG
+  }
+}
+
+type FluidPositionAndFlowWrite = {
+  readonly built: ChunkGeometryBuffers
+  readonly positionAt: number
+  readonly flowAt: number
+  readonly origin: readonly [number, number]
+  readonly vertex: QuadVertex
+  readonly direction: readonly [number, number]
+}
+
+const writeFluidPositionAndFlow = (write: FluidPositionAndFlowWrite): void => {
+  const { built, positionAt, flowAt, origin, vertex, direction } = write
+  const [originX, originZ] = origin
+  const [vertexX, vertexY, vertexZ] = vertex
+  const [flowX, flowZ] = direction
+  built.positions[positionAt] = originX + vertexX
+  built.positions[positionAt + Y_COMPONENT_OFFSET] = vertexY
+  built.positions[positionAt + Z_COMPONENT_OFFSET] = originZ + vertexZ
+  built.fluidDirections[flowAt] = flowX
+  built.fluidDirections[flowAt + PAIR_SECOND_OFFSET] = flowZ
+}
+
+type FluidQuadWrite = {
+  readonly built: ChunkGeometryBuffers
+  readonly quad: FluidQuad
+  readonly base: number
+  readonly origin: readonly [number, number]
+  readonly direction: readonly [number, number]
+  readonly falling: boolean
+}
+
+/** Write every corner of one fluid quad's position, flow and falling flag. */
+const writeFluidQuadVertices = (write: FluidQuadWrite): void => {
+  const { built, quad, base, origin, direction, falling } = write
+  for (let cornerIndex = 0; cornerIndex < VERTICES_PER_QUAD; cornerIndex += LOOP_STEP) {
+    const vertex = quad.vertices[cornerIndex]
+    if (vertex) {
+      const positionAt = (base + cornerIndex) * POSITION_COMPONENTS
+      const flowAt = (base + cornerIndex) * FLUID_DIRECTION_COMPONENTS
+      writeFluidPositionAndFlow({ built, direction, flowAt, origin, positionAt, vertex })
+      writeFluidFalling(built, base + cornerIndex, falling)
+    }
+  }
+}
+
+/** Half a block: centres a flow-UV sample within its cell rather than at the cell's corner. */
+const HALF_BLOCK = 0.5
+/** The UV value at a flow-animated vertex's own cell centre, before the flow rotation is applied. */
+const UV_CENTER = 0.5
+
+type FlowUVVertexWrite = {
+  readonly built: ChunkGeometryBuffers
+  readonly at: number
+  readonly cell: readonly [number, number]
+  readonly topFlow: readonly [number, number]
+  readonly vertex: QuadVertex
+}
+
+const writeFlowUVVertex = (write: FlowUVVertexWrite): void => {
+  const { built, at, cell, topFlow, vertex } = write
+  const [cellX, cellZ] = cell
+  const [flowX, flowZ] = topFlow
+  const [vertexX, , vertexZ] = vertex
+  const localU = vertexX - cellX - HALF_BLOCK
+  const localV = vertexZ - cellZ - HALF_BLOCK
+  built.uvs[at] = UV_CENTER + localU * -flowZ + localV * flowX
+  built.uvs[at + PAIR_SECOND_OFFSET] = UV_CENTER + localU * flowX + localV * flowZ
+}
+
+type FluidFlowUVWrite = {
+  readonly built: ChunkGeometryBuffers
+  readonly quad: FluidQuad
+  readonly base: number
+  readonly cell: readonly [number, number]
+  readonly topFlow: readonly [number, number]
+}
+
+/** Animate a flow-carrying top face's UVs so the water texture scrolls the direction it flows. */
+const writeFluidFlowUV = (write: FluidFlowUVWrite): void => {
+  const { built, quad, base, cell, topFlow } = write
+  for (let cornerIndex = 0; cornerIndex < VERTICES_PER_QUAD; cornerIndex += LOOP_STEP) {
+    const vertex = quad.vertices[cornerIndex]
+    if (vertex) {
+      const at = (base + cornerIndex) * UV_COMPONENTS
+      writeFlowUVVertex({ at, built, cell, topFlow, vertex })
+    }
+  }
+}
+
+const fluidVertexX = ([vertexX]: QuadVertex): number => vertexX
+const fluidVertexZ = ([, , vertexZ]: QuadVertex): number => vertexZ
+
+const hasHorizontalFlow = (flow: readonly [number, number]): boolean => {
+  const [flowX, flowZ] = flow
+  return flowX !== ZERO_FLOW || flowZ !== ZERO_FLOW
+}
+
+type FluidQuadContext = {
+  readonly built: ChunkGeometryBuffers
+  readonly origin: readonly [number, number]
+  readonly fallingCells: ReadonlySet<string>
+}
+
+const processFluidQuad = (context: FluidQuadContext, quad: FluidQuad, quadIndex: number): void => {
+  const normal = faceNormal(quad.direction)
+  const topFlow = safeFlowDirection(quad.flow)
+  const falling = isFallingFluidQuad(quad, context.fallingCells)
+  const direction = fluidFlowDirection({ falling, normal, quad, topFlow })
+  const base = quadIndex * VERTICES_PER_QUAD
+  writeFluidQuadVertices({ base, built: context.built, direction, falling, origin: context.origin, quad })
+  if (quad.direction === 'yPos' && hasHorizontalFlow(topFlow)) {
+    const cellX = Math.floor(Math.min(...quad.vertices.map(fluidVertexX)))
+    const cellZ = Math.floor(Math.min(...quad.vertices.map(fluidVertexZ)))
+    writeFluidFlowUV({ base, built: context.built, cell: [cellX, cellZ], quad, topFlow })
+  }
 }
 
 /** Build non-cubic fluid faces and preserve their animation metadata. */
 export const buildFluidGeometry = (
   quads: ReadonlyArray<FluidQuad>,
-  originX = 0,
-  originZ = 0,
+  originX = DEFAULT_CHUNK_ORIGIN,
+  originZ = DEFAULT_CHUNK_ORIGIN,
   color: QuadColor = AO_ONLY_COLOR,
   tile: QuadTile = UNTEXTURED_TILE,
 ): ChunkGeometryBuffers => {
-  if (quads.length === 0) {return EMPTY_BUFFERS}
+  if (quads.length === EMPTY_QUAD_COUNT) {
+    return EMPTY_BUFFERS
+  }
   const fallingCells = new Set(
     quads.filter((quad) => quad.direction === 'yPos' && quad.flow?.falling === true).map(fluidCellKey),
   )
-  const proxies: MeshQuad[] = quads.map((quad) => ({
-    ao: quad.ao,
-    blockId: quad.blockId,
-    direction: quad.direction,
-    height: 1,
-    lx: 0,
-    lz: 0,
-    role: quad.direction === 'yPos' ? 'top' : 'side',
-    width: 1,
-    y: 0,
-  }))
-  const built = buildChunkGeometry(proxies, 0, 0, color, tile)
+  const built = buildChunkGeometry(quads.map(fluidProxyQuad), DEFAULT_CHUNK_ORIGIN, DEFAULT_CHUNK_ORIGIN, color, tile)
+  const context: FluidQuadContext = { built, fallingCells, origin: [originX, originZ] }
 
-  for (let quadIndex = 0; quadIndex < quads.length; quadIndex += 1) {
+  for (let quadIndex = 0; quadIndex < quads.length; quadIndex += LOOP_STEP) {
     const quad = quads[quadIndex]
-    if (quad === undefined) {continue}
-    const normal = faceNormal(quad.direction)
-    const topFlow = safeFlowDirection(quad.flow)
-    const falling = quad.flow?.falling === true || fallingCells.has(fluidCellKey(quad))
-    const direction: readonly [number, number] = quad.direction === 'yPos'
-      ? topFlow
-      : falling ? [normal[0], normal[2]] : [0, 0]
-    const base = quadIndex * VERTICES_PER_QUAD
-    for (let corner = 0; corner < VERTICES_PER_QUAD; corner += 1) {
-      const vertex = quad.vertices[corner]
-      if (vertex === undefined) {continue}
-      const positionAt = (base + corner) * POSITION_COMPONENTS
-      const flowAt = (base + corner) * FLUID_DIRECTION_COMPONENTS
-      built.positions[positionAt] = originX + vertex[0]
-      built.positions[positionAt + 1] = vertex[1]
-      built.positions[positionAt + 2] = originZ + vertex[2]
-      built.fluidDirections[flowAt] = direction[0]
-      built.fluidDirections[flowAt + 1] = direction[1]
-      built.fluidFalling[base + corner] = falling ? 1 : 0
-    }
-
-    if (quad.direction === 'yPos' && (topFlow[0] !== 0 || topFlow[1] !== 0)) {
-      const cellX = Math.floor(Math.min(...quad.vertices.map(([x]) => x)))
-      const cellZ = Math.floor(Math.min(...quad.vertices.map(([, , z]) => z)))
-      for (let corner = 0; corner < VERTICES_PER_QUAD; corner += 1) {
-        const vertex = quad.vertices[corner]
-        if (vertex === undefined) {continue}
-        const u = vertex[0] - cellX - 0.5
-        const v = vertex[2] - cellZ - 0.5
-        const at = (base + corner) * UV_COMPONENTS
-        built.uvs[at] = 0.5 + u * -topFlow[1] + v * topFlow[0]
-        built.uvs[at + 1] = 0.5 + u * topFlow[0] + v * topFlow[1]
-      }
+    if (quad) {
+      processFluidQuad(context, quad, quadIndex)
     }
   }
   return built
 }
 
+/** The identity element for summing a count across parts: no parts, zero total. */
+const SUM_IDENTITY = 0
+
+const sumBy = (
+  parts: ReadonlyArray<ChunkGeometryBuffers>,
+  selector: (part: ChunkGeometryBuffers) => number,
+): number => parts.reduce((sum, part) => sum + selector(part), SUM_IDENTITY)
+
+/**
+ * The value used when an index-buffer slot is missing under
+ * `noUncheckedIndexedAccess`. Unreachable in practice: every part's `indices`
+ * is exactly its own `indexCount` long.
+ */
+const MISSING_INDEX_FALLBACK = 0
+
+/** One index-buffer slot's advance. */
+const INDEX_STEP = 1
+
+/** How far into the combined buffers the next part's vertices and indices start. */
+type GeometryOffsets = {
+  readonly vertexOffset: number
+  readonly indexOffset: number
+}
+
+const INITIAL_OFFSETS: GeometryOffsets = { indexOffset: DEFAULT_CHUNK_ORIGIN, vertexOffset: DEFAULT_CHUNK_ORIGIN }
+
+/** Copy one part's index triangles into the combined target, offset by the vertices already copied. */
+const copyGeometryIndices = (target: ChunkWriteBuffers, offsets: GeometryOffsets, part: ChunkGeometryBuffers): void => {
+  const { vertexOffset, indexOffset } = offsets
+  for (let index = 0; index < part.indexCount; index += INDEX_STEP) {
+    target.indices[indexOffset + index] = (part.indices[index] ?? MISSING_INDEX_FALLBACK) + vertexOffset
+  }
+}
+
+/**
+ * Copy one part's buffers into the combined target at its assigned offsets,
+ * and return the offsets the next part starts at.
+ */
+const copyGeometryPart = (
+  target: ChunkWriteBuffers,
+  offsets: GeometryOffsets,
+  part: ChunkGeometryBuffers,
+): GeometryOffsets => {
+  const { vertexOffset, indexOffset } = offsets
+  target.positions.set(part.positions, vertexOffset * POSITION_COMPONENTS)
+  target.normals.set(part.normals, vertexOffset * NORMAL_COMPONENTS)
+  target.colors.set(part.colors, vertexOffset * COLOR_COMPONENTS)
+  target.uvs.set(part.uvs, vertexOffset * UV_COMPONENTS)
+  target.tileIndices.set(part.tileIndices, vertexOffset)
+  target.fluidDirections.set(part.fluidDirections, vertexOffset * FLUID_DIRECTION_COMPONENTS)
+  target.fluidFalling.set(part.fluidFalling, vertexOffset)
+  copyGeometryIndices(target, offsets, part)
+  return { indexOffset: indexOffset + part.indexCount, vertexOffset: vertexOffset + part.vertexCount }
+}
+
 /** Concatenate independently generated layer buffers into one GPU geometry. */
 export const combineChunkGeometry = (...parts: ReadonlyArray<ChunkGeometryBuffers>): ChunkGeometryBuffers => {
-  const vertexCount = parts.reduce((sum, part) => sum + part.vertexCount, 0)
-  const indexCount = parts.reduce((sum, part) => sum + part.indexCount, 0)
-  const quadCount = parts.reduce((sum, part) => sum + part.quadCount, 0)
-  const positions = new Float32Array(vertexCount * POSITION_COMPONENTS)
-  const normals = new Float32Array(vertexCount * NORMAL_COMPONENTS)
-  const colors = new Uint8Array(vertexCount * COLOR_COMPONENTS)
-  const uvs = new Float32Array(vertexCount * UV_COMPONENTS)
-  const tileIndices = new Float32Array(vertexCount)
-  const fluidDirections = new Float32Array(vertexCount * FLUID_DIRECTION_COMPONENTS)
-  const fluidFalling = new Float32Array(vertexCount)
-  const indices = new Uint32Array(indexCount)
-  let vertexOffset = 0
-  let indexOffset = 0
+  const vertexCount = sumBy(parts, (part) => part.vertexCount)
+  const indexCount = sumBy(parts, (part) => part.indexCount)
+  const quadCount = sumBy(parts, (part) => part.quadCount)
+  const target = allocateChunkWriteBuffers(vertexCount, indexCount)
+  let offsets = INITIAL_OFFSETS
   for (const part of parts) {
-    positions.set(part.positions, vertexOffset * POSITION_COMPONENTS)
-    normals.set(part.normals, vertexOffset * NORMAL_COMPONENTS)
-    colors.set(part.colors, vertexOffset * COLOR_COMPONENTS)
-    uvs.set(part.uvs, vertexOffset * UV_COMPONENTS)
-    tileIndices.set(part.tileIndices, vertexOffset)
-    fluidDirections.set(part.fluidDirections, vertexOffset * FLUID_DIRECTION_COMPONENTS)
-    fluidFalling.set(part.fluidFalling, vertexOffset)
-    for (let index = 0; index < part.indexCount; index += 1) {
-      indices[indexOffset + index] = (part.indices[index] ?? 0) + vertexOffset
-    }
-    vertexOffset += part.vertexCount
-    indexOffset += part.indexCount
+    offsets = copyGeometryPart(target, offsets, part)
   }
-  return { colors, fluidDirections, fluidFalling, indexCount, indices, normals, positions, quadCount, tileIndices, uvs, vertexCount }
+  return { ...target, indexCount, quadCount, vertexCount }
 }
 
 /**

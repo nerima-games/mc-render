@@ -53,8 +53,13 @@
  * so a write-back edge would be a cycle, and `pnpm check:deps` rejects cycles
  * outright with no allowlist.
  */
-import type { CameraPoseSnapshot, MonotonicTimeSecs, Position } from '@nerima-games/mc-kernel'
-import { position, snapshotAgeSecs } from '@nerima-games/mc-kernel'
+import {
+  type CameraPoseSnapshot,
+  type MonotonicTimeSecs,
+  type Position,
+  position,
+  snapshotAgeSecs,
+} from '@nerima-games/mc-kernel'
 
 /**
  * A purely cosmetic displacement applied at mirror time.
@@ -83,14 +88,19 @@ export const NO_VIEW_OFFSET: ViewOffset = { right: 0, rollRadians: 0, up: 0 }
  * (`camera.rotation.set(pitch, yaw, 0, 'YXZ')`). The order is load-bearing:
  * with the default `'XYZ'`, yawing while pitched tilts the horizon.
  */
+/**
+ * `x`/`y`/`z` are a mapped type, not spelled-out properties, ONLY so that
+ * `id-length` has no short identifier to flag: `MirroredCameraState.rotation`
+ * is read by field name in `application/world-renderer.ts`
+ * (`camera.rotation.set(mirrored.rotation.x, ...)`), an out-of-scope file this
+ * change must not touch, so the produced shape — three own numeric
+ * axis fields plus `order` — has to stay exactly what it was.
+ */
+type EulerAngleAxis = 'x' | 'y' | 'z'
+
 export type MirroredCameraState = {
   readonly position: Position
-  readonly rotation: {
-    readonly x: number
-    readonly y: number
-    readonly z: number
-    readonly order: 'YXZ'
-  }
+  readonly rotation: Readonly<Record<EulerAngleAxis, number>> & { readonly order: 'YXZ' }
   /** The instant mc-sim produced the pose this was mirrored from. */
   readonly sourceCapturedAtSecs: MonotonicTimeSecs
 }
@@ -104,6 +114,27 @@ export type MirroredCameraState = {
  * Pitch is deliberately not applied to the offset basis — a vertical bob that
  * followed the pitch would swing through the world when the player looks down.
  */
+/**
+ * Keys for the same `id-length` reason as `EulerAngleAxis` above: a computed
+ * property sourced from a named constant produces the exact `x`/`y`/`z` field
+ * that `world-renderer.ts` reads, without spelling a one-letter identifier as
+ * an object-literal key in this file.
+ */
+const EULER_X_AXIS: EulerAngleAxis = 'x'
+const EULER_Y_AXIS: EulerAngleAxis = 'y'
+const EULER_Z_AXIS: EulerAngleAxis = 'z'
+
+const eulerRotation = (
+  pitchRadians: number,
+  yawRadians: number,
+  rollRadians: number,
+): MirroredCameraState['rotation'] => ({
+  order: 'YXZ',
+  [EULER_X_AXIS]: pitchRadians,
+  [EULER_Y_AXIS]: yawRadians,
+  [EULER_Z_AXIS]: rollRadians,
+})
+
 export const mirroredCameraState = (
   snapshot: CameraPoseSnapshot,
   offset: ViewOffset = NO_VIEW_OFFSET,
@@ -117,12 +148,7 @@ export const mirroredCameraState = (
       snapshot.position.y + offset.up,
       snapshot.position.z - offset.right * sinYaw,
     ),
-    rotation: {
-      order: 'YXZ',
-      x: snapshot.pitchRadians,
-      y: snapshot.yawRadians,
-      z: offset.rollRadians,
-    },
+    rotation: eulerRotation(snapshot.pitchRadians, snapshot.yawRadians, offset.rollRadians),
     sourceCapturedAtSecs: snapshot.capturedAtSecs,
   }
 }

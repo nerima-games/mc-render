@@ -315,7 +315,7 @@ const TRAILING_PASSES: ReadonlyArray<{
   readonly isEnabled: (quality: GraphicsQuality, composite: boolean) => boolean
   readonly toStep: (quality: GraphicsQuality) => PostProcessingStep
 }> = [
-  { isEnabled: (quality, composite) => composite, toStep: buildCompositeStep },
+  { isEnabled: (_quality, composite) => composite, toStep: buildCompositeStep },
   { isEnabled: (quality) => quality.smaaEnabled, toStep: () => step('smaa') },
 ]
 

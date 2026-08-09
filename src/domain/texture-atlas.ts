@@ -476,8 +476,8 @@ const solidOrCutoutPixel = (
 
 type TilePixelRenderer = (context: TilePixelContext, noise: number, marker: boolean) => TilePixelRgba
 
-const renderWater: TilePixelRenderer = (context, noise) => waterPixel(noise)
-const renderLava: TilePixelRenderer = (context, noise) => lavaPixel(noise)
+const renderWater: TilePixelRenderer = (_context, noise) => waterPixel(noise)
+const renderLava: TilePixelRenderer = (_context, noise) => lavaPixel(noise)
 const renderLeaves: TilePixelRenderer = (context, noise) => leavesPixel(context, noise)
 const renderGlass: TilePixelRenderer = (context, noise, marker) => glassPixel(context, noise, marker)
 const renderSolid: TilePixelRenderer = (context, noise, marker) =>
