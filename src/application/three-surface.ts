@@ -193,7 +193,7 @@ export type ThreeBufferGeometry = {
 
 /** `Vector3.set`, which is the only thing done to a position here. */
 export type ThreeVector3 = {
-  set(x: number, y: number, z: number): unknown
+  set(xAxis: number, yAxis: number, zAxis: number): unknown
 }
 
 /**
@@ -207,7 +207,7 @@ export type ThreeVector3 = {
  * renderer that passes a different order does not compile.
  */
 export type ThreeEuler = {
-  set(x: number, y: number, z: number, order: 'YXZ'): unknown
+  set(xAxis: number, yAxis: number, zAxis: number, order: 'YXZ'): unknown
 }
 
 /**

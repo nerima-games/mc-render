@@ -179,6 +179,172 @@ type PoolState<TPayload, TResult> = {
   shuttingDown: boolean
 }
 
+/*
+ * Counting/indexing arithmetic shared by the helpers below. Every value here
+ * is the domain quantity "no items" or "one item", never an arbitrary tuning
+ * knob — grouped so the same quantity is spelled once rather than re-typed at
+ * each call site.
+ */
+/** An idle/queued array with no entries has this length. */
+const EMPTY_LENGTH = 0
+/** The array index a backward scan starts at, and stops at (inclusive). */
+const ARRAY_START_INDEX = 0
+/** Moving a cursor, or a queue length, by exactly one array slot. */
+const ONE_INDEX_STEP = 1
+/** `Array.prototype.splice`'s delete-count for removing exactly one entry. */
+const REMOVE_COUNT_ONE = 1
+/** One more job counted as affected by a cancellation. */
+const ONE_AFFECTED_JOB = 1
+
+/**
+ * Move as much work onto idle workers as will fit.
+ *
+ * A LOOP AND NOT A SINGLE STEP, because a reply frees exactly one worker but a
+ * `cancel` can free several — and after a shutdown-cancel the queue may be
+ * shorter than the idle list. Draining until one of the two runs out is the
+ * only formulation that is correct in all three cases.
+ */
+const pump = <TPayload, TResult>(
+  current: PoolState<TPayload, TResult>,
+  ports: ReadonlyArray<WorkerPort<WorkerRequest<TPayload>, WorkerResponse<TResult>>>,
+): void => {
+  while (current.idle.length > EMPTY_LENGTH && current.queue.length > EMPTY_LENGTH && !current.shuttingDown) {
+    const workerIndex = current.idle.shift()
+    const job = current.queue.shift()
+    if (workerIndex === undefined || job === undefined) {
+      return
+    }
+    current.running.set(job.id, {
+      discarded: false,
+      key: job.key,
+      resume: job.resume,
+      workerIndex,
+    })
+    ports[workerIndex]?.post({ id: job.id, payload: job.payload })
+  }
+}
+
+/** Credit one worker reply as either delivered or discarded, on `current`. */
+const recordJobOutcome = <TPayload, TResult>(
+  current: PoolState<TPayload, TResult>,
+  job: Running<TResult>,
+  response: WorkerResponse<TResult>,
+): void => {
+  if (job.discarded) {
+    current.discardedAfterStart += ONE_AFFECTED_JOB
+    return
+  }
+  current.completed += ONE_AFFECTED_JOB
+  job.resume({ _tag: 'completed', result: response.result })
+}
+
+/**
+ * Fold one worker's reply into pool state: free the worker, and either
+ * deliver the result or drop it if `cancel` marked the job discarded.
+ */
+const applyWorkerResponse = <TPayload, TResult>(
+  current: PoolState<TPayload, TResult>,
+  workerIndex: number,
+  response: WorkerResponse<TResult>,
+): PoolState<TPayload, TResult> => {
+  const job = current.running.get(response.id)
+  if (job === undefined) {
+    // A reply for a job the pool has forgotten. Reachable after
+    // `shutdown`, and inert: there is nobody to resume.
+    return current
+  }
+  current.running.delete(response.id)
+  current.idle.push(workerIndex)
+  recordJobOutcome(current, job, response)
+  return current
+}
+
+/**
+ * Remove and resolve every QUEUED job under `key`. Iterated back to front so
+ * the splice does not move an element past the cursor.
+ */
+const cancelQueued = <TPayload, TResult>(current: PoolState<TPayload, TResult>, key: JobKey): number => {
+  let affected = 0
+  for (let at = current.queue.length - ONE_INDEX_STEP; at >= ARRAY_START_INDEX; at -= ONE_INDEX_STEP) {
+    const job = current.queue[at]
+    if (job !== undefined && job.key === key) {
+      current.queue.splice(at, REMOVE_COUNT_ONE)
+      current.cancelledBeforeStart += ONE_AFFECTED_JOB
+      affected += ONE_AFFECTED_JOB
+      job.resume({ _tag: 'cancelled' })
+    }
+  }
+  return affected
+}
+
+/**
+ * Mark every RUNNING job under `key` as discarded and resolve it now. The
+ * caller is released immediately — waiting for a result nobody wants would
+ * hold the frame loop for the exact duration it is trying to avoid.
+ */
+const cancelRunning = <TPayload, TResult>(current: PoolState<TPayload, TResult>, key: JobKey): number => {
+  let affected = 0
+  for (const job of current.running.values()) {
+    if (job.key === key && !job.discarded) {
+      job.discarded = true
+      affected += ONE_AFFECTED_JOB
+      job.resume({ _tag: 'cancelled' })
+    }
+  }
+  return affected
+}
+
+/** Drop every still-queued job on `shutdown`, resolving each as cancelled. */
+const drainQueueOnShutdown = <TPayload, TResult>(current: PoolState<TPayload, TResult>): void => {
+  for (const job of current.queue.splice(ARRAY_START_INDEX)) {
+    current.cancelledBeforeStart += ONE_AFFECTED_JOB
+    job.resume({ _tag: 'cancelled' })
+  }
+}
+
+/** Resolve every still-running job on `shutdown`; its reply is discarded. */
+const discardRunningOnShutdown = <TPayload, TResult>(current: PoolState<TPayload, TResult>): void => {
+  for (const job of current.running.values()) {
+    if (!job.discarded) {
+      job.discarded = true
+      job.resume({ _tag: 'cancelled' })
+    }
+  }
+  current.running.clear()
+}
+
+/** Drop the OLDEST waiting job, not the one just enqueued. See `maxQueued`. */
+const evictOverflow = <TPayload, TResult>(current: PoolState<TPayload, TResult>, maxQueued: number): void => {
+  while (current.queue.length > maxQueued) {
+    const dropped = current.queue.shift()
+    if (dropped !== undefined) {
+      current.droppedForBackpressure += ONE_AFFECTED_JOB
+      dropped.resume({ _tag: 'cancelled' })
+    }
+  }
+}
+
+type EnqueueJobOptions<TPayload, TResult> = {
+  readonly key: JobKey
+  readonly payload: TPayload
+  readonly resumeAsync: (effect: Effect.Effect<JobOutcome<TResult>>) => void
+}
+
+/** Append one job to the queue. Does not evict; see `evictOverflow`. */
+const enqueueJob = <TPayload, TResult>(
+  current: PoolState<TPayload, TResult>,
+  job: EnqueueJobOptions<TPayload, TResult>,
+): void => {
+  const id = current.nextId
+  current.nextId += 1
+  current.queue.push({
+    id,
+    key: job.key,
+    payload: job.payload,
+    resume: (outcome) => job.resumeAsync(Effect.succeed(outcome)),
+  })
+}
+
 /**
  * Build a pool over the given ports.
  *
@@ -202,60 +368,22 @@ export const makeWorkerPool = <TPayload, TResult>(
       completed: 0,
       discardedAfterStart: 0,
       droppedForBackpressure: 0,
-      idle: ports.map((_, index) => index),
+      idle: ports.map((_port, index) => index),
       nextId: 1,
       queue: [],
       running: new Map(),
       shuttingDown: false,
     })
 
-    /**
-     * Move as much work onto idle workers as will fit.
-     *
-     * A LOOP AND NOT A SINGLE STEP, because a reply frees exactly one worker
-     * but a `cancel` can free several — and after a shutdown-cancel the queue
-     * may be shorter than the idle list. Draining until one of the two runs out
-     * is the only formulation that is correct in all three cases.
-     */
-    const pump = (current: PoolState<TPayload, TResult>): void => {
-      while (current.idle.length > 0 && current.queue.length > 0 && !current.shuttingDown) {
-        const workerIndex = current.idle.shift()
-        const job = current.queue.shift()
-        if (workerIndex === undefined || job === undefined) {
-          return
-        }
-        current.running.set(job.id, {
-          discarded: false,
-          key: job.key,
-          resume: job.resume,
-          workerIndex,
-        })
-        ports[workerIndex]?.post({ id: job.id, payload: job.payload })
-      }
-    }
-
     // Wired once, at construction. A handler installed per job would leak one
-    // closure per chunk meshed, which on a walked-across world is unbounded.
+    // Closure per chunk meshed, which on a walked-across world is unbounded.
     ports.forEach((port, workerIndex) => {
       port.onMessage((response) => {
         Effect.runSync(
           Ref.update(state, (current) => {
-            const job = current.running.get(response.id)
-            if (job === undefined) {
-              // A reply for a job the pool has forgotten. Reachable after
-              // `shutdown`, and inert: there is nobody to resume.
-              return current
-            }
-            current.running.delete(response.id)
-            current.idle.push(workerIndex)
-            if (job.discarded) {
-              current.discardedAfterStart += 1
-            } else {
-              current.completed += 1
-              job.resume({ _tag: 'completed', result: response.result })
-            }
-            pump(current)
-            return current
+            const next = applyWorkerResponse(current, workerIndex, response)
+            pump(next, ports)
+            return next
           }),
         )
       })
@@ -264,49 +392,15 @@ export const makeWorkerPool = <TPayload, TResult>(
     return {
       cancel: (key) =>
         Ref.modify(state, (current) => {
-          let affected = 0
-
-          // Queued: remove and resolve. Iterated back to front so the splice
-          // does not move an element past the cursor.
-          for (let at = current.queue.length - 1; at >= 0; at -= 1) {
-            const job = current.queue[at]
-            if (job !== undefined && job.key === key) {
-              current.queue.splice(at, 1)
-              current.cancelledBeforeStart += 1
-              affected += 1
-              job.resume({ _tag: 'cancelled' })
-            }
-          }
-
-          // Running: mark, resolve now, discard the reply when it lands. The
-          // caller is released immediately — waiting for a result nobody wants
-          // would hold the frame loop for the exact duration it is trying to
-          // avoid.
-          for (const job of current.running.values()) {
-            if (job.key === key && !job.discarded) {
-              job.discarded = true
-              affected += 1
-              job.resume({ _tag: 'cancelled' })
-            }
-          }
-
-          pump(current)
+          const affected = cancelQueued(current, key) + cancelRunning(current, key)
+          pump(current, ports)
           return [affected, current]
         }),
 
       shutdown: Ref.update(state, (current) => {
         current.shuttingDown = true
-        for (const job of current.queue.splice(0)) {
-          current.cancelledBeforeStart += 1
-          job.resume({ _tag: 'cancelled' })
-        }
-        for (const job of current.running.values()) {
-          if (!job.discarded) {
-            job.discarded = true
-            job.resume({ _tag: 'cancelled' })
-          }
-        }
-        current.running.clear()
+        drainQueueOnShutdown(current)
+        discardRunningOnShutdown(current)
         for (const port of ports) {
           port.terminate()
         }
@@ -316,11 +410,11 @@ export const makeWorkerPool = <TPayload, TResult>(
       stats: Ref.get(state).pipe(
         Effect.map((current) => ({
           busy: current.running.size,
-          queued: current.queue.length,
-          completed: current.completed,
           cancelledBeforeStart: current.cancelledBeforeStart,
+          completed: current.completed,
           discardedAfterStart: current.discardedAfterStart,
           droppedForBackpressure: current.droppedForBackpressure,
+          queued: current.queue.length,
         })),
       ),
 
@@ -332,26 +426,9 @@ export const makeWorkerPool = <TPayload, TResult>(
                 resume(Effect.succeed({ _tag: 'cancelled' as const }))
                 return current
               }
-
-              const id = current.nextId
-              current.nextId += 1
-              current.queue.push({
-                id,
-                key,
-                payload,
-                resume: (outcome) => resume(Effect.succeed(outcome)),
-              })
-
-              // Drop the OLDEST waiting job, not this one. See `maxQueued`.
-              while (current.queue.length > maxQueued) {
-                const dropped = current.queue.shift()
-                if (dropped !== undefined) {
-                  current.droppedForBackpressure += 1
-                  dropped.resume({ _tag: 'cancelled' })
-                }
-              }
-
-              pump(current)
+              enqueueJob(current, { key, payload, resumeAsync: resume })
+              evictOverflow(current, maxQueued)
+              pump(current, ports)
               return current
             }),
           )

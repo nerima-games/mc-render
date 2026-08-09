@@ -44,6 +44,7 @@ import {
   UV_COMPONENTS,
 } from '../domain/chunk-geometry'
 import type {
+  ThreeBufferAttribute,
   ThreeBufferGeometry,
   ThreeInstancedBufferAttribute,
   ThreeInstancedBufferGeometry,
@@ -64,6 +65,13 @@ import type {
  * with should be traceable to the file that decided it.
  */
 export const PARTICLE_DEPTH_WRITE = PARTICLE_WRITES_DEPTH
+
+/* Two literal quantities that are genuinely just numbers, not vectors: three's
+ * index buffer holds one value per entry (`itemSize` 1, unlike the 2- and
+ * 3-component uv/position attributes above it), and a freshly built particle
+ * system has drawn nothing yet. */
+const INDEX_COMPONENTS = 1
+const INITIAL_DRAWN_INSTANCES = 0
 
 /** The live particle system, as its owner holds it. */
 export type ParticleSystem = {
@@ -97,6 +105,80 @@ export type ParticleSystem = {
  * defect this repository found twice in `tileIndex` and `WATER_UNIFORM_NAMES`
  * and is deliberately not leaving a third instance of.
  */
+/**
+ * The slice of `three` each geometry helper below actually calls: the two
+ * attribute constructors, named narrowly rather than through
+ * `ThreeInstancedSurface`'s full generic signature.
+ *
+ * NOT GENERIC OVER `makeParticleSystem`'s type parameters, and deliberately
+ * so: `BufferAttribute` and `InstancedBufferAttribute` both return the OPAQUE
+ * `ThreeBufferAttribute`/`ThreeInstancedBufferAttribute` types regardless of
+ * which concrete geometry or material `three` was instantiated with, so
+ * reintroducing `TCanvas`/`TGeometry`/`TMaterial`/`TInstancedGeometry` here
+ * would ask the compiler to unify two independent generic scopes that carry
+ * no relationship — which is exactly what made `test/three-surface.test.ts`
+ * fail the first time this was written with its own type parameter list.
+ */
+type ParticleAttributeConstructors = {
+  readonly BufferAttribute: new (
+    array: Float32Array | Uint8Array | Uint32Array,
+    itemSize: number,
+    normalized: boolean,
+  ) => ThreeBufferAttribute
+  readonly InstancedBufferAttribute: new (
+    array: Float32Array,
+    itemSize: number,
+  ) => ThreeInstancedBufferAttribute
+}
+
+/**
+ * The base quad's three attributes: four corners, shared by every instance.
+ *
+ * `Float32Array.from` rather than the readonly arrays directly — three uploads
+ * a typed array and the domain declares plain numbers, which is the right way
+ * round: the domain should not know what a GPU wants.
+ */
+const attachParticleQuadGeometry = (
+  three: ParticleAttributeConstructors,
+  geometry: ThreeInstancedBufferGeometry,
+): void => {
+  geometry.setAttribute(
+    'position',
+    new three.BufferAttribute(Float32Array.from(PARTICLE_QUAD_POSITIONS), POSITION_COMPONENTS, false),
+  )
+  geometry.setAttribute(
+    'uv',
+    new three.BufferAttribute(Float32Array.from(PARTICLE_QUAD_UVS), UV_COMPONENTS, false),
+  )
+  geometry.setIndex(
+    new three.BufferAttribute(Uint32Array.from(PARTICLE_QUAD_INDICES), INDEX_COMPONENTS, false),
+  )
+}
+
+/**
+ * The per-instance attributes, over the POOL'S OWN ARRAYS. See the file header
+ * on why the pool's arrays are bound directly rather than copied.
+ */
+const attachParticleInstanceAttributes = (
+  three: ParticleAttributeConstructors,
+  geometry: ThreeInstancedBufferGeometry,
+  pool: ParticlePool,
+): ReadonlyArray<ThreeInstancedBufferAttribute> => {
+  const bindings: ReadonlyArray<{
+    readonly spec: { readonly name: string; readonly stride: number }
+    readonly array: Float32Array
+  }> = [
+    { array: pool.positions, spec: PARTICLE_INSTANCE_ATTRIBUTES.position },
+    { array: pool.scales, spec: PARTICLE_INSTANCE_ATTRIBUTES.scale },
+    { array: pool.uvOffsets, spec: PARTICLE_INSTANCE_ATTRIBUTES.uvOffset },
+  ]
+  return bindings.map(({ spec, array }) => {
+    const attribute = new three.InstancedBufferAttribute(array, spec.stride)
+    geometry.setAttribute(spec.name, attribute)
+    return attribute
+  })
+}
+
 export const makeParticleSystem = <
   TCanvas,
   TGeometry extends ThreeBufferGeometry,
@@ -113,43 +195,8 @@ export const makeParticleSystem = <
 ): Effect.Effect<ParticleSystem> =>
   Effect.gen(function* () {
     const geometry = new three.InstancedBufferGeometry()
-
-    // The base quad: four corners, shared by every instance. `Float32Array.from`
-    // rather than the readonly arrays directly — three uploads a typed array and
-    // the domain declares plain numbers, which is the right way round: the
-    // domain should not know what a GPU wants.
-    geometry.setAttribute(
-      'position',
-      new three.BufferAttribute(
-        Float32Array.from(PARTICLE_QUAD_POSITIONS),
-        POSITION_COMPONENTS,
-        false,
-      ),
-    )
-    geometry.setAttribute(
-      'uv',
-      new three.BufferAttribute(Float32Array.from(PARTICLE_QUAD_UVS), UV_COMPONENTS, false),
-    )
-    geometry.setIndex(
-      new three.BufferAttribute(Uint32Array.from(PARTICLE_QUAD_INDICES), 1, false),
-    )
-
-    // The per-instance attributes, over the POOL'S OWN ARRAYS. See the header.
-    const bindings: ReadonlyArray<{
-      readonly spec: { readonly name: string; readonly stride: number }
-      readonly array: Float32Array
-    }> = [
-      { array: pool.positions, spec: PARTICLE_INSTANCE_ATTRIBUTES.position },
-      { array: pool.scales, spec: PARTICLE_INSTANCE_ATTRIBUTES.scale },
-      { array: pool.uvOffsets, spec: PARTICLE_INSTANCE_ATTRIBUTES.uvOffset },
-    ]
-    const instanced: ReadonlyArray<ThreeInstancedBufferAttribute> = bindings.map(
-      ({ spec, array }) => {
-        const attribute = new three.InstancedBufferAttribute(array, spec.stride)
-        geometry.setAttribute(spec.name, attribute)
-        return attribute
-      },
-    )
+    attachParticleQuadGeometry(three, geometry)
+    const instanced = attachParticleInstanceAttributes(three, geometry, pool)
 
     const source = particleShaderSource()
     const uniforms: Record<string, ThreeUniform> = {
@@ -165,7 +212,7 @@ export const makeParticleSystem = <
     })
 
     const mesh = new three.Mesh(geometry, material)
-    const drawn = yield* Ref.make(0)
+    const drawn = yield* Ref.make(INITIAL_DRAWN_INSTANCES)
 
     return {
       dispose: Effect.sync(() => {
@@ -182,8 +229,8 @@ export const makeParticleSystem = <
           attribute.needsUpdate = true
         }
         // The live prefix, not the capacity. A pool that reported its capacity
-        // here would draw 512 quads every frame and the dead ones would sit at
-        // whatever position they last held — which is the failure the pool's
+        // Here would draw 512 quads every frame and the dead ones would sit at
+        // Whatever position they last held — which is the failure the pool's
         // `scales` zero already guards against, and this is the cheaper guard.
         const active = pool.activeCount()
         geometry.instanceCount = active
