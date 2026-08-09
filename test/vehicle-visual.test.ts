@@ -97,4 +97,18 @@ describe('vehicle render planning', () => {
     expect(plan.occupant?.position).toStrictEqual({ x: 2.5, y: 2.98, z: 6 })
     expect(plan.occupant?.visible).toBe(true)
   })
+
+  it('defaults to a full blend when previous is given without an explicit interpolation amount', () => {
+    // No `interpolation` field at all (not even `undefined`), so resolveSample must fall
+    // back to DEFAULT_INTERPOLATION_AMOUNT (1) rather than leaving it `undefined`.
+    const previous = vehicle({ position: { x: 0, y: 2, z: 4 }, velocity: { x: 0, y: 0, z: 0 }, yawRadians: 0 })
+    const current = vehicle({ position: { x: 10, y: 4, z: 8 }, velocity: { x: 1, y: 1, z: 1 }, yawRadians: 1 })
+
+    const plan = planVehicleVisual(current, { previous })
+
+    // amount=1 fully blends to `current`: lerp(from, to, 1) === to for every field.
+    expect(plan.position).toStrictEqual(current.position)
+    expect(plan.velocity).toStrictEqual(current.velocity)
+    expect(plan.yawRadians).toBeCloseTo(current.yawRadians, 12)
+  })
 })

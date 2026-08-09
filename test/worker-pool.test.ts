@@ -36,7 +36,7 @@ type FakeWorker = WorkerPort<WorkerRequest<Payload>, WorkerResponse<Result>> & {
 
 const makeFakeWorker = (): FakeWorker => {
   const received: Array<WorkerRequest<Payload>> = []
-  let handler: ((response: WorkerResponse<Result>) => void) | undefined
+  let handler: ((response: WorkerResponse<Result>) => void) | undefined = undefined
   let terminated = false
   return {
     post: (request) => {

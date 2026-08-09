@@ -63,9 +63,23 @@ const quad = (overrides: Partial<MeshQuad> = {}): MeshQuad => ({
   ...overrides,
 })
 
+/** Which position component (x, y or z) a `QuadAxis` reads at. */
+const AXIS_COMPONENT_INDEX: Readonly<Record<QuadAxis, number>> = { x: 0, y: 1, z: 2 }
+
+/** The axis of a unit axis-aligned vector (e.g. a face normal) that is nonzero. */
+const nonzeroAxisOf = (vector: readonly [number, number, number]): QuadAxis => {
+  if (vector[0] !== 0) {
+    return 'x'
+  }
+  if (vector[1] !== 0) {
+    return 'y'
+  }
+  return 'z'
+}
+
 /** The span of the emitted positions along one world axis, for quad 0. */
 const extentAlong = (positions: Float32Array, axis: QuadAxis): number => {
-  const component = axis === 'x' ? 0 : axis === 'y' ? 1 : 2
+  const component = AXIS_COMPONENT_INDEX[axis]
   let low = Number.POSITIVE_INFINITY
   let high = Number.NEGATIVE_INFINITY
   for (let vertex = 0; vertex < VERTICES_PER_QUAD; vertex += 1) {
@@ -74,6 +88,22 @@ const extentAlong = (positions: Float32Array, axis: QuadAxis): number => {
     high = Math.max(high, value)
   }
   return high - low
+}
+
+/** The x-facing directions transpose (u, v); the UV u axis follows from that. */
+const uAxisFor = (direction: FaceDirection): QuadAxis => {
+  if (direction === 'xPos' || direction === 'xNeg') {
+    return 'z'
+  }
+  return 'x'
+}
+
+/** The y-facing directions transpose (u, v) on the other axis; the UV v axis follows from that. */
+const vAxisFor = (direction: FaceDirection): QuadAxis => {
+  if (direction === 'yPos' || direction === 'yNeg') {
+    return 'z'
+  }
+  return 'y'
 }
 
 const vertexColor = (colors: Uint8Array, vertex: number): readonly [number, number, number] => [
@@ -91,7 +121,7 @@ describe('the mirrored mc-meshing vocabulary', () => {
       for (const direction of DIRECTIONS) {
         const [first, second] = tangentAxes(direction)
         const normal = faceNormal(direction)
-        const normalAxis: QuadAxis = normal[0] !== 0 ? 'x' : normal[1] !== 0 ? 'y' : 'z'
+        const normalAxis: QuadAxis = nonzeroAxisOf(normal)
 
         expect([first, second]).not.toContain(normalAxis)
         // x, y, z order: the pair is sorted.
@@ -143,7 +173,7 @@ describe('REGRESSION: merged extents land on the axes tangentAxes names', () => 
     Effect.sync(() => {
       for (const direction of DIRECTIONS) {
         const normal = faceNormal(direction)
-        const normalAxis: QuadAxis = normal[0] !== 0 ? 'x' : normal[1] !== 0 ? 'y' : 'z'
+        const normalAxis: QuadAxis = nonzeroAxisOf(normal)
         const built = buildChunkGeometry([quad({ direction, width: 4, height: 3 })])
 
         expect({ direction, along: extentAlong(built.positions, normalAxis) }).toStrictEqual({
@@ -267,6 +297,13 @@ describe('ambient occlusion is per FACE and reaches all four vertices', () => {
       expect(aoShade(-1)).toBe(255)
       expect(aoShade(AO_MAX + 1)).toBe(102)
       expect(aoShade(1.9)).toBe(204)
+
+      // `Math.trunc`/`Math.max`/`Math.min` all propagate NaN, so `clamped` is
+      // NaN here despite the [0, AO_MAX] clamp above it — the one input the
+      // header comment's "cannot miss" argument does not cover. The `??
+      // AO_DARKEST` fallback is reachable after all, and degrades to the
+      // documented conservative direction rather than returning `undefined`.
+      expect(aoShade(Number.NaN)).toBe(102)
     }),
   )
 
@@ -338,9 +375,8 @@ describe('UVs are in block units and follow the same transposition', () => {
       for (const direction of DIRECTIONS) {
         const built = buildChunkGeometry([quad({ direction, width: 4, height: 3 })])
         const [uExtent, vExtent] = quadUvExtent(quad({ direction, width: 4, height: 3 }))
-        const uAxis: QuadAxis = direction === 'xPos' || direction === 'xNeg' ? 'z' : 'x'
-        const vAxis: QuadAxis =
-          direction === 'yPos' || direction === 'yNeg' ? 'z' : 'y'
+        const uAxis: QuadAxis = uAxisFor(direction)
+        const vAxis: QuadAxis = vAxisFor(direction)
 
         expect({ direction, u: extentAlong(built.positions, uAxis) }).toStrictEqual({
           direction,

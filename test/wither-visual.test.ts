@@ -8,12 +8,22 @@ import {
   type WitherVisualStateInput,
 } from '../src'
 
+const ARMOURED_HEALTH_POINTS = 140
+const UNARMOURED_HEALTH_POINTS = 300
+
+const healthPointsFor = (phase: WitherVisualStateInput['phase']): number => {
+  if (phase === 'armoured') {
+    return ARMOURED_HEALTH_POINTS
+  }
+  return UNARMOURED_HEALTH_POINTS
+}
+
 const state = (
   phase: WitherVisualStateInput['phase'],
   chargeRemainingSecs = 0,
 ): WitherVisualStateInput => ({
   phase,
-  healthPoints: phase === 'armoured' ? 140 : 300,
+  healthPoints: healthPointsFor(phase),
   chargeRemainingSecs,
   feetPosition: { x: 4, y: 70, z: -2 },
   velocity: { x: 1, y: 0, z: 0 },
@@ -69,6 +79,15 @@ describe('Wither visual descriptors', () => {
     expect(dead.position).toStrictEqual({ x: 4, y: 70, z: -2 })
     expect(dead.yawRadians).toBeCloseTo(-Math.PI / 2, 12)
   })
+
+  it('folds a non-finite feet-position component to zero rather than propagating NaN', () => {
+    const plan = planWitherVisual({
+      ...state('airborne'),
+      feetPosition: { x: Number.NaN, y: 70, z: -2 },
+    })
+
+    expect(plan.position).toStrictEqual({ x: 0, y: 70, z: -2 })
+  })
 })
 
 describe('Wither skull visual descriptors', () => {
@@ -92,5 +111,25 @@ describe('Wither skull visual descriptors', () => {
     expect(normal.parts[0]?.rotation[0]).toBeCloseTo(Math.PI / 4, 12)
     expect(blue.variant).toBe('blue')
     expect(blue.parts.map(({ id }) => id)).not.toStrictEqual(normal.parts.map(({ id }) => id))
+  })
+
+  it('yaws and pitches to zero for a perfectly still projectile direction', () => {
+    const plan = planWitherSkullVisual({
+      ...projectile('normal'),
+      direction: { x: 0, y: 0, z: 0 },
+    })
+
+    expect(plan.yawRadians).toBe(0)
+    expect(plan.pitchRadians).toBe(0)
+  })
+
+  it('pitches straight up for a vertical-only direction, leaving yaw at zero', () => {
+    const plan = planWitherSkullVisual({
+      ...projectile('normal'),
+      direction: { x: 0, y: 5, z: 0 },
+    })
+
+    expect(plan.yawRadians).toBe(0)
+    expect(plan.pitchRadians).toBeCloseTo(Math.PI / 2, 12)
   })
 })

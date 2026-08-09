@@ -153,6 +153,20 @@ describe('the Fresnel term and the refraction index', () => {
     }),
   )
 
+  it.effect('reports no reflectance for a non-physical index of refraction, rather than extrapolating', () =>
+    Effect.sync(() => {
+      // `ior = 1` above also returns 0, but through the Schlick formula (a
+      // REAL zero-reflectance answer for air-into-air). These inputs are not
+      // physical at all — a zero or negative index of refraction — and must
+      // take the explicit guard rather than fall through to a formula that
+      // would happily square a negative ratio into a positive, non-zero
+      // number and report a plausible-looking but meaningless reflectance.
+      expect(fresnelF0ForIor(0)).toBe(0)
+      expect(fresnelF0ForIor(-1)).toBe(0)
+      expect(fresnelF0ForIor(Number.NaN)).toBe(0)
+    }),
+  )
+
   it.effect('Schlick runs from F0 face-on to total reflection edge-on', () =>
     Effect.sync(() => {
       expect(schlickFresnel(1)).toBeCloseTo(WATER_FRESNEL_F0, 10)

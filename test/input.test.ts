@@ -46,6 +46,8 @@ import {
   WHEEL_LINES_PER_NOTCH,
   WHEEL_PIXELS_PER_NOTCH,
   wrapHotbarSelection,
+  type Bindings,
+  type InputAction,
 } from '../src/domain/input-bindings'
 import {
   ESCAPE_POLICY,
@@ -202,6 +204,47 @@ describe('key remapping', () => {
   it.effect('rebinding an action to the key it already has is allowed', () =>
     Effect.sync(() => {
       expect(remap(defaultBindings(), 'jump', 'Space').kind).toBe('ok')
+    }),
+  )
+
+  it.effect('remap rejects an action name outside INPUT_ACTIONS, e.g. from a stale settings UI', () =>
+    Effect.sync(() => {
+      // `action` is typed as `InputAction`, a closed union, so nothing inside
+      // this codebase can call `remap` with an unknown action past the type
+      // checker. A settings menu built against an older/newer version of this
+      // module is not inside this codebase, and can. `ownershipRemapRejection`
+      // must reject it by name rather than writing a binding table entry
+      // nothing will ever read back through `bindingFor`.
+      const outcome = remap(defaultBindings(), 'flyToTheMoon' as InputAction, 'KeyQ')
+
+      expect(outcome.kind).toBe('rejected')
+      expect(outcome.kind === 'rejected' && outcome.rejection.reason).toBe('unknown-action')
+      expect(outcome.kind === 'rejected' && outcome.rejection.message).toContain('flyToTheMoon')
+    }),
+  )
+
+  it.effect('actionForKey resolves to undefined for a key nothing is bound to', () =>
+    Effect.sync(() => {
+      // The default bindings never use `KeyZ` (jump remapping tests above
+      // move `jump` there deliberately, on their OWN local copy — this reads
+      // the untouched defaults), so `Object.entries(...).find(...)` runs out
+      // without matching and `found` stays `undefined`.
+      expect(actionForKey(defaultBindings(), 'KeyZ')).toBeUndefined()
+    }),
+  )
+
+  it.effect('actionForKey resolves to undefined for a bound action name outside INPUT_ACTIONS', () =>
+    Effect.sync(() => {
+      // The other guard `actionForKey` carries independently of `remap`'s:
+      // a corrupt or pre-migration persisted `Bindings` blob can map a key to
+      // an action name this version of the game no longer knows. `found`
+      // succeeds (the key IS present), but the action it names fails the
+      // `INPUT_ACTIONS` membership check, so this must still resolve to
+      // `undefined` rather than returning a string no `InputAction` switch
+      // can handle.
+      const legacyBindings = { retiredAction: 'KeyQ' } as unknown as Bindings
+
+      expect(actionForKey(legacyBindings, 'KeyQ')).toBeUndefined()
     }),
   )
 
@@ -1814,7 +1857,7 @@ describe('REGRESSION: Tab belongs to the user agent, and is never taken away', (
       const outcome = remap(defaultBindings(), 'jump', FOCUS_NAVIGATION_KEY_CODE)
 
       expect(outcome.kind).toBe('rejected')
-      expect(outcome.kind === 'rejected' ? outcome.rejection.reason : undefined).toBe(
+      expect(outcome.kind === 'rejected' && outcome.rejection.reason).toBe(
         'key-reserved-by-user-agent',
       )
     }),

@@ -23,6 +23,21 @@ describe('render environment planning', () => {
     }),
   )
 
+  it.effect('falls back to the default far plane for a non-positive or non-finite value', () =>
+    Effect.sync(() => {
+      // `resolveFarPlane` guards against a far plane that would put the fog
+      // interval behind the camera or make it NaN: zero, negative, and
+      // non-finite are all rejected the same way, in favor of
+      // DEFAULT_ENVIRONMENT_FAR_PLANE (300) rather than propagating the bad
+      // value into `fogNear`/`fogFar`.
+      const defaultFog = { fogFar: 270, fogNear: 135 }
+      expect(planRenderEnvironment(0.5, 0)).toMatchObject(defaultFog)
+      expect(planRenderEnvironment(0.5, -50)).toMatchObject(defaultFog)
+      expect(planRenderEnvironment(0.5, Number.NaN)).toMatchObject(defaultFog)
+      expect(planRenderEnvironment(0.5, Number.POSITIVE_INFINITY)).toMatchObject(defaultFog)
+    }),
+  )
+
   it.effect('is deterministic and emits normalized fog channels', () =>
     Effect.sync(() => {
       const first = planRenderEnvironment(0.375, 640)

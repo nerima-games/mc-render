@@ -23,15 +23,16 @@ import {
   sameRefractionKey,
   screenRatioForNdcRect,
   type RefractionCameraKey,
+  type RefractionDecision,
   type RefractionGate,
   type RefractionInputs,
 } from '../src/domain/water-refraction'
 
 const KEY: RefractionCameraKey = {
   sceneVersion: 3,
-  x: 1,
-  y: 2,
-  z: 3,
+  worldX: 1,
+  worldY: 2,
+  worldZ: 3,
   qx: 0,
   qy: 0,
   qz: 0,
@@ -182,9 +183,9 @@ describe('the camera key', () => {
       // "refraction is sometimes stale" and never reproduces.
       const fields: ReadonlyArray<keyof RefractionCameraKey> = [
         'sceneVersion',
-        'x',
-        'y',
-        'z',
+        'worldX',
+        'worldY',
+        'worldZ',
         'qx',
         'qy',
         'qz',
@@ -212,7 +213,7 @@ describe('the camera key', () => {
 
   it.effect('a NaN key never matches, including itself', () =>
     Effect.sync(() => {
-      const broken: RefractionCameraKey = { ...KEY, x: Number.NaN }
+      const broken: RefractionCameraKey = { ...KEY, worldX: Number.NaN }
       expect(sameRefractionKey(broken, broken)).toBe(false)
     }),
   )
@@ -221,27 +222,27 @@ describe('the camera key', () => {
 describe('the screen ratio', () => {
   it.effect('a rect covering the whole viewport is 1', () =>
     Effect.sync(() => {
-      expect(screenRatioForNdcRect(-1, -1, 1, 1)).toBe(1)
+      expect(screenRatioForNdcRect({ maxX: 1, maxY: 1, minX: -1, minY: -1 })).toBe(1)
       expect(NDC_VIEWPORT_AREA).toBe(4)
     }),
   )
 
   it.effect('a quarter-viewport rect is a quarter', () =>
     Effect.sync(() => {
-      expect(screenRatioForNdcRect(-1, -1, 0, 0)).toBe(0.25)
+      expect(screenRatioForNdcRect({ maxX: 0, maxY: 0, minX: -1, minY: -1 })).toBe(0.25)
     }),
   )
 
   it.effect('clips the part that is off screen rather than counting it', () =>
     Effect.sync(() => {
-      expect(screenRatioForNdcRect(-5, -5, 5, 5)).toBe(1)
-      expect(screenRatioForNdcRect(-3, -1, -1, 1)).toBe(0)
+      expect(screenRatioForNdcRect({ maxX: 5, maxY: 5, minX: -5, minY: -5 })).toBe(1)
+      expect(screenRatioForNdcRect({ maxX: -1, maxY: 1, minX: -3, minY: -1 })).toBe(0)
     }),
   )
 
   it.effect('an inverted rect is empty, not negative', () =>
     Effect.sync(() => {
-      expect(screenRatioForNdcRect(1, 1, -1, -1)).toBe(0)
+      expect(screenRatioForNdcRect({ maxX: -1, maxY: -1, minX: 1, minY: 1 })).toBe(0)
     }),
   )
 
@@ -251,7 +252,7 @@ describe('the screen ratio', () => {
       // the surface AABB straddles the near plane. An estimator that failed
       // toward "skip" would drop the effect exactly there.
       expect(BEHIND_NEAR_PLANE_RATIO).toBe(1)
-      expect(screenRatioForNdcRect(Number.NaN, -1, 1, 1)).toBe(BEHIND_NEAR_PLANE_RATIO)
+      expect(screenRatioForNdcRect({ maxX: 1, maxY: 1, minX: Number.NaN, minY: -1 })).toBe(BEHIND_NEAR_PLANE_RATIO)
     }),
   )
 })
@@ -295,7 +296,7 @@ describe('the decision', () => {
       // The reverse of the cache test: without it, a cache that always reported
       // "unchanged" would pass the gate test above.
       expect(
-        decideRefractionPrePass({ ...RUNNING, lastRenderedKey: { ...KEY, x: KEY.x + 0.01 } }),
+        decideRefractionPrePass({ ...RUNNING, lastRenderedKey: { ...KEY, worldX: KEY.worldX + 0.01 } }),
       ).toBe('run')
     }),
   )
@@ -316,6 +317,31 @@ describe('the decision', () => {
         expect(describeRefractionDecision(decision).length).toBeGreaterThan(20)
       }
       expect(decisions).toHaveLength(7)
+    }),
+  )
+
+  it.effect('an unrecognised gate throws rather than silently passing or failing the frame', () =>
+    Effect.sync(() => {
+      // `RefractionGate` is a closed union, so no caller inside this
+      // codebase can reach `gateFires`'s `default` arm through the type
+      // checker. `order` is a runtime parameter of the public
+      // `decideRefractionPrePass`, though (that is the whole point of "the
+      // gate order changes the reason, never the answer" below), so a value
+      // from outside the union — a stale persisted preset, a typo surviving
+      // a rename — reaches it directly. The exhaustive `never` check must
+      // fail loudly rather than silently treating an unknown gate as "does
+      // not fire", which would make a broken gate invisible.
+      expect(() => decideRefractionPrePass(RUNNING, ['not-a-real-gate' as RefractionGate])).toThrow(
+        'Unhandled refraction gate: not-a-real-gate',
+      )
+    }),
+  )
+
+  it.effect('an unrecognised decision throws rather than describing it as something else', () =>
+    Effect.sync(() => {
+      expect(() =>
+        describeRefractionDecision('skip:not-a-real-reason' as unknown as RefractionDecision),
+      ).toThrow('Unhandled refraction decision: skip:not-a-real-reason')
     }),
   )
 })

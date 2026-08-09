@@ -75,6 +75,65 @@ describe('weather frame planning', () => {
     }),
   )
 
+  it.effect('a non-finite intensity clamps to zero rather than propagating NaN through the plan', () =>
+    Effect.sync(() => {
+      // `clamp01`'s `Number.isFinite` guard is what stands between a NaN
+      // snapshot (a corrupt save, a sensor glitch upstream) and a NaN
+      // `intensity` poisoning `count = Math.floor(capacity * intensity)`
+      // below. Without it this reads as zero rain, which is the same
+      // conservative answer `-1` gets above.
+      const planned = planWeatherFrame({
+        camera,
+        options: { particleCapacity: 8 },
+        previous: INITIAL_WEATHER_RENDER_STATE,
+        snapshot: { ...rain, intensity: Number.NaN },
+      })
+      expect(planned.plan.particles).toHaveLength(0)
+    }),
+  )
+
+  it.effect('a non-finite particle capacity is treated as zero, not as NaN or Infinity particles', () =>
+    Effect.sync(() => {
+      // `safeInteger`'s non-finite branch is what keeps `resolveParticleSizing`
+      // from handing `Array.from` a NaN/Infinity length. Distinct from the
+      // intensity guard above: this exercises `options.particleCapacity`,
+      // read through the same `safeInteger` helper but a different call site.
+      const nan = planWeatherFrame({
+        camera,
+        options: { particleCapacity: Number.NaN },
+        previous: INITIAL_WEATHER_RENDER_STATE,
+        snapshot: { ...rain, intensity: 1 },
+      })
+      const infinite = planWeatherFrame({
+        camera,
+        options: { particleCapacity: Number.POSITIVE_INFINITY },
+        previous: INITIAL_WEATHER_RENDER_STATE,
+        snapshot: { ...rain, intensity: 1 },
+      })
+      expect(nan.plan.particles).toHaveLength(0)
+      expect(infinite.plan.particles).toHaveLength(0)
+    }),
+  )
+
+  it.effect('zero precipitation height collapses every particle onto the camera altitude', () =>
+    Effect.sync(() => {
+      // `wrapParticleHeight`'s `height === NO_HEIGHT` guard exists because the
+      // formula below it divides the travel distance's modulus by `height` —
+      // a zero precipitation height (an explicit `0`, not just "small") must
+      // short-circuit to `NO_HEIGHT` rather than reach a `% 0`.
+      const planned = planWeatherFrame({
+        camera,
+        options: { particleCapacity: 4, precipitationHeight: 0 },
+        previous: INITIAL_WEATHER_RENDER_STATE,
+        snapshot: { ...rain, intensity: 1 },
+      })
+      expect(planned.plan.particles).toHaveLength(4)
+      for (const particle of planned.plan.particles) {
+        expect(particle.y).toBe(camera.y)
+      }
+    }),
+  )
+
   it.effect('switches rain and thunder precipitation to snow at the temperature boundary', () =>
     Effect.sync(() => {
       expect(

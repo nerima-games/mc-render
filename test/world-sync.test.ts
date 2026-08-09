@@ -29,7 +29,7 @@ import {
   type DirtyBatch,
 } from '../src/application/world-sync'
 import { CHUNK_SIZE } from '../src/domain/lod-vocabulary'
-import type { MeshQuad } from '../src/domain/chunk-geometry'
+import type { MeshQuad, QuadColor } from '../src/domain/chunk-geometry'
 import { FAKE_CANVAS, makeFakeThree } from './support/fake-three'
 
 const VIEWPORT = { width: 1280, height: 720 }
@@ -135,6 +135,41 @@ describe('syncWorld', () => {
       expect([...(yield* renderer.chunkKeys)].sort()).toStrictEqual(
         changed.map(chunkKeyOf).sort(),
       )
+    }),
+  )
+
+  it.effect('colorForChunk, when given, is used instead of the flat color option', () =>
+    Effect.gen(function* () {
+      // `resolveChunkColor`'s other branch: with `colorForChunk` present, the
+      // flat `options.color` must never be consulted, even though a caller
+      // could pass both — a chunk-scoped colour (e.g. baked light) exists
+      // precisely to override the flat default, and a build that fell through
+      // to the flat one anyway would light every chunk identically.
+      const three = makeFakeThree()
+      const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT)
+      const source = yield* scriptedSource([{ changed: [{ cx: 0, cz: 0 }], removed: [] }])
+      const flatColorCalls: Array<MeshQuad> = []
+      const chunkColorCalls: Array<{ chunk: ChunkRef; quads: ReadonlyArray<MeshQuad> }> = []
+      const flatColor: QuadColor = (meshQuad) => {
+        flatColorCalls.push(meshQuad)
+        return [1, 0, 0]
+      }
+      const perChunkColor: QuadColor = () => [0, 1, 0]
+
+      const report = yield* syncWorld(renderer, source, () => Effect.succeed([quad()]), {
+        color: flatColor,
+        colorForChunk: (chunk, quads) =>
+          Effect.sync(() => {
+            chunkColorCalls.push({ chunk, quads })
+            return perChunkColor
+          }),
+      })
+
+      expect(report).toStrictEqual({ meshed: 1, deferred: 0, removed: 0 })
+      expect(chunkColorCalls).toStrictEqual([{ chunk: { cx: 0, cz: 0 }, quads: [quad()] }])
+      // The flat color function was never invoked — proof `resolveChunkColor`
+      // took the `colorForChunk` branch rather than falling through to it.
+      expect(flatColorCalls).toStrictEqual([])
     }),
   )
 

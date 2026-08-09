@@ -232,6 +232,17 @@ describe('spawning', () => {
       expect(readSlot(pool, 0)?.uvV).toBeCloseTo(expected.v, 6)
     }),
   )
+
+  it.effect('a non-finite UV origin is treated as zero rather than propagating NaN into the atlas offset', () =>
+    Effect.sync(() => {
+      const pool = makeParticlePool({ capacity: 4 })
+      spawnBurst(pool, 0, 0, 0, Number.NaN, Number.POSITIVE_INFINITY, 1)
+
+      const particle = readSlot(pool, 0)
+      expect(particle?.uvU).toBe(0)
+      expect(particle?.uvV).toBe(0)
+    }),
+  )
 })
 
 // ---------------------------------------------------------------------------
@@ -285,6 +296,21 @@ describe('determinism', () => {
       for (let slot = 0; slot < 4; slot += 1) {
         expect(Number.isFinite(readSlot(pool, slot)?.velocityY ?? Number.NaN)).toBe(true)
       }
+    }),
+  )
+
+  it.effect('a seed of exactly zero folds to the fixed-point fallback, not to zero itself', () =>
+    Effect.sync(() => {
+      // normaliseSeed's `folded === 0` branch: zero is the generator's fixed point
+      // (0 * PRNG_MULTIPLIER % PRNG_MODULUS stays 0 forever), so it must fold to 1
+      // rather than being accepted as-is.
+      const pool = makeParticlePool({ capacity: 4, seed: 0 })
+      expect(pool.seed()).toBe(1)
+
+      // And the generator actually advances afterward, proving it did not stay stuck.
+      spawnBurst(pool, 0, 0, 0, 0, 0, 1)
+      expect(pool.seed()).not.toBe(0)
+      expect(pool.seed()).not.toBe(1)
     }),
   )
 })

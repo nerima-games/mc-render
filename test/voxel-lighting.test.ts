@@ -46,6 +46,17 @@ import {
 
 const FACE_DIRECTIONS: ReadonlyArray<FaceDirection> = ['xPos', 'xNeg', 'yPos', 'yNeg', 'zPos', 'zNeg']
 
+// A tangent axis (the normal's component is 0 on it) moves by the sampler's half-block offset;
+// the normal axis itself moves by its own unit component. See `lightSamplePoint`.
+const TANGENT_AXIS_OFFSET = 0.5
+
+const expectedAxisDelta = (normalComponent: number): number => {
+  if (normalComponent === 0) {
+    return TANGENT_AXIS_OFFSET
+  }
+  return normalComponent
+}
+
 const quad = (overrides: Partial<MeshQuad> = {}): MeshQuad => ({
   blockId: 1,
   direction: 'yPos',
@@ -114,14 +125,14 @@ describe('the reference`s curve', () => {
     Effect.sync(() => {
       // The point of two independent multipliers. A single clamped minimum
       // would put an unlit inside corner at 0.25 and it would read as a hole.
-      const darkest = combinedShadeFactor(NO_LIGHT, AO_MAX, 1)
+      const darkest = combinedShadeFactor(NO_LIGHT, AO_MAX, { skyIntensity: 1 })
       expect(darkest).toBeCloseTo(LIGHT_SHADE_FLOOR * aoShadeFactor(AO_MAX), 10)
       expect(darkest).toBeGreaterThan(0.3)
 
       // And never actually reaches zero, at any legal input.
       FastCheck.assert(
         FastCheck.property(arbitraryLevel, arbitraryLevel, FastCheck.integer({ min: 0, max: AO_MAX }), (sky, block, ao) => {
-          const factor = combinedShadeFactor({ sky, block }, ao, 1)
+          const factor = combinedShadeFactor({ sky, block }, ao, { skyIntensity: 1 })
           expect(factor).toBeGreaterThan(0)
           expect(factor).toBeLessThanOrEqual(1)
         }),
@@ -134,7 +145,7 @@ describe('the reference`s curve', () => {
     Effect.sync(() => {
       // `Math.round` and not `Math.trunc`. An off-by-one here lands on the exact
       // value every other test is most likely to assert.
-      expect(combinedShadeByte(FULL_LIGHT, 0, 1)).toBe(MAX_SHADE_BYTE)
+      expect(combinedShadeByte(FULL_LIGHT, 0, { skyIntensity: 1 })).toBe(MAX_SHADE_BYTE)
     }),
   )
 })
@@ -199,8 +210,8 @@ describe('the fixed per-face brightness', () => {
           (direction, sky, block, ao, skyIntensity) => {
             // The ratio of the shaded value to the same value on a top face is
             // the face factor, whatever else is going on.
-            const shaded = combinedShadeFactor({ sky, block }, ao, skyIntensity, direction)
-            const onTop = combinedShadeFactor({ sky, block }, ao, skyIntensity, 'yPos')
+            const shaded = combinedShadeFactor({ sky, block }, ao, { direction, skyIntensity })
+            const onTop = combinedShadeFactor({ sky, block }, ao, { direction: 'yPos', skyIntensity })
             expect(shaded / onTop).toBeCloseTo(faceBrightness(direction), 10)
           },
         ),
@@ -214,7 +225,7 @@ describe('the fixed per-face brightness', () => {
       // 0.45 * 0.88 * 0.5 = 0.198. Adding the face term LOWERED the floor from
       // 0.36, which is the reference's range and not a regression — it is why
       // LIGHT_SHADE_FLOOR can afford to be as high as 0.45.
-      const darkest = combinedShadeFactor(NO_LIGHT, AO_MAX, 1, 'yNeg')
+      const darkest = combinedShadeFactor(NO_LIGHT, AO_MAX, { direction: 'yNeg', skyIntensity: 1 })
       expect(darkest).toBeCloseTo(LIGHT_SHADE_FLOOR * aoShadeFactor(AO_MAX) * 0.5, 10)
       expect(darkest).toBeGreaterThan(0)
 
@@ -226,7 +237,7 @@ describe('the fixed per-face brightness', () => {
           arbitraryLevel,
           FastCheck.integer({ min: 0, max: AO_MAX }),
           (direction, sky, block, ao) => {
-            expect(combinedShadeFactor({ sky, block }, ao, 1, direction)).toBeGreaterThanOrEqual(darkest)
+            expect(combinedShadeFactor({ sky, block }, ao, { direction, skyIntensity: 1 })).toBeGreaterThanOrEqual(darkest)
           },
         ),
         { seed: 0, numRuns: 300 },
@@ -285,9 +296,9 @@ describe('the sample point', () => {
         // The component along the normal has moved one whole block, in the
         // normal's direction.
         const moved = [x - 5, y - 64, z - 7]
-        expect(moved[0]).toBeCloseTo(normal[0] === 0 ? 0.5 : normal[0], 10)
-        expect(moved[1]).toBeCloseTo(normal[1] === 0 ? 0.5 : normal[1], 10)
-        expect(moved[2]).toBeCloseTo(normal[2] === 0 ? 0.5 : normal[2], 10)
+        expect(moved[0]).toBeCloseTo(expectedAxisDelta(normal[0]), 10)
+        expect(moved[1]).toBeCloseTo(expectedAxisDelta(normal[1]), 10)
+        expect(moved[2]).toBeCloseTo(expectedAxisDelta(normal[2]), 10)
       }
     }),
   )
@@ -386,7 +397,7 @@ describe('the injection seam', () => {
       const sealed: LightSampler = () => NO_LIGHT
       const built = buildChunkGeometry([quad()], 0, 0, litColor(sealed))
 
-      expect(built.colors[0]).toBe(combinedShadeByte(NO_LIGHT, 0, 1))
+      expect(built.colors[0]).toBe(combinedShadeByte(NO_LIGHT, 0, { skyIntensity: 1 }))
       expect(built.colors[0]).toBeLessThan(MAX_SHADE_BYTE)
       // All three channels carry the same grey — an unlit MeshBasicMaterial
       // multiplies vertex colour directly, so anything else would TINT the
@@ -440,7 +451,7 @@ describe('the injection seam', () => {
       const midnight = litShade(skyOnly, { skyIntensity: 0 })
 
       expect(noon(quad())).toBe(MAX_SHADE_BYTE)
-      expect(midnight(quad())).toBe(combinedShadeByte(NO_LIGHT, 0, 1))
+      expect(midnight(quad())).toBe(combinedShadeByte(NO_LIGHT, 0, { skyIntensity: 1 }))
       expect(midnight(quad())).toBeLessThan(noon(quad()))
     }),
   )

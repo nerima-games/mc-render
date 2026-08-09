@@ -39,7 +39,7 @@ import {
 
 /** Every `uniform <type> <name>;` the fragment source declares. */
 const declaredUniforms = (source: string): ReadonlyArray<string> =>
-  [...source.matchAll(/uniform\s+\w+\s+(\w+)\s*;/g)].map((match) => match[1] ?? '')
+  [...source.matchAll(/uniform\s+\w+\s+(?<name>\w+)\s*;/g)].map((match) => match.groups?.['name'] ?? '')
 
 describe('the source declares exactly the uniforms the domain names', () => {
   it.effect('every name in WATER_UNIFORM_NAMES is declared in the fragment source', () =>
@@ -131,7 +131,7 @@ describe('the constants in the source are the constants the CPU path uses', () =
       // does not compile in GLSL when `x` is a float — "no operation '*' exists".
       // Every interpolated number goes through `toFixed(6)`; the literals that
       // remain are the hand-written `0.0`/`1.0`/`0.5` forms, which are floats.
-      const arithmetic = [...waterFragmentShader().matchAll(/[*+-]\s*(\d+)(?![.\d])/g)]
+      const arithmetic = [...waterFragmentShader().matchAll(/[*+-]\s*(?<digits>\d+)(?![.\d])/g)]
 
       expect(arithmetic.map((match) => match[0])).toStrictEqual([])
     }),

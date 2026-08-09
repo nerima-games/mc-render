@@ -288,6 +288,27 @@ describe('PORTED #35: a tap binds to the same intent a key does', () => {
       expect(snapshot.justPressed.size).toBe(0)
     }),
   )
+
+  it.effect('releasing a control bound to nothing is a genuine no-op, not merely silent', () =>
+    Effect.gen(function* () {
+      // `withTouchUp`'s own guard — the release-half twin of the press-half
+      // case above. Proven by IDENTITY rather than by size: `withTouchUp`
+      // must hand back the untouched state object rather than routing an
+      // undefined code into `withCodeUp` (which would mint a NEW `pressed`
+      // Set even if its contents ended up equal), so `pressed` before and
+      // after must be the SAME object, not merely an equal one.
+      const stripped: Bindings = { ...defaultBindings(), openInventory: undefined as never }
+      const input = yield* makeInputService(stripped)
+      yield* input.dispatch(tap('jump'))
+      const before = yield* input.snapshot
+
+      yield* input.dispatch(release('openInventory'))
+      const after = yield* input.snapshot
+
+      expect(after.pressed).toBe(before.pressed)
+      expect(yield* input.isActionActive('jump')).toBe(true)
+    }),
+  )
 })
 
 // ---------------------------------------------------------------------------
