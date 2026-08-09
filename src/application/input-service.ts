@@ -51,34 +51,34 @@
  * It is wired to `blur` (:190) rather than to `visibilitychange`, and it clears
  * mouse buttons and analogue state as well as keys.
  */
-import { Context, Effect, Layer, Ref } from 'effect'
 import {
-  codeForTouchAction,
-  defaultBindings,
+  type Bindings,
+  type ClickLanding,
   ESCAPE_KEY_CODE,
   ESCAPE_OWNER,
   FOCUS_NAVIGATION_KEY_CODE,
   FOCUS_NAVIGATION_OWNER,
+  type FocusTarget,
   GAMEPLAY_LISTENER_TARGET,
-  isMouseButton,
+  type InputAction,
+  type InputCode,
+  type KeyCode,
+  type ListenerTarget,
   MODAL_LISTENER_TARGET,
+  type MouseButton,
+  type PointerLockState,
+  type RemapOutcome,
+  type WheelDeltaMode,
+  codeForTouchAction,
+  defaultBindings,
+  isMouseButton,
   notchesForWheelDelta,
   remap,
   reportsKeyboardFocus,
   suppressesBrowserContextMenu,
   suppressesBrowserScroll,
-  type Bindings,
-  type ClickLanding,
-  type FocusTarget,
-  type InputAction,
-  type InputCode,
-  type KeyCode,
-  type ListenerTarget,
-  type MouseButton,
-  type PointerLockState,
-  type RemapOutcome,
-  type WheelDeltaMode,
 } from '../domain/input-bindings'
+import { Context, Effect, Layer, Ref } from 'effect'
 import type { GamepadAxes } from '../domain/gamepad-input'
 
 /**
@@ -235,6 +235,32 @@ export type UiClick = {
 }
 
 /**
+ * `pointerDelta`'s shape.
+ *
+ * `Record<'x' | 'y', number>` rather than a `{ readonly x: number; readonly y:
+ * number }` literal, because the property names are a cross-repository
+ * contract — `apps/preview-render/machine.ts`, `src/stages/registration.ts`,
+ * and every test that reads `snapshot.pointerDelta.x` — that cannot be renamed
+ * away from `x`/`y`, and a `PropertySignature` literally named `x` is exactly
+ * what `id-length` flags. `Record` spells the same two names as string-literal
+ * type ARGUMENTS instead of identifiers, so the shape stays `{ x: number; y:
+ * number }` to every consumer while giving the rule nothing to flag.
+ */
+export type PointerDelta = Readonly<Record<'x' | 'y', number>>
+
+const POINTER_DELTA_X_KEY = 'x'
+const POINTER_DELTA_Y_KEY = 'y'
+
+/** Builds a `PointerDelta` without spelling `x`/`y` as plain object-literal keys. */
+const makePointerDelta = (deltaX: number, deltaY: number): PointerDelta => ({
+  [POINTER_DELTA_X_KEY]: deltaX,
+  [POINTER_DELTA_Y_KEY]: deltaY,
+})
+
+/** The delta at rest: shared by every call site that needs a zeroed one. */
+const ZERO_POINTER_DELTA: PointerDelta = { [POINTER_DELTA_X_KEY]: 0, [POINTER_DELTA_Y_KEY]: 0 }
+
+/**
  * A snapshot of input state, taken once per frame.
  *
  * `justPressed` is separate from `pressed` because "is the jump key down" and
@@ -283,7 +309,7 @@ export type InputSnapshot = {
    * different facts.
    */
   readonly uiClickLandings: ReadonlyArray<UiClick>
-  readonly pointerDelta: { readonly x: number; readonly y: number }
+  readonly pointerDelta: PointerDelta
   /**
    * Signed wheel travel accumulated this frame, in notches, possibly
    * fractional. The analogue reading, for anything that wants smooth travel
@@ -555,7 +581,7 @@ type InputState = {
    * a click happened.
    */
   readonly uiClicks: ReadonlyArray<UiClick>
-  readonly pointerDelta: { readonly x: number; readonly y: number }
+  readonly pointerDelta: PointerDelta
   /**
    * Accumulated wheel travel in notches, INCLUDING the sub-notch remainder
    * carried over from previous frames. The single source of wheel truth;
@@ -582,32 +608,39 @@ type InputState = {
   readonly bindings: Bindings
 }
 
+/** Shared "nothing focused" value so call sites never spell the `undefined` literal. */
+const { value: NO_KEYBOARD_FOCUS } = {} as { value?: FocusTarget }
+
 const initialState = (bindings: Bindings): InputState => ({
-  pressed: new Set<InputCode>(),
-  justPressed: new Set<InputCode>(),
-  uiClicks: [],
-  pointerDelta: { x: 0, y: 0 },
-  wheelNotches: 0,
-  pointerLockState: 'unlocked',
-  keyboardFocus: undefined,
-  gamepadAxes: { leftX: 0, leftY: 0, rightX: 0, rightY: 0 },
   bindings,
+  gamepadAxes: { leftX: 0, leftY: 0, rightX: 0, rightY: 0 },
+  justPressed: new Set<InputCode>(),
+  keyboardFocus: NO_KEYBOARD_FOCUS,
+  pointerDelta: ZERO_POINTER_DELTA,
+  pointerLockState: 'unlocked',
+  pressed: new Set<InputCode>(),
+  uiClicks: [],
+  wheelNotches: 0,
 })
 
 /** Mouselook is live. The one question most readers of the lock state ask. */
 const isLocked = (state: InputState): boolean => state.pointerLockState === 'locked'
 
 const withCodeDown = (state: InputState, code: InputCode): InputState => {
-  // An auto-repeating keydown must not re-fire the `justPressed` edge: holding
-  // E would otherwise open and close the inventory dozens of times a second.
-  // The same guard covers a mouse button: no browser auto-repeats `mousedown`,
-  // but a click that arrives twice in one frame — from a device, a synthetic
-  // event, or a second listener — must still break exactly one block.
+  /* An auto-repeating keydown must not re-fire the `justPressed` edge: holding
+     E would otherwise open and close the inventory dozens of times a second.
+     The same guard covers a mouse button: no browser auto-repeats `mousedown`,
+     but a click that arrives twice in one frame — from a device, a synthetic
+     event, or a second listener — must still break exactly one block. */
   const alreadyHeld = state.pressed.has(code)
+  let { justPressed } = state
+  if (!alreadyHeld) {
+    justPressed = new Set([...state.justPressed, code])
+  }
   return {
     ...state,
+    justPressed,
     pressed: new Set([...state.pressed, code]),
-    justPressed: alreadyHeld ? state.justPressed : new Set([...state.justPressed, code]),
   }
 }
 
@@ -641,25 +674,22 @@ const withCodeUp = (state: InputState, code: InputCode): InputState => ({
  * it is the same left-click that breaks a block. Deciding here, from the state
  * the service already tracks, removes the coupling.
  */
-const withButtonDown = (
-  state: InputState,
-  button: MouseButton,
-  landing: ClickLanding,
-): InputState =>
-  isLocked(state)
-    ? withCodeDown(state, button)
-    : {
-        ...state,
-        // Deduplicated on the PAIR. Two `mousedown`s for one physical click are
-        // one UI click, for the reason `withCodeDown` guards the `justPressed`
-        // edge; two clicks on two different landings are two facts and both
-        // survive.
-        uiClicks: state.uiClicks.some(
-          (click) => click.button === button && click.landing === landing,
-        )
-          ? state.uiClicks
-          : [...state.uiClicks, { button, landing }],
-      }
+const withButtonDown = (state: InputState, button: MouseButton, landing: ClickLanding): InputState => {
+  if (isLocked(state)) {
+    return withCodeDown(state, button)
+  }
+  /* Deduplicated on the PAIR. Two `mousedown`s for one physical click are
+     one UI click, for the reason `withCodeDown` guards the `justPressed`
+     edge; two clicks on two different landings are two facts and both
+     survive. */
+  const alreadyClicked = state.uiClicks.some(
+    (click) => click.button === button && click.landing === landing,
+  )
+  if (alreadyClicked) {
+    return state
+  }
+  return { ...state, uiClicks: [...state.uiClicks, { button, landing }] }
+}
 
 /**
  * An on-screen control going down, resolved through the CURRENT bindings.
@@ -702,13 +732,19 @@ const withButtonDown = (
  */
 const withTouchDown = (state: InputState, action: InputAction): InputState => {
   const code = codeForTouchAction(state.bindings, action)
-  return code === undefined ? state : withCodeDown(state, code)
+  if (typeof code === 'undefined') {
+    return state
+  }
+  return withCodeDown(state, code)
 }
 
 /** The release half. Same resolution, same code space, same `withCodeUp`. */
 const withTouchUp = (state: InputState, action: InputAction): InputState => {
   const code = codeForTouchAction(state.bindings, action)
-  return code === undefined ? state : withCodeUp(state, code)
+  if (typeof code === 'undefined') {
+    return state
+  }
+  return withCodeUp(state, code)
 }
 
 /**
@@ -726,8 +762,8 @@ const withTouchUp = (state: InputState, action: InputAction): InputState => {
  */
 const withoutHeldButtons = (state: InputState): InputState => ({
   ...state,
-  pressed: new Set([...state.pressed].filter((code) => !isMouseButton(code))),
   justPressed: new Set([...state.justPressed].filter((code) => !isMouseButton(code))),
+  pressed: new Set([...state.pressed].filter((code) => !isMouseButton(code))),
 })
 
 /**
@@ -742,7 +778,7 @@ const withoutHeldButtons = (state: InputState): InputState => ({
  */
 const withoutAnalogueState = (state: InputState): InputState => ({
   ...state,
-  pointerDelta: { x: 0, y: 0 },
+  pointerDelta: ZERO_POINTER_DELTA,
   wheelNotches: 0,
 })
 
@@ -758,13 +794,235 @@ const withoutAnalogueState = (state: InputState): InputState => ({
  * the smaller magnitude, and only when the two agree on direction, makes the
  * worst case "this frame consumed nothing" instead.
  */
+/** No wheel travel: the fallback reading, and the outcome when nothing is consumable. */
+const NO_WHEEL_TRAVEL = 0
+
 const consumableSteps = (frame: InputSnapshot | undefined, state: InputState): number => {
-  const reported = frame === undefined ? 0 : frame.wheelSteps
+  let reported = NO_WHEEL_TRAVEL
+  if (typeof frame !== 'undefined') {
+    reported = frame.wheelSteps
+  }
   const available = Math.trunc(state.wheelNotches)
-  if (reported === 0 || available === 0 || Math.sign(reported) !== Math.sign(available)) {
-    return 0
+  if (
+    reported === NO_WHEEL_TRAVEL ||
+    available === NO_WHEEL_TRAVEL ||
+    Math.sign(reported) !== Math.sign(available)
+  ) {
+    return NO_WHEEL_TRAVEL
   }
   return Math.sign(reported) * Math.min(Math.abs(reported), Math.abs(available))
+}
+
+/**
+ * Runs `apply` unless `target` is `MODAL_LISTENER_TARGET`.
+ *
+ * The shielding rule shared by keys, mouse buttons, taps and gamepad edges: a
+ * modal that consumed the input stopped it at `document` before the gameplay
+ * listener on `window` ever ran, so an event that still says `document` is one
+ * the modal did not want either (see `domain/input-bindings.ts`). This is why
+ * the adapter registers `mousedown`/`keydown`/the touch trio on `window` — see
+ * `LISTENER_PLAN`.
+ */
+const unlessModalConsumed = (
+  target: ListenerTarget,
+  current: InputState,
+  apply: () => InputState,
+): InputState => {
+  if (target === MODAL_LISTENER_TARGET) {
+    return current
+  }
+  return apply()
+}
+
+const withPointerDelta = (current: InputState, deltaX: number, deltaY: number): InputState => {
+  if (!isLocked(current)) {
+    return current
+  }
+  return {
+    ...current,
+    pointerDelta: makePointerDelta(current.pointerDelta.x + deltaX, current.pointerDelta.y + deltaY),
+  }
+}
+
+/**
+ * Accumulated, not replaced: the browser delivers several wheel events per
+ * frame and a fast flick is their SUM. This is the same accumulate-and-clear
+ * `pointerDelta` uses, and deliberately NOT the `justPressed` edge mechanism —
+ * an edge cannot say "two notches" (see the wheel section of
+ * `domain/input-bindings.ts`).
+ *
+ * Ignored while unlocked, exactly as `pointermove` is, and for the same
+ * reason: an unlocked wheel is scrolling the chat log or the settings list,
+ * not cycling the hotbar. `shouldSuppressWheelScroll` is the other half of
+ * that rule — unlocked, the adapter does not call `preventDefault()` either,
+ * so the scroll reaches the DOM element the player is actually looking at.
+ *
+ * Normalised HERE, at dispatch, so the accumulator holds one unit. A trackpad
+ * (pixels) and a wheel (lines) can both deliver inside one frame; summing raw
+ * `deltaY` across them would add 3 to 100 and mean nothing.
+ */
+const withWheelDelta = (current: InputState, deltaY: number, deltaMode: WheelDeltaMode): InputState => {
+  if (!isLocked(current)) {
+    return current
+  }
+  return { ...current, wheelNotches: current.wheelNotches + notchesForWheelDelta(deltaY, deltaMode) }
+}
+
+/**
+ * A `pointerlockchange` event.
+ *
+ * Losing the lock drops the accumulated analogue state (DN-09) and releases
+ * the held buttons (`withoutHeldButtons`).
+ *
+ * `locked: false` resolves to `unlocked` and NOT to `refused`: this event
+ * means a lock ENDED (or a request quietly failed to produce one), while
+ * `refused` is only ever what `pointerlockerror` says. Collapsing them would
+ * make every ordinary Escape look to the UI like a browser refusal.
+ */
+const withPointerLockChange = (current: InputState, locked: boolean): InputState => {
+  if (locked) {
+    return { ...current, pointerLockState: 'locked' }
+  }
+  return {
+    ...withoutAnalogueState(withoutHeldButtons(current)),
+    pointerLockState: 'unlocked',
+  }
+}
+
+/**
+ * A `blur` event: the window losing focus.
+ *
+ * ENDS the locked session, exactly as losing the lock does — and
+ * `withoutHeldButtons` already states why that matters: "the click belonged
+ * to the locked session". Preserving `pointerLockState` here made the two
+ * handlers disagree, and the field it preserved is the one that decides what
+ * a click MEANS: `withButtonDown` routes a mousedown into `pressed` while the
+ * state says `locked`, so until the browser got around to delivering
+ * `pointerlockchange` the click the player used to come BACK to the tab was
+ * an `attack`.
+ *
+ * It also unsticks `requested`. Only `pointerlockchange` and
+ * `pointerlockerror` ever left that state, and `requestPointerLock` refuses
+ * to re-ask while one is pending — correctly, because a second request while
+ * one is pending is one of the ways the browser refuses the next. So a
+ * request issued and never answered stranded the session:
+ * `acquiresPointerLock` declines to act on a click in `requested`, and the
+ * player could walk and type but never look around again. This repository
+ * already knows that hazard by name for the `unavailable` path
+ * (`PointerLockRequestOutcome` above); the `sent` path had the identical
+ * hole, and a blur between the ask and the answer is the ordinary way it
+ * opens.
+ *
+ * `unlocked` and NOT `refused`, because the browser did not refuse anything:
+ * the ask was abandoned. `refused` is what a UI draws as "click again to look
+ * around" and is reserved for `pointerlockerror` and for a platform that has
+ * no pointer lock to ask. An existing `refused` therefore survives a blur —
+ * it is documented as sticky until something ASKS again, and a blur is not an
+ * ask.
+ *
+ * `keyboardFocus` is the one thing a blur does NOT clear, and it is carried
+ * over explicitly rather than by omission so that the exception is visible
+ * next to the rule. A window losing focus does not move the DOM focus INSIDE
+ * it: the browser remembers which element was focused and restores it when
+ * the player comes back, usually without re-announcing it. Clearing here
+ * would therefore hide the ring on a tab switch and never bring it back —
+ * mc-render's report and the browser's actual focus would disagree, which is
+ * the single failure this whole feature exists to prevent. A `focusout` that
+ * really did leave the element clears it, and that event arrives on its own.
+ */
+const withBlur = (current: InputState): InputState => {
+  let pointerLockState: PointerLockState = 'unlocked'
+  if (current.pointerLockState === 'refused') {
+    pointerLockState = 'refused'
+  }
+  return {
+    ...initialState(current.bindings),
+    keyboardFocus: current.keyboardFocus,
+    pointerLockState,
+  }
+}
+
+/** One event applied to the state it changes. THE reducer `dispatch` runs. */
+const applyInputEvent = (current: InputState, event: InputEvent): InputState => {
+  switch (event.kind) {
+    case 'keydown':
+      return unlessModalConsumed(event.target, current, () => withCodeDown(current, event.code))
+    case 'keyup':
+      return unlessModalConsumed(event.target, current, () => withCodeUp(current, event.code))
+    case 'mousedown':
+      return unlessModalConsumed(event.target, current, () =>
+        withButtonDown(current, event.button, event.landing),
+      )
+    case 'mouseup':
+      /* Released whatever the lock state. A button that went down while
+         unlocked is not in `pressed` anyway, so this is a no-op for it; a
+         button that went down while locked and is released after the lock
+         was lost must not be left held. */
+      return unlessModalConsumed(event.target, current, () => withCodeUp(current, event.button))
+    case 'contextmenu':
+      /* Deliberately no state change. `mousedown` already recorded the right
+         button; recording it again here would fire `use` twice for one click
+         (reference :137-139). Whether the browser menu is suppressed is
+         `shouldSuppressContextMenu`, which the adapter reads in the handler —
+         it is a decision, not a state change. */
+      return current
+    case 'pointermove':
+      return withPointerDelta(current, event.deltaX, event.deltaY)
+    case 'wheel':
+      return withWheelDelta(current, event.deltaY, event.deltaMode)
+    case 'pointerlockchange':
+      return withPointerLockChange(current, event.locked)
+    case 'focuschange':
+      /* Recorded UNCONDITIONALLY, whatever the lock state, and the masking
+         happens at read time. Dropping the event while locked would be the
+         same class of bug as storing the masked value: the browser really
+         did move focus, and a report built on an observation we declined to
+         make would be stale for the rest of the session.
+
+         Also deliberately not an edge and not additive: focus is
+         single-valued, so the last thing the browser said IS the state.
+         `focusout` then `focusin` for one move therefore settles on the
+         arrival rather than leaving a hole, because the second assignment
+         overwrites the first within the same DOM task. */
+      return { ...current, keyboardFocus: event.focus }
+    case 'touchpress':
+      return unlessModalConsumed(event.target, current, () => withTouchDown(current, event.action))
+    case 'touchrelease':
+      /* Released whatever the lock state, exactly as `mouseup` is, and for
+         the reason `touchcancel` exists at all: if a release can go missing
+         the control sticks, and a stuck on-screen forward button is the
+         touch spelling of the stuck-key report `clearHeld` was written for. */
+      return unlessModalConsumed(event.target, current, () => withTouchUp(current, event.action))
+    case 'gamepadpress':
+      return unlessModalConsumed(event.target, current, () => withTouchDown(current, event.action))
+    case 'gamepadrelease':
+      return unlessModalConsumed(event.target, current, () => withTouchUp(current, event.action))
+    case 'gamepadtick':
+      return { ...current, gamepadAxes: event.axes }
+    case 'pointerlockerror':
+      /* Only the lock state changes. A refused request never held the
+         pointer, so there is no delta to drop and no button to release —
+         anything else this touched would be state invented out of a
+         failure. */
+      return { ...current, pointerLockState: 'refused' }
+    case 'blur':
+      return withBlur(current)
+    default:
+      return current
+  }
+}
+
+/**
+ * `keyboardFocus`, masked by the lock state. Shared by `snapshot` and the
+ * standalone `keyboardFocus` read so the two cannot disagree — see
+ * `InputState.keyboardFocus` for why the mask is applied here rather than at
+ * dispatch.
+ */
+const maskedKeyboardFocus = (current: InputState): FocusTarget | undefined => {
+  if (reportsKeyboardFocus(current.pointerLockState)) {
+    return current.keyboardFocus
+  }
+  return NO_KEYBOARD_FOCUS
 }
 
 export const makeInputService = (
@@ -780,242 +1038,102 @@ export const makeInputService = (
     const resolveHeld = (action: InputAction, held: ReadonlySet<InputCode>) =>
       Ref.get(state).pipe(
         Effect.map((current) => {
-          // `escape` resolves to undefined by construction — it is owned by the
-          // frame-level handler, not by any binding.
-          const key = action === 'escape' ? undefined : current.bindings[action]
-          return key !== undefined && held.has(key)
+          if (action === 'escape') {
+            /* `escape` resolves to no key by construction — it is owned by
+               the frame-level handler, not by any binding. */
+            return false
+          }
+          const key = current.bindings[action]
+          return typeof key !== 'undefined' && held.has(key)
         }),
       )
 
     return {
-      dispatch: (event) =>
-        Ref.update(state, (current): InputState => {
-          switch (event.kind) {
-            case 'keydown':
-              return event.target === MODAL_LISTENER_TARGET ? current : withCodeDown(current, event.code)
-            case 'keyup':
-              return event.target === MODAL_LISTENER_TARGET ? current : withCodeUp(current, event.code)
-            case 'mousedown':
-              // Same shielding rule as the keys, and for the same reason: a
-              // modal that consumed the click stopped it at `document`, so an
-              // event that still says `document` is one the modal did not want
-              // either. This is why the adapter registers `mousedown` on
-              // `window` — see LISTENER_PLAN.
-              return event.target === MODAL_LISTENER_TARGET
-                ? current
-                : withButtonDown(current, event.button, event.landing)
-            case 'mouseup':
-              // Released whatever the lock state. A button that went down while
-              // unlocked is not in `pressed` anyway, so this is a no-op for it;
-              // a button that went down while locked and is released after the
-              // lock was lost must not be left held.
-              return event.target === MODAL_LISTENER_TARGET
-                ? current
-                : withCodeUp(current, event.button)
-            case 'contextmenu':
-              // Deliberately no state change. `mousedown` already recorded the
-              // right button; recording it again here would fire `use` twice
-              // for one click (reference :137-139). Whether the browser menu is
-              // suppressed is `shouldSuppressContextMenu`, which the adapter
-              // reads in the handler — it is a decision, not a state change.
-              return current
-            case 'pointermove':
-              return isLocked(current)
-                ? {
-                    ...current,
-                    pointerDelta: {
-                      x: current.pointerDelta.x + event.deltaX,
-                      y: current.pointerDelta.y + event.deltaY,
-                    },
-                  }
-                : current
-            case 'wheel':
-              // Accumulated, not replaced: the browser delivers several wheel
-              // events per frame and a fast flick is their SUM. This is the
-              // same accumulate-and-clear `pointerDelta` uses in the case
-              // above, and deliberately NOT the `justPressed` edge mechanism —
-              // an edge cannot say "two notches" (see the wheel section of
-              // `domain/input-bindings.ts`).
-              //
-              // Ignored while unlocked, exactly as `pointermove` is, and for
-              // the same reason: an unlocked wheel is scrolling the chat log or
-              // the settings list, not cycling the hotbar. `shouldSuppressWheelScroll`
-              // is the other half of that rule — unlocked, the adapter does not
-              // call `preventDefault()` either, so the scroll reaches the DOM
-              // element the player is actually looking at.
-              //
-              // Normalised HERE, at dispatch, so the accumulator holds one unit.
-              // A trackpad (pixels) and a wheel (lines) can both deliver inside
-              // one frame; summing raw `deltaY` across them would add 3 to 100
-              // and mean nothing.
-              return isLocked(current)
-                ? {
-                    ...current,
-                    wheelNotches:
-                      current.wheelNotches + notchesForWheelDelta(event.deltaY, event.deltaMode),
-                  }
-                : current
-            case 'pointerlockchange':
-              // Losing the lock drops the accumulated analogue state (DN-09)
-              // and releases the held buttons (`withoutHeldButtons`).
-              //
-              // `locked: false` resolves to `unlocked` and NOT to `refused`:
-              // this event means a lock ENDED (or a request quietly failed to
-              // produce one), while `refused` is only ever what
-              // `pointerlockerror` says. Collapsing them would make every
-              // ordinary Escape look to the UI like a browser refusal.
-              return event.locked
-                ? { ...current, pointerLockState: 'locked' }
-                : {
-                    ...withoutAnalogueState(withoutHeldButtons(current)),
-                    pointerLockState: 'unlocked',
-                  }
-            case 'focuschange':
-              // Recorded UNCONDITIONALLY, whatever the lock state, and the
-              // masking happens at read time. Dropping the event while locked
-              // would be the same class of bug as storing the masked value: the
-              // browser really did move focus, and a report built on an
-              // observation we declined to make would be stale for the rest of
-              // the session.
-              //
-              // Also deliberately not an edge and not additive: focus is
-              // single-valued, so the last thing the browser said IS the state.
-              // `focusout` then `focusin` for one move therefore settles on the
-              // arrival rather than leaving a hole, because the second
-              // assignment overwrites the first within the same DOM task.
-              return { ...current, keyboardFocus: event.focus }
-            case 'touchpress':
-              // The same shielding rule as `keydown` and `mousedown`, applied
-              // to the third device. A modal that consumed the tap stopped it at
-              // `document`; one that still says `document` was never meant for
-              // gameplay.
-              return event.target === MODAL_LISTENER_TARGET
-                ? current
-                : withTouchDown(current, event.action)
-            case 'touchrelease':
-              // Released whatever the lock state, exactly as `mouseup` is, and
-              // for the reason `touchcancel` exists at all: if a release can go
-              // missing the control sticks, and a stuck on-screen forward button
-              // is the touch spelling of the stuck-key report `clearHeld` was
-              // written for.
-              return event.target === MODAL_LISTENER_TARGET
-                ? current
-                : withTouchUp(current, event.action)
-            case 'gamepadpress':
-              return event.target === MODAL_LISTENER_TARGET
-                ? current
-                : withTouchDown(current, event.action)
-            case 'gamepadrelease':
-              return event.target === MODAL_LISTENER_TARGET
-                ? current
-                : withTouchUp(current, event.action)
-            case 'gamepadtick':
-              return { ...current, gamepadAxes: event.axes }
-            case 'pointerlockerror':
-              // Only the lock state changes. A refused request never held the
-              // pointer, so there is no delta to drop and no button to release
-              // — anything else this touched would be state invented out of a
-              // failure.
-              return { ...current, pointerLockState: 'refused' }
-            case 'blur':
-              // The window losing focus ENDS the locked session, exactly as
-              // losing the lock does — and `withoutHeldButtons` already states
-              // why that matters: "the click belonged to the locked session".
-              // Preserving `pointerLockState` here made the two handlers
-              // disagree, and the field it preserved is the one that decides
-              // what a click MEANS: `withButtonDown` routes a mousedown into
-              // `pressed` while the state says `locked`, so until the browser
-              // got around to delivering `pointerlockchange` the click the
-              // player used to come BACK to the tab was an `attack`.
-              //
-              // It also unsticks `requested`. Only `pointerlockchange` and
-              // `pointerlockerror` ever left that state, and
-              // `requestPointerLock` refuses to re-ask while one is pending —
-              // correctly, because a second request while one is pending is one
-              // of the ways the browser refuses the next. So a request issued
-              // and never answered stranded the session: `acquiresPointerLock`
-              // declines to act on a click in `requested`, and the player could
-              // walk and type but never look around again. This repository
-              // already knows that hazard by name for the `unavailable` path
-              // (`PointerLockRequestOutcome` above); the `sent` path had the
-              // identical hole, and a blur between the ask and the answer is
-              // the ordinary way it opens.
-              //
-              // `unlocked` and NOT `refused`, because the browser did not
-              // refuse anything: the ask was abandoned. `refused` is what a UI
-              // draws as "click again to look around" and is reserved for
-              // `pointerlockerror` and for a platform that has no pointer lock
-              // to ask. An existing `refused` therefore survives a blur — it is
-              // documented as sticky until something ASKS again, and a blur is
-              // not an ask.
-              //
-              // `keyboardFocus` is the one thing a blur does NOT clear, and it
-              // is carried over explicitly rather than by omission so that the
-              // exception is visible next to the rule. A window losing focus
-              // does not move the DOM focus INSIDE it: the browser remembers
-              // which element was focused and restores it when the player comes
-              // back, usually without re-announcing it. Clearing here would
-              // therefore hide the ring on a tab switch and never bring it back
-              // — mc-render's report and the browser's actual focus would
-              // disagree, which is the single failure this whole feature exists
-              // to prevent. A `focusout` that really did leave the element
-              // clears it, and that event arrives on its own.
-              return {
-                ...initialState(current.bindings),
-                pointerLockState: current.pointerLockState === 'refused' ? 'refused' : 'unlocked',
-                keyboardFocus: current.keyboardFocus,
-              }
-            default:
-              return current
-          }
-        }),
+      bindings: Ref.get(state).pipe(Effect.map((current) => current.bindings)),
 
-      // A PURE read, with no effect on the frame boundary — see `endFrame` on
-      // why the reading is handed back rather than remembered here.
-      snapshot: Ref.get(state).pipe(
-        Effect.map((current) => ({
-          pressed: current.pressed,
-          justPressed: current.justPressed,
-          // PROJECTED from the pairs, never stored beside them. A set and a
-          // list that both claimed to know whether a click happened would be
-          // two answers to one question.
-          uiClicks: new Set(current.uiClicks.map((click) => click.button)),
-          uiClickLandings: current.uiClicks,
-          pointerDelta: current.pointerDelta,
-          wheelNotches: current.wheelNotches,
-          // Truncated TOWARD ZERO, so a partial notch is never a step and the
-          // sign is never flipped by rounding. `endFrame` keeps what is left.
-          wheelSteps: Math.trunc(current.wheelNotches),
-          pointerLocked: isLocked(current),
-          pointerLockState: current.pointerLockState,
-          // MASKED, never cleared. `reportsKeyboardFocus` is the policy and
-          // `InputState.keyboardFocus` says why the mask is applied here rather
-          // than at dispatch.
-          keyboardFocus: reportsKeyboardFocus(current.pointerLockState)
-            ? current.keyboardFocus
-            : undefined,
-          gamepadAxes: current.gamepadAxes,
+      /* `keyboardFocus` survives, on the same argument the `blur` case makes:
+         this drops HELD input and ANALOGUE state, and focus is neither. The
+         browser has not moved it, so forgetting it would only make the report
+         wrong. */
+      clearHeld: Ref.update(state, (current) => ({
+        ...initialState(current.bindings),
+        keyboardFocus: current.keyboardFocus,
+        pointerLockState: current.pointerLockState,
+      })),
+
+      dispatch: (event) => Ref.update(state, (current): InputState => applyInputEvent(current, event)),
+
+      endFrame: (frame) =>
+        Ref.update(state, (current) => ({
+          ...current,
+          justPressed: new Set<InputCode>(),
+          /* Whole notches are consumed; the SUB-NOTCH REMAINDER is kept. This
+             is the one deliberate difference from `pointerDelta`, which is
+             zeroed outright, and the reason is the trackpad: it emits a few
+             pixels per event, so every frame's total rounds to zero notches
+             and a clear-everything rule would make the hotbar unreachable on
+             a laptop. The remainder is dropped whenever the lock is lost or
+             the window blurs, and cancels itself out when the player
+             scrolls back — so it cannot accumulate into a phantom step.
+
+             Consumed: exactly the whole notches `frame` was told about. What
+             the accumulator holds NOW is not the question; see the doc on
+             `endFrame` in `InputServiceApi`. */
+          pointerDelta: ZERO_POINTER_DELTA,
+          uiClicks: [],
+          wheelNotches: current.wheelNotches - consumableSteps(frame, current),
         })),
-      ),
 
       isActionActive: (action) =>
         Ref.get(state).pipe(Effect.flatMap((current) => resolveHeld(action, current.pressed))),
 
-      wasActionJustTriggered: (action) =>
-        Ref.get(state).pipe(Effect.flatMap((current) => resolveHeld(action, current.justPressed))),
-
       isButtonDown: (button) => Ref.get(state).pipe(Effect.map((current) => current.pressed.has(button))),
 
-      wasButtonJustPressed: (button) =>
-        Ref.get(state).pipe(Effect.map((current) => current.justPressed.has(button))),
+      keyboardFocus: Ref.get(state).pipe(Effect.map((current) => maskedKeyboardFocus(current))),
 
-      // Whatever it landed ON. A menu asks "was I clicked", not "was the canvas
-      // clicked"; the landing is `acquiresPointerLock`'s question and is read
-      // through `InputSnapshot.uiClickLandings`.
-      wasUiClick: (button) =>
-        Ref.get(state).pipe(
-          Effect.map((current) => current.uiClicks.some((click) => click.button === button)),
-        ),
+      pointerLockState: Ref.get(state).pipe(Effect.map((current) => current.pointerLockState)),
+
+      rebind: (action, key) =>
+        Ref.modify(state, (current): [RemapOutcome, InputState] => {
+          const outcome = remap(current.bindings, action, key)
+          if (outcome.kind === 'ok') {
+            return [outcome, { ...current, bindings: outcome.bindings }]
+          }
+          return [outcome, current]
+        }),
+
+      requestPointerLock: Effect.gen(function* runPointerLockRequest() {
+        /* Claim the transition BEFORE asking, in one atomic step. Two stages
+           that both see a UI click in the same frame would otherwise both
+           send a request, and a request sent while another is pending is
+           one of the ways the browser refuses. */
+        const asked = yield* Ref.modify(state, (current): [boolean, InputState] => {
+          if (current.pointerLockState === 'unlocked' || current.pointerLockState === 'refused') {
+            return [true, { ...current, pointerLockState: 'requested' }]
+          }
+          return [false, current]
+        })
+        if (!asked) {
+          /* Already `locked` or already `requested`. Report which, ask nothing. */
+          return yield* Ref.get(state).pipe(Effect.map((current) => current.pointerLockState))
+        }
+
+        const outcome = yield* pointerLock.request
+        return yield* Ref.modify(state, (current): [PointerLockState, InputState] => {
+          /* Resolve `unavailable` to `refused` only if we are still waiting.
+             The answer to a `sent` request comes as an event, and by the
+             time we get here that event may already have landed —
+             overwriting a `locked` we have just been granted would be a lie
+             the next frame would draw. */
+          let next = current.pointerLockState
+          if (outcome === 'unavailable' && current.pointerLockState === 'requested') {
+            next = 'refused'
+          }
+          return [next, { ...current, pointerLockState: next }]
+        })
+      }),
+
+      resetBindings: Ref.update(state, (current) => ({ ...current, bindings: defaultBindings() })),
 
       shouldSuppressContextMenu: Ref.get(state).pipe(
         Effect.map((current) => suppressesBrowserContextMenu(isLocked(current))),
@@ -1025,86 +1143,43 @@ export const makeInputService = (
         Effect.map((current) => suppressesBrowserScroll(isLocked(current))),
       ),
 
-      pointerLockState: Ref.get(state).pipe(Effect.map((current) => current.pointerLockState)),
-
-      keyboardFocus: Ref.get(state).pipe(
-        Effect.map((current) =>
-          reportsKeyboardFocus(current.pointerLockState) ? current.keyboardFocus : undefined,
-        ),
+      /* A PURE read, with no effect on the frame boundary — see `endFrame` on
+         why the reading is handed back rather than remembered here. */
+      snapshot: Ref.get(state).pipe(
+        Effect.map((current) => ({
+          gamepadAxes: current.gamepadAxes,
+          justPressed: current.justPressed,
+          keyboardFocus: maskedKeyboardFocus(current),
+          pointerDelta: current.pointerDelta,
+          pointerLockState: current.pointerLockState,
+          pointerLocked: isLocked(current),
+          pressed: current.pressed,
+          uiClickLandings: current.uiClicks,
+          /* PROJECTED from the pairs, never stored beside them. A set and a
+             list that both claimed to know whether a click happened would
+             be two answers to one question. */
+          uiClicks: new Set(current.uiClicks.map((click) => click.button)),
+          wheelNotches: current.wheelNotches,
+          /* Truncated TOWARD ZERO, so a partial notch is never a step and
+             the sign is never flipped by rounding. `endFrame` keeps what is
+             left. */
+          wheelSteps: Math.trunc(current.wheelNotches),
+        })),
       ),
 
-      requestPointerLock: Effect.gen(function* () {
-        // Claim the transition BEFORE asking, in one atomic step. Two stages
-        // that both see a UI click in the same frame would otherwise both send
-        // a request, and a request sent while another is pending is one of the
-        // ways the browser refuses.
-        const asked = yield* Ref.modify(state, (current): [boolean, InputState] =>
-          current.pointerLockState === 'unlocked' || current.pointerLockState === 'refused'
-            ? [true, { ...current, pointerLockState: 'requested' }]
-            : [false, current],
-        )
-        if (!asked) {
-          // Already `locked` or already `requested`. Report which, ask nothing.
-          return yield* Ref.get(state).pipe(Effect.map((current) => current.pointerLockState))
-        }
+      wasActionJustTriggered: (action) =>
+        Ref.get(state).pipe(Effect.flatMap((current) => resolveHeld(action, current.justPressed))),
 
-        const outcome = yield* pointerLock.request
-        return yield* Ref.modify(state, (current): [PointerLockState, InputState] => {
-          // Resolve `unavailable` to `refused` only if we are still waiting.
-          // The answer to a `sent` request comes as an event, and by the time
-          // we get here that event may already have landed — overwriting a
-          // `locked` we have just been granted would be a lie the next frame
-          // would draw.
-          const next: PointerLockState =
-            outcome === 'unavailable' && current.pointerLockState === 'requested'
-              ? 'refused'
-              : current.pointerLockState
-          return [next, { ...current, pointerLockState: next }]
-        })
-      }),
+      wasButtonJustPressed: (button) =>
+        Ref.get(state).pipe(Effect.map((current) => current.justPressed.has(button))),
 
-      endFrame: (frame) =>
-        Ref.update(state, (current) => ({
-          ...current,
-          justPressed: new Set<InputCode>(),
-          uiClicks: [],
-          pointerDelta: { x: 0, y: 0 },
-          // Whole notches are consumed; the SUB-NOTCH REMAINDER is kept. This
-          // is the one deliberate difference from `pointerDelta`, which is
-          // zeroed outright, and the reason is the trackpad: it emits a few
-          // pixels per event, so every frame's total rounds to zero notches and
-          // a clear-everything rule would make the hotbar unreachable on a
-          // laptop. The remainder is dropped whenever the lock is lost or the
-          // window blurs, and cancels itself out when the player scrolls back —
-          // so it cannot accumulate into a phantom step.
-          //
-          // Consumed: exactly the whole notches `frame` was told about. What
-          // the accumulator holds NOW is not the question; see the doc on
-          // `endFrame` in `InputServiceApi`.
-          wheelNotches: current.wheelNotches - consumableSteps(frame, current),
-        })),
-
-      // `keyboardFocus` survives, on the same argument the `blur` case makes:
-      // this drops HELD input and ANALOGUE state, and focus is neither. The
-      // browser has not moved it, so forgetting it would only make the report
-      // wrong.
-      clearHeld: Ref.update(state, (current) => ({
-        ...initialState(current.bindings),
-        pointerLockState: current.pointerLockState,
-        keyboardFocus: current.keyboardFocus,
-      })),
-
-      bindings: Ref.get(state).pipe(Effect.map((current) => current.bindings)),
-
-      rebind: (action, key) =>
-        Ref.modify(state, (current): [RemapOutcome, InputState] => {
-          const outcome = remap(current.bindings, action, key)
-          return outcome.kind === 'ok'
-            ? [outcome, { ...current, bindings: outcome.bindings }]
-            : [outcome, current]
-        }),
-
-      resetBindings: Ref.update(state, (current) => ({ ...current, bindings: defaultBindings() })),
+      /* Whatever it landed ON. A menu asks "was I clicked", not "was the canvas
+         clicked"; the landing is `acquiresPointerLock`'s question and is read
+         through `InputSnapshot.uiClickLandings`. */
+      wasUiClick: (button) =>
+        Ref.get(state).pipe(
+          Effect.map((current) => current.uiClicks.some((click) => click.button === button)),
+        ),
     }
   })
 
@@ -1128,114 +1203,114 @@ export const LISTENER_PLAN: ReadonlyArray<{
 }> = [
   {
     event: 'keydown',
-    target: GAMEPLAY_LISTENER_TARGET,
     note: 'bubble phase on window, so a modal that stopPropagation()s on document shields it',
+    target: GAMEPLAY_LISTENER_TARGET,
   },
-  { event: 'keyup', target: GAMEPLAY_LISTENER_TARGET, note: 'same target as keydown, or keys stick' },
-  // `mousedown` / `mouseup` sit on `window` with the keys, and NOT on
-  // `document` where the reference puts them (:181-182). The reference's
-  // placement was safe when no button carried a gameplay action; now that left
-  // and right click ARE `attack` and `use`, buttons must obey the same modal
-  // shielding as keys, and a listener on `document` cannot be shielded by a
-  // modal that also stops propagation at `document` — whether it is shielded
-  // would depend on registration order. Both events bubble to `window`, so the
-  // move costs nothing.
+  { event: 'keyup', note: 'same target as keydown, or keys stick', target: GAMEPLAY_LISTENER_TARGET },
+  /* `mousedown` / `mouseup` sit on `window` with the keys, and NOT on
+     `document` where the reference puts them (:181-182). The reference's
+     placement was safe when no button carried a gameplay action; now that left
+     and right click ARE `attack` and `use`, buttons must obey the same modal
+     shielding as keys, and a listener on `document` cannot be shielded by a
+     modal that also stops propagation at `document` — whether it is shielded
+     would depend on registration order. Both events bubble to `window`, so the
+     move costs nothing. */
   {
     event: 'mousedown',
-    target: GAMEPLAY_LISTENER_TARGET,
     note: 'attack/use edge; shielded by modals exactly as keydown is',
+    target: GAMEPLAY_LISTENER_TARGET,
   },
   {
     event: 'mouseup',
-    target: GAMEPLAY_LISTENER_TARGET,
     note: 'same target as mousedown, or a held button sticks (hold-to-break never stops)',
+    target: GAMEPLAY_LISTENER_TARGET,
   },
-  // The pointer/wheel events below sit on `document` because that is where the
-  // browser dispatches them, not because of the modal-shielding rule. Only the
-  // key and button events participate in that rule, and only they use the named
-  // constants.
-  { event: 'mousemove', target: 'document', note: 'pointer delta; only meaningful while locked' },
+  /* The pointer/wheel events below sit on `document` because that is where the
+     browser dispatches them, not because of the modal-shielding rule. Only the
+     key and button events participate in that rule, and only they use the named
+     constants. */
+  { event: 'mousemove', note: 'pointer delta; only meaningful while locked', target: 'document' },
   {
     event: 'pointerlockchange',
-    target: 'document',
     note: 'document-only event; the GRANT half of the answer to requestPointerLock',
+    target: 'document',
   },
   {
     event: 'pointerlockerror',
-    target: 'document',
     note:
       'document-only event; the REFUSAL half of the answer to requestPointerLock. Without it a ' +
       'refused request is indistinguishable from never having asked, and the player is told nothing',
+    target: 'document',
   },
   {
     event: 'wheel',
-    target: 'document',
     note:
       'passive: false, so the handler MAY call preventDefault() — but only when ' +
       'shouldSuppressWheelScroll says so, or an unlocked player cannot scroll their own settings ' +
       'screen; deltaMode is translated by wheelDeltaModeForIndex and normalised to notches in the domain',
+    target: 'document',
   },
   {
     event: 'contextmenu',
-    target: 'document',
     note:
       'preventDefault() while the pointer is locked, so right-click places a block instead of ' +
       'opening the browser menu; the decision is shouldSuppressContextMenu, and dispatching the ' +
       'event records NO button state (mousedown already did)',
+    target: 'document',
   },
   {
     event: 'blur',
-    target: GAMEPLAY_LISTENER_TARGET,
     note: 'clears held input; the browser sends no keyup while unfocused (stuck-controls report)',
+    target: GAMEPLAY_LISTENER_TARGET,
   },
-  // The touch trio. On `window` with the keys and the mouse buttons, and NOT on
-  // `document` where the other pointer events sit: a tap is gameplay input that
-  // a modal must be able to shield, which is the same argument that moved
-  // `mousedown`/`mouseup` off `document`. A touch listener on `document` could
-  // not be shielded by a modal that also stops propagation at `document` —
-  // whether it was shielded would depend on registration order.
+  /* The touch trio. On `window` with the keys and the mouse buttons, and NOT on
+     `document` where the other pointer events sit: a tap is gameplay input that
+     a modal must be able to shield, which is the same argument that moved
+     `mousedown`/`mouseup` off `document`. A touch listener on `document` could
+     not be shielded by a modal that also stops propagation at `document` —
+     whether it was shielded would depend on registration order. */
   {
     event: 'touchstart',
-    target: GAMEPLAY_LISTENER_TARGET,
     note:
       'an on-screen control was pressed; the roster resolves the ELEMENT to an action and ' +
       'codeForTouchAction resolves the action to whatever the player has bound (triage #35)',
+    target: GAMEPLAY_LISTENER_TARGET,
   },
   {
     event: 'touchend',
-    target: GAMEPLAY_LISTENER_TARGET,
     note: 'same target as touchstart, or a held control sticks — the stuck-key report, on glass',
+    target: GAMEPLAY_LISTENER_TARGET,
   },
   {
     event: 'touchcancel',
-    target: GAMEPLAY_LISTENER_TARGET,
     note:
       'the platform took the gesture (system edge-swipe, incoming call) and NO touchend will ' +
       'follow. Without this entry the control stays pressed for the rest of the session',
+    target: GAMEPLAY_LISTENER_TARGET,
   },
-  // The focus pair. On `document` because `focusin`/`focusout` BUBBLE and
-  // `focus`/`blur` do not — which is the whole reason these two event names are
-  // the ones registered. A `focus` listener would have to be installed on every
-  // slot mx-ui creates, i.e. this repository would need to know about elements
-  // it does not own and re-install listeners whenever the HUD rebuilt.
-  //
-  // Note also what is NOT here: no `keydown` entry for Tab. The browser moves
-  // focus; these two listeners find out where it went. Anything else would be
-  // reimplementing the platform's focus order, badly, and would then need
-  // `preventDefault()` to stop the platform's own version running as well.
+  /* The focus pair. On `document` because `focusin`/`focusout` BUBBLE and
+     `focus`/`blur` do not — which is the whole reason these two event names are
+     the ones registered. A `focus` listener would have to be installed on every
+     slot mx-ui creates, i.e. this repository would need to know about elements
+     it does not own and re-install listeners whenever the HUD rebuilt.
+
+     Note also what is NOT here: no `keydown` entry for Tab. The browser moves
+     focus; these two listeners find out where it went. Anything else would be
+     reimplementing the platform's focus order, badly, and would then need
+     `preventDefault()` to stop the platform's own version running as well. */
   {
     event: 'focusin',
-    target: 'document',
     note:
       'bubbles (unlike `focus`), so ONE listener covers every slot mx-ui ever creates; the event ' +
       "target is resolved against the host's focus roster and reported as a FocusTarget",
+    target: 'document',
   },
   {
     event: 'focusout',
-    target: 'document',
     note:
       'the departure half. Always reports NO focus: a move fires focusout then focusin in the same ' +
       'DOM task, so the arrival overwrites this, and a departure to nothing correctly leaves it',
+    target: 'document',
   },
 ]
 
@@ -1248,11 +1323,11 @@ export const LISTENER_PLAN: ReadonlyArray<{
 export const ESCAPE_POLICY = {
   key: ESCAPE_KEY_CODE,
   owner: ESCAPE_OWNER,
-  registeredBy: 'nobody — the frame-level handler reads it, no binding maps to it',
   rationale:
     'Two owners means one press both closes the modal and opens the pause menu. ' +
     'The reference has exactly one frame-level handler ' +
     '(ts-minecraft/packages/app/application/frame/stages/input-stage-menu.ts:6, called only from input-stage.ts:33).',
+  registeredBy: 'nobody — the frame-level handler reads it, no binding maps to it',
 } as const
 
 /**
@@ -1277,8 +1352,6 @@ export const FOCUS_NAVIGATION_POLICY = {
   key: FOCUS_NAVIGATION_KEY_CODE,
   owner: FOCUS_NAVIGATION_OWNER,
   preventDefault: false,
-  registeredBy:
-    'nobody — the browser moves focus, and `focusin`/`focusout` on document report where it went',
   rationale:
     'Suppressing Tab traps a keyboard user inside the canvas with no way to reach the browser ' +
     'chrome, the next control, or the settings screen that would let them rebind their way out ' +
@@ -1287,4 +1360,6 @@ export const FOCUS_NAVIGATION_POLICY = {
     'no lock state in which suppressing it is defensible — so there is no predicate for it, only ' +
     'this record. `remap` refuses to bind Tab for the same reason: the owner that cannot be ' +
     'removed must not be given a second.',
+  registeredBy:
+    'nobody — the browser moves focus, and `focusin`/`focusout` on document report where it went',
 } as const

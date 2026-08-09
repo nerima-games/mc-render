@@ -1,9 +1,6 @@
-import { Effect } from 'effect'
-import type { RenderEnvironmentPlan } from '../domain/render-environment'
-import { planRenderEnvironment } from '../domain/render-environment'
+import { Effect, Option } from 'effect'
 import {
   INITIAL_WEATHER_RENDER_STATE,
-  planWeatherFrame,
   type PrecipitationKind,
   type PrecipitationParticle,
   type WeatherCameraPosition,
@@ -11,7 +8,9 @@ import {
   type WeatherRenderPlan,
   type WeatherRenderState,
   type WorldWeatherSnapshot,
+  planWeatherFrame,
 } from '../domain/weather-rendering'
+import { type RenderEnvironmentPlan, planRenderEnvironment } from '../domain/render-environment'
 import type { Viewport } from './world-renderer'
 
 export type WeatherPrecipitationResource = {
@@ -39,6 +38,15 @@ export type WeatherRenderer = {
   readonly dispose: Effect.Effect<void>
 }
 
+/** Neutral daylight value `stop` restores the environment to when the caller does not say otherwise. */
+const DEFAULT_STOP_DAYLIGHT = 1
+
+/** A live precipitation resource together with the kind it was built for. */
+type ActivePrecipitation = {
+  readonly kind: PrecipitationKind
+  readonly resource: WeatherPrecipitationResource
+}
+
 /** Manage renderer resources while leaving their actual GPU representation to the host. */
 export const makeWeatherRenderer = (
   ports: WeatherRendererPorts,
@@ -46,52 +54,77 @@ export const makeWeatherRenderer = (
 ): Effect.Effect<WeatherRenderer> =>
   Effect.sync(() => {
     let renderState = INITIAL_WEATHER_RENDER_STATE
-    let resource: WeatherPrecipitationResource | undefined
-    let resourceKind: PrecipitationKind | undefined
-    let viewport: Viewport | undefined
+    let activePrecipitation: Option.Option<ActivePrecipitation> = Option.none()
+    let viewport: Option.Option<Viewport> = Option.none()
 
-    const release = Effect.gen(function* () {
-      if (resource !== undefined) yield* resource.dispose
-      resource = undefined
-      resourceKind = undefined
+    const releaseEffect = Effect.gen(function* releasePrecipitationResource() {
+      if (Option.isSome(activePrecipitation)) {
+        yield* activePrecipitation.value.resource.dispose
+      }
+      activePrecipitation = Option.none()
     })
 
-    const stop = (daylight: number = 1): Effect.Effect<void> =>
-      Effect.gen(function* () {
-        yield* release
+    const stop = (daylight: number = DEFAULT_STOP_DAYLIGHT): Effect.Effect<void> =>
+      Effect.gen(function* stopWeatherRendererEffect() {
+        yield* releaseEffect
         renderState = INITIAL_WEATHER_RENDER_STATE
         yield* ports.setEnvironment(planRenderEnvironment(daylight, options.farPlane))
       })
 
+    /** Build a fresh resource for `kind`, releasing whatever was active first. */
+    const refreshPrecipitationResource = (
+      kind: PrecipitationKind,
+    ): Effect.Effect<WeatherPrecipitationResource> =>
+      Effect.gen(function* refreshPrecipitationResourceEffect() {
+        yield* releaseEffect
+        const resource = yield* ports.createPrecipitation(kind)
+        if (Option.isSome(viewport)) {
+          yield* resource.resize(viewport.value)
+        }
+        activePrecipitation = Option.some({ kind, resource })
+        return resource
+      })
+
+    /** The resource for `kind`: the active one if it already matches, otherwise a fresh one. */
+    const ensurePrecipitationResource = (
+      kind: PrecipitationKind,
+    ): Effect.Effect<WeatherPrecipitationResource> =>
+      Effect.gen(function* ensurePrecipitationResourceEffect() {
+        if (Option.isSome(activePrecipitation) && activePrecipitation.value.kind === kind) {
+          return activePrecipitation.value.resource
+        }
+        return yield* refreshPrecipitationResource(kind)
+      })
+
     return {
+      dispose: stop(),
+
       frame: (snapshot, camera) =>
-        Effect.gen(function* () {
-          const next = planWeatherFrame(snapshot, camera, renderState, options)
+        Effect.gen(function* frameWeatherEffect() {
+          const next = planWeatherFrame({ camera, options, previous: renderState, snapshot })
           renderState = next.state
           yield* ports.setEnvironment(next.plan.environment)
 
-          if (next.plan.precipitation === undefined) {
-            yield* release
-          } else {
-            if (resource === undefined || resourceKind !== next.plan.precipitation) {
-              yield* release
-              resource = yield* ports.createPrecipitation(next.plan.precipitation)
-              resourceKind = next.plan.precipitation
-              if (viewport !== undefined) yield* resource.resize(viewport)
-            }
-            yield* resource.update(next.plan.particles)
+          if (typeof next.plan.precipitation === 'undefined') {
+            yield* releaseEffect
+            return next.plan
           }
+
+          const resource = yield* ensurePrecipitationResource(next.plan.precipitation)
+          yield* resource.update(next.plan.particles)
           return next.plan
         }),
 
       resize: (nextViewport) =>
-        Effect.gen(function* () {
-          viewport = nextViewport
-          if (resource !== undefined) yield* resource.resize(nextViewport)
+        Effect.gen(function* resizeWeatherEffect() {
+          viewport = Option.some(nextViewport)
+          if (Option.isSome(activePrecipitation)) {
+            yield* activePrecipitation.value.resource.resize(nextViewport)
+          }
         }),
 
-      stop,
       state: Effect.sync(() => renderState),
-      dispose: stop(),
+
+      stop,
     }
   })

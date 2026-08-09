@@ -44,8 +44,8 @@
 
 // --- Domain: pure values, policies and orderings ---------------------------
 // Which atlas tile each block shows. Keyed by NAME and not by id: the
-// reference's table is indexed by ITS block ids, and mc-kernel's ordering
-// disagrees from index 1 onward, so an index-wise copy would have been wrong in
+// Reference's table is indexed by ITS block ids, and mc-kernel's ordering
+// Disagrees from index 1 onward, so an index-wise copy would have been wrong in
 // 117 of 120 rows with a real texture on every face.
 export * from './domain/block-texture-map'
 export * from './domain/camera-mirror'
@@ -56,28 +56,27 @@ export * from './domain/input-bindings'
 export * from './domain/gamepad-input'
 export * from './domain/player-control'
 // `level-of-detail.ts` decides which LOD tier a chunk is drawn at, and measures
-// what that costs the picture. mc-meshing docs/responsibility.md §3.4 assigned
-// it here because it takes a DISTANCE and mc-meshing holds no coordinates; the
-// level vocabulary stayed there and `domain/lod-vocabulary.ts` mirrors it back.
+// What that costs the picture. mc-meshing docs/responsibility.md §3.4 assigned
+// It here because it takes a DISTANCE and mc-meshing holds no coordinates; the
+// Level vocabulary stayed there and `domain/lod-vocabulary.ts` mirrors it back.
 //
-// THAT MIRROR IS NOT EXPORTED FROM THIS BARREL, and neither is
-// `domain/kernel-vocabulary.ts`. Both exclusions are deliberate and both are
-// pinned by tests; this one was added because `check:repoint` FAILED WITHOUT IT,
-// which is worth recording because the failure is invisible from inside this
-// repository.
+// THAT MIRROR IS NOT EXPORTED FROM THIS BARREL. This exclusion is deliberate
+// And pinned by tests because `check:repoint` FAILED WITHOUT IT,
+// Which is worth recording because the failure is invisible from inside this
+// Repository.
 //
 // `export * from './domain/lod-vocabulary'` becomes
 // `export * from '@nerima-games/mc-meshing'` on the day the mirror is deleted —
-// a re-export of that package's ENTIRE surface, which collides with the nine
-// names `domain/chunk-geometry.ts` declares as its own structural mirrors
+// A re-export of that package's ENTIRE surface, which collides with the nine
+// Names `domain/chunk-geometry.ts` declares as its own structural mirrors
 // (`FaceDirection`, `FaceRole`, `QuadAxis`, `tangentAxes`, `totalQuadArea`,
 // `AO_LEVELS`, `AO_MAX`, `VERTICES_PER_QUAD`, `INDICES_PER_QUAD`). Nine TS2308s
-// in three tsconfig projects, and `pnpm verify` here is green throughout,
-// because the collision does not exist until the import is repointed.
+// In three tsconfig projects, and `pnpm verify` here is green throughout,
+// Because the collision does not exist until the import is repointed.
 //
 // A mirror is a private stand-in for somebody else's package. Putting one in a
-// barrel re-publishes it under this package's name, which is the thing the
-// mirror headers all promise not to do.
+// Barrel re-publishes it under this package's name, which is the thing the
+// Mirror headers all promise not to do.
 export * from './domain/level-of-detail'
 export * from './domain/material-policy'
 export * from './domain/mob-visual'
@@ -90,8 +89,8 @@ export * from './domain/texture-atlas'
 export * from './domain/vehicle-visual'
 export * from './domain/wither-visual'
 // The shading curve. `chunk-geometry.ts` builds buffers and does not decide how
-// bright a surface is; this holds the rule, and a host injects the light
-// readings. Its header names the noun still missing before the reference's
+// Bright a surface is; this holds the rule, and a host injects the light
+// Readings. Its header names the noun still missing before the reference's
 // R = AO / G = sky / B = block packing can be used: a `ShaderMaterial` in
 // `application/three-surface.ts` to decode it.
 export * from './domain/chunk-shader'
@@ -106,21 +105,21 @@ export * from './application/input-service'
 // --- Application: the browser adapter for the input service ------------------
 // The ONLY files in this repository that know what an `addEventListener` is.
 // `dom-surface.ts` is the whole DOM dependency, structurally; see its header for
-// why that is a narrow interface rather than `"lib": ["DOM"]`.
+// Why that is a narrow interface rather than `"lib": ["DOM"]`.
 export * from './application/dom-surface'
 export * from './application/browser-input-adapter'
 export * from './application/gamepad-input-adapter'
 
 // --- Application: the THREE.js adapter --------------------------------------
 // `three-surface.ts` is the whole THREE dependency, structurally — the same
-// move `dom-surface.ts` makes for `window`, and for the same reason: no shipped
-// file imports `three`, so `tsconfig.build.json` still compiles this package
-// with `lib: ["ES2024"]` and `types: []`. The HOST passes the real namespace in.
+// Move `dom-surface.ts` makes for `window`, and for the same reason: no shipped
+// File imports `three`, so `tsconfig.build.json` still compiles this package
+// With `lib: ["ES2024"]` and `types: []`. The HOST passes the real namespace in.
 //
 // `world-renderer.ts` is the only file in the repository that touches a GPU. It
-// is what closes docs/e2e-triage.md #1 in mc-compose: nothing in the roster
-// created a WebGL context, so the composed page drew nothing and the smoke test
-// that says so was `fixme`.
+// Is what closes docs/e2e-triage.md #1 in mc-compose: nothing in the roster
+// Created a WebGL context, so the composed page drew nothing and the smoke test
+// That says so was `fixme`.
 export * from './application/three-surface'
 export * from './application/world-renderer'
 export * from './application/particle-system'
@@ -132,13 +131,11 @@ export * from './application/worker-pool'
 // --- Stages: this repository's contribution to the frame --------------------
 // `renderModule` is a full `GameModule` (plan.md §4.1): a Layer plus an
 // Effect-valued `frameStages`. It is what closes the hole recorded in
-// mc-compose/docs/architecture.md §5 — nothing in the roster could reach the
-// renderer, so the shipped build had no input stage at all.
+// Mc-compose/docs/architecture.md §5 — nothing in the roster could reach the
+// Renderer, so the shipped build had no input stage at all.
 export * from './stages/registration'
 export * from './stages/stage-ids'
 
 // --- Provisional -------------------------------------------------------------
-// `domain/kernel-vocabulary.ts` is a temporary local mirror of
-// @nerima-games/mc-kernel and is NOT re-exported: consumers must take that
-// vocabulary from kernel, not from mc-render, or the mirror would become a
-// second source of truth and its scheduled deletion would break them.
+// Kernel vocabulary is not re-exported from this package: consumers import it
+// From `@nerima-games/mc-kernel`, keeping one source of truth.

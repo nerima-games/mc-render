@@ -86,15 +86,15 @@
  * adds the shader — with a measurement, which this repository has eight recorded
  * reasons to insist on.
  */
-import { LIGHT_LEVEL_MAX, clampLightLevel } from './kernel-vocabulary'
 import {
-  aoShade,
-  faceNormal,
-  greyQuadColor,
   type FaceDirection,
   type QuadColor,
   type QuadShade,
+  aoShade,
+  faceNormal,
+  greyQuadColor,
 } from './chunk-geometry'
+import { LIGHT_LEVEL_MAX, clampLightLevel } from '@nerima-games/mc-kernel'
 
 /**
  * The two light values at a point: how much of it is daylight and how much is
@@ -120,10 +120,10 @@ export type SkyBlockLight = {
 }
 
 /** Fully lit, from both sources. The reading for a face with no grid behind it. */
-export const FULL_LIGHT: SkyBlockLight = { sky: LIGHT_LEVEL_MAX, block: LIGHT_LEVEL_MAX }
+export const FULL_LIGHT: SkyBlockLight = { block: LIGHT_LEVEL_MAX, sky: LIGHT_LEVEL_MAX }
 
 /** Fully dark. The reading for a sealed cave face. */
-export const NO_LIGHT: SkyBlockLight = { sky: 0, block: 0 }
+export const NO_LIGHT: SkyBlockLight = { block: 0, sky: 0 }
 
 /**
  * The floor of the light term: how lit a surface at level 0 still draws.
@@ -167,11 +167,18 @@ export const MAX_SHADE_FACTOR = 1
  * The block term is NOT attenuated — a torch is as bright at midnight.
  *
  * Both readings are clamped, because they arrive through an injected sampler
- * and `./kernel-vocabulary.ts`'s `clampLightLevel` header lists a host-supplied
+ * and `@nerima-games/mc-kernel.ts`'s `clampLightLevel` header lists a host-supplied
  * function as exactly the seam an out-of-range value comes through.
  */
+/** The inclusive range `skyIntensity` is clamped to before it attenuates the sky term. */
+const SKY_INTENSITY_MIN = 0
+const SKY_INTENSITY_MAX = 1
+
 export const effectiveLightLevel = (light: SkyBlockLight, skyIntensity: number): number =>
-  Math.max(clampLightLevel(light.sky) * Math.min(Math.max(skyIntensity, 0), 1), clampLightLevel(light.block))
+  Math.max(
+    clampLightLevel(light.sky) * Math.min(Math.max(skyIntensity, SKY_INTENSITY_MIN), SKY_INTENSITY_MAX),
+    clampLightLevel(light.block),
+  )
 
 /**
  * The light term of the product: `0.45 + 0.55 * (level / 15)`.
@@ -182,8 +189,11 @@ export const effectiveLightLevel = (light: SkyBlockLight, skyIntensity: number):
  * is a division, and a division written twice is a denominator that can be
  * updated once.
  */
+/** The floor a light level is clamped to before it is normalised. */
+const LIGHT_LEVEL_MIN = 0
+
 export const lightShadeFactor = (level: number): number =>
-  LIGHT_SHADE_FLOOR + LIGHT_SHADE_RANGE * (Math.min(Math.max(level, 0), LIGHT_LEVEL_MAX) / LIGHT_LEVEL_MAX)
+  LIGHT_SHADE_FLOOR + LIGHT_SHADE_RANGE * (Math.min(Math.max(level, LIGHT_LEVEL_MIN), LIGHT_LEVEL_MAX) / LIGHT_LEVEL_MAX)
 
 /**
  * The AO term of the product: `0.8 + 0.2 * (shade / 255)`.
@@ -238,12 +248,12 @@ export const aoShadeFactor = (aoLevel: number): number =>
  * and this repository has the enum.
  */
 export const FACE_BRIGHTNESS: Readonly<Record<FaceDirection, number>> = {
-  yPos: 1,
-  yNeg: 0.5,
-  xPos: 0.6,
   xNeg: 0.6,
-  zPos: 0.8,
+  xPos: 0.6,
+  yNeg: 0.5,
+  yPos: 1,
   zNeg: 0.8,
+  zPos: 0.8,
 }
 
 /** The fixed brightness of a face direction. Total by the type of the table. */
@@ -266,15 +276,19 @@ export const faceBrightness = (direction: FaceDirection): number => FACE_BRIGHTN
  * regression, and it is the reason `LIGHT_SHADE_FLOOR` can afford to be as high
  * as 0.45 — the face term supplies the rest of the contrast.
  */
-export const combinedShadeFactor = (
-  light: SkyBlockLight,
-  aoLevel: number,
-  skyIntensity: number,
-  direction: FaceDirection = 'yPos',
-): number =>
-  lightShadeFactor(effectiveLightLevel(light, skyIntensity)) *
+/** The default face direction a shade curve is evaluated for: the one an unoriented caller means. */
+const DEFAULT_SHADE_DIRECTION: FaceDirection = 'yPos'
+
+/** Everything `combinedShadeFactor`/`combinedShadeByte` need beyond the light and AO readings. */
+export type ShadeCurveOptions = {
+  readonly skyIntensity: number
+  readonly direction?: FaceDirection
+}
+
+export const combinedShadeFactor = (light: SkyBlockLight, aoLevel: number, options: ShadeCurveOptions): number =>
+  lightShadeFactor(effectiveLightLevel(light, options.skyIntensity)) *
   aoShadeFactor(aoLevel) *
-  faceBrightness(direction)
+  faceBrightness(options.direction ?? DEFAULT_SHADE_DIRECTION)
 
 /**
  * The curve, as the 0..255 byte `./chunk-geometry.ts` writes into all three
@@ -287,12 +301,8 @@ export const combinedShadeFactor = (
  * point, would make a fully lit unoccluded face 254 rather than 255 — an
  * off-by-one at the exact value a test is most likely to assert.
  */
-export const combinedShadeByte = (
-  light: SkyBlockLight,
-  aoLevel: number,
-  skyIntensity: number,
-  direction: FaceDirection = 'yPos',
-): number => Math.round(combinedShadeFactor(light, aoLevel, skyIntensity, direction) * MAX_SHADE_BYTE)
+export const combinedShadeByte = (light: SkyBlockLight, aoLevel: number, options: ShadeCurveOptions): number =>
+  Math.round(combinedShadeFactor(light, aoLevel, options) * MAX_SHADE_BYTE)
 
 /**
  * Where a face's light is read from: the block the face LOOKS INTO, not the one
@@ -315,14 +325,32 @@ export const combinedShadeByte = (
  * PRE-COMBINING, it is stated here rather than discovered, and it is the second
  * argument for the packed-channel path — a shader samples per fragment.
  */
+/** The normal component value that means "this axis is not the face's normal axis". */
+const NORMAL_AXIS_ZERO = 0
+/** Half a block: the tangential offset applied on an axis the normal does not point along. */
+const TANGENT_HALF_STEP = 0.5
+/** No offset: applied on the axis the normal does point along. */
+const NO_TANGENT_STEP = 0
+
+/** The tangential offset for one normal component: half a block off-axis, none on-axis. */
+const tangentHalfStep = (normalComponent: number): number => {
+  if (normalComponent === NORMAL_AXIS_ZERO) {
+    return TANGENT_HALF_STEP
+  }
+  return NO_TANGENT_STEP
+}
+
 export const lightSamplePoint = (
   quad: { readonly lx: number; readonly y: number; readonly lz: number },
   normal: readonly [number, number, number],
-): readonly [number, number, number] => [
-  quad.lx + normal[0] + (normal[0] === 0 ? 0.5 : 0),
-  quad.y + normal[1] + (normal[1] === 0 ? 0.5 : 0),
-  quad.lz + normal[2] + (normal[2] === 0 ? 0.5 : 0),
-]
+): readonly [number, number, number] => {
+  const [normalX, normalY, normalZ] = normal
+  return [
+    quad.lx + normalX + tangentHalfStep(normalX),
+    quad.y + normalY + tangentHalfStep(normalY),
+    quad.lz + normalZ + tangentHalfStep(normalZ),
+  ]
+}
 
 /**
  * The question this repository asks a light grid, and the whole of it.
@@ -335,7 +363,7 @@ export const lightSamplePoint = (
  * owns neighbour lookup, and a sampler that cannot answer for `lx = -1` should
  * return `NO_LIGHT` rather than make this repository handle chunk edges.
  */
-export type LightSampler = (x: number, y: number, z: number) => SkyBlockLight
+export type LightSampler = (localX: number, localY: number, localZ: number) => SkyBlockLight
 
 /**
  * A sampler for a world with no light grid: everything fully lit.
@@ -375,10 +403,10 @@ export const litShade = (
   sampler: LightSampler,
   options: ShadingOptions = {},
 ): QuadShade => {
-  const skyIntensity = options.skyIntensity ?? 1
+  const skyIntensity = options.skyIntensity ?? SKY_INTENSITY_MAX
   return (quad) => {
-    const [x, y, z] = lightSamplePoint(quad, faceNormal(quad.direction))
-    return combinedShadeByte(sampler(x, y, z), quad.ao, skyIntensity, quad.direction)
+    const [sampleX, sampleY, sampleZ] = lightSamplePoint(quad, faceNormal(quad.direction))
+    return combinedShadeByte(sampler(sampleX, sampleY, sampleZ), quad.ao, { direction: quad.direction, skyIntensity })
   }
 }
 
@@ -434,16 +462,16 @@ export const litColor = (sampler: LightSampler, options: ShadingOptions = {}): Q
 export const packedLightColor =
   (sampler: LightSampler): QuadColor =>
   (quad) => {
-    const [x, y, z] = lightSamplePoint(quad, faceNormal(quad.direction))
-    const light = sampler(x, y, z)
+    const [sampleX, sampleY, sampleZ] = lightSamplePoint(quad, faceNormal(quad.direction))
+    const light = sampler(sampleX, sampleY, sampleZ)
     return [
-      // R: the AO table's own byte, NOT the level. The shader's `0.8 + 0.2 * R`
-      // expects a 0..1 fraction, and `normalized: true` on the attribute divides
-      // by 255 — so the byte that must be here is the one an unlit material
-      // would have shown.
+      /* R: the AO table's own byte, NOT the level. The shader's `0.8 + 0.2 * R`
+         expects a 0..1 fraction, and `normalized: true` on the attribute divides
+         by 255 — so the byte that must be here is the one an unlit material
+         would have shown. */
       aoShade(quad.ao),
-      // G, B: levels scaled onto the byte range, so the shader's `max(sky *
-      // uSunIntensity, block)` operates on 0..1 fractions.
+      /* G, B: levels scaled onto the byte range, so the shader's `max(sky *
+         uSunIntensity, block)` operates on 0..1 fractions. */
       Math.round((clampLightLevel(light.sky) / LIGHT_LEVEL_MAX) * MAX_SHADE_BYTE),
       Math.round((clampLightLevel(light.block) / LIGHT_LEVEL_MAX) * MAX_SHADE_BYTE),
     ]

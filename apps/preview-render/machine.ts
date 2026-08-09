@@ -61,7 +61,7 @@ import {
   type PointerLockState,
 } from '../../src/domain/input-bindings'
 import { UNSET_CAMERA_POSE } from '../../src/stages/registration'
-import { MonotonicTimeSecs, position, type CameraPoseSnapshot } from '../../src/domain/kernel-vocabulary'
+import { MonotonicTimeSecs, position, type CameraPoseSnapshot } from '@nerima-games/mc-kernel'
 import { scenarioFor, stepAt, type Command, type ScenarioName, type ScriptedStep } from './script'
 
 /**
@@ -238,6 +238,21 @@ export const describeCommand = (command: Command): string => {
       return 'unknown command'
   }
 }
+
+const INPUT_EVENT_KINDS: ReadonlySet<string> = new Set([
+  'keydown',
+  'keyup',
+  'mousedown',
+  'mouseup',
+  'contextmenu',
+  'pointermove',
+  'wheel',
+  'pointerlockchange',
+  'pointerlockerror',
+  'blur',
+])
+
+const isInputEventKind = (kind: string): boolean => INPUT_EVENT_KINDS.has(kind)
 
 export const makeMachine = async (config: MachineConfig): Promise<Machine> => {
   const book: Book = {
@@ -500,23 +515,6 @@ export const makeMachine = async (config: MachineConfig): Promise<Machine> => {
     )
 
   return { config, advance, inject, view }
-}
-
-const INPUT_EVENT_KINDS: ReadonlySet<string> = new Set([
-  'keydown',
-  'keyup',
-  'mousedown',
-  'mouseup',
-  'contextmenu',
-  'pointermove',
-  'wheel',
-  'pointerlockchange',
-  'pointerlockerror',
-  'blur',
-])
-
-function isInputEventKind(kind: string): boolean {
-  return INPUT_EVENT_KINDS.has(kind)
 }
 
 /** Which action a raw code currently means, for the live key echo. */

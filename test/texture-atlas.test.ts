@@ -45,16 +45,32 @@ const tileAlphas = (data: Uint8ClampedArray, tile: number): ReadonlySet<number> 
   new Set(tileBytes(data, tile).filter((_, index) => index % 4 === 3))
 
 describe('generated terrain atlas', () => {
-  it.effect('has exact RGBA dimensions and is deterministic without sharing storage', () =>
-    Effect.sync(() => {
-      const first = generateTerrainAtlas()
-      const second = generateTerrainAtlas()
-      expect(first.width).toBe(512)
-      expect(first.height).toBe(512)
-      expect(first.data).toHaveLength(512 * 512 * 4)
-      expect(first.data).toStrictEqual(second.data)
-      expect(first.data).not.toBe(second.data)
-    }),
+  /**
+   * Generates the full 512x512 atlas twice, deliberately (this is the one test
+   * proving `generateTerrainAtlas` doesn't share backing storage across
+   * calls), so it's the single heaviest test in this file. It fits well inside
+   * the suite's default 10s `testTimeout` (vitest.config.ts) uninstrumented,
+   * but V8's per-branch coverage counters (`pnpm test:coverage`) add enough
+   * overhead to a tight pixel-generation loop to cross that margin -- an
+   * instrumentation-overhead flake, not a regression (confirmed empirically,
+   * fix/ci-green-10, 2026-08-09: this test alone takes ~6-9s without
+   * coverage and consistently 11-14s with it, with zero change to
+   * `generateTerrainAtlas` itself on this branch). A longer timeout on just
+   * this test, rather than raising `testTimeout` for the whole suite.
+   */
+  it.effect(
+    'has exact RGBA dimensions and is deterministic without sharing storage',
+    () =>
+      Effect.sync(() => {
+        const first = generateTerrainAtlas()
+        const second = generateTerrainAtlas()
+        expect(first.width).toBe(512)
+        expect(first.height).toBe(512)
+        expect(first.data).toHaveLength(512 * 512 * 4)
+        expect(first.data).toStrictEqual(second.data)
+        expect(first.data).not.toBe(second.data)
+      }),
+    20000,
   )
 
   it.effect('gives every mapped tile distinct, non-empty pixels', () =>

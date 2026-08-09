@@ -17,7 +17,7 @@ import {
   StageId,
   type CameraPoseSnapshot,
   type StageRegistration,
-} from '../src/domain/kernel-vocabulary'
+} from '@nerima-games/mc-kernel'
 import { chainPasses, QUALITY_PRESETS } from '../src/domain/post-processing'
 import {
   InputService,
@@ -201,7 +201,7 @@ describe('render:input', () => {
         setJumpIntent: (pressed: boolean) => Ref.set(jump, pressed),
       }
       const input = yield* InputService
-      const { stages } = yield* makeRenderStagesForPreview(undefined, undefined, control)
+      const { stages } = yield* makeRenderStagesForPreview({ control })
 
       yield* input.dispatch({ kind: 'keydown', code: 'KeyW', target: GAMEPLAY_LISTENER_TARGET })
       yield* input.dispatch({ kind: 'keydown', code: 'KeyD', target: GAMEPLAY_LISTENER_TARGET })
@@ -473,7 +473,7 @@ describe('render:camera-mirror', () => {
   )
 
   // The one real read of `FrameServices` in this repository, and the reason
-  // mc-render's kernel mirror carries the Clock Port whole. Time comes from the
+  // mc-kernel's published FrameServices contract carries the Clock Port. Time comes from the
   // injected Port; plan.md §5.1-3 bans reading a global clock.
   it.effect('measures how stale the mirrored pose is, from the injected clock', () =>
     withStages((stages, state) =>
@@ -562,7 +562,7 @@ describe('render:chunk-sync, render:draw and render:post-fx', () => {
       }
 
       yield* Effect.gen(function* () {
-        const { stages } = yield* makeRenderStagesForPreview(undefined, undefined, undefined, chunkSync)
+        const { stages } = yield* makeRenderStagesForPreview({ chunkSync })
         const stage = stageById(stages, RENDER_STAGE_IDS.chunkSync)
 
         yield* stage.run(dt).pipe(Effect.provide(FRAME_SERVICES))
@@ -611,7 +611,7 @@ describe('render:chunk-sync, render:draw and render:post-fx', () => {
       }
 
       yield* Effect.gen(function* () {
-        const { state, stages } = yield* makeRenderStagesForPreview(undefined, port)
+        const { state, stages } = yield* makeRenderStagesForPreview({ draw: port })
         const stage = stageById(stages, RENDER_STAGE_IDS.draw)
 
         yield* stage.run(dt).pipe(Effect.provide(FRAME_SERVICES))
@@ -638,7 +638,7 @@ describe('render:chunk-sync, render:draw and render:post-fx', () => {
       }
 
       yield* Effect.gen(function* () {
-        const { state, stages } = yield* makeRenderStagesForPreview(undefined, port)
+        const { state, stages } = yield* makeRenderStagesForPreview({ draw: port })
 
         yield* Ref.set(state.authoritativePose, {
           position: position(0, 64, 0),
@@ -716,7 +716,7 @@ describe('render:chunk-sync, render:draw and render:post-fx', () => {
         setPostProcessingChain: (chain) =>
           Ref.set(received, chain.map((step) => step.pass)),
       }
-      const { stages } = yield* makeRenderStagesForPreview(undefined, draw).pipe(
+      const { stages } = yield* makeRenderStagesForPreview({ draw }).pipe(
         Effect.provide(InputServiceLayer()),
       )
 

@@ -17,7 +17,7 @@ import { describe, expect, it } from '@effect/vitest'
 import { Effect } from 'effect'
 import { mirroredCameraState } from '../src/domain/camera-mirror'
 import { buildChunkGeometry, type MeshQuad } from '../src/domain/chunk-geometry'
-import { MonotonicTimeSecs, position, type CameraPoseSnapshot } from '../src/domain/kernel-vocabulary'
+import { MonotonicTimeSecs, position, type CameraPoseSnapshot } from '@nerima-games/mc-kernel'
 import {
   CAMERA_FAR_PLANE,
   CAMERA_FOV_DEGREES,
@@ -34,6 +34,8 @@ import { planRenderEnvironment } from '../src/domain/render-environment'
 import { planMobVisual } from '../src/domain/mob-visual'
 import { buildPostProcessingChain } from '../src/domain/post-processing'
 import { planWitherSkullVisual, planWitherVisual } from '../src/domain/wither-visual'
+import { makeThreeWeatherPrecipitation } from '../src/application/three-weather-runtime'
+import type { ThreeScene } from '../src/application/three-surface'
 
 const VIEWPORT = { width: 1280, height: 720 }
 
@@ -229,7 +231,7 @@ describe('chunk geometry in the scene', () => {
 
       yield* renderer.setChunk('0,0', buffers)
 
-      const geometry = three.geometries()[0]
+      const [geometry] = three.geometries()
       expect([...(geometry?.attributes.keys() ?? [])]).toStrictEqual([
         'position',
         'normal',
@@ -310,7 +312,7 @@ describe('chunk geometry in the scene', () => {
       const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT)
 
       yield* renderer.setChunk('0,0', buildChunkGeometry([quad()]))
-      const first = three.geometries()[0]
+      const [first] = three.geometries()
       yield* renderer.setChunk('0,0', buildChunkGeometry([quad({ ao: 2 })]))
 
       expect(three.scene().members()).toHaveLength(1)
@@ -445,7 +447,7 @@ describe('entity meshes in the scene', () => {
         { id: 'z', kind: 'zombie', feetPosition: { x: 0, y: 64, z: 0 } },
       ])
       const entityGeometries = three.geometries().slice(1)
-      const entityMaterial = three.materials()[1]
+      const [, entityMaterial] = three.materials()
       yield* renderer.syncEntities([])
 
       expect(yield* renderer.entityCount).toBe(0)
@@ -471,7 +473,7 @@ describe('entity meshes in the scene', () => {
       ])
       const previousMeshes = [...three.scene().members()]
       const previousGeometries = [...three.geometries()]
-      const entityMaterial = three.materials()[1]
+      const [, entityMaterial] = three.materials()
       yield* renderer.syncEntities([
         { id: 'same', kind: 'creeper', feetPosition: { x: 1, y: 0, z: 0 } },
       ])
@@ -513,7 +515,7 @@ describe('entity meshes in the scene', () => {
         velocity: { x: 1, y: 0, z: 0 },
       }
       const visual = planWitherVisual(witherState)
-      const firstPart = visual.parts[0]
+      const [firstPart] = visual.parts
 
       yield* renderer.syncEntities([
         {
@@ -616,6 +618,83 @@ describe('entity meshes in the scene', () => {
       expect(three.meshes()[0]?.positions()[0]).toStrictEqual([3, 7, 11])
       expect(three.meshes()[0]?.rotations()[0]?.[0]).toBeCloseTo(Math.PI / 4, 12)
       expect(three.meshes()[0]?.rotations()[0]?.[1]).toBeCloseTo(-Math.PI / 2, 12)
+    }),
+  )
+
+  it.effect('defaults Wither visual state from feet position and facing when the entity carries none', () =>
+    Effect.gen(function* () {
+      // `planWitherEntityVisual` (application/world-renderer.ts) builds a
+      // default `WitherVisualStateInput` from `entity.witherState ?? {...}`
+      // when mc-sim hasn't attached state yet. Every OTHER Wither test in this
+      // file supplies `witherState` explicitly, so that fallback object has
+      // never been built. The default's `velocity` comes from `facingRadians`
+      // via `facingDirection`, so `facingRadians` is chosen here to give sin
+      // and cos a distinguishable, non-zero pair -- proving the derivation
+      // actually ran rather than merely returning zeroes by coincidence.
+      const three = makeFakeThree()
+      const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT)
+      const facingRadians = Math.PI / 2
+      const feetPosition = { x: 5, y: 6, z: 7 }
+      const expectedDefaultState = {
+        phase: 'airborne' as const,
+        healthPoints: 300,
+        chargeRemainingSecs: 0,
+        feetPosition,
+        velocity: { x: -Math.sin(facingRadians), y: 0, z: -Math.cos(facingRadians) },
+      }
+      const visual = planWitherVisual(expectedDefaultState)
+      const [firstPart] = visual.parts
+
+      yield* renderer.syncEntities([
+        {
+          id: 'wither-no-state',
+          kind: 'wither',
+          feetPosition,
+          facingRadians,
+        },
+      ])
+
+      expect(three.scene().members()).toHaveLength(visual.parts.length)
+      expect(three.meshes()[0]?.rotations()[0]?.[1]).toBeCloseTo(visual.yawRadians, 12)
+      expect(three.meshes()[0]?.positions()[0]?.[1]).toBeCloseTo(
+        visual.position.y + (firstPart?.center[1] ?? 0),
+        12,
+      )
+    }),
+  )
+
+  it.effect('defaults Wither-skull direction from facing when the entity carries no projectile', () =>
+    Effect.gen(function* () {
+      // Same fallback shape as above, for `planWitherSkullEntityVisual`'s
+      // `entity.witherSkullProjectile ?? {...}`. Every other skull test in
+      // this file supplies `witherSkullProjectile` explicitly.
+      const three = makeFakeThree()
+      const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT)
+      const facingRadians = Math.PI / 2
+      const feetPosition = { x: 1, y: 2, z: 3 }
+      const expectedDefaultProjectile = {
+        kind: 'wither_skull' as const,
+        variant: 'normal' as const,
+        origin: feetPosition,
+        direction: { x: -Math.sin(facingRadians), y: 0, z: -Math.cos(facingRadians) },
+        speed: 0,
+        explosivePower: 0,
+        destroysResistantBlocks: false,
+      }
+      const visual = planWitherSkullVisual(expectedDefaultProjectile)
+
+      yield* renderer.syncEntities([
+        {
+          id: 'skull-no-projectile',
+          kind: 'wither_skull',
+          feetPosition,
+          facingRadians,
+        },
+      ])
+
+      expect(three.scene().members()).toHaveLength(visual.parts.length)
+      expect(three.meshes()[0]?.positions()[0]).toStrictEqual([feetPosition.x, feetPosition.y, feetPosition.z])
+      expect(three.meshes()[0]?.rotations()[0]?.[1]).toBeCloseTo(visual.yawRadians, 12)
     }),
   )
 })
@@ -768,17 +847,17 @@ describe('canvas weather', () => {
       expect(three.geometries()).toHaveLength(1)
       expect(three.materials()).toHaveLength(2)
       expect(three.scene().members()).toHaveLength(1)
-      const geometry = three.geometries()[0]
-      const position = geometry?.attributes.get('position')
+      const [geometry] = three.geometries()
+      const positionAttribute = geometry?.attributes.get('position')
       expect(geometry?.drawRanges()).toStrictEqual([
         [0, 0],
         [0, 24],
       ])
-      expect(position?.needsUpdate).toBe(true)
+      expect(positionAttribute?.needsUpdate).toBe(true)
 
       yield* renderer.weather.frame(rain, { x: 10, y: 64, z: -5 })
       expect(three.geometries()).toHaveLength(1)
-      expect(geometry?.attributes.get('position')?.array).toBe(position?.array)
+      expect(geometry?.attributes.get('position')?.array).toBe(positionAttribute?.array)
       expect(geometry?.drawRanges().at(-1)).toStrictEqual([0, 24])
 
       yield* renderer.resize(800, 600)
@@ -811,6 +890,163 @@ describe('canvas weather', () => {
       yield* renderer.dispose
       expect(three.geometries()[0]?.disposed()).toBe(true)
       expect(three.scene().members()).toStrictEqual([])
+    }),
+  )
+})
+
+describe('optional host-owned post-processing compositor', () => {
+  it.effect('routes draw, resize and dispose through the supplied compositor instead of rendering directly', () =>
+    Effect.gen(function* () {
+      // `options.postProcessing` (application/world-renderer.ts:556) is the
+      // port a host with a real compositor supplies. Every OTHER test in this
+      // file is headless and omits it, so `createRendererSurface`'s
+      // `options.postProcessing?.(...)` call and every `if (postProcessing)` /
+      // `postProcessing?.` branch downstream have never taken their
+      // "supplied" side. This test supplies one and checks that the direct
+      // `renderer.render` path is bypassed, not merely that nothing throws.
+      const three = makeFakeThree()
+      let renderCallCount = 0
+      let lastRenderChain: unknown = undefined
+      const resizeCalls: Array<readonly [number, number]> = []
+      let disposeCalls = 0
+      let constructedViewport: { readonly width: number; readonly height: number } | undefined =
+        undefined
+
+      const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT, {
+        postProcessing: (surface) => {
+          constructedViewport = surface.viewport
+          return {
+            render: (chain) => {
+              renderCallCount += 1
+              lastRenderChain = chain
+            },
+            resize: (width, height) => {
+              resizeCalls.push([width, height])
+            },
+            dispose: () => {
+              disposeCalls += 1
+            },
+          }
+        },
+      })
+
+      expect(constructedViewport).toStrictEqual(VIEWPORT)
+
+      const chain = yield* renderer.postProcessingChain
+      yield* renderer.draw(mirroredCameraState(poseAt(0, 0, 0, 0, 0)))
+
+      expect(renderCallCount).toBe(1)
+      expect(lastRenderChain).toBe(chain)
+      // The compositor took the frame -- three's own `render` must not have.
+      expect(three.renderer().renderCalls()).toBe(0)
+
+      yield* renderer.resize(800, 600)
+      expect(resizeCalls).toStrictEqual([[800, 600]])
+
+      yield* renderer.dispose
+      expect(disposeCalls).toBe(1)
+    }),
+  )
+})
+
+describe('three-weather-runtime: direct precipitation resource construction', () => {
+  it.effect(
+    'builds snow particles at the snow radius/height, colored near-white -- "canvas weather" above only ever drives kind "rain"',
+    () =>
+      Effect.gen(function* () {
+        // `particleRadiusFor`/`particleHeightFor`/`particleColorFor`
+        // (application/three-weather-runtime.ts) each branch on `kind`, and
+        // every "canvas weather" test above reaches this module only through
+        // `mode: 'rain'` or `'thunder'`, both of which resolve to `kind:
+        // 'rain'` (domain/weather-rendering.ts's `precipitationFor`). This
+        // constructs the resource directly with `kind: 'snow'` to exercise
+        // the other side of each branch, and checks the actual buffer bytes
+        // written rather than only that the call does not throw.
+        const three = makeFakeThree()
+        const scene = new three.Scene()
+        const resource = makeThreeWeatherPrecipitation({
+          capacity: 1,
+          kind: 'snow',
+          scene,
+          three,
+        })
+
+        yield* resource.update([
+          { id: 1, kind: 'snow', velocityY: -2.4, opacity: 1, x: 0, y: 0, z: 0 },
+        ])
+
+        const [geometry] = three.geometries()
+        const positions = geometry?.attributes.get('position')?.array
+        const colors = geometry?.attributes.get('color')?.array
+        // The particle's first written corner is (x - radius, y, z - radius);
+        // snow's radius is 0.12, distinct from rain's 0.025. Precision 6, not
+        // the 12 used elsewhere in this file for `number` math: `positions`
+        // is a `Float32Array`, whose ~7 significant decimal digits cannot
+        // hold `-0.12` exactly.
+        expect(positions?.[0] ?? Number.NaN).toBeCloseTo(-0.12, 6)
+        expect(positions?.[2] ?? Number.NaN).toBeCloseTo(-0.12, 6)
+        // Snow's near-white color (245, 249, 255), distinct from rain's pale blue.
+        expect(Array.from(colors?.slice(0, 3) ?? [])).toStrictEqual([245, 249, 255])
+      }),
+  )
+
+  it.effect('dispose is idempotent: a second dispose does not re-release the scene', () =>
+    Effect.gen(function* () {
+      // Guards `three-weather-runtime.ts`'s `if (disposed) {return}` in
+      // `dispose`. Without it, a second dispose would call `scene.remove`
+      // again -- harmless on the real fake (which already tolerates removing
+      // an absent member), so the count on `remove` itself, not `members()`,
+      // is what actually distinguishes "guarded" from "not".
+      const three = makeFakeThree()
+      const scene = new three.Scene()
+      let removeCalls = 0
+      const originalRemove = scene.remove
+      const countingScene: ThreeScene = {
+        add: scene.add,
+        remove: (object) => {
+          removeCalls += 1
+          originalRemove(object)
+        },
+      }
+      const resource = makeThreeWeatherPrecipitation({
+        capacity: 4,
+        kind: 'rain',
+        scene: countingScene,
+        three,
+      })
+
+      yield* resource.dispose
+      expect(removeCalls).toBe(1)
+
+      yield* resource.dispose
+      expect(removeCalls).toBe(1)
+    }),
+  )
+
+  it.effect('update after dispose is a no-op: it does not resurrect the mesh or extend the draw range', () =>
+    Effect.gen(function* () {
+      // Guards `three-weather-runtime.ts`'s `if (disposed) {return}` in
+      // `update`. Without it, updating with a non-empty particle list would
+      // set `mesh.visible = true` and push a new draw range.
+      const three = makeFakeThree()
+      const scene = new three.Scene()
+      const resource = makeThreeWeatherPrecipitation({
+        capacity: 4,
+        kind: 'rain',
+        scene,
+        three,
+      })
+      const [geometry] = three.geometries()
+      const [mesh] = three.meshes()
+      const drawRangeCountBeforeUpdate = geometry?.drawRanges().length
+
+      yield* resource.dispose
+      yield* resource.update([
+        { id: 1, kind: 'rain', velocityY: -18, opacity: 1, x: 1, y: 2, z: 3 },
+      ])
+
+      expect(mesh?.visible).toBe(false)
+      expect(geometry?.drawRanges().length).toBe(drawRangeCountBeforeUpdate)
     }),
   )
 })
@@ -917,7 +1153,7 @@ describe('makeProductionWorldRenderer', () => {
       yield* renderer.advanceFrame({
         elapsedSecs: 2,
         deltaSecs: 0.1,
-        cameraPosition: { x: 4, y: 5, z: 6 },
+        cameraPosition: { worldX: 4, worldY: 5, worldZ: 6 },
       })
       expect(renderer.waterUniforms['uTime']?.value).toBe(2)
       expect(renderer.waterUniforms['uCameraPosition']?.value).toStrictEqual([4, 5, 6])

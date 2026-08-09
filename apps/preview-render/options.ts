@@ -76,6 +76,45 @@ const readNumber = (
   return value
 }
 
+/** Splits `--flag=value` into its flag and inline value; `--flag value` has no inline value. */
+const splitFlagToken = (token: string): { readonly flag: string; readonly inlineValue: string | undefined } => {
+  const equalsAt = token.indexOf('=')
+  if (equalsAt === -1) {
+    return { flag: token, inlineValue: undefined }
+  }
+  return { flag: token.slice(0, equalsAt), inlineValue: token.slice(equalsAt + 1) }
+}
+
+const applyScenarioFlag = (accumulator: Accumulator, value: string | undefined): void => {
+  if (value !== undefined && isScenario(value)) {
+    accumulator.scenario = value
+    return
+  }
+  accumulator.errors = [
+    ...accumulator.errors,
+    `--scenario: "${String(value)}" is not one of ${SCENARIO_NAMES.join(', ')}`,
+  ]
+}
+
+const applyViewFlag = (accumulator: Accumulator, value: string | undefined): void => {
+  if (value !== undefined && isViewMode(value)) {
+    accumulator.view = value
+    return
+  }
+  accumulator.errors = [
+    ...accumulator.errors,
+    `--view: "${String(value)}" is not one of ${VIEW_MODES.join(', ')}`,
+  ]
+}
+
+const applyAtFlag = (accumulator: Accumulator, flag: string, raw: string | undefined): void => {
+  accumulator.at = Math.max(0, Math.trunc(readNumber(accumulator, flag, raw) ?? accumulator.at))
+}
+
+const applyWidthFlag = (accumulator: Accumulator, flag: string, raw: string | undefined): void => {
+  accumulator.width = readNumber(accumulator, flag, raw) ?? accumulator.width
+}
+
 /**
  * Accepts `--flag value` and `--flag=value`.
  *
@@ -92,9 +131,7 @@ export const parseArguments = (argv: ReadonlyArray<string>): PreviewOptions => {
       break
     }
 
-    const equalsAt = token.indexOf('=')
-    const flag = equalsAt === -1 ? token : token.slice(0, equalsAt)
-    const inlineValue = equalsAt === -1 ? undefined : token.slice(equalsAt + 1)
+    const { flag, inlineValue } = splitFlagToken(token)
     const takeValue = (): string | undefined => inlineValue ?? queue.shift()
 
     switch (flag) {
@@ -121,38 +158,17 @@ export const parseArguments = (argv: ReadonlyArray<string>): PreviewOptions => {
       case '--no-lock':
         accumulator.lockPort = 'unavailable'
         break
-      case '--scenario': {
-        const value = takeValue()
-        if (value !== undefined && isScenario(value)) {
-          accumulator.scenario = value
-        } else {
-          accumulator.errors = [
-            ...accumulator.errors,
-            `--scenario: "${String(value)}" is not one of ${SCENARIO_NAMES.join(', ')}`,
-          ]
-        }
+      case '--scenario':
+        applyScenarioFlag(accumulator, takeValue())
         break
-      }
-      case '--view': {
-        const value = takeValue()
-        if (value !== undefined && isViewMode(value)) {
-          accumulator.view = value
-        } else {
-          accumulator.errors = [
-            ...accumulator.errors,
-            `--view: "${String(value)}" is not one of ${VIEW_MODES.join(', ')}`,
-          ]
-        }
+      case '--view':
+        applyViewFlag(accumulator, takeValue())
         break
-      }
       case '--at':
-        accumulator.at = Math.max(
-          0,
-          Math.trunc(readNumber(accumulator, flag, takeValue()) ?? accumulator.at),
-        )
+        applyAtFlag(accumulator, flag, takeValue())
         break
       case '--width':
-        accumulator.width = readNumber(accumulator, flag, takeValue()) ?? accumulator.width
+        applyWidthFlag(accumulator, flag, takeValue())
         break
       default:
         accumulator.errors = [...accumulator.errors, `unknown option: ${flag}`]

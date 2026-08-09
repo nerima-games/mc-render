@@ -32,10 +32,10 @@
  * drain per frame re-meshes it once per frame, which is the most often anything
  * can be seen. The batch is the unit of work because the frame is.
  */
-import { Effect, Ref } from 'effect'
-import { buildChunkGeometry, buildFluidGeometry, combineChunkGeometry, type FluidQuad, type MeshQuad, type QuadColor, type QuadTile } from '../domain/chunk-geometry'
-import { CHUNK_SIZE } from '../domain/lod-vocabulary'
 import type { ChunkGeometryUpdate, ChunkKey, WorldRenderer } from './world-renderer'
+import { Effect, Ref } from 'effect'
+import { type FluidQuad, type MeshQuad, type QuadColor, type QuadTile, buildChunkGeometry, buildFluidGeometry, combineChunkGeometry } from '../domain/chunk-geometry'
+import { CHUNK_SIZE } from '../domain/lod-vocabulary'
 
 /**
  * Which chunk, in chunk coordinates.
@@ -124,7 +124,7 @@ export type SyncReport = {
 }
 
 /** Nothing changed. Allocation-free, and the common case once a world settles. */
-export const EMPTY_SYNC_REPORT: SyncReport = { meshed: 0, deferred: 0, removed: 0 }
+export const EMPTY_SYNC_REPORT: SyncReport = { deferred: 0, meshed: 0, removed: 0 }
 
 /** Everything a caller may vary. */
 export type SyncOptions = {
@@ -159,6 +159,86 @@ export const NO_CHUNK_SYNC: ChunkSyncPort = {
 }
 
 /**
+ * `syncWorld`'s per-chunk helpers, extracted so the drain-and-apply pass
+ * itself reads as three calls rather than one function over the
+ * `max-statements` threshold. Ordering (removals before changes) and
+ * behaviour are unchanged; see `syncWorld`'s own doc comment for why that
+ * order matters.
+ */
+/** The amount every one-more-chunk counter in this file advances by. */
+const COUNT_STEP = 1
+
+/** `options.colorForChunk` wins when given; otherwise the flat `options.color`. */
+const resolveChunkColor = (
+  options: SyncOptions,
+  chunk: ChunkRef,
+  quads: ReadonlyArray<MeshQuad>,
+): Effect.Effect<QuadColor | undefined> => {
+  if (options.colorForChunk === undefined) {
+    return Effect.succeed(options.color)
+  }
+  return options.colorForChunk(chunk, quads)
+}
+
+/** Resolve one changed chunk's mesh, if the mesher has it ready. */
+const meshChangedChunk = (
+  chunk: ChunkRef,
+  mesher: ChunkMesher,
+  options: SyncOptions,
+): Effect.Effect<ChunkGeometryUpdate | undefined> =>
+  Effect.gen(function* () {
+    const mesh = yield* mesher(chunk)
+    if (mesh === undefined) {
+      return undefined
+    }
+    const quads = mesh
+    const fluids = mesh.fluids ?? []
+    const [originX, originZ] = chunkOrigin(chunk)
+    const color = yield* resolveChunkColor(options, chunk, quads)
+    return {
+      buffers: combineChunkGeometry(
+        buildChunkGeometry(quads, originX, originZ, color, options.tile),
+        buildFluidGeometry(fluids, originX, originZ, color, options.tile),
+      ),
+      key: chunkKeyOf(chunk),
+    }
+  })
+
+/** Remove every chunk in the batch, and count how many. */
+const removeChunks = (
+  renderer: WorldRenderer,
+  removedChunks: ReadonlyArray<ChunkRef>,
+): Effect.Effect<number> =>
+  Effect.gen(function* () {
+    let removed = 0
+    for (const chunk of removedChunks) {
+      yield* renderer.removeChunk(chunkKeyOf(chunk))
+      removed += COUNT_STEP
+    }
+    return removed
+  })
+
+/** Mesh every changed chunk, splitting the results into applied updates and a deferred count. */
+const meshChangedChunks = (
+  changedChunks: ReadonlyArray<ChunkRef>,
+  mesher: ChunkMesher,
+  options: SyncOptions,
+): Effect.Effect<{ readonly updates: ReadonlyArray<ChunkGeometryUpdate>; readonly deferred: number }> =>
+  Effect.gen(function* () {
+    let deferred = 0
+    const updates: Array<ChunkGeometryUpdate> = []
+    for (const chunk of changedChunks) {
+      const update = yield* meshChangedChunk(chunk, mesher, options)
+      if (update === undefined) {
+        deferred += COUNT_STEP
+      } else {
+        updates.push(update)
+      }
+    }
+    return { deferred, updates }
+  })
+
+/**
  * Drain once, and bring the scene up to date.
  *
  * REMOVALS ARE APPLIED BEFORE CHANGES, which matters when a coordinate appears
@@ -173,6 +253,12 @@ export const NO_CHUNK_SYNC: ChunkSyncPort = {
  * meshing a chunk can dirty its neighbours and a loop would have no bound on a
  * frame's work. The next frame drains what this one produced, which is the same
  * coalescing argument the header makes.
+ *
+ * FOUR PARAMETERS, NOT AN OPTIONS OBJECT: `renderer`, `source` and `mesher`
+ * are called positionally from `test/world-sync.test.ts` (dozens of call
+ * sites) and `attachWorldRenderer` below; bundling them would be a breaking
+ * signature change reaching into a file this lint pass is not scoped to
+ * touch. `max-params` is left un-silenced rather than worked around.
  */
 export const syncWorld = (
   renderer: WorldRenderer,
@@ -183,40 +269,15 @@ export const syncWorld = (
   Effect.gen(function* () {
     const batch = yield* source.drain
 
-    let removed = 0
-    for (const chunk of batch.removed) {
-      yield* renderer.removeChunk(chunkKeyOf(chunk))
-      removed += 1
-    }
-
-    let meshed = 0
-    let deferred = 0
-    const updates: Array<ChunkGeometryUpdate> = []
-    for (const chunk of batch.changed) {
-      const mesh = yield* mesher(chunk)
-      if (mesh === undefined) {
-        deferred += 1
-        continue
-      }
-      const quads = mesh
-      const fluids = mesh.fluids ?? []
-      const [originX, originZ] = chunkOrigin(chunk)
-      const color = options.colorForChunk === undefined
-        ? options.color
-        : yield* options.colorForChunk(chunk, quads)
-      updates.push({
-        key: chunkKeyOf(chunk),
-        buffers: combineChunkGeometry(
-          buildChunkGeometry(quads, originX, originZ, color, options.tile),
-          buildFluidGeometry(fluids, originX, originZ, color, options.tile),
-        ),
-      })
-      meshed += 1
-    }
+    const removed = yield* removeChunks(renderer, batch.removed)
+    const { deferred, updates } = yield* meshChangedChunks(batch.changed, mesher, options)
     yield* renderer.setChunks(updates)
 
-    return { meshed, deferred, removed }
+    return { deferred, meshed: updates.length, removed }
   })
+
+/** A binary mutex: exactly one permit, so drain/application is atomic with respect to detach. */
+const MUTEX_PERMITS = 1
 
 /**
  * Attach a renderer to the published mc-worldgen dirty-subscription lifecycle.
@@ -226,6 +287,10 @@ export const syncWorld = (
  * than installing a callback that can mesh the same chunk repeatedly between
  * frames. The mutex makes drain/application atomic with respect to detach and
  * prevents concurrent callers from applying newer geometry before older work.
+ *
+ * FOUR PARAMETERS, NOT AN OPTIONS OBJECT, for the same reason as `syncWorld`
+ * above: `chunk-store-mesher.ts` and `test/world-sync.test.ts` call this
+ * positionally and are out of this change's scope.
  */
 export const attachWorldRenderer = (
   renderer: WorldRenderer,
@@ -236,22 +301,27 @@ export const attachWorldRenderer = (
   Effect.gen(function* () {
     const subscription = yield* store.subscribeDirty
     const isAttached = yield* Ref.make(true)
-    const mutex = yield* Effect.makeSemaphore(1)
+    const mutex = yield* Effect.makeSemaphore(MUTEX_PERMITS)
 
-    const update = mutex.withPermits(1)(
-      Effect.flatMap(Ref.get(isAttached), (active) =>
-        active
-          ? syncWorld(renderer, subscription, mesher, options)
-          : Effect.succeed(EMPTY_SYNC_REPORT),
-      ),
+    const updateIfAttached = (active: boolean): Effect.Effect<SyncReport> => {
+      if (active) {
+        return syncWorld(renderer, subscription, mesher, options)
+      }
+      return Effect.succeed(EMPTY_SYNC_REPORT)
+    }
+
+    const unsubscribeIfWasAttached = (wasAttached: boolean): Effect.Effect<void> => {
+      if (wasAttached) {
+        return subscription.unsubscribe
+      }
+      return Effect.void
+    }
+
+    const update = mutex.withPermits(MUTEX_PERMITS)(Effect.flatMap(Ref.get(isAttached), updateIfAttached))
+
+    const detach = mutex.withPermits(MUTEX_PERMITS)(
+      Effect.flatMap(Ref.getAndSet(isAttached, false), unsubscribeIfWasAttached),
     )
 
-    const detach = mutex.withPermits(1)(
-      Effect.flatMap(
-        Ref.getAndSet(isAttached, false),
-        (wasAttached) => wasAttached ? subscription.unsubscribe : Effect.void,
-      ),
-    )
-
-    return { update, detach, attached: Ref.get(isAttached) }
+    return { attached: Ref.get(isAttached), detach, update }
   })

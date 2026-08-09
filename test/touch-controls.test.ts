@@ -288,6 +288,27 @@ describe('PORTED #35: a tap binds to the same intent a key does', () => {
       expect(snapshot.justPressed.size).toBe(0)
     }),
   )
+
+  it.effect('releasing a control bound to nothing is a genuine no-op, not merely silent', () =>
+    Effect.gen(function* () {
+      // `withTouchUp`'s own guard — the release-half twin of the press-half
+      // case above. Proven by IDENTITY rather than by size: `withTouchUp`
+      // must hand back the untouched state object rather than routing an
+      // undefined code into `withCodeUp` (which would mint a NEW `pressed`
+      // Set even if its contents ended up equal), so `pressed` before and
+      // after must be the SAME object, not merely an equal one.
+      const stripped: Bindings = { ...defaultBindings(), openInventory: undefined as never }
+      const input = yield* makeInputService(stripped)
+      yield* input.dispatch(tap('jump'))
+      const before = yield* input.snapshot
+
+      yield* input.dispatch(release('openInventory'))
+      const after = yield* input.snapshot
+
+      expect(after.pressed).toBe(before.pressed)
+      expect(yield* input.isActionActive('jump')).toBe(true)
+    }),
+  )
 })
 
 // ---------------------------------------------------------------------------
@@ -374,7 +395,7 @@ describe('PORTED #35: the same claim through the browser adapter', () => {
       const targets = { window: target, document: { ...target, pointerLockElement: null } }
 
       const input = yield* makeInputService()
-      installInputListeners(targets, input, [], canvas, MOBILE_CONTROLS)
+      installInputListeners(targets, input, { pointerLockTarget: canvas, touchControls: MOBILE_CONTROLS })
 
       const fire = (type: string, element: unknown): void => {
         for (const call of added.filter((candidate) => candidate.type === type)) {
@@ -404,7 +425,7 @@ describe('PORTED #35: the same claim through the browser adapter', () => {
       }
       const targets = { window: target, document: { ...target, pointerLockElement: null } }
       const input = yield* makeInputService()
-      installInputListeners(targets, input, [], canvas, MOBILE_CONTROLS)
+      installInputListeners(targets, input, { pointerLockTarget: canvas, touchControls: MOBILE_CONTROLS })
 
       const fire = (type: string, event: DomInputEvent): void => {
         for (const call of added.filter((candidate) => candidate.type === type)) {
@@ -430,7 +451,7 @@ describe('PORTED #35: the same claim through the browser adapter', () => {
       }
       const targets = { window: target, document: { ...target, pointerLockElement: null } }
       const input = yield* makeInputService()
-      installInputListeners(targets, input, [], canvas, MOBILE_CONTROLS)
+      installInputListeners(targets, input, { pointerLockTarget: canvas, touchControls: MOBILE_CONTROLS })
       const fire = (type: string, event: DomInputEvent): void => {
         for (const call of added.filter((candidate) => candidate.type === type)) {
           call.listener(event)
@@ -505,20 +526,20 @@ describe("the look gesture's arithmetic (row #36 itself remains mc-compose's)", 
       // A `Touch` reports an absolute `clientX`, unlike `MouseEvent.movementX`
       // which is already a delta. Handing the absolute coordinate to a camera
       // spins the player by the pixel position of their finger.
-      const started = touchLookStep(TOUCH_LOOK_IDLE, 'press', { x: 300, y: 400 })
-      expect(started.delta).toStrictEqual({ x: 0, y: 0 })
-      expect(started.state.anchor).toStrictEqual({ x: 300, y: 400 })
+      const started = touchLookStep(TOUCH_LOOK_IDLE, 'press', { positionX: 300, positionY: 400 })
+      expect(started.delta).toStrictEqual({ positionX: 0, positionY: 0 })
+      expect(started.state.anchor).toStrictEqual({ positionX: 300, positionY: 400 })
     }),
   )
 
   it.effect('a drag reports the difference and re-anchors', () =>
     Effect.sync(() => {
-      const started = touchLookStep(TOUCH_LOOK_IDLE, 'press', { x: 300, y: 400 })
-      const moved = touchLookStep(started.state, 'move', { x: 310, y: 380 })
-      expect(moved.delta).toStrictEqual({ x: 10, y: -20 })
+      const started = touchLookStep(TOUCH_LOOK_IDLE, 'press', { positionX: 300, positionY: 400 })
+      const moved = touchLookStep(started.state, 'move', { positionX: 310, positionY: 380 })
+      expect(moved.delta).toStrictEqual({ positionX: 10, positionY: -20 })
       // Re-anchored, so the NEXT move reports its own travel and not the total.
-      const again = touchLookStep(moved.state, 'move', { x: 315, y: 380 })
-      expect(again.delta).toStrictEqual({ x: 5, y: 0 })
+      const again = touchLookStep(moved.state, 'move', { positionX: 315, positionY: 380 })
+      expect(again.delta).toStrictEqual({ positionX: 5, positionY: 0 })
     }),
   )
 
@@ -528,18 +549,18 @@ describe("the look gesture's arithmetic (row #36 itself remains mc-compose's)", 
       // anchor surviving, a second gesture anywhere else on screen computes its
       // first delta from where the FIRST one ended and the camera jumps the
       // whole distance in one frame. DN-09 in a different device.
-      const started = touchLookStep(TOUCH_LOOK_IDLE, 'press', { x: 300, y: 400 })
-      const released = touchLookStep(started.state, 'release', { x: 300, y: 400 })
+      const started = touchLookStep(TOUCH_LOOK_IDLE, 'press', { positionX: 300, positionY: 400 })
+      const released = touchLookStep(started.state, 'release', { positionX: 300, positionY: 400 })
       expect(released.state).toStrictEqual(TOUCH_LOOK_IDLE)
 
-      const strayMove = touchLookStep(released.state, 'move', { x: 20, y: 900 })
-      expect(strayMove.delta).toStrictEqual({ x: 0, y: 0 })
+      const strayMove = touchLookStep(released.state, 'move', { positionX: 20, positionY: 900 })
+      expect(strayMove.delta).toStrictEqual({ positionX: 0, positionY: 0 })
 
-      const secondGesture = touchLookStep(released.state, 'press', { x: 20, y: 900 })
-      expect(secondGesture.delta).toStrictEqual({ x: 0, y: 0 })
-      expect(touchLookStep(secondGesture.state, 'move', { x: 25, y: 900 }).delta).toStrictEqual({
-        x: 5,
-        y: 0,
+      const secondGesture = touchLookStep(released.state, 'press', { positionX: 20, positionY: 900 })
+      expect(secondGesture.delta).toStrictEqual({ positionX: 0, positionY: 0 })
+      expect(touchLookStep(secondGesture.state, 'move', { positionX: 25, positionY: 900 }).delta).toStrictEqual({
+        positionX: 5,
+        positionY: 0,
       })
     }),
   )
@@ -549,13 +570,13 @@ describe("the look gesture's arithmetic (row #36 itself remains mc-compose's)", 
       // One NaN in a rotation poisons the pose for the rest of the session —
       // the failure `notchesForWheelDelta` guards on its own side. Anchoring on
       // it would be worse than dropping it: every later move would emit NaN.
-      const started = touchLookStep(TOUCH_LOOK_IDLE, 'press', { x: 300, y: 400 })
-      const broken = touchLookStep(started.state, 'move', { x: Number.NaN, y: 400 })
-      expect(broken.delta).toStrictEqual({ x: 0, y: 0 })
-      expect(broken.state.anchor).toStrictEqual({ x: 300, y: 400 })
-      expect(touchLookStep(broken.state, 'move', { x: 320, y: 400 }).delta).toStrictEqual({
-        x: 20,
-        y: 0,
+      const started = touchLookStep(TOUCH_LOOK_IDLE, 'press', { positionX: 300, positionY: 400 })
+      const broken = touchLookStep(started.state, 'move', { positionX: Number.NaN, positionY: 400 })
+      expect(broken.delta).toStrictEqual({ positionX: 0, positionY: 0 })
+      expect(broken.state.anchor).toStrictEqual({ positionX: 300, positionY: 400 })
+      expect(touchLookStep(broken.state, 'move', { positionX: 320, positionY: 400 }).delta).toStrictEqual({
+        positionX: 20,
+        positionY: 0,
       })
     }),
   )

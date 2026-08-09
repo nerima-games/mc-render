@@ -5,8 +5,8 @@
  * This module is scheduled for deletion. Do not build on it.
  * ---------------------------------------------------------------------------
  *
- * Same reason and same fate as `./kernel-vocabulary.ts`, whose header carries
- * the full argument. plan.md §6 Step 3 publishes bottom-up, `@nerima-games/mc-meshing`
+ * This local module remains provisional; its public vocabulary is owned by
+ * the meshing boundary. plan.md §6 Step 3 publishes bottom-up, `@nerima-games/mc-meshing`
  * does not resolve yet, and `scripts/check-dependency-whitelist.ts` would reject
  * an import of something absent from `package.json#dependencies` in any case.
  *
@@ -69,7 +69,11 @@ import { Schema } from 'effect'
  * `LodLevel | undefined`. `lodForDistance` in `./level-of-detail.ts` is total
  * because of this: there is no distance for which it has nothing to return.
  */
-export const LOD_LEVELS = [0, 1, 2] as const
+const LOD_LEVEL_FINEST = 0
+const LOD_LEVEL_MEDIUM = 1
+const LOD_LEVEL_COARSEST = 2
+
+export const LOD_LEVELS = [LOD_LEVEL_FINEST, LOD_LEVEL_MEDIUM, LOD_LEVEL_COARSEST] as const
 
 /** MIRRORS `mc-meshing/domain/lod.ts:65`. */
 export type LodLevel = (typeof LOD_LEVELS)[number]
@@ -79,8 +83,8 @@ export type LodLevel = (typeof LOD_LEVELS)[number]
  * MIRRORS `mc-meshing/domain/lod.ts:75`.
  *
  * Mirrored even though nothing in this repository parses one yet, and the
- * reason is the same one `kernel-vocabulary.ts` gives for carrying the whole
- * Clock Port: mc-meshing's own header names the use as a WORKER MESSAGE, which
+ * reason is the same as the package publication boundary for carrying the
+ * whole Clock Port: mc-meshing's own header names the use as a WORKER MESSAGE, which
  * crosses `postMessage` and lands as `unknown`. index.ts records the mesher pool
  * as the thing that will finally turn `"WebWorker"` on in this package's
  * tsconfig, and the level is what its messages will carry. Mirroring the schema

@@ -56,6 +56,7 @@ import {
   RIPPLE_AMPLITUDE_UV,
   RIPPLE_LAYERS_U,
   RIPPLE_LAYERS_V,
+  type RippleLayer,
   TWO_PI,
   WATER_DEEP_COLOR,
   WATER_DEPTH_FACTOR_FLOOR,
@@ -66,10 +67,15 @@ import {
   WATER_SUN_RANGE,
   WATER_SURFACE_ALPHA,
   WATER_UNIFORM_NAMES,
-  type RippleLayer,
   type WaterColor,
 } from './water-surface'
 import { glslFloat } from './chunk-shader'
+
+/* Mirrors water-surface.ts's own HALF_TURN_DIVISOR / QUARTER_TURN_DIVISOR (not
+ * exported there), so waveApprox's phase-shift arithmetic below is named the
+ * same way its CPU twin names it, rather than falling back to bare 2 / 4. */
+const HALF_TURN_DIVISOR = 2
+const QUARTER_TURN_DIVISOR = 4
 
 /**
  * A `WaterColor` as a GLSL `vec4` literal.
@@ -172,14 +178,14 @@ const vec4 DEEP = ${glslVec4(WATER_DEEP_COLOR)};
 // file's header on why they are interpolated and not typed.
 float waveApprox(float x) {
   float wrapped = mod(x, ${glslFloat(TWO_PI)});
-  float centred = wrapped > ${glslFloat(TWO_PI / 2)}
+  float centred = wrapped > ${glslFloat(TWO_PI / HALF_TURN_DIVISOR)}
     ? wrapped - ${glslFloat(TWO_PI)}
     : wrapped;
   return centred * (${glslFloat(BHASKARA_LINEAR)} - ${glslFloat(BHASKARA_QUADRATIC)} * abs(centred));
 }
 
 float waveApproxCos(float x) {
-  return waveApprox(x + ${glslFloat(TWO_PI / 4)});
+  return waveApprox(x + ${glslFloat(TWO_PI / QUARTER_TURN_DIVISOR)});
 }
 
 void main() {
@@ -249,7 +255,7 @@ export type WaterShaderSource = {
  * by parsing the emitted GLSL. Neither the list nor the source can move alone.
  */
 export const waterShaderSource = (): WaterShaderSource => ({
-  vertexShader: waterVertexShader(),
   fragmentShader: waterFragmentShader(),
   uniformNames: WATER_UNIFORM_NAMES,
+  vertexShader: waterVertexShader(),
 })

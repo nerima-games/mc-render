@@ -94,4 +94,29 @@ describe('mob animation planning', () => {
     )
     expect(planMobVisual('zombie', { state: 'hurt' }).animation.progress).toBe(1)
   })
+
+  it('rotates spider legs per-row, mirrored left vs right', () => {
+    // domain/mob-visual.ts's applyPartMotion, front row (motionIndex 0), at phase pi/2:
+    //   rotationY = (0 - 1.5) * 0.18 = -0.27, mirrored to +0.27 on the right.
+    //   rotationZ = -0.72 - sin(pi/2 + 0) * 0.12 = -0.84, mirrored to +0.84 on the right.
+    const plan = planMobVisual('spider', { state: 'idle', phaseRadians: Math.PI / 2 })
+    const leftLeg1 = plan.parts.find(({ id }) => id === 'left-leg-1')
+    const rightLeg1 = plan.parts.find(({ id }) => id === 'right-leg-1')
+
+    expect(leftLeg1?.rotation[1]).toBeCloseTo(-0.27, 12)
+    expect(leftLeg1?.rotation[2]).toBeCloseTo(-0.84, 12)
+    expect(rightLeg1?.rotation[1]).toBeCloseTo(0.27, 12)
+    expect(rightLeg1?.rotation[2]).toBeCloseTo(0.84, 12)
+  })
+
+  it('flaps chicken wings symmetrically opposite, scaled by the phase', () => {
+    // domain/mob-visual.ts's applyPartMotion at phase pi/2 (|sin| = 1):
+    //   rotationZ = -0.18 - 1 * 0.65 = -0.83, mirrored to +0.83 on the right.
+    const plan = planMobVisual('chicken', { state: 'idle', phaseRadians: Math.PI / 2 })
+    const leftWing = plan.parts.find(({ id }) => id === 'left-wing')
+    const rightWing = plan.parts.find(({ id }) => id === 'right-wing')
+
+    expect(leftWing?.rotation[2]).toBeCloseTo(-0.83, 12)
+    expect(rightWing?.rotation[2]).toBeCloseTo(0.83, 12)
+  })
 })

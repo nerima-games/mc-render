@@ -145,9 +145,9 @@ describe('spawning', () => {
 
       for (let slot = 0; slot < DEFAULT_BURST_PARTICLES; slot += 1) {
         const particle = readSlot(pool, slot)
-        expect(particle?.x).toBe(1)
-        expect(particle?.y).toBe(2)
-        expect(particle?.z).toBe(3)
+        expect(particle?.positionX).toBe(1)
+        expect(particle?.positionY).toBe(2)
+        expect(particle?.positionZ).toBe(3)
         expect(particle?.remainingSecs).toBeCloseTo(PARTICLE_LIFETIME_SECS, 6)
         // Visible in THIS frame, before advanceParticles has ever run.
         expect(particle?.scale).toBe(1)
@@ -232,6 +232,17 @@ describe('spawning', () => {
       expect(readSlot(pool, 0)?.uvV).toBeCloseTo(expected.v, 6)
     }),
   )
+
+  it.effect('a non-finite UV origin is treated as zero rather than propagating NaN into the atlas offset', () =>
+    Effect.sync(() => {
+      const pool = makeParticlePool({ capacity: 4 })
+      spawnBurst(pool, 0, 0, 0, Number.NaN, Number.POSITIVE_INFINITY, 1)
+
+      const particle = readSlot(pool, 0)
+      expect(particle?.uvU).toBe(0)
+      expect(particle?.uvV).toBe(0)
+    }),
+  )
 })
 
 // ---------------------------------------------------------------------------
@@ -287,6 +298,21 @@ describe('determinism', () => {
       }
     }),
   )
+
+  it.effect('a seed of exactly zero folds to the fixed-point fallback, not to zero itself', () =>
+    Effect.sync(() => {
+      // normaliseSeed's `folded === 0` branch: zero is the generator's fixed point
+      // (0 * PRNG_MULTIPLIER % PRNG_MODULUS stays 0 forever), so it must fold to 1
+      // rather than being accepted as-is.
+      const pool = makeParticlePool({ capacity: 4, seed: 0 })
+      expect(pool.seed()).toBe(1)
+
+      // And the generator actually advances afterward, proving it did not stay stuck.
+      spawnBurst(pool, 0, 0, 0, 0, 0, 1)
+      expect(pool.seed()).not.toBe(0)
+      expect(pool.seed()).not.toBe(1)
+    }),
+  )
 })
 
 describe('integration', () => {
@@ -314,7 +340,7 @@ describe('integration', () => {
       advanceParticles(pool, 0.05)
 
       const expectedVy = launch - PARTICLE_GRAVITY_M_PER_S2 * 0.05
-      expect(readSlot(pool, 0)?.y ?? 0).toBeCloseTo(10 + expectedVy * 0.05, 4)
+      expect(readSlot(pool, 0)?.positionY ?? 0).toBeCloseTo(10 + expectedVy * 0.05, 4)
     }),
   )
 
@@ -378,7 +404,7 @@ describe('integration', () => {
       advanceParticles(clamped, 30)
       advanceParticles(stepped, MAX_PARTICLE_STEP_SECS)
 
-      expect(readSlot(clamped, 0)?.y ?? 0).toBeCloseTo(readSlot(stepped, 0)?.y ?? 0, 5)
+      expect(readSlot(clamped, 0)?.positionY ?? 0).toBeCloseTo(readSlot(stepped, 0)?.positionY ?? 0, 5)
     }),
   )
 
@@ -392,8 +418,8 @@ describe('integration', () => {
       expect(advanceParticles(pool, Number.NaN)).toBe(0)
       expect(advanceParticles(pool, Number.POSITIVE_INFINITY)).toBe(0)
 
-      expect(readSlot(pool, 0)?.x).toBe(1)
-      expect(readSlot(pool, 0)?.y).toBe(2)
+      expect(readSlot(pool, 0)?.positionX).toBe(1)
+      expect(readSlot(pool, 0)?.positionY).toBe(2)
       expect(readSlot(pool, 0)?.remainingSecs).toBeCloseTo(PARTICLE_LIFETIME_SECS, 6)
       expect(pool.activeCount()).toBe(2)
     }),
@@ -485,7 +511,7 @@ describe('eviction, when the pool is full', () => {
       // Growing would reallocate five typed arrays and the InstancedMesh behind
       // them, in the frame that is already busiest.
       const pool = makeParticlePool({ capacity: 4, seed: 7 })
-      const positions = pool.positions
+      const {positions} = pool
       const lifetimes = pool.lifetimesSecs
 
       for (let burst = 0; burst < 50; burst += 1) {
@@ -588,9 +614,9 @@ describe('reading slots', () => {
         const particle = readSlot(pool, slot)
         const vectorBase = slot * PARTICLE_VECTOR_STRIDE
         const uvBase = slot * PARTICLE_UV_STRIDE
-        expect(particle?.x).toBe(pool.positions[vectorBase])
-        expect(particle?.y).toBe(pool.positions[vectorBase + 1])
-        expect(particle?.z).toBe(pool.positions[vectorBase + 2])
+        expect(particle?.positionX).toBe(pool.positions[vectorBase])
+        expect(particle?.positionY).toBe(pool.positions[vectorBase + 1])
+        expect(particle?.positionZ).toBe(pool.positions[vectorBase + 2])
         expect(particle?.scale).toBe(pool.scales[slot])
         expect(particle?.uvU).toBe(pool.uvOffsets[uvBase])
         expect(particle?.uvV).toBe(pool.uvOffsets[uvBase + 1])

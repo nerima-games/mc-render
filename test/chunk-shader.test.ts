@@ -215,7 +215,7 @@ describe('the two stages agree with each other', () => {
       const fragment = chunkFragmentShader()
 
       const declared = (source: string): ReadonlyArray<string> =>
-        [...source.matchAll(/varying\s+\w+\s+(\w+)\s*;/g)].map((match) => match[1] ?? '')
+        [...source.matchAll(/varying\s+\w+\s+(?<name>\w+)\s*;/g)].map((match) => match.groups?.['name'] ?? '')
 
       expect([...declared(fragment)].sort()).toStrictEqual([...declared(vertex)].sort())
 
@@ -232,7 +232,7 @@ describe('the two stages agree with each other', () => {
       for (const name of uniformNames) {
         expect(fragmentShader).toContain(name)
       }
-      const declared = [...fragmentShader.matchAll(/uniform\s+\w+\s+(\w+)\s*;/g)].map((m) => m[1] ?? '')
+      const declared = [...fragmentShader.matchAll(/uniform\s+\w+\s+(?<name>\w+)\s*;/g)].map((m) => m.groups?.['name'] ?? '')
       expect(declared.sort()).toStrictEqual([...uniformNames].sort())
     }),
   )

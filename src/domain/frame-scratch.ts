@@ -70,10 +70,10 @@
  * Generic over key and value so the same mechanism serves the per-frame chunk
  * visibility set, the entity instance map, and the light-update queue.
  */
-export type ScratchMap<K, V> = {
+export type ScratchMap<Key, Value> = {
   readonly name: string
   /** The live buffer. Valid ONLY inside a `withScratch` callback. */
-  readonly buffer: Map<K, V>
+  readonly buffer: Map<Key, Value>
   /** Frames this buffer has served. Never resets; diagnostics only. */
   readonly usageCount: () => number
   /** Nesting depth. Greater than 1 means two users are clobbering each other. */
@@ -106,7 +106,18 @@ type ScratchLease = {
   readonly exit: () => void
 }
 
-type LeasedScratchMap<K, V> = ScratchMap<K, V> & { readonly lease: ScratchLease }
+type LeasedScratchMap<Key, Value> = ScratchMap<Key, Value> & { readonly lease: ScratchLease }
+
+/** One lease entered or exited, for the `usage`/`borrowed` counters below — named so the `+= `/`-= ` reads as "one lease" rather than an arbitrary tuning knob. */
+const LEASE_STEP = 1
+
+/** The buffer's diagnostic name, with its capacity hint appended when one was given. */
+const scratchDisplayName = (name: string, initialCapacity: number | undefined): string => {
+  if (initialCapacity === undefined) {
+    return name
+  }
+  return `${name}[~${String(initialCapacity)}]`
+}
 
 /**
  * Create a scratch buffer.
@@ -116,28 +127,54 @@ type LeasedScratchMap<K, V> = ScratchMap<K, V> & { readonly lease: ScratchLease 
  * trace says which buffer is growing, which is the actionable signal — a buffer
  * that keeps rehashing has outgrown its intended contents and should be split.
  */
-export const makeScratchMap = <K, V>(name: string, initialCapacity?: number): ScratchMap<K, V> => {
-  const buffer = new Map<K, V>()
+export const makeScratchMap = <Key, Value>(name: string, initialCapacity?: number): ScratchMap<Key, Value> => {
+  const buffer = new Map<Key, Value>()
   let usage = 0
   let borrowed = 0
 
-  const leased: LeasedScratchMap<K, V> = {
-    name: initialCapacity === undefined ? name : `${name}[~${String(initialCapacity)}]`,
-    buffer,
-    usageCount: () => usage,
+  const leased: LeasedScratchMap<Key, Value> = {
     borrowedCount: () => borrowed,
+    buffer,
     lease: {
       enter: () => {
-        usage += 1
-        borrowed += 1
+        usage += LEASE_STEP
+        borrowed += LEASE_STEP
       },
       exit: () => {
-        borrowed -= 1
+        borrowed -= LEASE_STEP
       },
     },
+    name: scratchDisplayName(name, initialCapacity),
+    usageCount: () => usage,
   }
 
   return leased
+}
+
+/** No lease is currently held on the buffer. */
+const NO_ACTIVE_BORROW = 0
+
+const assertNotReentrant = <Key, Value>(scratch: ScratchMap<Key, Value>): void => {
+  if (scratch.borrowedCount() > NO_ACTIVE_BORROW) {
+    throw new ScratchMisuseError({
+      message:
+        `scratch buffer '${scratch.name}' is already borrowed. Two concurrent users share one ` +
+        'mutable buffer and will clobber each other. Give the inner operation its own buffer.',
+      rule: 're-entrant-borrow',
+    })
+  }
+}
+
+const assertNotEscaped = <Key, Value>(scratch: ScratchMap<Key, Value>, result: unknown): void => {
+  if (result === scratch.buffer) {
+    throw new ScratchMisuseError({
+      message:
+        `a caller returned scratch buffer '${scratch.name}' from withScratch. The buffer is ` +
+        'cleared and refilled every frame, so the escaped reference would silently change ' +
+        'under its holder. Copy what you need out of it instead.',
+      rule: 'escaped-buffer',
+    })
+  }
 }
 
 /**
@@ -164,31 +201,18 @@ export const makeScratchMap = <K, V>(name: string, initialCapacity?: number): Sc
  * escape this is here to prevent, and it is the easiest one to write by
  * mistake.
  */
-export const withScratch = <K, V, A>(scratch: ScratchMap<K, V>, use: (buffer: Map<K, V>) => A): A => {
-  const { lease } = scratch as LeasedScratchMap<K, V>
-
-  if (scratch.borrowedCount() > 0) {
-    throw new ScratchMisuseError({
-      rule: 're-entrant-borrow',
-      message:
-        `scratch buffer '${scratch.name}' is already borrowed. Two concurrent users share one ` +
-        'mutable buffer and will clobber each other. Give the inner operation its own buffer.',
-    })
-  }
+export const withScratch = <Key, Value, Result>(
+  scratch: ScratchMap<Key, Value>,
+  use: (buffer: Map<Key, Value>) => Result,
+): Result => {
+  const { lease } = scratch as LeasedScratchMap<Key, Value>
+  assertNotReentrant(scratch)
 
   lease.enter()
   try {
     scratch.buffer.clear()
     const result = use(scratch.buffer)
-    if ((result as unknown) === scratch.buffer) {
-      throw new ScratchMisuseError({
-        rule: 'escaped-buffer',
-        message:
-          `a caller returned scratch buffer '${scratch.name}' from withScratch. The buffer is ` +
-          'cleared and refilled every frame, so the escaped reference would silently change ' +
-          'under its holder. Copy what you need out of it instead.',
-      })
-    }
+    assertNotEscaped(scratch, result)
     return result
   } finally {
     lease.exit()
@@ -202,7 +226,8 @@ export const withScratch = <K, V, A>(scratch: ScratchMap<K, V>, use: (buffer: Ma
  * the point: the allocation is explicit and attributable, rather than a
  * reference that looks free and is not.
  */
-export const snapshotScratch = <K, V>(buffer: ReadonlyMap<K, V>): ReadonlyMap<K, V> => new Map(buffer)
+export const snapshotScratch = <Key, Value>(buffer: ReadonlyMap<Key, Value>): ReadonlyMap<Key, Value> =>
+  new Map(buffer)
 
 /**
  * The buffers one frame needs.
@@ -219,8 +244,15 @@ export type FrameScratch = {
   readonly lightUpdates: ScratchMap<string, number>
 }
 
+/** Capacity hint for `entityInstances`: a typical loaded area's live entity count. */
+const ENTITY_INSTANCES_CAPACITY_HINT = 256
+/** Capacity hint for `lightUpdates`: dirty light regions rarely span more than a few dozen chunks per frame. */
+const LIGHT_UPDATES_CAPACITY_HINT = 64
+/** Capacity hint for `visibleChunks`: the render-distance chunk count this scratch buffer is sized against. */
+const VISIBLE_CHUNKS_CAPACITY_HINT = 512
+
 export const makeFrameScratch = (): FrameScratch => ({
-  visibleChunks: makeScratchMap<string, number>('visibleChunks', 512),
-  entityInstances: makeScratchMap<string, number>('entityInstances', 256),
-  lightUpdates: makeScratchMap<string, number>('lightUpdates', 64),
+  entityInstances: makeScratchMap<string, number>('entityInstances', ENTITY_INSTANCES_CAPACITY_HINT),
+  lightUpdates: makeScratchMap<string, number>('lightUpdates', LIGHT_UPDATES_CAPACITY_HINT),
+  visibleChunks: makeScratchMap<string, number>('visibleChunks', VISIBLE_CHUNKS_CAPACITY_HINT),
 })

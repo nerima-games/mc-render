@@ -88,7 +88,7 @@ export const registersAndRemoves = (): void => {
  * an element type — it is to keep comparing rather than reading.
  */
 const focusHandler: DomListener = (event: DomInputEvent) => {
-  const target: unknown = event.target
+  const {target} = event
   if (target === null || target === undefined) {
     return
   }
@@ -125,7 +125,7 @@ export const slotsAreOpaqueToTheAdapter: ReadonlyArray<unknown> = browserSlots
  * — it is to keep comparing the element the host named.
  */
 const clickLandingHandler: DomListener = (event: DomInputEvent) => {
-  const target: unknown = event.target
+  const {target} = event
   // The lock target, as the host declares it: the same object it hands to
   // `makeBrowserPointerLockPort`, and the only operation is identity.
   const lockTarget: unknown = browserCanvas
@@ -167,7 +167,7 @@ export const scopesTheLockToAnElementItOnlyCompares = (): void => {
  */
 export const registersTheTouchTrio = (): void => {
   const touchHandler: DomListener = (event: DomInputEvent) => {
-    const target: unknown = event.target
+    const {target} = event
     // The only operation, on the only member: `===` against the elements the
     // host declared as controls. `resolveTouchControl` does exactly this.
     for (const slot of browserSlots) {

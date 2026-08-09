@@ -65,6 +65,19 @@ describe('the canonical order', () => {
     }),
   )
 
+  it.effect('a pass absent from the canonical order reports the not-found sentinel', () =>
+    Effect.sync(() => {
+      // `PostProcessingPass` is a closed union derived from
+      // `POST_PROCESSING_PASS_ORDER`, so no in-repo caller can reach the `??`
+      // fallback through the type checker. `passOrderIndex` is exported,
+      // though, so a value that only LOOKS like a pass name at runtime — a
+      // stale save, a typo that survived a rename of a pass — is a real input
+      // this function must answer for, total, rather than returning
+      // `undefined` from `Map.get` and letting a caller's arithmetic go NaN.
+      expect(passOrderIndex('not-a-real-pass' as PostProcessingPass)).toBe(-1)
+    }),
+  )
+
   it.effect('GodRays runs BEFORE Bloom, so its streaks get picked up by the glow', () =>
     Effect.sync(() => {
       expect(passOrderIndex('godRays')).toBeLessThan(passOrderIndex('bloom'))

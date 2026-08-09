@@ -1,7 +1,7 @@
 /**
  * Every `StageId` this repository writes down, in one file.
  *
- * See `../domain/kernel-vocabulary.ts` for why a stage id is a string and what
+ * See `@nerima-games/mc-kernel.ts` for why a stage id is a string and what
  * that implies: naming one creates no import and no dependency edge, so an
  * `after` constraint is invisible to `pnpm check:deps`. Collecting them here is
  * what makes them reviewable, and `test/stage-registration.test.ts` reads this
@@ -44,7 +44,7 @@
  * dev-only"), and it had been reintroduced by a missing stage rather than by a
  * misplaced service.
  */
-import { StageId } from '../domain/kernel-vocabulary'
+import { StageId } from '@nerima-games/mc-kernel'
 
 /**
  * Stages owned by mc-render.
@@ -78,12 +78,6 @@ import { StageId } from '../domain/kernel-vocabulary'
  */
 export const RENDER_STAGE_IDS = {
   /**
-   * Sample input, then close the frame's input edges.
-   *
-   * The stage the shipped build did not have. See the module header.
-   */
-  input: StageId('render:input'),
-  /**
    * Copy mc-sim's authoritative camera pose into renderer state.
    *
    * plan.md §3.8 / §5.1-2: mc-sim owns the pose and the renderer mirrors it.
@@ -94,6 +88,12 @@ export const RENDER_STAGE_IDS = {
   chunkSync: StageId('render:chunk-sync'),
   /** Draw. */
   draw: StageId('render:draw'),
+  /**
+   * Sample input, then close the frame's input edges.
+   *
+   * The stage the shipped build did not have. See the module header.
+   */
+  input: StageId('render:input'),
   /**
    * The post-processing chain.
    *

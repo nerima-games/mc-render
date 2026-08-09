@@ -40,6 +40,14 @@ const arbitraryLevel: FastCheck.Arbitrary<LodLevel> = FastCheck.constantFrom(...
 /** Distances a chunk can actually be at: non-negative and not absurd. */
 const arbitraryDistance = FastCheck.integer({ min: 0, max: 64 })
 
+/** Orders two distances so monotonicity properties can be stated as near/far. */
+const ascendingPair = (left: number, right: number): readonly [number, number] => {
+  if (left <= right) {
+    return [left, right]
+  }
+  return [right, left]
+}
+
 describe('chunkDistance', () => {
   it.effect('is the Chebyshev norm, so the loaded square and the tier rings agree', () =>
     Effect.sync(() => {
@@ -137,7 +145,7 @@ describe('lodForDistance', () => {
           arbitraryDistance,
           (renderDistance, left, right) => {
             const thresholds = lodThresholdsForRenderDistance(renderDistance)
-            const [near, far] = left <= right ? [left, right] : [right, left]
+            const [near, far] = ascendingPair(left, right)
             expect(lodForDistance(near, thresholds)).toBeLessThanOrEqual(
               lodForDistance(far, thresholds),
             )
@@ -212,7 +220,7 @@ describe('the apparent error, which is the measurement the reference asserted wi
           FastCheck.integer({ min: 1, max: 256 }),
           FastCheck.integer({ min: 1, max: 256 }),
           (left, right) => {
-            const [near, far] = left <= right ? [left, right] : [right, left]
+            const [near, far] = ascendingPair(left, right)
             expect(lodScreenErrorPixels(2, near, REFERENCE_VIEWING_CONDITIONS)).toBeGreaterThanOrEqual(
               lodScreenErrorPixels(2, far, REFERENCE_VIEWING_CONDITIONS),
             )

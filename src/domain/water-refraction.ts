@@ -134,9 +134,9 @@ import { type QualityPreset } from './post-processing'
  * why it is not that here.
  */
 export const REFRACTION_INTERVAL_FRAMES: Readonly<Record<QualityPreset, number>> = {
+  high: 2,
   low: 0,
   medium: 0,
-  high: 2,
   ultra: 1,
 }
 
@@ -159,9 +159,9 @@ export const REFRACTION_INTERVAL_FRAMES: Readonly<Record<QualityPreset, number>>
  * would otherwise silently acquire whatever default a missing entry produced.
  */
 export const REFRACTION_MIN_SCREEN_RATIO: Readonly<Record<QualityPreset, number>> = {
+  high: 0.005,
   low: 0.05,
   medium: 0.05,
-  high: 0.005,
   ultra: 0.005,
 }
 
@@ -177,14 +177,23 @@ export const REFRACTION_MIN_SCREEN_RATIO: Readonly<Record<QualityPreset, number>
  * for the wrong reason. Relying on that would break the moment someone
  * "simplified" the comparison.
  */
+/** The interval below which refraction never runs: zero or fewer frames apart. */
+const DISABLED_INTERVAL = 0
+/** The first frame of a session; `refractionRunsOnFrame` always runs on it. */
+const FIRST_FRAME_NUMBER = 1
+/** `frameNumber` is 1-based; subtract this to get the 0-based frame offset the modulo tests. */
+const FRAME_NUMBER_ORIGIN = 1
+/** A frame offset that lands exactly on the interval. */
+const ON_INTERVAL_REMAINDER = 0
+
 export const refractionRunsOnFrame = (intervalFrames: number, frameNumber: number): boolean => {
-  if (!Number.isInteger(intervalFrames) || intervalFrames <= 0) {
+  if (!Number.isInteger(intervalFrames) || intervalFrames <= DISABLED_INTERVAL) {
     return false
   }
-  if (!Number.isInteger(frameNumber) || frameNumber < 1) {
+  if (!Number.isInteger(frameNumber) || frameNumber < FIRST_FRAME_NUMBER) {
     return false
   }
-  return (frameNumber - 1) % intervalFrames === 0
+  return (frameNumber - FRAME_NUMBER_ORIGIN) % intervalFrames === ON_INTERVAL_REMAINDER
 }
 
 // --- The camera key ---------------------------------------------------------
@@ -209,9 +218,9 @@ export const refractionRunsOnFrame = (intervalFrames: number, frameNumber: numbe
  */
 export type RefractionCameraKey = {
   readonly sceneVersion: number
-  readonly x: number
-  readonly y: number
-  readonly z: number
+  readonly worldX: number
+  readonly worldY: number
+  readonly worldZ: number
   readonly qx: number
   readonly qy: number
   readonly qz: number
@@ -236,19 +245,19 @@ export type RefractionCameraKey = {
  * matches anything, including itself. That is the inert direction: an
  * uninterpretable camera re-renders rather than serving a stale texture forever.
  */
-export const sameRefractionKey = (a: RefractionCameraKey, b: RefractionCameraKey): boolean =>
-  a.sceneVersion === b.sceneVersion &&
-  a.x === b.x &&
-  a.y === b.y &&
-  a.z === b.z &&
-  a.qx === b.qx &&
-  a.qy === b.qy &&
-  a.qz === b.qz &&
-  a.qw === b.qw &&
-  a.projection0 === b.projection0 &&
-  a.projection5 === b.projection5 &&
-  a.projection10 === b.projection10 &&
-  a.projection14 === b.projection14
+export const sameRefractionKey = (first: RefractionCameraKey, second: RefractionCameraKey): boolean =>
+  first.sceneVersion === second.sceneVersion &&
+  first.worldX === second.worldX &&
+  first.worldY === second.worldY &&
+  first.worldZ === second.worldZ &&
+  first.qx === second.qx &&
+  first.qy === second.qy &&
+  first.qz === second.qz &&
+  first.qw === second.qw &&
+  first.projection0 === second.projection0 &&
+  first.projection5 === second.projection5 &&
+  first.projection10 === second.projection10 &&
+  first.projection14 === second.projection14
 
 // --- Screen ratio -----------------------------------------------------------
 
@@ -290,23 +299,34 @@ export const BEHIND_NEAR_PLANE_RATIO = 1
  * means skipping one that was, which is a visible artefact. The bound is on the
  * side that fails toward correctness.
  */
-export const screenRatioForNdcRect = (
-  minX: number,
-  minY: number,
-  maxX: number,
-  maxY: number,
-): number => {
+/** An axis-aligned rectangle in normalised device coordinates, corner to corner. */
+export type NdcRect = {
+  readonly minX: number
+  readonly minY: number
+  readonly maxX: number
+  readonly maxY: number
+}
+
+/** The NDC viewport's own bounds: `[-1, 1]` on both axes. */
+const NDC_MIN = -1
+const NDC_MAX = 1
+
+/** The empty span a fully clamped-away rectangle collapses to. */
+const EMPTY_SPAN = 0
+
+export const screenRatioForNdcRect = (rect: NdcRect): number => {
+  const { minX, minY, maxX, maxY } = rect
   if (!Number.isFinite(minX) || !Number.isFinite(minY) || !Number.isFinite(maxX) || !Number.isFinite(maxY)) {
     return BEHIND_NEAR_PLANE_RATIO
   }
 
-  const clampedMinX = Math.max(-1, Math.min(1, minX))
-  const clampedMaxX = Math.max(-1, Math.min(1, maxX))
-  const clampedMinY = Math.max(-1, Math.min(1, minY))
-  const clampedMaxY = Math.max(-1, Math.min(1, maxY))
+  const clampedMinX = Math.max(NDC_MIN, Math.min(NDC_MAX, minX))
+  const clampedMaxX = Math.max(NDC_MIN, Math.min(NDC_MAX, maxX))
+  const clampedMinY = Math.max(NDC_MIN, Math.min(NDC_MAX, minY))
+  const clampedMaxY = Math.max(NDC_MIN, Math.min(NDC_MAX, maxY))
 
-  const width = Math.max(0, clampedMaxX - clampedMinX)
-  const height = Math.max(0, clampedMaxY - clampedMinY)
+  const width = Math.max(EMPTY_SPAN, clampedMaxX - clampedMinX)
+  const height = Math.max(EMPTY_SPAN, clampedMaxY - clampedMinY)
 
   return (width * height) / NDC_VIEWPORT_AREA
 }
@@ -400,21 +420,35 @@ export type RefractionDecision = 'run' | `skip:${RefractionGate}`
 /** True when the decision is any kind of skip. */
 export const isRefractionSkipped = (decision: RefractionDecision): boolean => decision !== 'run'
 
+/** The count below which there are no meshes to refract: none at all. */
+const EMPTY_MESH_COUNT = 0
+/** The `minScreenRatio` value that disables the screen-ratio gate entirely. */
+const SCREEN_RATIO_GATE_DISABLED = 0
+
 /** Evaluate one gate. `true` means this gate says skip. */
 const gateFires = (gate: RefractionGate, inputs: RefractionInputs): boolean => {
   switch (gate) {
     case 'interval-disabled':
-      return !Number.isInteger(inputs.intervalFrames) || inputs.intervalFrames <= 0
+      return !Number.isInteger(inputs.intervalFrames) || inputs.intervalFrames <= DISABLED_INTERVAL
     case 'not-this-frame':
       return !refractionRunsOnFrame(inputs.intervalFrames, inputs.frameNumber)
     case 'no-water-meshes':
-      return inputs.waterMeshCount <= 0
+      return inputs.waterMeshCount <= EMPTY_MESH_COUNT
     case 'no-visible-water':
-      return inputs.visibleWaterMeshCount <= 0
-    case 'camera-and-scene-unchanged':
-      return inputs.lastRenderedKey !== undefined && sameRefractionKey(inputs.cameraKey, inputs.lastRenderedKey)
+      return inputs.visibleWaterMeshCount <= EMPTY_MESH_COUNT
+    case 'camera-and-scene-unchanged': {
+      const { lastRenderedKey } = inputs
+      if (!lastRenderedKey) {
+        return false
+      }
+      return sameRefractionKey(inputs.cameraKey, lastRenderedKey)
+    }
     case 'below-screen-ratio':
-      return inputs.minScreenRatio > 0 && inputs.waterScreenRatio < inputs.minScreenRatio
+      return inputs.minScreenRatio > SCREEN_RATIO_GATE_DISABLED && inputs.waterScreenRatio < inputs.minScreenRatio
+    default: {
+      const exhaustive: never = gate
+      throw new Error(`Unhandled refraction gate: ${String(exhaustive)}`)
+    }
   }
 }
 
@@ -468,5 +502,9 @@ export const describeRefractionDecision = (decision: RefractionDecision): string
       return 'Camera pose, projection and scene version are all unchanged, so the retained texture is still correct.'
     case 'skip:below-screen-ratio':
       return 'Water covers less of the screen than the preset threshold; a full scene render is not worth it.'
+    default: {
+      const exhaustive: never = decision
+      throw new Error(`Unhandled refraction decision: ${String(exhaustive)}`)
+    }
   }
 }

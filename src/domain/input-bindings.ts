@@ -319,10 +319,13 @@ export const WHEEL_LINES_PER_NOTCH = 3
 export const WHEEL_PAGES_PER_NOTCH = 1
 
 const NOTCHES_PER_UNIT: Readonly<Record<WheelDeltaMode, number>> = {
-  pixel: WHEEL_PIXELS_PER_NOTCH,
   line: WHEEL_LINES_PER_NOTCH,
   page: WHEEL_PAGES_PER_NOTCH,
+  pixel: WHEEL_PIXELS_PER_NOTCH,
 }
+
+/** What a non-finite or otherwise unusable numeric input collapses to. */
+const INVALID_NUMERIC_FALLBACK = 0
 
 /**
  * A raw `WheelEvent.deltaY` as a signed, possibly FRACTIONAL number of notches.
@@ -342,8 +345,12 @@ const NOTCHES_PER_UNIT: Readonly<Record<WheelDeltaMode, number>> = {
  * poisoning the accumulator with `NaN`, which would silently disable the wheel
  * for the rest of the session.
  */
-export const notchesForWheelDelta = (deltaY: number, mode: WheelDeltaMode): number =>
-  Number.isFinite(deltaY) ? deltaY / NOTCHES_PER_UNIT[mode] : 0
+export const notchesForWheelDelta = (deltaY: number, mode: WheelDeltaMode): number => {
+  if (Number.isFinite(deltaY)) {
+    return deltaY / NOTCHES_PER_UNIT[mode]
+  }
+  return INVALID_NUMERIC_FALLBACK
+}
 
 /**
  * Move a wrapping selection by `steps`, given how many slots there are.
@@ -368,13 +375,24 @@ export const notchesForWheelDelta = (deltaY: number, mode: WheelDeltaMode): numb
  * Total for any input: a size below 1 selects slot 0, because there is nothing
  * else it could mean and an event handler must not throw.
  */
+/** A hotbar always has at least one slot to wrap a selection into. */
+const MIN_HOTBAR_SIZE = 1
+
+/** Truncates a finite number, or falls back to `INVALID_NUMERIC_FALLBACK`. */
+const finiteTruncated = (value: number): number => {
+  if (Number.isFinite(value)) {
+    return Math.trunc(value)
+  }
+  return INVALID_NUMERIC_FALLBACK
+}
+
 export const wrapHotbarSelection = (current: number, steps: number, size: number): number => {
-  if (!Number.isFinite(size) || size < 1) {
-    return 0
+  if (!Number.isFinite(size) || size < MIN_HOTBAR_SIZE) {
+    return INVALID_NUMERIC_FALLBACK
   }
   const slots = Math.trunc(size)
-  const from = Number.isFinite(current) ? Math.trunc(current) : 0
-  const by = Number.isFinite(steps) ? Math.trunc(steps) : 0
+  const from = finiteTruncated(current)
+  const by = finiteTruncated(steps)
   return (((from + by) % slots) + slots) % slots
 }
 
@@ -386,22 +404,11 @@ export const wrapHotbarSelection = (current: number, steps: number, size: number
  * Mouse buttons follow vanilla: left breaks, right places/uses, middle picks.
  */
 export const DEFAULT_BINDINGS: Readonly<Record<Exclude<InputAction, 'escape'>, InputCode>> = {
-  moveForward: 'KeyW',
-  moveBackward: 'KeyS',
-  moveLeft: 'KeyA',
-  moveRight: 'KeyD',
-  jump: 'Space',
-  sneak: 'ShiftLeft',
-  sprint: 'ControlLeft',
-  openInventory: 'KeyE',
-  openChat: 'KeyT',
   attack: 'MouseLeft',
-  use: 'MouseRight',
-  pickBlock: 'MouseMiddle',
-  // The digit row, as in the reference
-  // (<reference-impl>/packages/entity/domain/key-mappings.ts:22-30). `Digit1`
-  // and not `Numpad1`: `code` is layout-independent but not keypad-independent,
-  // and vanilla binds the row.
+  /* The digit row, as in the reference
+     (<reference-impl>/packages/entity/domain/key-mappings.ts:22-30). `Digit1`
+     and not `Numpad1`: `code` is layout-independent but not keypad-independent,
+     and vanilla binds the row. */
   hotbarSlot1: 'Digit1',
   hotbarSlot2: 'Digit2',
   hotbarSlot3: 'Digit3',
@@ -411,6 +418,17 @@ export const DEFAULT_BINDINGS: Readonly<Record<Exclude<InputAction, 'escape'>, I
   hotbarSlot7: 'Digit7',
   hotbarSlot8: 'Digit8',
   hotbarSlot9: 'Digit9',
+  jump: 'Space',
+  moveBackward: 'KeyS',
+  moveForward: 'KeyW',
+  moveLeft: 'KeyA',
+  moveRight: 'KeyD',
+  openChat: 'KeyT',
+  openInventory: 'KeyE',
+  pickBlock: 'MouseMiddle',
+  sneak: 'ShiftLeft',
+  sprint: 'ControlLeft',
+  use: 'MouseRight',
 }
 
 /**
@@ -457,8 +475,12 @@ export const defaultBindings = (): Bindings => ({ ...DEFAULT_BINDINGS })
  * `escape` always returns `undefined`, whatever the map says. It is not a
  * bindable action; it belongs to the frame handler.
  */
-export const bindingFor = (bindings: Bindings, action: InputAction): InputCode | undefined =>
-  action === 'escape' ? undefined : bindings[action]
+export const bindingFor = (bindings: Bindings, action: InputAction): InputCode | undefined => {
+  if (action === 'escape') {
+    return
+  }
+  return bindings[action]
+}
 
 export type RemapRejection = {
   readonly reason:
@@ -497,59 +519,65 @@ export type RemapOutcome =
  *    its previous owner leaves the player with an action they can no longer
  *    perform and no indication of why.
  */
-export const remap = (bindings: Bindings, action: InputAction, key: InputCode): RemapOutcome => {
+/** The first four rejection reasons: ownership rules that don't depend on the current bindings. */
+const ownershipRemapRejection = (action: InputAction, key: InputCode): RemapRejection | undefined => {
   if (action === 'escape') {
     return {
-      kind: 'rejected',
-      rejection: {
-        reason: 'escape-is-not-bindable',
-        message:
-          'escape is not a bindable action: it is owned by the single frame-level handler ' +
-          `(ESCAPE_OWNER = '${ESCAPE_OWNER}'). A second owner is how one key press closes a modal ` +
-          'AND opens the pause menu.',
-      },
+      message:
+        'escape is not a bindable action: it is owned by the single frame-level handler ' +
+        `(ESCAPE_OWNER = '${ESCAPE_OWNER}'). A second owner is how one key press closes a modal ` +
+        'AND opens the pause menu.',
+      reason: 'escape-is-not-bindable',
     }
   }
   if (key === ESCAPE_KEY_CODE) {
     return {
-      kind: 'rejected',
-      rejection: {
-        reason: 'escape-is-not-bindable',
-        message: `${ESCAPE_KEY_CODE} cannot be bound to '${action}': it is owned by the frame-level handler.`,
-      },
+      message: `${ESCAPE_KEY_CODE} cannot be bound to '${action}': it is owned by the frame-level handler.`,
+      reason: 'escape-is-not-bindable',
     }
   }
   if (key === FOCUS_NAVIGATION_KEY_CODE) {
     return {
-      kind: 'rejected',
-      rejection: {
-        reason: 'key-reserved-by-user-agent',
-        message:
-          `${FOCUS_NAVIGATION_KEY_CODE} cannot be bound to '${action}': it belongs to the user agent ` +
-          `(FOCUS_NAVIGATION_OWNER = '${FOCUS_NAVIGATION_OWNER}'), which moves keyboard focus with it. ` +
-          'The only way to stop that is preventDefault(), which traps keyboard users inside the canvas.',
-      },
+      message:
+        `${FOCUS_NAVIGATION_KEY_CODE} cannot be bound to '${action}': it belongs to the user agent ` +
+        `(FOCUS_NAVIGATION_OWNER = '${FOCUS_NAVIGATION_OWNER}'), which moves keyboard focus with it. ` +
+        'The only way to stop that is preventDefault(), which traps keyboard users inside the canvas.',
+      reason: 'key-reserved-by-user-agent',
     }
   }
   if (!INPUT_ACTIONS.includes(action)) {
-    return {
-      kind: 'rejected',
-      rejection: { reason: 'unknown-action', message: `'${String(action)}' is not a known input action.` },
-    }
+    return { message: `'${String(action)}' is not a known input action.`, reason: 'unknown-action' }
   }
+  return
+}
 
+/** The fifth rejection reason: the key is already claimed by a different action. */
+const conflictRemapRejection = (
+  bindings: Bindings,
+  action: InputAction,
+  key: InputCode,
+): RemapRejection | undefined => {
   const conflict = Object.entries(bindings).find(([bound, code]) => code === key && bound !== action)
-  if (conflict !== undefined) {
-    return {
-      kind: 'rejected',
-      rejection: {
-        reason: 'key-already-bound',
-        message: `${key} is already bound to '${conflict[0]}'. Unbind it first.`,
-      },
-    }
+  if (typeof conflict === 'undefined') {
+    return
   }
+  const [conflictingAction] = conflict
+  return {
+    message: `${key} is already bound to '${conflictingAction}'. Unbind it first.`,
+    reason: 'key-already-bound',
+  }
+}
 
-  return { kind: 'ok', bindings: { ...bindings, [action]: key } }
+export const remap = (bindings: Bindings, action: InputAction, key: InputCode): RemapOutcome => {
+  const ownershipRejection = ownershipRemapRejection(action, key)
+  if (typeof ownershipRejection !== 'undefined') {
+    return { kind: 'rejected', rejection: ownershipRejection }
+  }
+  const conflictRejection = conflictRemapRejection(bindings, action, key)
+  if (typeof conflictRejection !== 'undefined') {
+    return { kind: 'rejected', rejection: conflictRejection }
+  }
+  return { bindings: { ...bindings, [action]: key }, kind: 'ok' }
 }
 
 /**
@@ -567,13 +595,17 @@ export const remap = (bindings: Bindings, action: InputAction, key: InputCode): 
  */
 export const actionForKey = (bindings: Bindings, key: InputCode): InputAction | undefined => {
   if (key === ESCAPE_KEY_CODE || key === FOCUS_NAVIGATION_KEY_CODE) {
-    return undefined
+    return
   }
   const found = Object.entries(bindings).find(([, code]) => code === key)
-  const action = found?.[0]
-  return action !== undefined && (INPUT_ACTIONS as ReadonlyArray<string>).includes(action)
-    ? (action as InputAction)
-    : undefined
+  if (typeof found === 'undefined') {
+    return
+  }
+  const [action] = found
+  if (!(INPUT_ACTIONS as ReadonlyArray<string>).includes(action)) {
+    return
+  }
+  return action as InputAction
 }
 
 /**
@@ -606,9 +638,9 @@ export const modalConsumedKeyReachesGameplay = (
   if (!stoppedPropagation) {
     return true
   }
-  // `document` is inside `window` in the bubble path, so stopping at document
-  // prevents the window listener from ever seeing the event. Stopping at window
-  // is too late: document already ran.
+  /* `document` is inside `window` in the bubble path, so stopping at document
+     prevents the window listener from ever seeing the event. Stopping at window
+     is too late: document already ran. */
   return !(modalTarget === 'document' && gameplayTarget === 'window')
 }
 
@@ -996,7 +1028,12 @@ export const reportsKeyboardFocus = (state: PointerLockState): boolean => state 
 export const codeForTouchAction = (
   bindings: Bindings,
   action: InputAction,
-): InputCode | undefined => (action === 'escape' ? ESCAPE_KEY_CODE : bindingFor(bindings, action))
+): InputCode | undefined => {
+  if (action === 'escape') {
+    return ESCAPE_KEY_CODE
+  }
+  return bindingFor(bindings, action)
+}
 
 /**
  * The controls in a roster that would do NOTHING if tapped.
@@ -1024,7 +1061,7 @@ export const unboundTouchActions = (
   bindings: Bindings,
   actions: ReadonlyArray<InputAction>,
 ): ReadonlyArray<InputAction> =>
-  actions.filter((action) => codeForTouchAction(bindings, action) === undefined)
+  actions.filter((action) => typeof codeForTouchAction(bindings, action) === 'undefined')
 
 /**
  * ---------------------------------------------------------------------------
@@ -1063,8 +1100,8 @@ export const unboundTouchActions = (
 
 /** A touch position, in whatever units the host reports. Absolute, not a delta. */
 export type TouchPoint = {
-  readonly x: number
-  readonly y: number
+  readonly positionX: number
+  readonly positionY: number
 }
 
 /**
@@ -1092,8 +1129,11 @@ export type TouchLookState = {
   readonly anchor: TouchPoint | undefined
 }
 
+/** Shared "no anchor yet" value so call sites never spell the `undefined` literal. */
+const { anchor: NO_TOUCH_ANCHOR } = {} as { anchor?: TouchPoint }
+
 /** No gesture in progress. What a host starts with, and what a release yields. */
-export const TOUCH_LOOK_IDLE: TouchLookState = { anchor: undefined }
+export const TOUCH_LOOK_IDLE: TouchLookState = { anchor: NO_TOUCH_ANCHOR }
 
 export type TouchLookStep = {
   readonly state: TouchLookState
@@ -1101,11 +1141,15 @@ export type TouchLookStep = {
   readonly delta: TouchPoint
 }
 
-const NO_TOUCH_DELTA: TouchPoint = { x: 0, y: 0 }
+const NO_TOUCH_DELTA: TouchPoint = { positionX: 0, positionY: 0 }
 
 /** A point the arithmetic is willing to anchor on, or `undefined`. */
-const finiteTouchPoint = (point: TouchPoint): TouchPoint | undefined =>
-  Number.isFinite(point.x) && Number.isFinite(point.y) ? point : undefined
+const finiteTouchPoint = (point: TouchPoint): TouchPoint | undefined => {
+  if (Number.isFinite(point.positionX) && Number.isFinite(point.positionY)) {
+    return point
+  }
+  return
+}
 
 /**
  * Advance a look gesture by one event.
@@ -1131,26 +1175,35 @@ const finiteTouchPoint = (point: TouchPoint): TouchPoint | undefined =>
  * the session — the same failure `notchesForWheelDelta` and `finiteOrUndefined`
  * each guard on their own side.
  */
+/** The `move` case: the difference from the anchor, re-anchored on `current`. */
+const touchLookMove = (state: TouchLookState, current: TouchPoint): TouchLookStep => {
+  const { anchor } = state
+  if (typeof anchor === 'undefined') {
+    return { delta: NO_TOUCH_DELTA, state }
+  }
+  return {
+    delta: { positionX: current.positionX - anchor.positionX, positionY: current.positionY - anchor.positionY },
+    state: { anchor: current },
+  }
+}
+
 export const touchLookStep = (
   state: TouchLookState,
   phase: TouchLookPhase,
   point: TouchPoint,
 ): TouchLookStep => {
   if (phase === 'release') {
-    return { state: TOUCH_LOOK_IDLE, delta: NO_TOUCH_DELTA }
+    return { delta: NO_TOUCH_DELTA, state: TOUCH_LOOK_IDLE }
   }
   const current = finiteTouchPoint(point)
-  if (current === undefined) {
-    // A coordinate that cannot be used, and the anchor is LEFT ALONE rather than
-    // replaced. Anchoring on a NaN would end the gesture in all but name: every
-    // later `move` would subtract from it and emit NaN forever.
-    return { state, delta: NO_TOUCH_DELTA }
+  if (typeof current === 'undefined') {
+    /* A coordinate that cannot be used, and the anchor is LEFT ALONE rather than
+       replaced. Anchoring on a NaN would end the gesture in all but name: every
+       later `move` would subtract from it and emit NaN forever. */
+    return { delta: NO_TOUCH_DELTA, state }
   }
   if (phase === 'press') {
-    return { state: { anchor: current }, delta: NO_TOUCH_DELTA }
+    return { delta: NO_TOUCH_DELTA, state: { anchor: current } }
   }
-  const anchor = state.anchor
-  return anchor === undefined
-    ? { state, delta: NO_TOUCH_DELTA }
-    : { state: { anchor: current }, delta: { x: current.x - anchor.x, y: current.y - anchor.y } }
+  return touchLookMove(state, current)
 }

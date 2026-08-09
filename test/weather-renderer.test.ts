@@ -6,10 +6,20 @@ import {
 } from '../src/application/weather-renderer'
 import type { PrecipitationKind, WorldWeatherSnapshot } from '../src/domain/weather-rendering'
 
+const CLEAR_INTENSITY = 0
+const PRECIPITATING_INTENSITY = 1
+
+const intensityFor = (mode: WorldWeatherSnapshot['mode']): number => {
+  if (mode === 'clear') {
+    return CLEAR_INTENSITY
+  }
+  return PRECIPITATING_INTENSITY
+}
+
 const camera = { x: 0, y: 70, z: 0 }
 const snapshot = (mode: WorldWeatherSnapshot['mode'], temperature: number = 1): WorldWeatherSnapshot => ({
   mode,
-  intensity: mode === 'clear' ? 0 : 1,
+  intensity: intensityFor(mode),
   daylight: 0.8,
   temperature,
   seed: 9,

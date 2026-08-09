@@ -51,7 +51,7 @@ describe('the geometry binds every attribute the shader declares', () => {
 
       yield* makeParticleSystem(three, pool, ATLAS)
 
-      const geometry = three.instancedGeometries()[0]
+      const [geometry] = three.instancedGeometries()
       if (geometry === undefined) {
         throw new Error('no instanced geometry was built')
       }
@@ -74,7 +74,7 @@ describe('the geometry binds every attribute the shader declares', () => {
       const pool = makeParticlePool({ capacity: 8 })
 
       yield* makeParticleSystem(three, pool, ATLAS)
-      const geometry = three.instancedGeometries()[0]
+      const [geometry] = three.instancedGeometries()
       if (geometry === undefined) {
         throw new Error('no instanced geometry was built')
       }
@@ -105,7 +105,7 @@ describe('the pool is aliased, not copied', () => {
       const pool = makeParticlePool({ capacity: 8 })
 
       yield* makeParticleSystem(three, pool, ATLAS)
-      const geometry = three.instancedGeometries()[0]
+      const [geometry] = three.instancedGeometries()
       if (geometry === undefined) {
         throw new Error('no instanced geometry was built')
       }
@@ -129,7 +129,7 @@ describe('the pool is aliased, not copied', () => {
       const three = makeFakeThree()
       const pool = makeParticlePool({ capacity: 8 })
       const system = yield* makeParticleSystem(three, pool, ATLAS)
-      const geometry = three.instancedGeometries()[0]
+      const [geometry] = three.instancedGeometries()
       if (geometry === undefined) {
         throw new Error('no instanced geometry was built')
       }
@@ -154,7 +154,7 @@ describe('sync', () => {
       const three = makeFakeThree()
       const pool = makeParticlePool({ capacity: 16 })
       const system = yield* makeParticleSystem(three, pool, ATLAS)
-      const geometry = three.instancedGeometries()[0]
+      const [geometry] = three.instancedGeometries()
       if (geometry === undefined) {
         throw new Error('no instanced geometry was built')
       }
@@ -205,7 +205,7 @@ describe('the base quad', () => {
       const pool = makeParticlePool({ capacity: 8 })
 
       yield* makeParticleSystem(three, pool, ATLAS)
-      const geometry = three.instancedGeometries()[0]
+      const [geometry] = three.instancedGeometries()
       if (geometry === undefined) {
         throw new Error('no instanced geometry was built')
       }

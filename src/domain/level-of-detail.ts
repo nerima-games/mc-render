@@ -120,7 +120,10 @@
  * `lodForDistance` is a pure function of a distance and holds no cache: the
  * cache belongs to whatever owns the chunk meshes, not to the level rule.
  */
-import { LOD_LEVELS, STEP_FOR_LOD, CHUNK_SIZE, type LodLevel } from './lod-vocabulary'
+import { CHUNK_SIZE, LOD_LEVELS, type LodLevel, STEP_FOR_LOD } from './lod-vocabulary'
+
+/** The three tiers, named — derived from `LOD_LEVELS` rather than re-spelling `0, 1, 2`. */
+const [LOD_LEVEL_FINEST, LOD_LEVEL_MIDDLE, LOD_LEVEL_COARSEST] = LOD_LEVELS
 
 /**
  * A chunk coordinate pair. Not a world position — the units are CHUNKS.
@@ -129,8 +132,8 @@ import { LOD_LEVELS, STEP_FOR_LOD, CHUNK_SIZE, type LodLevel } from './lod-vocab
  * reason is worth a line: this file needs only "two integers to subtract", and
  * kernel's coordinate types are branded, so mirroring one would oblige every
  * caller to brand its inputs before it could ask which tier a chunk is at.
- * `./kernel-vocabulary.ts` mirrors what this repository USES; a brand imposed
- * for a subtraction is not use.
+ * This local coordinate pair mirrors only what this repository USES; a brand
+ * imposed for a subtraction is not use.
  */
 export type ChunkXZ = {
   readonly chunkX: number
@@ -227,9 +230,14 @@ export const REFERENCE_LOD_THRESHOLDS: LodThresholds = {
  * about REACHABILITY only, and that claim is arithmetic — `lodTierCensus` proves
  * it — rather than perceptual.
  */
+/** The floor every threshold is clamped to: a `lod1` of 0 would put the player's own chunk at LOD 1. */
+const MIN_LOD_THRESHOLD_CHUNKS = 1
+/** `lod1`'s ratio of the render distance: half. */
+const LOD1_RENDER_DISTANCE_RATIO = 2
+
 export const lodThresholdsForRenderDistance = (renderDistance: number): LodThresholds => ({
-  lod1: Math.max(1, Math.round(renderDistance / 2)),
-  lod2: Math.max(1, Math.round(renderDistance)),
+  lod1: Math.max(MIN_LOD_THRESHOLD_CHUNKS, Math.round(renderDistance / LOD1_RENDER_DISTANCE_RATIO)),
+  lod2: Math.max(MIN_LOD_THRESHOLD_CHUNKS, Math.round(renderDistance)),
 })
 
 /**
@@ -254,12 +262,12 @@ export const lodThresholdsForRenderDistance = (renderDistance: number): LodThres
  */
 export const lodForDistance = (distanceChunks: number, thresholds: LodThresholds): LodLevel => {
   if (distanceChunks >= thresholds.lod2) {
-    return 2
+    return LOD_LEVEL_COARSEST
   }
   if (distanceChunks >= thresholds.lod1) {
-    return 1
+    return LOD_LEVEL_MIDDLE
   }
-  return 0
+  return LOD_LEVEL_FINEST
 }
 
 /** The viewing conditions the apparent error depends on. */
@@ -287,12 +295,15 @@ export type ViewingConditions = {
  * the two agree rather than trusting that they do.
  */
 export const REFERENCE_VIEWING_CONDITIONS: ViewingConditions = {
-  viewportHeightPixels: 1080,
   verticalFovDegrees: 75,
+  viewportHeightPixels: 1080,
 }
 
+/** Degrees in a half turn — the divisor `toRadians` converts through. */
+const HALF_TURN_DEGREES = 180
+
 /** Degrees to radians. `Math` has no such constant and the conversion appears twice. */
-const toRadians = (degrees: number): number => (degrees * Math.PI) / 180
+const toRadians = (degrees: number): number => (degrees * Math.PI) / HALF_TURN_DEGREES
 
 /**
  * Pixels per world unit at a given distance — the projection, isolated.
@@ -305,8 +316,18 @@ const toRadians = (degrees: number): number => (degrees * Math.PI) / 180
  * apart — the mistake `quadCorners` in `./chunk-geometry.ts` documents at
  * length for the six face directions.
  */
+/**
+ * The `2` in the standard `H / (2 * tan(fov_v / 2))` focal-length-in-pixels
+ * formula: halves the full FOV to the half-angle `tan` wants, and doubles
+ * that tangent back out to the full angular extent.
+ */
+const FOCAL_LENGTH_FORMULA_FACTOR = 2
+
 const pixelsPerBlockAt = (distanceBlocks: number, view: ViewingConditions): number =>
-  view.viewportHeightPixels / (2 * Math.tan(toRadians(view.verticalFovDegrees) / 2) * distanceBlocks)
+  view.viewportHeightPixels /
+  (FOCAL_LENGTH_FORMULA_FACTOR *
+    Math.tan(toRadians(view.verticalFovDegrees) / FOCAL_LENGTH_FORMULA_FACTOR) *
+    distanceBlocks)
 
 /**
  * How far, in pixels on screen, a simplified chunk's worst edge sits from where
@@ -339,11 +360,15 @@ const pixelsPerBlockAt = (distanceBlocks: number, view: ViewingConditions): numb
  * apparent size — and unreachable in practice, because no threshold below puts
  * distance 0 above LOD 0.
  */
+/** The `- 1` in `step - 1`: each end of a snapped extent moves by at most this many fewer blocks than `step`. */
+const STEP_DISPLACEMENT_OFFSET = 1
+
 export const lodScreenErrorPixels = (
   level: LodLevel,
   distanceChunks: number,
   view: ViewingConditions,
-): number => (STEP_FOR_LOD[level] - 1) * pixelsPerBlockAt(distanceChunks * CHUNK_SIZE, view)
+): number =>
+  (STEP_FOR_LOD[level] - STEP_DISPLACEMENT_OFFSET) * pixelsPerBlockAt(distanceChunks * CHUNK_SIZE, view)
 
 /**
  * The inverse: how far away a chunk must be for its LOD error to fall under a
@@ -367,7 +392,8 @@ export const distanceForScreenErrorPixels = (
   level: LodLevel,
   errorPixels: number,
   view: ViewingConditions,
-): number => (STEP_FOR_LOD[level] - 1) * (pixelsPerBlockAt(CHUNK_SIZE, view) / errorPixels)
+): number =>
+  (STEP_FOR_LOD[level] - STEP_DISPLACEMENT_OFFSET) * (pixelsPerBlockAt(CHUNK_SIZE, view) / errorPixels)
 
 /** How many of the loaded chunks fall in each tier. Indexed by `LodLevel`. */
 export type LodTierCensus = Readonly<Record<LodLevel, number>>
@@ -393,13 +419,30 @@ export type LodTierCensus = Readonly<Record<LodLevel, number>>
  * render distance is not a thing the loader can honour, and a negative one still
  * loads the chunk the player is in.
  */
+/** `lodTierCensus`'s ring counter starts at the centre and advances one ring at a time. */
+const CENTER_RING = 0
+const RING_STEP = 1
+/** The centre "ring" is one chunk (the player's own); every other ring `d` holds `8d`. */
+const CENTER_RING_CHUNK_COUNT = 1
+const CHUNKS_PER_RING_UNIT = 8
+
+/** 1 chunk at the centre, then `8d` on each ring: `(2d+1)^2 - (2d-1)^2`. */
+const ringChunkCount = (ring: number): number => {
+  if (ring === CENTER_RING) {
+    return CENTER_RING_CHUNK_COUNT
+  }
+  return CHUNKS_PER_RING_UNIT * ring
+}
+
+/** A render distance never yields a negative radius: a negative one still loads the player's own chunk. */
+const MIN_RENDER_RADIUS_CHUNKS = 0
+
 export const lodTierCensus = (renderDistance: number, thresholds: LodThresholds): LodTierCensus => {
-  const radius = Math.max(0, Math.trunc(renderDistance))
+  const radius = Math.max(MIN_RENDER_RADIUS_CHUNKS, Math.trunc(renderDistance))
   const counts: Record<LodLevel, number> = { 0: 0, 1: 0, 2: 0 }
 
-  for (let ring = 0; ring <= radius; ring += 1) {
-    // 1 chunk at the centre, then `8d` on each ring: `(2d+1)^2 - (2d-1)^2`.
-    counts[lodForDistance(ring, thresholds)] += ring === 0 ? 1 : 8 * ring
+  for (let ring = CENTER_RING; ring <= radius; ring += RING_STEP) {
+    counts[lodForDistance(ring, thresholds)] += ringChunkCount(ring)
   }
 
   return counts
@@ -419,10 +462,13 @@ export const lodTierCensus = (renderDistance: number, thresholds: LodThresholds)
  * `lodThresholdsForRenderDistance`'s `Math.max(1, ...)` precisely because it
  * can.
  */
+/** A tier with no chunks in the census is unreachable at this render distance. */
+const NO_CHUNKS_AT_TIER = 0
+
 export const unreachableLodTiers = (
   renderDistance: number,
   thresholds: LodThresholds,
 ): ReadonlyArray<LodLevel> => {
   const census = lodTierCensus(renderDistance, thresholds)
-  return LOD_LEVELS.filter((level) => census[level] === 0)
+  return LOD_LEVELS.filter((level) => census[level] === NO_CHUNKS_AT_TIER)
 }

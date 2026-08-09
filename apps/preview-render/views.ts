@@ -130,9 +130,7 @@ export const inputView = (view: MachineView, style: Style, width: number): Reado
       'a left click',
       view.pointerLocked
         ? style.dim('is a GAME action: it joins pressed / justPressed like a key')
-        : `${style.paint(`on the canvas -> ${yesNo(view.wouldAcquireOnLeftClick)}`, view.wouldAcquireOnLeftClick ? GOOD : WARN)}   ` +
-          `${style.paint(`on a HUD slot -> ${yesNo(view.wouldAcquireOnHudClick)}`, view.wouldAcquireOnHudClick ? BAD : GOOD)}   ` +
-          style.dim(`(only ${POINTER_LOCK_ACQUIRE_BUTTON} asks, only from unlocked / refused, only on the LOCK TARGET)`),
+        : `${style.paint(`on the canvas -> ${yesNo(view.wouldAcquireOnLeftClick)}`, view.wouldAcquireOnLeftClick ? GOOD : WARN)}   ${style.paint(`on a HUD slot -> ${yesNo(view.wouldAcquireOnHudClick)}`, view.wouldAcquireOnHudClick ? BAD : GOOD)}   ${style.dim(`(only ${POINTER_LOCK_ACQUIRE_BUTTON} asks, only from unlocked / refused, only on the LOCK TARGET)`)}`,
     ),
     ...(view.pointerLocked
       ? []
@@ -165,14 +163,14 @@ export const inputView = (view: MachineView, style: Style, width: number): Reado
     row(
       style,
       'justPressed',
-      `${style.paint(codes(view.justPressed), view.justPressed.length > 0 ? WARN : VALUE)}   ` +
-        style.dim('cleared by endFrame; an auto-repeat keydown does NOT re-arm it'),
+      `${style.paint(codes(view.justPressed), view.justPressed.length > 0 ? WARN : VALUE)}   ${ 
+        style.dim('cleared by endFrame; an auto-repeat keydown does NOT re-arm it')}`,
     ),
     row(
       style,
       'uiClicks',
-      `${style.paint(codes(view.uiClicks), view.uiClicks.length > 0 ? NOTE : VALUE)}   ` +
-        style.dim('clicks that landed while UNLOCKED, with WHERE; attack cannot fire from these'),
+      `${style.paint(codes(view.uiClicks), view.uiClicks.length > 0 ? NOTE : VALUE)}   ${ 
+        style.dim('clicks that landed while UNLOCKED, with WHERE; attack cannot fire from these')}`,
     ),
     row(
       style,
@@ -189,9 +187,8 @@ export const inputView = (view: MachineView, style: Style, width: number): Reado
     row(
       style,
       'pointerDelta',
-      `x ${style.paint(padStart(fixed(view.pointerDelta.x, 1), 8), VALUE)} ${style.dim(signedBar(view.pointerDelta.x, 100, 12))}` +
-        `   y ${style.paint(padStart(fixed(view.pointerDelta.y, 1), 8), VALUE)}   ` +
-        style.dim('accumulated ONLY while locked; dropped when the lock ends (DN-09)'),
+      `x ${style.paint(padStart(fixed(view.pointerDelta.x, 1), 8), VALUE)} ${style.dim(signedBar(view.pointerDelta.x, 100, 12))}   y ${style.paint(padStart(fixed(view.pointerDelta.y, 1), 8), VALUE)}   ${ 
+        style.dim('accumulated ONLY while locked; dropped when the lock ends (DN-09)')}`,
     ),
     row(
       style,
@@ -203,10 +200,10 @@ export const inputView = (view: MachineView, style: Style, width: number): Reado
       style,
       'notch ledger',
       `reported to frames ${style.paint(String(view.notchesReported), VALUE)}   ` +
-        `consumed by endFrame ${style.paint(String(view.notchesConsumed), notchGap === 0 ? VALUE : BAD)}` +
-        (notchGap === 0
+        `consumed by endFrame ${style.paint(String(view.notchesConsumed), notchGap === 0 ? VALUE : BAD)}${ 
+        notchGap === 0
           ? style.dim('   in balance')
-          : style.paint(`   ${String(notchGap)} NOTCH(ES) CONSUMED THAT NO FRAME SAW`, BAD)),
+          : style.paint(`   ${String(notchGap)} NOTCH(ES) CONSUMED THAT NO FRAME SAW`, BAD)}`,
     ),
     row(
       style,
@@ -272,9 +269,7 @@ export const postFxView = (style: Style, width: number): ReadonlyArray<string> =
       row(
         style,
         '',
-        `${style.dim(padStart(String(passOrderIndex(pass)), 3))}  ${style.paint(pad(pass, 11), mandatory ? GOOD : VALUE)}` +
-          `${style.paint(pad(mandatory ? 'always' : subsumed ? 'subsumed' : 'optional', 10), mandatory ? GOOD : subsumed ? NOTE : LABEL)}` +
-          style.dim(PASS_NOTE[pass]),
+        `${style.dim(padStart(String(passOrderIndex(pass)), 3))}  ${style.paint(pad(pass, 11), mandatory ? GOOD : VALUE)}${style.paint(pad(mandatory ? 'always' : subsumed ? 'subsumed' : 'optional', 10), mandatory ? GOOD : subsumed ? NOTE : LABEL)}${style.dim(PASS_NOTE[pass])}`,
       ),
     )
   }
@@ -336,10 +331,10 @@ export const postFxView = (style: Style, width: number): ReadonlyArray<string> =
     row(
       style,
       'high',
-      `${style.paint('1 pass merged into 1', WARN)}   ` +
+      `${style.paint('1 pass merged into 1', WARN)}   ${ 
         style.dim(
           `bloom is the only composite input at this preset, so the chain trades an UnrealBloomPass for a CompositePass and saves nothing`,
-        ),
+        )}`,
     ),
   )
   lines.push(
@@ -347,12 +342,12 @@ export const postFxView = (style: Style, width: number): ReadonlyArray<string> =
       style,
       'high vs ultra',
       chainPasses(highChain).join(',') === chainPasses(ultraChain).join(',')
-        ? `${style.paint('same PASS order, different chains', NOTE)}   ` +
+        ? `${style.paint('same PASS order, different chains', NOTE)}   ${ 
           style.dim(
             `the difference is WHICH effects composite composites — {${chainEffects(highChain).filter((pass) => pass !== 'render' && pass !== 'gtao' && pass !== 'smaa' && pass !== 'output').join('+')}} against {${chainEffects(ultraChain).filter((pass) => pass !== 'render' && pass !== 'gtao' && pass !== 'smaa' && pass !== 'output').join('+')}} — and every step now carries what it performs, so an adapter that walks this output, as post-processing.ts says it should, cannot build the same composer for both`,
-          )
-        : `${style.paint('IDENTICAL CHAINS', BAD)}   ` +
-          style.dim('the ultra player gets no god rays and no depth of field'),
+          )}`
+        : `${style.paint('IDENTICAL CHAINS', BAD)}   ${ 
+          style.dim('the ultra player gets no god rays and no depth of field')}`,
     ),
   )
 
@@ -371,9 +366,7 @@ export const postFxView = (style: Style, width: number): ReadonlyArray<string> =
       row(
         style,
         '',
-        `${style.paint(pad(entry.chain.length === 0 ? '(empty)' : entry.chain.join(','), 34), VALUE)}` +
-          `${style.paint(pad(`${String(violations.length)} violation(s)`, 16), violations.length > 0 ? GOOD : BAD)}` +
-          style.dim(violations.map((violation) => violation.rule).join(', ') || entry.why),
+        `${style.paint(pad(entry.chain.length === 0 ? '(empty)' : entry.chain.join(','), 34), VALUE)}${style.paint(pad(`${String(violations.length)} violation(s)`, 16), violations.length > 0 ? GOOD : BAD)}${style.dim(violations.map((violation) => violation.rule).join(', ') || entry.why)}`,
       ),
     )
   }
@@ -422,15 +415,7 @@ export const materialView = (style: Style, width: number): ReadonlyArray<string>
       row(
         style,
         '',
-        `${style.paint(pad(material.name, 20), colour)}` +
-          `${style.dim(pad(yesNo(material.transparent), 8))}` +
-          `${style.dim(pad(material.side, 8))}` +
-          `${style.dim(pad(String(material.alphaTest), 8))}` +
-          `${style.dim(pad(yesNo(material.shared), 8))}` +
-          `${style.dim(pad(yesNo(takesTwoPassPath(material)), 8))}` +
-          `${style.dim(pad(yesNo(isCutout(material)), 8))}` +
-          `${style.dim(pad(yesNo(requiresForceSinglePass(material)), 7))}` +
-          style.paint(verdict.kind, colour),
+        `${style.paint(pad(material.name, 20), colour)}${style.dim(pad(yesNo(material.transparent), 8))}${style.dim(pad(material.side, 8))}${style.dim(pad(String(material.alphaTest), 8))}${style.dim(pad(yesNo(material.shared), 8))}${style.dim(pad(yesNo(takesTwoPassPath(material)), 8))}${style.dim(pad(yesNo(isCutout(material)), 8))}${style.dim(pad(yesNo(requiresForceSinglePass(material)), 7))}${style.paint(verdict.kind, colour)}`,
       ),
     )
   }
@@ -443,8 +428,8 @@ export const materialView = (style: Style, width: number): ReadonlyArray<string>
     row(
       style,
       'findings',
-      `${style.paint(String(audit.length), audit.length === 0 ? GOOD : WARN)} of ${String(MATERIAL_FIXTURES.length)}   ` +
-        style.dim('the doc prescribes asserting length === 0 at startup'),
+      `${style.paint(String(audit.length), audit.length === 0 ? GOOD : WARN)} of ${String(MATERIAL_FIXTURES.length)}   ${ 
+        style.dim('the doc prescribes asserting length === 0 at startup')}`,
     ),
   )
   for (const entry of audit) {
@@ -466,36 +451,34 @@ export const mirrorView = (view: MachineView, style: Style, width: number): Read
   row(
     style,
     'clock',
-    `${style.paint(`${fixed(view.clockSecs, 3)} s`, VALUE)}   ` +
-      style.dim('injected MonotonicTimeSecs — this app moves it, nothing reads a wall clock'),
+    `${style.paint(`${fixed(view.clockSecs, 3)} s`, VALUE)}   ${ 
+      style.dim('injected MonotonicTimeSecs — this app moves it, nothing reads a wall clock')}`,
   ),
   row(
     style,
     'authoritative',
     `${style.paint(xyz(view.authoritativePose.position), view.poseNeverPublished ? LABEL : VALUE)}   ` +
-      `stamped ${style.paint(`${fixed(view.authoritativePose.capturedAtSecs, 3)} s`, VALUE)}` +
-      (view.poseNeverPublished ? style.paint('   UNSET_CAMERA_POSE — nothing has published', WARN) : ''),
+      `stamped ${style.paint(`${fixed(view.authoritativePose.capturedAtSecs, 3)} s`, VALUE)}${ 
+      view.poseNeverPublished ? style.paint('   UNSET_CAMERA_POSE — nothing has published', WARN) : ''}`,
   ),
   row(style, 'mirrored', style.paint(xyz(view.mirrored.position), VALUE)),
   row(
     style,
     'rotation',
-    `${style.paint(`${fixed(view.mirrored.rotation.x, 4)} ${fixed(view.mirrored.rotation.y, 4)} ${fixed(view.mirrored.rotation.z, 4)}`, VALUE)} ` +
-      style.dim(`order ${view.mirrored.rotation.order} — pitch on X, yaw on Y, exactly as the reference sets it`),
+    `${style.paint(`${fixed(view.mirrored.rotation.x, 4)} ${fixed(view.mirrored.rotation.y, 4)} ${fixed(view.mirrored.rotation.z, 4)}`, VALUE)} ${ 
+      style.dim(`order ${view.mirrored.rotation.order} — pitch on X, yaw on Y, exactly as the reference sets it`)}`,
   ),
   row(
     style,
     'lag',
-    `${style.paint(`${fixed(view.mirrorLag, 3)} s`, view.mirrorStale ? BAD : GOOD)} ` +
-      `${style.dim(bar(Math.min(view.mirrorLag, MIRROR_LAG_WARNING_SECS * 3), MIRROR_LAG_WARNING_SECS * 3, 20))}` +
-      `   threshold ${style.paint(`${String(MIRROR_LAG_WARNING_SECS)} s`, VALUE)}   ` +
-      style.paint(view.mirrorStale ? 'STALE' : 'fresh', view.mirrorStale ? BAD : GOOD),
+    `${style.paint(`${fixed(view.mirrorLag, 3)} s`, view.mirrorStale ? BAD : GOOD)} ${style.dim(bar(Math.min(view.mirrorLag, MIRROR_LAG_WARNING_SECS * 3), MIRROR_LAG_WARNING_SECS * 3, 20))}   threshold ${style.paint(`${String(MIRROR_LAG_WARNING_SECS)} s`, VALUE)}   ${ 
+      style.paint(view.mirrorStale ? 'STALE' : 'fresh', view.mirrorStale ? BAD : GOOD)}`,
   ),
   row(
     style,
     'view offset',
-    `right ${style.paint(fixed(view.viewOffset.right, 3), VALUE)}  up ${style.paint(fixed(view.viewOffset.up, 3), VALUE)}  roll ${style.paint(fixed(view.viewOffset.rollRadians, 3), VALUE)}   ` +
-      style.dim('the attack-swing bob lives HERE and is never folded back into the pose'),
+    `right ${style.paint(fixed(view.viewOffset.right, 3), VALUE)}  up ${style.paint(fixed(view.viewOffset.up, 3), VALUE)}  roll ${style.paint(fixed(view.viewOffset.rollRadians, 3), VALUE)}   ${ 
+      style.dim('the attack-swing bob lives HERE and is never folded back into the pose')}`,
   ),
   ...(view.poseNeverPublished
     ? [
@@ -648,9 +631,7 @@ export const timelineView = (
           row(
             style,
             '',
-            `${style.paint(padStart(`s${String(scripted.step)}`, 5), scripted.step === step ? WARN : LABEL)} ` +
-              `${style.paint(pad('event' in scripted.what ? describeEvent(scripted.what.event) : describeCommand(scripted.what.command), 34), scripted.step === step ? VALUE : LABEL)}` +
-              style.dim(scripted.why),
+            `${style.paint(padStart(`s${String(scripted.step)}`, 5), scripted.step === step ? WARN : LABEL)} ${style.paint(pad('event' in scripted.what ? describeEvent(scripted.what.event) : describeCommand(scripted.what.command), 34), scripted.step === step ? VALUE : LABEL)}${style.dim(scripted.why)}`,
           ),
         )),
   ]
@@ -664,7 +645,7 @@ export const logView = (view: MachineView, style: Style, width: number): Readonl
       row(
         style,
         '',
-        `${style.paint(padStart(`s${String(entry.step)}`, 5), LABEL)} ` +
+        `${style.paint(padStart(`s${String(entry.step)}`, 5), LABEL)} ${ 
           style.paint(
             entry.text,
             entry.severity === 'reject'
@@ -674,7 +655,7 @@ export const logView = (view: MachineView, style: Style, width: number): Readonl
                 : entry.severity === 'note'
                   ? NOTE
                   : VALUE,
-          ),
+          )}`,
       ),
     ),
 ]
@@ -710,9 +691,7 @@ export const findingsView = (view: MachineView, style: Style, width: number): Re
       row(
         style,
         '',
-        `${style.paint(pad(finding.id, 8), finding.hit ? BAD : LABEL)}` +
-          `${style.paint(pad(finding.hit ? 'GAP' : 'ok', 6), finding.hit ? BAD : LABEL)}` +
-          (finding.hit ? style.paint(finding.text, BAD) : style.dim(finding.text)),
+        `${style.paint(pad(finding.id, 8), finding.hit ? BAD : LABEL)}${style.paint(pad(finding.hit ? 'GAP' : 'ok', 6), finding.hit ? BAD : LABEL)}${finding.hit ? style.paint(finding.text, BAD) : style.dim(finding.text)}`,
       ),
     ),
   ]
@@ -764,20 +743,6 @@ export const renderFrame = (
   ]
 }
 
-export const scenarioCatalogue = (style: Style, width: number): ReadonlyArray<string> => {
-  const lines: Array<string> = [heading(style, 'scenarios', width)]
-  for (const scenario of SCENARIO_LIST) {
-    const found = scenarioFor(scenario)
-    lines.push('')
-    lines.push(`${bold(found.name)}  ${style.dim(found.headline)}`)
-    for (const detail of found.detail) {
-      lines.push(`  ${style.dim(detail)}`)
-    }
-    lines.push(`  ${style.dim(`${String(scenarioLength(found))} steps; the last is: ${describeLast(scenario)}`)}`)
-  }
-  return lines
-}
-
 const SCENARIO_LIST = [
   'happy-path',
   'stranded-request',
@@ -794,4 +759,18 @@ const describeLast = (name: ScenarioName): string => {
     return '(empty)'
   }
   return 'event' in last.what ? describeEvent(last.what.event) : describeCommand(last.what.command)
+}
+
+export const scenarioCatalogue = (style: Style, width: number): ReadonlyArray<string> => {
+  const lines: Array<string> = [heading(style, 'scenarios', width)]
+  for (const scenario of SCENARIO_LIST) {
+    const found = scenarioFor(scenario)
+    lines.push('')
+    lines.push(`${bold(found.name)}  ${style.dim(found.headline)}`)
+    for (const detail of found.detail) {
+      lines.push(`  ${style.dim(detail)}`)
+    }
+    lines.push(`  ${style.dim(`${String(scenarioLength(found))} steps; the last is: ${describeLast(scenario)}`)}`)
+  }
+  return lines
 }

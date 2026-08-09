@@ -186,7 +186,10 @@ describe('jump (Space)', () => {
       const input = yield* makeInputService()
 
       yield* input.dispatch(down(JUMP_KEY))
-      let edges = (yield* input.wasActionJustTriggered('jump')) ? 1 : 0
+      let edges = 0
+      if (yield* input.wasActionJustTriggered('jump')) {
+        edges = 1
+      }
 
       for (let frame = 0; frame < 6; frame += 1) {
         yield* input.endFrame()

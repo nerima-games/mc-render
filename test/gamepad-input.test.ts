@@ -15,9 +15,19 @@ import {
 } from '../src/domain/input-bindings'
 import { makeInputService } from '../src/application/input-service'
 
+const PRESSED_BUTTON_VALUE = 1
+const RELEASED_BUTTON_VALUE = 0
+
+const defaultButtonValueFor = (pressed: boolean): number => {
+  if (pressed) {
+    return PRESSED_BUTTON_VALUE
+  }
+  return RELEASED_BUTTON_VALUE
+}
+
 const pad = (buttons: ReadonlyArray<{ pressed: boolean; value?: number }>, axes: ReadonlyArray<number> = []): GamepadSnapshot => ({
   connected: true,
-  buttons: buttons.map((button) => ({ pressed: button.pressed, value: button.value ?? (button.pressed ? 1 : 0) })),
+  buttons: buttons.map((button) => ({ pressed: button.pressed, value: button.value ?? defaultButtonValueFor(button.pressed) })),
   axes,
 })
 
@@ -76,6 +86,20 @@ describe('gamepad input', () => {
     }),
   )
 
+  it.effect('releases a held action when its button is no longer reported', () =>
+    Effect.gen(function* () {
+      let current: ReadonlyArray<GamepadSnapshot | null> = [pad([{ pressed: true }])]
+      const input = yield* makeInputService()
+      const adapter = makeGamepadInputAdapter(input, () => current)
+
+      yield* adapter.poll
+      expect(yield* input.isActionActive('jump')).toBe(true)
+      current = [pad([])]
+      yield* adapter.poll
+      expect(yield* input.isActionActive('jump')).toBe(false)
+    }),
+  )
+
   it.effect('keeps modal shielding identical to keyboard and touch input', () =>
     Effect.gen(function* () {
       const input = yield* makeInputService()
@@ -83,6 +107,31 @@ describe('gamepad input', () => {
       expect(yield* input.isActionActive('jump')).toBe(false)
       yield* input.dispatch({ kind: 'gamepadpress', action: 'jump', target: GAMEPLAY_LISTENER_TARGET })
       expect(yield* input.isActionActive('jump')).toBe(true)
+    }),
+  )
+
+  it.effect('a button index past the known mapping is dropped, not misbound', () =>
+    Effect.gen(function* () {
+      // `gamepadButtonForIndex` is a fixed 14-entry table (`GAMEPAD_BUTTONS`);
+      // a gamepad reporting MORE buttons than that — real hardware does, e.g.
+      // extra paddles — hands `bindingForButtonIndex` an index the table has
+      // no name for. It must resolve to "no action" rather than throwing or
+      // aliasing onto a real one.
+      const input = yield* makeInputService()
+      // 15 buttons: indices 0-13 are the known mapping (all unpressed here),
+      // and index 14 is the one past the end of `GAMEPAD_BUTTONS`.
+      const buttons = Array.from({ length: 15 }, (_unused, index) => ({
+        pressed: index === 14,
+      }))
+      const adapter = makeGamepadInputAdapter(input, () => [pad(buttons)])
+
+      yield* adapter.poll
+
+      // Nothing became active: the phantom 15th button pressed no bound
+      // action, and the poll did not throw reaching it.
+      const snapshot = yield* input.snapshot
+      expect(snapshot.pressed.size).toBe(0)
+      expect(snapshot.justPressed.size).toBe(0)
     }),
   )
 

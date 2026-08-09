@@ -37,6 +37,7 @@ import {
   LISTENER_PLAN,
   makeInputService,
   type InputEvent,
+  type InputServiceApi,
 } from '../src/application/input-service'
 import {
   browserInputLayer,
@@ -51,8 +52,10 @@ import {
   translateDomEvent,
   TRANSLATED_DOM_EVENTS,
   type BrowserInputTargets,
+  type DomEventContext,
+  type FocusGroupTargets,
+  type TouchControlTarget,
 } from '../src/application/browser-input-adapter'
-import type { DomEventContext, FocusGroupTargets } from '../src/application/browser-input-adapter'
 import type { DomInputEvent, DomListener, DomListenerOptions } from '../src/application/dom-surface'
 
 // ---------------------------------------------------------------------------
@@ -125,11 +128,16 @@ const makeFakeDom = (): FakeDom => {
     live,
     fire: (type, event) => {
       const matching = live().filter((call) => call.type === type)
+      // Hoisted out of the loop below rather than allocated fresh per listener:
+      // it closes over `prevented` (this `makeFakeDom` instance's own counter),
+      // not over anything the loop iterates, so every dispatched event can
+      // safely share the one function instead of each getting its own.
+      const preventDefault = (): void => {
+        prevented += 1
+      }
       for (const call of matching) {
         call.listener({
-          preventDefault: () => {
-            prevented += 1
-          },
+          preventDefault,
           ...event,
         })
       }
@@ -504,6 +512,17 @@ describe('every DOM event kind translates to the right InputEvent', () => {
           noContext,
         ),
       ).toStrictEqual({ kind: 'pointermove', deltaX: 2, deltaY: 0 })
+      // The other axis of the same guard: `deltaY` finite and `deltaX` the one
+      // that falls back to zero. The case above only ever forced `deltaY`'s
+      // fallback; without this one `deltaX`'s own `?? NO_POINTER_DELTA` never
+      // runs.
+      expect(
+        translateDomEvent(
+          planned('mousemove'),
+          { preventDefault: noop, movementX: Number.POSITIVE_INFINITY, movementY: -7 },
+          noContext,
+        ),
+      ).toStrictEqual({ kind: 'pointermove', deltaX: 0, deltaY: -7 })
       expect(translateDomEvent(planned('mousemove'), { preventDefault: noop }, noContext)).toBeUndefined()
     }),
   )
@@ -579,8 +598,14 @@ describe('every DOM event kind translates to the right InputEvent', () => {
 
   it.effect('an event name the switch does not know is dropped, not guessed at', () =>
     Effect.sync(() => {
+      // `PlannedListener.event` is `string`, not the closed union the switch
+      // matches on — an entry `LISTENER_PLAN` grows without a case here is a
+      // value this function can actually receive, not a cast-only input. The
+      // name below must NOT be one of `TRANSLATED_DOM_EVENTS`, or this would
+      // silently exercise that event's own case instead of `default`.
+      expect(TRANSLATED_DOM_EVENTS).not.toContain('gamepadconnected')
       expect(
-        translateDomEvent({ event: 'touchstart', target: 'document' }, { preventDefault: noop }, noContext),
+        translateDomEvent({ event: 'gamepadconnected', target: 'document' }, { preventDefault: noop }, noContext),
       ).toBeUndefined()
     }),
   )
@@ -589,6 +614,23 @@ describe('every DOM event kind translates to the right InputEvent', () => {
     Effect.sync(() => {
       expect(translateDomEvent(planned('keydown'), { preventDefault: noop }, noContext)).toBeUndefined()
       expect(translateDomEvent(planned('mousedown'), { preventDefault: noop }, noContext)).toBeUndefined()
+    }),
+  )
+
+  it.effect('translateTouchEdge falls back to no roster at all when the context omits one', () =>
+    Effect.sync(() => {
+      // `installInputListeners` always supplies `touchControls` (defaulting to
+      // `[]`, see `installInputListeners`'s own default), so real listener
+      // traffic never reaches `translateTouchEdge` with the field OMITTED —
+      // that path is short-circuited by `dispatchTouchEvent` before
+      // `translateDomEvent` even runs (see "multi-touch dispatch" below).
+      // `translateDomEvent` is exported and callable directly, though, and a
+      // caller that does not thread a full `DomEventContext` through must
+      // still get "no control resolves" rather than a crash on `undefined`.
+      expect(noContext.touchControls).toBeUndefined()
+      expect(
+        translateDomEvent(planned('touchstart'), { preventDefault: noop, target: { name: 'anything' } }, noContext),
+      ).toBeUndefined()
     }),
   )
 })
@@ -849,6 +891,31 @@ describe('REGRESSION: the pointer lock port performs the ask and reports only th
       }).pipe(Effect.provide(browserInputLayer({ targets: dom.targets })))
     }),
   )
+
+  it.effect('browserInputLayer routes its OWN allowsPointerLock into the port it builds', () =>
+    Effect.gen(function* () {
+      // `pointerLockPortFor`'s other branch. Every test above reaches
+      // `allowsPointerLock` by calling `makeBrowserPointerLockPort` directly;
+      // this is the one path that goes through `BrowserInputOptions` and the
+      // layer's own wiring, which has a canvas AND a caller-supplied
+      // predicate at the same time.
+      const dom = makeFakeDom()
+      const canvas = makeFakeCanvas()
+
+      yield* Effect.gen(function* () {
+        const input = yield* InputService
+        expect(yield* input.requestPointerLock).toBe('refused')
+      }).pipe(
+        Effect.provide(
+          browserInputLayer({ targets: dom.targets, canvas, allowsPointerLock: () => false }),
+        ),
+      )
+      // Refused because the policy said no, not because the request was
+      // never sent — the same distinction `a permissions policy that forbids
+      // the lock` draws for the direct constructor.
+      expect(canvas.asks()).toBe(0)
+    }),
+  )
 })
 
 // ---------------------------------------------------------------------------
@@ -952,6 +1019,101 @@ describe('the adapter drives the service the way a browser would', () => {
       dom.fire('pointerlockchange')
 
       expect((yield* input.snapshot).pointerDelta).toStrictEqual({ x: 0, y: 0 })
+    }),
+  )
+})
+
+// ---------------------------------------------------------------------------
+// Multi-touch: the per-finger accounting `dispatchTouchPress`/
+// `dispatchTouchRelease` do that `translateDomEvent`'s touch case does not
+// need, because a real `touchstart`/`touchend` always carries `changedTouches`
+// and goes through THIS dispatcher, never through `translateDomEvent`'s own
+// (guard-less) touch case.
+// ---------------------------------------------------------------------------
+
+const touchJumpButton = { name: 'touch-jump' }
+const touchAttackButton = { name: 'touch-attack' }
+const touchUndeclared = { name: 'touch-undeclared-decoration' }
+
+describe('multi-touch dispatch: per-finger guards', () => {
+  it.effect('a second touchstart for a finger already down is dropped, not re-targeted', () =>
+    Effect.gen(function* () {
+      // The identifier-keyed guard `dispatchTouchPress` opens with. A
+      // duplicate `touchstart` for a finger this adapter already tracks — a
+      // platform quirk, or two listeners racing — must not let that finger
+      // switch which action it holds.
+      const dom = makeFakeDom()
+      const input = yield* makeInputService()
+      const controls: ReadonlyArray<TouchControlTarget> = [
+        { action: 'jump', target: touchJumpButton },
+        { action: 'attack', target: touchAttackButton },
+      ]
+      installInputListeners(dom.targets, input, { touchControls: controls })
+
+      dom.fire('touchstart', { changedTouches: [{ identifier: 1, target: touchJumpButton }] })
+      expect(yield* input.isActionActive('jump')).toBe(true)
+
+      // Same identifier, now landing on a DIFFERENT control — dropped.
+      dom.fire('touchstart', { changedTouches: [{ identifier: 1, target: touchAttackButton }] })
+      expect(yield* input.isActionActive('attack')).toBe(false)
+      expect(yield* input.isActionActive('jump')).toBe(true)
+
+      // Releasing that identifier releases `jump` — the action it actually
+      // holds — which is what proves the second press never re-targeted it.
+      dom.fire('touchend', { changedTouches: [{ identifier: 1, target: touchAttackButton }] })
+      expect(yield* input.isActionActive('jump')).toBe(false)
+    }),
+  )
+
+  it.effect('a touchstart on an element outside the roster is dropped by this dispatcher too', () =>
+    Effect.gen(function* () {
+      // `translateDomEvent`'s touch case only runs when `changedTouches` is
+      // ABSENT (see "a tap on something nobody declared is DROPPED" in
+      // touch-controls.test.ts); every real touch carries it, so this guard —
+      // not that one — is what an actual undeclared tap goes through.
+      const dom = makeFakeDom()
+      const input = yield* makeInputService()
+      const controls: ReadonlyArray<TouchControlTarget> = [{ action: 'jump', target: touchJumpButton }]
+      installInputListeners(dom.targets, input, { touchControls: controls })
+
+      dom.fire('touchstart', { changedTouches: [{ identifier: 7, target: touchUndeclared }] })
+
+      expect(yield* input.isActionActive('jump')).toBe(false)
+      expect((yield* input.snapshot).pressed.size).toBe(0)
+    }),
+  )
+
+  it.effect('a second release for a finger already let go is dropped, not a phantom release', () =>
+    Effect.gen(function* () {
+      // `dispatchTouchRelease`'s own identifier guard. The platform is not
+      // supposed to fire a second release for one finger, but `touchcancel`
+      // racing a `touchend` can — and by then this identifier is untracked,
+      // so it must be a no-op rather than a second `touchrelease` for an
+      // action nothing still holds.
+      const dom = makeFakeDom()
+      const input = yield* makeInputService()
+      const dispatched: Array<InputEvent> = []
+      const spying: InputServiceApi = {
+        ...input,
+        dispatch: (event) =>
+          Effect.zipRight(
+            Effect.sync(() => {
+              dispatched.push(event)
+            }),
+            input.dispatch(event),
+          ),
+      }
+      const controls: ReadonlyArray<TouchControlTarget> = [{ action: 'jump', target: touchJumpButton }]
+      installInputListeners(dom.targets, spying, { touchControls: controls })
+
+      dom.fire('touchstart', { changedTouches: [{ identifier: 3, target: touchJumpButton }] })
+      dom.fire('touchend', { changedTouches: [{ identifier: 3, target: touchJumpButton }] })
+      expect(dispatched.map((event) => event.kind)).toStrictEqual(['touchpress', 'touchrelease'])
+
+      dom.fire('touchcancel', { changedTouches: [{ identifier: 3, target: touchJumpButton }] })
+
+      expect(dispatched.map((event) => event.kind)).toStrictEqual(['touchpress', 'touchrelease'])
+      expect(yield* input.isActionActive('jump')).toBe(false)
     }),
   )
 })
@@ -1101,9 +1263,9 @@ describe('the adapter observes focus the way a browser would deliver it', () => 
       const dom = makeFakeDom()
       const input = yield* makeInputService()
       const slots = makeSlots(9)
-      installInputListeners(dom.targets, input, [
-        { group: HOTBAR_FOCUS_GROUP, targets: slots },
-      ])
+      installInputListeners(dom.targets, input, {
+        focusGroups: [{ group: HOTBAR_FOCUS_GROUP, targets: slots }],
+      })
 
       dom.fire('focusin', { target: slots[2] })
 
@@ -1123,9 +1285,9 @@ describe('the adapter observes focus the way a browser would deliver it', () => 
       const dom = makeFakeDom()
       const input = yield* makeInputService()
       const slots = makeSlots(9)
-      installInputListeners(dom.targets, input, [
-        { group: HOTBAR_FOCUS_GROUP, targets: slots },
-      ])
+      installInputListeners(dom.targets, input, {
+        focusGroups: [{ group: HOTBAR_FOCUS_GROUP, targets: slots }],
+      })
       dom.fire('focusin', { target: slots[0] })
 
       dom.fire('focusout', { target: slots[0] })
@@ -1143,9 +1305,9 @@ describe('the adapter observes focus the way a browser would deliver it', () => 
       const dom = makeFakeDom()
       const input = yield* makeInputService()
       const slots = makeSlots(9)
-      installInputListeners(dom.targets, input, [
-        { group: HOTBAR_FOCUS_GROUP, targets: slots },
-      ])
+      installInputListeners(dom.targets, input, {
+        focusGroups: [{ group: HOTBAR_FOCUS_GROUP, targets: slots }],
+      })
       dom.fire('focusin', { target: slots[8] })
 
       // The last slot, Tab again: the browser leaves the group entirely.
@@ -1167,9 +1329,9 @@ describe('the adapter observes focus the way a browser would deliver it', () => 
       const dom = makeFakeDom()
       const input = yield* lockedInput
       const slots = makeSlots(9)
-      installInputListeners(dom.targets, input, [
-        { group: HOTBAR_FOCUS_GROUP, targets: slots },
-      ])
+      installInputListeners(dom.targets, input, {
+        focusGroups: [{ group: HOTBAR_FOCUS_GROUP, targets: slots }],
+      })
 
       dom.fire('keydown', { code: 'Tab' })
       dom.fire('focusin', { target: slots[1] })
@@ -1377,7 +1539,7 @@ describe('REGRESSION: clicking the HUD does not take the pointer', () => {
       const dom = makeFakeDom()
       const page = makePage()
       const input = yield* makeInputService()
-      installInputListeners(dom.targets, input, page.focusGroups, page.canvas)
+      installInputListeners(dom.targets, input, { focusGroups: page.focusGroups, pointerLockTarget: page.canvas })
 
       // `tabindex="-1"` focuses on click, so this arrives first, and it is
       // correct — it is what lights the ring.
@@ -1404,7 +1566,7 @@ describe('REGRESSION: clicking the HUD does not take the pointer', () => {
       const dom = makeFakeDom()
       const page = makePage()
       const input = yield* makeInputService()
-      installInputListeners(dom.targets, input, page.focusGroups, page.canvas)
+      installInputListeners(dom.targets, input, { focusGroups: page.focusGroups, pointerLockTarget: page.canvas })
 
       dom.fire('focusin', { target: page.slots[3] })
       dom.fire('mousedown', { button: 0, target: page.slots[3] })
@@ -1419,7 +1581,7 @@ describe('REGRESSION: clicking the HUD does not take the pointer', () => {
       const dom = makeFakeDom()
       const page = makePage()
       const input = yield* makeInputService()
-      installInputListeners(dom.targets, input, page.focusGroups, page.canvas)
+      installInputListeners(dom.targets, input, { focusGroups: page.focusGroups, pointerLockTarget: page.canvas })
 
       dom.fire('mousedown', { button: 0, target: page.canvas })
 
@@ -1440,7 +1602,7 @@ describe('REGRESSION: clicking the HUD does not take the pointer', () => {
       const dom = makeFakeDom()
       const page = makePage()
       const input = yield* makeInputService()
-      installInputListeners(dom.targets, input, page.focusGroups, page.canvas)
+      installInputListeners(dom.targets, input, { focusGroups: page.focusGroups, pointerLockTarget: page.canvas })
 
       dom.fire('mousedown', { button: 0, target: { letterbox: true } })
 
@@ -1514,7 +1676,7 @@ describe('REGRESSION: clicking the HUD does not take the pointer', () => {
       const dom = makeFakeDom()
       const page = makePage()
       const input = yield* lockedInput
-      installInputListeners(dom.targets, input, page.focusGroups, page.canvas)
+      installInputListeners(dom.targets, input, { focusGroups: page.focusGroups, pointerLockTarget: page.canvas })
 
       dom.fire('mousedown', { button: 0, target: page.slots[3] })
 
@@ -1532,7 +1694,7 @@ describe('REGRESSION: clicking the HUD does not take the pointer', () => {
       const dom = makeFakeDom()
       const page = makePage()
       const input = yield* makeInputService()
-      installInputListeners(dom.targets, input, page.focusGroups, page.canvas)
+      installInputListeners(dom.targets, input, { focusGroups: page.focusGroups, pointerLockTarget: page.canvas })
 
       dom.fire('mousedown', { button: 0, target: page.slots[3] })
       dom.fire('mousedown', { button: 0, target: page.canvas })

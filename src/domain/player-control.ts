@@ -12,6 +12,6 @@ export type PlayerControlPort = {
 }
 
 export const NO_PLAYER_CONTROL: PlayerControlPort = {
-  setMovementIntent: () => Effect.succeed(undefined),
   setJumpIntent: () => Effect.succeed(undefined),
+  setMovementIntent: () => Effect.succeed(undefined),
 }

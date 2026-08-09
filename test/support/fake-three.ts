@@ -210,7 +210,7 @@ export type FakeThree = ThreeSurface<FakeCanvas, FakeGeometry, FakeMaterial> &
 }
 
 const theOnly = <A>(what: string, values: ReadonlyArray<A>): A => {
-  const first = values[0]
+  const [first] = values
   if (first === undefined || values.length !== 1) {
     throw new Error(`expected exactly one ${what}, found ${String(values.length)}`)
   }
@@ -315,7 +315,7 @@ export const makeFakeThree = (): FakeThree => {
   const BufferGeometry = class {
     constructor() {
       const attributes = new Map<string, RecordedAttribute>()
-      let index: RecordedAttribute | undefined
+      let index: RecordedAttribute | undefined = undefined
       let boundingSphereComputations = 0
       const drawRanges: Array<readonly [number, number]> = []
       let disposed = false
@@ -329,7 +329,11 @@ export const makeFakeThree = (): FakeThree => {
           attributes.set(name, attribute as RecordedAttribute)
         },
         setIndex: (attribute) => {
-          index = attribute === null ? undefined : (attribute as RecordedAttribute)
+          if (attribute === null) {
+            index = undefined
+          } else {
+            index = attribute as RecordedAttribute
+          }
         },
         setDrawRange: (start, count) => {
           drawRanges.push([start, count])
@@ -399,7 +403,7 @@ export const makeFakeThree = (): FakeThree => {
     constructor() {
       const attributes = new Map<string, RecordedAttribute | FakeInstancedAttribute>()
       const drawRanges: Array<readonly [number, number]> = []
-      let index: RecordedAttribute | undefined
+      let index: RecordedAttribute | undefined = undefined
       let disposed = false
       const self: FakeInstancedGeometry = {
         instanceCount: 0,
@@ -417,7 +421,7 @@ export const makeFakeThree = (): FakeThree => {
         setDrawRange: (start, count) => {
           drawRanges.push([start, count])
         },
-        computeBoundingSphere: () => {},
+        computeBoundingSphere: () => undefined,
         dispose: () => {
           disposed = true
         },
@@ -426,6 +430,22 @@ export const makeFakeThree = (): FakeThree => {
       return self
     }
   } as unknown as new () => FakeInstancedGeometry
+
+  /**
+   * Spread the given key/value in only when `value` is defined, without a
+   * ternary: `no-ternary` applies in `test/**` same as everywhere else, and
+   * this is the one shape (a conditional spread) that showed up three times
+   * in `ShaderMaterial` below.
+   */
+  const optionalField = <Key extends string, Value>(
+    key: Key,
+    value: Value | undefined,
+  ): { readonly [P in Key]?: Value } => {
+    if (value === undefined) {
+      return {}
+    }
+    return { [key]: value } as { readonly [P in Key]?: Value }
+  }
 
   const ShaderMaterial = class {
     constructor(parameters: ThreeShaderMaterialParameters) {
@@ -438,9 +458,9 @@ export const makeFakeThree = (): FakeThree => {
         // `.value` and every sharer sees it.
         uniforms: parameters.uniforms,
         vertexColors: parameters.vertexColors,
-        ...(parameters.transparent === undefined ? {} : { transparent: parameters.transparent }),
-        ...(parameters.depthWrite === undefined ? {} : { depthWrite: parameters.depthWrite }),
-        ...(parameters.forceSinglePass === undefined ? {} : { forceSinglePass: parameters.forceSinglePass }),
+        ...optionalField('transparent', parameters.transparent),
+        ...optionalField('depthWrite', parameters.depthWrite),
+        ...optionalField('forceSinglePass', parameters.forceSinglePass),
         disposed: () => disposed,
         dispose: () => {
           disposed = true

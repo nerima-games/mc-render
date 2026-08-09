@@ -24,7 +24,7 @@ import {
   snapshotAgeSecs,
   type ViewOffset,
 } from '../src/domain/camera-mirror'
-import { MonotonicTimeSecs, position, type CameraPoseSnapshot } from '../src/domain/kernel-vocabulary'
+import { MonotonicTimeSecs, position, type CameraPoseSnapshot } from '@nerima-games/mc-kernel'
 
 const AUTHORITATIVE: CameraPoseSnapshot = {
   position: position(8, 65.62, -12),

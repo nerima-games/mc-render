@@ -7,7 +7,7 @@ import {
   preparePerspectiveFrustum,
   type AxisAlignedBounds,
 } from '../src/domain/frustum-culling'
-import { MonotonicTimeSecs, position } from '../src/domain/kernel-vocabulary'
+import { MonotonicTimeSecs, position } from '@nerima-games/mc-kernel'
 
 const camera = (yaw = 0, pitch = 0, roll = 0) => ({
   ...mirroredCameraState({
@@ -89,13 +89,7 @@ describe('aabbIntersectsPerspectiveFrustum', () => {
       nearPlane: 0.5,
       farPlane: 100,
     }
-    const prepared = preparePerspectiveFrustum(
-      frustum.camera,
-      frustum.verticalFovDegrees,
-      frustum.aspect,
-      frustum.nearPlane,
-      frustum.farPlane,
-    )
+    const prepared = preparePerspectiveFrustum(frustum)
     const bounds = [
       { min: { x: -2, y: -2, z: -8 }, max: { x: 2, y: 2, z: -4 } },
       { min: { x: 80, y: 80, z: 80 }, max: { x: 82, y: 82, z: 82 } },
@@ -111,7 +105,13 @@ describe('aabbIntersectsPerspectiveFrustum', () => {
 
   it('captures the camera position when preparing the frustum', () => {
     const sourceCamera = camera()
-    const prepared = preparePerspectiveFrustum(sourceCamera, 90, 1, 1, 10)
+    const prepared = preparePerspectiveFrustum({
+      aspect: 1,
+      camera: sourceCamera,
+      farPlane: 10,
+      nearPlane: 1,
+      verticalFovDegrees: 90,
+    })
     const mutableCamera = sourceCamera as { position: { x: number; y: number; z: number } }
     mutableCamera.position.z = 100
 

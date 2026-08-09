@@ -27,6 +27,10 @@ jobs:
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
+          # `pnpm changeset status --since=origin/main` below needs the full
+          # history to diff against origin/main; the default shallow clone
+          # only has HEAD.
+          fetch-depth: 0
 
       - name: Setup pnpm
         # Pinned to a commit, not the mutable v4 tag: this is a third-party action

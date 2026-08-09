@@ -1,32 +1,41 @@
 import {
+  type ChunkMesher,
+  type SyncOptions,
+  type WorldRendererAttachment,
+  attachWorldRenderer,
+} from './world-sync'
+import {
+  type LightSampler,
+  NO_LIGHT,
+  type SkyBlockLight,
+  lightSamplePoint,
+  packedLightColor,
+} from '../domain/voxel-lighting'
+import { type MeshConfig, meshChunk } from '@nerima-games/mc-meshing'
+import { type MeshQuad, type QuadColor, faceNormal } from '../domain/chunk-geometry'
+import {
   blockIdsWithOpacity,
   blockPosition,
   blockTypeOfId,
   chunkCoord,
 } from '@nerima-games/mc-kernel'
-import { meshChunk, type MeshConfig } from '@nerima-games/mc-meshing'
+import type { BlockNameLookup } from '../domain/block-texture-map'
+import { CHUNK_SIZE } from '../domain/lod-vocabulary'
 import type { ChunkStoreApi } from '@nerima-games/mc-worldgen'
 import { Effect } from 'effect'
-import type { BlockNameLookup } from '../domain/block-texture-map'
-import { faceNormal, type MeshQuad, type QuadColor } from '../domain/chunk-geometry'
-import { CHUNK_SIZE } from '../domain/lod-vocabulary'
-import {
-  lightSamplePoint,
-  NO_LIGHT,
-  packedLightColor,
-  type LightSampler,
-  type SkyBlockLight,
-} from '../domain/voxel-lighting'
 import type { WorldRenderer } from './world-renderer'
-import {
-  attachWorldRenderer,
-  type ChunkMesher,
-  type SyncOptions,
-  type WorldRendererAttachment,
-} from './world-sync'
 
 /** The kernel registry is the single numeric-id to texture-name authority. */
 export const blockNameFromKernel: BlockNameLookup = (blockId) => blockTypeOfId(blockId) ?? 'unknown'
+
+/** Water's block id in the kernel registry (`BlockId(6)`, block-registry-data.ts). */
+const WATER_BLOCK_ID = 6
+/** Water's maximum fluid fall-off level: 8 levels, 0-7. */
+const WATER_MAX_FLUID_LEVEL = 7
+/** Lava's block id in the kernel registry (`BlockId(11)`, block-registry-data.ts). */
+const LAVA_BLOCK_ID = 11
+/** Lava's maximum fluid fall-off level: 4 levels, 0-3 — lava spreads over fewer levels than water. */
+const LAVA_MAX_FLUID_LEVEL = 3
 
 /**
  * Material routing supported by the current renderer geometry.
@@ -36,9 +45,12 @@ export const blockNameFromKernel: BlockNameLookup = (blockId) => blockTypeOfId(b
  * still visible as cubes and routed to their correct material layer.
  */
 export const KERNEL_MESH_CONFIG: MeshConfig = {
-  waterBlockIds: blockIdsWithOpacity('fluid'),
-  fluidMaxLevels: new Map([[6, 7], [11, 3]]),
+  fluidMaxLevels: new Map([
+    [WATER_BLOCK_ID, WATER_MAX_FLUID_LEVEL],
+    [LAVA_BLOCK_ID, LAVA_MAX_FLUID_LEVEL],
+  ]),
   transparentSolidBlockIds: blockIdsWithOpacity('transparentSolid'),
+  waterBlockIds: blockIdsWithOpacity('fluid'),
 }
 
 /** The two store operations required to mesh one resident chunk. */
@@ -50,7 +62,44 @@ export type RendererChunkStore = Pick<
   'peek' | 'neighbours' | 'subscribeDirty' | 'getLight'
 >
 
-const lightKey = (x: number, y: number, z: number): string => `${x},${y},${z}`
+const lightKey = (blockX: number, blockY: number, blockZ: number): string => `${blockX},${blockY},${blockZ}`
+
+/** World-space integer coordinates for one light sample, keyed by `lightKey`. */
+type LightSamplePosition = {
+  readonly blockX: number
+  readonly blockY: number
+  readonly blockZ: number
+}
+
+/** A sample point in chunk-local space, before it is floored into block coordinates. */
+type LocalSampleOffset = {
+  readonly localX: number
+  readonly localY: number
+  readonly localZ: number
+}
+
+const lightSamplePositionFor = (
+  chunk: { readonly cx: number; readonly cz: number },
+  local: LocalSampleOffset,
+): LightSamplePosition => ({
+  blockX: Math.floor(chunk.cx * CHUNK_SIZE + local.localX),
+  blockY: Math.floor(local.localY),
+  blockZ: Math.floor(chunk.cz * CHUNK_SIZE + local.localZ),
+})
+
+/** Every distinct light-sample position a chunk's quads reference, keyed for lookup by `lightKey`. */
+const collectLightSamplePositions = (
+  chunk: { readonly cx: number; readonly cz: number },
+  quads: ReadonlyArray<MeshQuad>,
+): ReadonlyMap<string, LightSamplePosition> => {
+  const samples = new Map<string, LightSamplePosition>()
+  for (const quad of quads) {
+    const [localX, localY, localZ] = lightSamplePoint(quad, faceNormal(quad.direction))
+    const position = lightSamplePositionFor(chunk, { localX, localY, localZ })
+    samples.set(lightKey(position.blockX, position.blockY, position.blockZ), position)
+  }
+  return samples
+}
 
 /** Snapshot the light cells referenced by a chunk mesh into a synchronous colour callback. */
 export const makeChunkStoreLightColor = (
@@ -59,30 +108,22 @@ export const makeChunkStoreLightColor = (
   quads: ReadonlyArray<MeshQuad>,
 ): Effect.Effect<QuadColor> =>
   Effect.gen(function* () {
-    const samples = new Map<string, readonly [number, number, number]>()
-    for (const quad of quads) {
-      const [localX, localY, localZ] = lightSamplePoint(quad, faceNormal(quad.direction))
-      const x = Math.floor(chunk.cx * CHUNK_SIZE + localX)
-      const y = Math.floor(localY)
-      const z = Math.floor(chunk.cz * CHUNK_SIZE + localZ)
-      samples.set(lightKey(x, y, z), [x, y, z])
-    }
+    const samples = collectLightSamplePositions(chunk, quads)
 
     const readings = new Map<string, SkyBlockLight>()
-    yield* Effect.forEach(samples, ([key, [x, y, z]]) =>
-      Effect.map(store.getLight(blockPosition(x, y, z)), (reading) => {
-        readings.set(
-          key,
-          reading._tag === 'Light' ? { sky: reading.sky, block: reading.block } : NO_LIGHT,
-        )
+    yield* Effect.forEach(samples, ([key, position]) =>
+      Effect.map(store.getLight(blockPosition(position.blockX, position.blockY, position.blockZ)), (reading) => {
+        if (reading._tag === 'Light') {
+          readings.set(key, { block: reading.block, sky: reading.sky })
+          return
+        }
+        readings.set(key, NO_LIGHT)
       }),
     )
 
     const sampler: LightSampler = (localX, localY, localZ) => {
-      const x = Math.floor(chunk.cx * CHUNK_SIZE + localX)
-      const y = Math.floor(localY)
-      const z = Math.floor(chunk.cz * CHUNK_SIZE + localZ)
-      return readings.get(lightKey(x, y, z)) ?? NO_LIGHT
+      const position = lightSamplePositionFor(chunk, { localX, localY, localZ })
+      return readings.get(lightKey(position.blockX, position.blockY, position.blockZ)) ?? NO_LIGHT
     }
     return packedLightColor(sampler)
   })
@@ -106,22 +147,34 @@ export const makeChunkStoreMesher = (
       return Object.assign(quads, { fluids: layers.fluids })
     })
 
+/** `options` with a light-sampling `colorForChunk` filled in, unless the caller already supplied one (or a flat `color`). */
+const withDefaultColorForChunk = (store: RendererChunkStore, options: SyncOptions): SyncOptions => {
+  if (options.colorForChunk !== undefined || options.color !== undefined) {
+    return options
+  }
+  return {
+    ...options,
+    colorForChunk: (chunk: { readonly cx: number; readonly cz: number }, quads: ReadonlyArray<MeshQuad>) =>
+      makeChunkStoreLightColor(store, chunk, quads),
+  }
+}
+
+/** `attachChunkStoreRenderer`'s options: every `SyncOptions` field, plus the mesher's own `MeshConfig`. */
+export type ChunkStoreRendererOptions = SyncOptions & {
+  readonly config?: MeshConfig
+}
+
 /** Attach the renderer directly to a worldgen ChunkStore subscription. */
 export const attachChunkStoreRenderer = (
   renderer: WorldRenderer,
   store: RendererChunkStore,
-  options: SyncOptions = {},
-  config: MeshConfig = KERNEL_MESH_CONFIG,
+  options: ChunkStoreRendererOptions = {},
 ): Effect.Effect<WorldRendererAttachment> => {
-  const syncOptions =
-    options.colorForChunk === undefined && options.color === undefined
-      ? {
-          ...options,
-          colorForChunk: (
-            chunk: { readonly cx: number; readonly cz: number },
-            quads: ReadonlyArray<MeshQuad>,
-          ) => makeChunkStoreLightColor(store, chunk, quads),
-        }
-      : options
-  return attachWorldRenderer(renderer, store, makeChunkStoreMesher(store, config), syncOptions)
+  const { config = KERNEL_MESH_CONFIG, ...syncOptions } = options
+  return attachWorldRenderer(
+    renderer,
+    store,
+    makeChunkStoreMesher(store, config),
+    withDefaultColorForChunk(store, syncOptions),
+  )
 }
