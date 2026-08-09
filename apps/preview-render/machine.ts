@@ -239,6 +239,21 @@ export const describeCommand = (command: Command): string => {
   }
 }
 
+const INPUT_EVENT_KINDS: ReadonlySet<string> = new Set([
+  'keydown',
+  'keyup',
+  'mousedown',
+  'mouseup',
+  'contextmenu',
+  'pointermove',
+  'wheel',
+  'pointerlockchange',
+  'pointerlockerror',
+  'blur',
+])
+
+const isInputEventKind = (kind: string): boolean => INPUT_EVENT_KINDS.has(kind)
+
 export const makeMachine = async (config: MachineConfig): Promise<Machine> => {
   const book: Book = {
     step: 0,
@@ -500,23 +515,6 @@ export const makeMachine = async (config: MachineConfig): Promise<Machine> => {
     )
 
   return { config, advance, inject, view }
-}
-
-const INPUT_EVENT_KINDS: ReadonlySet<string> = new Set([
-  'keydown',
-  'keyup',
-  'mousedown',
-  'mouseup',
-  'contextmenu',
-  'pointermove',
-  'wheel',
-  'pointerlockchange',
-  'pointerlockerror',
-  'blur',
-])
-
-function isInputEventKind(kind: string): boolean {
-  return INPUT_EVENT_KINDS.has(kind)
 }
 
 /** Which action a raw code currently means, for the live key echo. */

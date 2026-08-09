@@ -132,18 +132,16 @@ export const decodeKeys = (chunk: string): ReadonlyArray<string> => {
 
   while (index < chunk.length) {
     const character = chunk.charAt(index)
+    const arrow =
+      character === ESC && chunk.charAt(index + 1) === '[' ? ARROWS.get(chunk.charAt(index + 2)) : undefined
 
-    if (character === ESC && chunk.charAt(index + 1) === '[') {
-      const arrow = ARROWS.get(chunk.charAt(index + 2))
-      if (arrow !== undefined) {
-        keys.push(arrow)
-        index += 3
-        continue
-      }
+    if (arrow !== undefined) {
+      keys.push(arrow)
+      index += 3
+    } else {
+      keys.push(decodeKey(character))
+      index += 1
     }
-
-    keys.push(decodeKey(character))
-    index += 1
   }
 
   return keys

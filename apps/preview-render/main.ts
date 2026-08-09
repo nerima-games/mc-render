@@ -82,20 +82,29 @@ type State = {
   busy: boolean
 }
 
+/**
+ * Runs a promise for its effects and deliberately does not await it.
+ *
+ * The interactive loop below dispatches a redraw or an injected event from a
+ * synchronous key handler; nothing there can `await`. `void promise` is the
+ * usual way to mark that on purpose, but this repository's `no-void` rule
+ * bans the operator outright, so the discard is a named function returning
+ * `void` instead — and its `catch` is what keeps a rejected redraw from
+ * surfacing as an unhandled rejection instead of a message on stderr.
+ */
+const fireAndForget = (promise: Promise<unknown>): void => {
+  promise.catch((error: unknown) => {
+    console.error(error)
+  })
+}
+
 const frameWidth = (options: PreviewOptions): number =>
   Math.max(70, options.width ?? screenSize().columns)
 
 const styleFor = (options: PreviewOptions): Style => (options.ascii ? PLAIN_STYLE : ANSI_STYLE)
 
-/**
- * Keys that inject an event the script did not contain.
- *
- * This is the half a scripted timeline cannot give you: the ability to put a
- * `blur` between a `requestPointerLock` and its answer, or an `endFrame` before
- * the wheel event instead of after, and watch what the machine does about it.
- * Returning a value rather than dispatching keeps the table a pure function.
- */
-const eventForKey = (key: string): InputEvent | Command | undefined => {
+/** `wasd` / `WASD`: the movement keys, held down and released @ window. */
+const movementKeyEvent = (key: string): InputEvent | undefined => {
   switch (key) {
     case 'w':
       return { kind: 'keydown', code: 'KeyW', target: 'window' }
@@ -113,24 +122,46 @@ const eventForKey = (key: string): InputEvent | Command | undefined => {
       return { kind: 'keyup', code: 'KeyS', target: 'window' }
     case 'D':
       return { kind: 'keyup', code: 'KeyD', target: 'window' }
+    default:
+      return undefined
+  }
+}
+
+/**
+ * `e` / `E`: the same key, dispatched at two different targets.
+ *
+ * `E` lands where a modal overlay listens. The service must ignore it: an
+ * event still tagged `document` is one the modal did not consume, and was
+ * never meant for gameplay either way.
+ */
+const interactKeyEvent = (key: string): InputEvent | undefined => {
+  switch (key) {
     case 'e':
       return { kind: 'keydown', code: 'KeyE', target: 'window' }
-    // The same key, dispatched where a modal overlay listens. The service must
-    // ignore it: an event still tagged `document` is one the modal did not
-    // consume, and was never meant for gameplay either way.
     case 'E':
       return { kind: 'keydown', code: 'KeyE', target: 'document' }
-    // The three buttons, all landing ON THE CANVAS — the element the lock would
-    // be granted to, and therefore the only landing that may ask for it.
+    default:
+      return undefined
+  }
+}
+
+/**
+ * `lrm` / `LRM` / `un`: mouse buttons, and the same left click landing
+ * somewhere other than the canvas.
+ *
+ * `l`/`r`/`m` all land ON THE CANVAS — the element the lock would be granted
+ * to, and therefore the only landing that may ask for it. `u`/`n` are DN-16
+ * §5(b): before the landing existed, all three of these keys did the same
+ * thing, and clicking a hotbar slot threw the player into mouselook.
+ */
+const mouseButtonKeyEvent = (key: string): InputEvent | undefined => {
+  switch (key) {
     case 'l':
       return { kind: 'mousedown', button: 'MouseLeft', target: 'window', landing: 'lock-target' }
     case 'r':
       return { kind: 'mousedown', button: 'MouseRight', target: 'window', landing: 'lock-target' }
     case 'm':
       return { kind: 'mousedown', button: 'MouseMiddle', target: 'window', landing: 'lock-target' }
-    // The same left click, landing somewhere else. These two are DN-16 §5(b):
-    // before the landing existed, all three of these keys did the same thing,
-    // and clicking a hotbar slot threw the player into mouselook.
     case 'u':
       return { kind: 'mousedown', button: 'MouseLeft', target: 'window', landing: 'ui' }
     case 'n':
@@ -141,6 +172,14 @@ const eventForKey = (key: string): InputEvent | Command | undefined => {
       return { kind: 'mouseup', button: 'MouseRight', target: 'window' }
     case 'M':
       return { kind: 'mouseup', button: 'MouseMiddle', target: 'window' }
+    default:
+      return undefined
+  }
+}
+
+/** `,` `/` `<` `?`: wheel notches, a mouse wheel and a trackpad. */
+const wheelKeyEvent = (key: string): InputEvent | undefined => {
+  switch (key) {
     case ',':
       return { kind: 'wheel', deltaY: -100, deltaMode: 'pixel' }
     case '/':
@@ -149,6 +188,14 @@ const eventForKey = (key: string): InputEvent | Command | undefined => {
       return { kind: 'wheel', deltaY: -30, deltaMode: 'pixel' }
     case '?':
       return { kind: 'wheel', deltaY: 30, deltaMode: 'pixel' }
+    default:
+      return undefined
+  }
+}
+
+/** `o` `g` `G` `k` `K` `b` `c` `f` `F`: pointer movement and the lock machine. */
+const pointerAndLockKeyEvent = (key: string): InputEvent | Command | undefined => {
+  switch (key) {
     case 'o':
       return { kind: 'pointermove', deltaX: 12, deltaY: -4 }
     case 'g':
@@ -167,6 +214,14 @@ const eventForKey = (key: string): InputEvent | Command | undefined => {
       return { kind: 'readSnapshot' }
     case 'F':
       return { kind: 'endFrame' }
+    default:
+      return undefined
+  }
+}
+
+/** `+` `-` `P`: the clock and the mc-sim pose publish, both commands rather than input events. */
+const clockKeyEvent = (key: string): Command | undefined => {
+  switch (key) {
     case '+':
       return { kind: 'advanceClock', seconds: 0.1 }
     case '-':
@@ -177,6 +232,22 @@ const eventForKey = (key: string): InputEvent | Command | undefined => {
       return undefined
   }
 }
+
+/**
+ * Keys that inject an event the script did not contain.
+ *
+ * This is the half a scripted timeline cannot give you: the ability to put a
+ * `blur` between a `requestPointerLock` and its answer, or an `endFrame` before
+ * the wheel event instead of after, and watch what the machine does about it.
+ * Returning a value rather than dispatching keeps the table a pure function.
+ */
+const eventForKey = (key: string): InputEvent | Command | undefined =>
+  movementKeyEvent(key) ??
+  interactKeyEvent(key) ??
+  mouseButtonKeyEvent(key) ??
+  wheelKeyEvent(key) ??
+  pointerAndLockKeyEvent(key) ??
+  clockKeyEvent(key)
 
 const stepsForKey = (key: string): number | undefined => {
   switch (key) {
@@ -240,9 +311,11 @@ const runInteractive = (state: State, options: PreviewOptions): void => {
   onExit(restore)
 
   const draw = (): void => {
-    void drawInto(state, options).then((lines) => {
-      paintFrame(lines)
-    })
+    fireAndForget(
+      drawInto(state, options).then((lines) => {
+        paintFrame(lines)
+      }),
+    )
   }
 
   const quit = (): void => {
@@ -255,10 +328,12 @@ const runInteractive = (state: State, options: PreviewOptions): void => {
       return
     }
     state.busy = true
-    void work().then(() => {
-      state.busy = false
-      draw()
-    })
+    fireAndForget(
+      work().then(() => {
+        state.busy = false
+        draw()
+      }),
+    )
   }
 
   onResize(draw)
@@ -394,12 +469,18 @@ const main = async (): Promise<number> => {
 }
 
 // `describeEvent` / `describeCommand` are re-exported through the views; naming
-// them here keeps the import list honest about what this module depends on.
-void describeEvent
-void describeCommand
+// them here keeps the import list honest about what this module depends on. An
+// exported binding rather than a bare reference: this module has no other
+// caller to read a plain statement's "I depend on this" as intentional.
+export const MACHINE_DESCRIPTION_HELPERS = { describeEvent, describeCommand } as const
 
-void main().then((exitCode) => {
-  if (exitCode !== 0) {
-    process.exit(exitCode)
-  }
-})
+main()
+  .then((exitCode) => {
+    if (exitCode !== 0) {
+      process.exit(exitCode)
+    }
+  })
+  .catch((error: unknown) => {
+    console.error(error)
+    process.exit(1)
+  })

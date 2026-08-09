@@ -743,20 +743,6 @@ export const renderFrame = (
   ]
 }
 
-export const scenarioCatalogue = (style: Style, width: number): ReadonlyArray<string> => {
-  const lines: Array<string> = [heading(style, 'scenarios', width)]
-  for (const scenario of SCENARIO_LIST) {
-    const found = scenarioFor(scenario)
-    lines.push('')
-    lines.push(`${bold(found.name)}  ${style.dim(found.headline)}`)
-    for (const detail of found.detail) {
-      lines.push(`  ${style.dim(detail)}`)
-    }
-    lines.push(`  ${style.dim(`${String(scenarioLength(found))} steps; the last is: ${describeLast(scenario)}`)}`)
-  }
-  return lines
-}
-
 const SCENARIO_LIST = [
   'happy-path',
   'stranded-request',
@@ -773,4 +759,18 @@ const describeLast = (name: ScenarioName): string => {
     return '(empty)'
   }
   return 'event' in last.what ? describeEvent(last.what.event) : describeCommand(last.what.command)
+}
+
+export const scenarioCatalogue = (style: Style, width: number): ReadonlyArray<string> => {
+  const lines: Array<string> = [heading(style, 'scenarios', width)]
+  for (const scenario of SCENARIO_LIST) {
+    const found = scenarioFor(scenario)
+    lines.push('')
+    lines.push(`${bold(found.name)}  ${style.dim(found.headline)}`)
+    for (const detail of found.detail) {
+      lines.push(`  ${style.dim(detail)}`)
+    }
+    lines.push(`  ${style.dim(`${String(scenarioLength(found))} steps; the last is: ${describeLast(scenario)}`)}`)
+  }
+  return lines
 }
