@@ -66,6 +66,7 @@ import type {
   ThreeMesh,
   ThreePerspectiveCamera,
   ThreeRendererParameters,
+  ThreeMaterialSide,
   ThreeInstancedBufferAttribute,
   ThreeInstancedBufferGeometry,
   ThreeScene,
@@ -127,9 +128,11 @@ export type FakeShaderMaterial = ThreeMaterial & {
   readonly fragmentShader: string
   readonly uniforms: Record<string, ThreeUniform>
   readonly vertexColors: true
+  readonly alphaTest?: number
   readonly transparent?: boolean
   readonly depthWrite?: boolean
   readonly forceSinglePass?: boolean
+  readonly side?: ThreeMaterialSide
   readonly disposed: () => boolean
 }
 
@@ -458,9 +461,11 @@ export const makeFakeThree = (): FakeThree => {
         // `.value` and every sharer sees it.
         uniforms: parameters.uniforms,
         vertexColors: parameters.vertexColors,
+        ...optionalField('alphaTest', parameters.alphaTest),
         ...optionalField('transparent', parameters.transparent),
         ...optionalField('depthWrite', parameters.depthWrite),
         ...optionalField('forceSinglePass', parameters.forceSinglePass),
+        ...optionalField('side', parameters.side),
         disposed: () => disposed,
         dispose: () => {
           disposed = true

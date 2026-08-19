@@ -26,6 +26,7 @@ import {
   AO_SHADE_BY_LEVEL,
   aoShade,
   buildChunkGeometry,
+  buildCrossPlantGeometry,
   COLOR_COMPONENTS,
   faceNormal,
   INDICES_PER_QUAD,
@@ -36,9 +37,11 @@ import {
   totalQuadArea,
   UV_COMPONENTS,
   VERTICES_PER_QUAD,
+  type CrossPlantQuad,
   type FaceDirection,
   type MeshQuad,
   type QuadAxis,
+  type RenderableQuad,
 } from '../src/domain/chunk-geometry'
 
 const DIRECTIONS: ReadonlyArray<FaceDirection> = ['xPos', 'xNeg', 'yPos', 'yNeg', 'zPos', 'zNeg']
@@ -59,6 +62,22 @@ const quad = (overrides: Partial<MeshQuad> = {}): MeshQuad => ({
   lz: 0,
   width: 4,
   height: 3,
+  ao: 0,
+  ...overrides,
+})
+
+const crossPlantQuad = (overrides: Partial<CrossPlantQuad> = {}): CrossPlantQuad => ({
+  blockId: 5,
+  role: 'side',
+  vertices: [
+    [0, 0, 0],
+    [0, 1, 0],
+    [1, 1, 1],
+    [1, 0, 1],
+  ],
+  nx: 0,
+  ny: 0,
+  nz: 1,
   ao: 0,
   ...overrides,
 })
@@ -467,6 +486,64 @@ describe('buffer shape and conservation', () => {
       expect(totalQuadArea(unmerged)).toBe(12)
       expect(buildChunkGeometry(merged).quadCount).toBe(1)
       expect(buildChunkGeometry(unmerged).quadCount).toBe(12)
+    }),
+  )
+})
+
+describe('cross-plant geometry', () => {
+  it.effect('preserves plant vertices, normals, callbacks, tiles and indices', () =>
+    Effect.sync(() => {
+      const source = crossPlantQuad()
+      const colors: Array<RenderableQuad> = []
+      const tiles: Array<RenderableQuad> = []
+      const built = buildCrossPlantGeometry(
+        [source],
+        16,
+        -32,
+        (value) => {
+          colors.push(value)
+          return [10, 20, 30]
+        },
+        (value) => {
+          tiles.push(value)
+          return value.blockId + 0.5
+        },
+      )
+
+      expect(colors).toStrictEqual([source])
+      expect(tiles).toStrictEqual([source])
+      expect(built.quadCount).toBe(1)
+      expect([...built.positions]).toStrictEqual([
+        16, 0, -32,
+        16, 1, -32,
+        17, 1, -31,
+        17, 0, -31,
+      ])
+      expect([...built.normals]).toStrictEqual([
+        0, 0, 1,
+        0, 0, 1,
+        0, 0, 1,
+        0, 0, 1,
+      ])
+      expect([...built.colors]).toStrictEqual([
+        10, 20, 30,
+        10, 20, 30,
+        10, 20, 30,
+        10, 20, 30,
+      ])
+      expect([...built.tileIndices]).toStrictEqual([5.5, 5.5, 5.5, 5.5])
+      expect([...built.uvs]).toStrictEqual([0, 0, 0, 1, 1, 1, 1, 0])
+      expect([...built.indices]).toStrictEqual([0, 1, 2, 0, 2, 3])
+    }),
+  )
+
+  it.effect('reuses the singleton empty buffers', () =>
+    Effect.sync(() => {
+      const first = buildCrossPlantGeometry([])
+
+      expect(buildCrossPlantGeometry([])).toBe(first)
+      expect(first.quadCount).toBe(0)
+      expect(first.positions.length).toBe(0)
     }),
   )
 })

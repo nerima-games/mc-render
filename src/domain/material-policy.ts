@@ -89,10 +89,10 @@
  * and belongs to mc-render even though the reference filed it under HUD. It is
  * an easy one to lose in the port — see docs/porting.md.)
  *
- * The distinguishing feature is `alphaTest > 0`: an alpha-tested material is a
- * cutout, every fragment is either fully opaque or discarded, and there is
- * nothing for the two-pass order to resolve. `requiresForceSinglePass` encodes
- * that as the rule rather than listing the materials by name — the same move as
+ * The distinguishing features are `alphaTest > 0` and `flatSurface`: an
+ * alpha-tested material is a cutout, and a flat surface has no far wall for
+ * the two-pass order to resolve. `requiresForceSinglePass` encodes those
+ * capabilities rather than listing materials by name — the same move as
  * plan.md §3.1's capability flags versus named block ids.
  */
 
@@ -100,10 +100,12 @@
 export type MaterialSide = 'front' | 'back' | 'double'
 
 /**
- * The material properties this policy reasons about.
+ * The semantic material properties this policy reasons about.
  *
- * A structural subset of `THREE.Material`, so a real material satisfies it
- * without adaptation, but expressible and testable with no THREE.js present.
+ * `flatSurface` is deliberately explicit because THREE cannot infer whether a
+ * transparent mesh is a closed volume from a material alone. Keeping that fact
+ * here makes the policy testable without THREE.js and avoids identifying
+ * materials by name in the renderer adapter.
  */
 export type MaterialSpec = {
   readonly name: string
@@ -111,6 +113,8 @@ export type MaterialSpec = {
   readonly side: MaterialSide
   /** Alpha cutoff. Greater than zero means the material is a cutout. */
   readonly alphaTest: number
+  /** True when the mesh has no far wall whose ordering needs a second pass. */
+  readonly flatSurface: boolean
   /** True when one material instance is referenced by many meshes. */
   readonly shared: boolean
 }
@@ -132,16 +136,21 @@ const ALPHA_TEST_DISABLED = 0
  */
 export const isCutout = (material: MaterialSpec): boolean => material.alphaTest > ALPHA_TEST_DISABLED
 
+/** True when back-then-front ordering cannot add useful information. */
+export const hasNoTwoPassOrderingBenefit = (material: MaterialSpec): boolean =>
+  isCutout(material) || material.flatSurface
+
 /**
  * THE RULE. `forceSinglePass: true` is required exactly when a material is
- * shared, takes the two-pass path, and is a cutout.
+ * shared, takes the two-pass path, and is a cutout or flat surface.
  *
- * Shared + two-pass + NOT a cutout is genuine translucency: it must keep the
- * two-pass ordering and must instead be un-shared, or accept the cost. See
- * `describeMaterialPolicy` for that case's diagnostic.
+ * Shared + two-pass + no cutout and no flat-surface benefit is genuine
+ * translucency: it must keep the two-pass ordering and must instead be
+ * un-shared, or accept the cost. See `describeMaterialPolicy` for that case's
+ * diagnostic.
  */
 export const requiresForceSinglePass = (material: MaterialSpec): boolean =>
-  material.shared && takesTwoPassPath(material) && isCutout(material)
+  material.shared && takesTwoPassPath(material) && hasNoTwoPassOrderingBenefit(material)
 
 export type MaterialPolicyVerdict =
   | { readonly kind: 'ok'; readonly reason: string }
@@ -170,21 +179,27 @@ export const describeMaterialPolicy = (material: MaterialSpec): MaterialPolicyVe
         'only its own shader program.',
     }
   }
-  if (isCutout(material)) {
+  if (hasNoTwoPassOrderingBenefit(material)) {
+    let orderingReason = `alphaTest ${String(material.alphaTest)} makes it a cutout, so the two-pass ordering buys nothing`
+    if (material.flatSurface) {
+      orderingReason =
+        'flatSurface is true, so this material has no far wall for the two-pass ordering to resolve'
+    }
+
     return {
       kind: 'must-force-single-pass',
       reason:
         `${material.name} is shared, transparent and DoubleSide, so every frame bumps ` +
         'material.version twice and re-resolves the shader program for every mesh that shares it ' +
         '(~15k getParameters calls per 3s at idle in the reference; p95 frame time 33ms -> 9.2ms ' +
-        `once forced). alphaTest ${String(material.alphaTest)} makes it a cutout, so the two-pass ` +
-        'ordering buys nothing. Set forceSinglePass: true.',
+        `once forced). ${orderingReason}. Set forceSinglePass: true.`,
     }
   }
   return {
     kind: 'review-sharing',
     reason:
-      `${material.name} is shared, transparent and DoubleSide, but alphaTest is 0 — it is ` +
+      `${material.name} is shared, transparent and DoubleSide, but alphaTest ${String(material.alphaTest)} ` +
+      'does not define a cutout and flatSurface is false — it is ' +
       'genuinely translucent and needs the two-pass ordering for correct back-then-front ' +
       'rendering. forceSinglePass would visibly break it. Un-share the material instead, or ' +
       'accept the program-cache cost deliberately.',

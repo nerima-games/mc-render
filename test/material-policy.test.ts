@@ -16,6 +16,7 @@ import { Effect } from 'effect'
 import {
   auditMaterials,
   describeMaterialPolicy,
+  hasNoTwoPassOrderingBenefit,
   isCutout,
   requiresForceSinglePass,
   takesTwoPassPath,
@@ -28,6 +29,7 @@ const GLASS_LEAVES: MaterialSpec = {
   transparent: true,
   side: 'double',
   alphaTest: 0.1,
+  flatSurface: false,
   shared: true,
 }
 
@@ -37,6 +39,7 @@ const PARTICLES: MaterialSpec = {
   transparent: true,
   side: 'double',
   alphaTest: 0.5,
+  flatSurface: false,
   shared: true,
 }
 
@@ -46,6 +49,7 @@ const OPAQUE_CHUNK: MaterialSpec = {
   transparent: false,
   side: 'front',
   alphaTest: 0,
+  flatSurface: false,
   shared: true,
 }
 
@@ -71,6 +75,26 @@ describe('requiresForceSinglePass', () => {
   it.effect('REGRESSION: the pooled particle material requires it', () =>
     Effect.sync(() => {
       expect(requiresForceSinglePass(PARTICLES)).toBe(true)
+    }),
+  )
+
+  it.effect('a shared flat surface requires it without falsifying alphaTest', () =>
+    Effect.sync(() => {
+      const flatWater: MaterialSpec = {
+        name: 'waterSurfaceMaterial',
+        transparent: true,
+        side: 'double',
+        alphaTest: 0,
+        flatSurface: true,
+        shared: true,
+      }
+
+      expect(isCutout(flatWater)).toBe(false)
+      expect(hasNoTwoPassOrderingBenefit(flatWater)).toBe(true)
+      expect(requiresForceSinglePass(flatWater)).toBe(true)
+      const verdict = describeMaterialPolicy(flatWater)
+      expect(verdict.kind).toBe('must-force-single-pass')
+      expect(verdict.reason).toContain('flatSurface')
     }),
   )
 
@@ -108,10 +132,12 @@ describe('genuine translucency is NOT forced single-pass', () => {
         transparent: true,
         side: 'double',
         alphaTest: 0,
+        flatSurface: false,
         shared: true,
       }
 
       expect(isCutout(stainedGlass)).toBe(false)
+      expect(hasNoTwoPassOrderingBenefit(stainedGlass)).toBe(false)
       expect(requiresForceSinglePass(stainedGlass)).toBe(false)
 
       const verdict = describeMaterialPolicy(stainedGlass)

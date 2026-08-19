@@ -1061,6 +1061,46 @@ type MotionInputs = {
   readonly idleBob: number
 }
 
+type DirectionalMotionInputs = {
+  readonly direction: number
+  readonly phaseRadians: number
+}
+
+const LEFT_MOTION_DIRECTION = -UNIT_SCALE
+const RIGHT_MOTION_DIRECTION = UNIT_SCALE
+
+const applySpiderLegMotion = (
+  source: MobVisualPartDescriptor,
+  base: MotionOutput,
+  { phaseRadians, direction }: DirectionalMotionInputs,
+): MotionOutput => {
+  const swing = Math.sin(phaseRadians + source.motionIndex) * SPIDER_LEG_ROTATION_Z_SWING
+  return {
+    ...base,
+    rotationY: -direction * (source.motionIndex - SPIDER_LEG_ROTATION_INDEX_OFFSET) * SPIDER_LEG_ROTATION_Y_SCALE,
+    rotationZ: direction * (SPIDER_LEG_ROTATION_Z_BASE + swing),
+  }
+}
+
+const applyWingMotion = (base: MotionOutput, phaseRadians: number, direction: number): MotionOutput => ({
+  ...base,
+  rotationZ: direction * (WING_ROTATION_Z_BASE + Math.abs(Math.sin(phaseRadians)) * WING_ROTATION_Z_SWING),
+})
+
+const applyBlazeOrbitMotion = (source: MobVisualPartDescriptor, base: MotionOutput, phaseRadians: number): MotionOutput => {
+  const orbit =
+    phaseRadians * BLAZE_ORBIT_PHASE_SCALE +
+    (source.motionIndex % BLAZE_RODS_PER_RING) * BLAZE_ROD_RING_ANGLE_STEP
+  const radius = Math.hypot(base.positionX, base.positionZ)
+  return {
+    ...base,
+    positionX: Math.cos(orbit) * radius,
+    positionY: base.positionY + Math.sin(phaseRadians + source.motionIndex * BLAZE_ORBIT_BOB_INDEX_SCALE) * BLAZE_ORBIT_BOB_AMPLITUDE,
+    positionZ: Math.sin(orbit) * radius,
+    rotationY: orbit,
+  }
+}
+
 const applyPartMotion = (source: MobVisualPartDescriptor, base: MotionOutput, motionInputs: MotionInputs): MotionOutput => {
   const { phaseRadians, stride, idleBob } = motionInputs
   switch (source.motion) {
@@ -1071,42 +1111,15 @@ const applyPartMotion = (source: MobVisualPartDescriptor, base: MotionOutput, mo
     case 'right_limb':
       return { ...base, rotationX: -stride }
     case 'left_spider_leg':
-      return {
-        ...base,
-        rotationY: (source.motionIndex - SPIDER_LEG_ROTATION_INDEX_OFFSET) * SPIDER_LEG_ROTATION_Y_SCALE,
-        rotationZ:
-          -SPIDER_LEG_ROTATION_Z_BASE - Math.sin(phaseRadians + source.motionIndex) * SPIDER_LEG_ROTATION_Z_SWING,
-      }
+      return applySpiderLegMotion(source, base, { direction: LEFT_MOTION_DIRECTION, phaseRadians })
     case 'right_spider_leg':
-      return {
-        ...base,
-        rotationY: -(source.motionIndex - SPIDER_LEG_ROTATION_INDEX_OFFSET) * SPIDER_LEG_ROTATION_Y_SCALE,
-        rotationZ:
-          SPIDER_LEG_ROTATION_Z_BASE + Math.sin(phaseRadians + source.motionIndex) * SPIDER_LEG_ROTATION_Z_SWING,
-      }
+      return applySpiderLegMotion(source, base, { direction: RIGHT_MOTION_DIRECTION, phaseRadians })
     case 'left_wing':
-      return {
-        ...base,
-        rotationZ: -WING_ROTATION_Z_BASE - Math.abs(Math.sin(phaseRadians)) * WING_ROTATION_Z_SWING,
-      }
+      return applyWingMotion(base, phaseRadians, LEFT_MOTION_DIRECTION)
     case 'right_wing':
-      return {
-        ...base,
-        rotationZ: WING_ROTATION_Z_BASE + Math.abs(Math.sin(phaseRadians)) * WING_ROTATION_Z_SWING,
-      }
-    case 'blaze_orbit': {
-      const orbit =
-        phaseRadians * BLAZE_ORBIT_PHASE_SCALE +
-        (source.motionIndex % BLAZE_RODS_PER_RING) * BLAZE_ROD_RING_ANGLE_STEP
-      const radius = Math.hypot(base.positionX, base.positionZ)
-      return {
-        ...base,
-        positionX: Math.cos(orbit) * radius,
-        positionY: base.positionY + Math.sin(phaseRadians + source.motionIndex * BLAZE_ORBIT_BOB_INDEX_SCALE) * BLAZE_ORBIT_BOB_AMPLITUDE,
-        positionZ: Math.sin(orbit) * radius,
-        rotationY: orbit,
-      }
-    }
+      return applyWingMotion(base, phaseRadians, RIGHT_MOTION_DIRECTION)
+    case 'blaze_orbit':
+      return applyBlazeOrbitMotion(source, base, phaseRadians)
     case 'static':
     default:
       return base

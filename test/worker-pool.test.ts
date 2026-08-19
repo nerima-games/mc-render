@@ -31,12 +31,15 @@ type FakeWorker = WorkerPort<WorkerRequest<Payload>, WorkerResponse<Result>> & {
   readonly received: () => ReadonlyArray<WorkerRequest<Payload>>
   /** Reply to the request at `index`. The test decides when. */
   readonly reply: (index: number, quads: number) => void
+  /** Simulate the underlying worker becoming unusable. */
+  readonly fail: (reason: unknown) => void
   readonly terminated: () => boolean
 }
 
 const makeFakeWorker = (): FakeWorker => {
   const received: Array<WorkerRequest<Payload>> = []
   let handler: ((response: WorkerResponse<Result>) => void) | undefined = undefined
+  let errorHandler: ((reason: unknown) => void) | undefined = undefined
   let terminated = false
   return {
     post: (request) => {
@@ -44,6 +47,9 @@ const makeFakeWorker = (): FakeWorker => {
     },
     onMessage: (next) => {
       handler = next
+    },
+    onError: (next) => {
+      errorHandler = next
     },
     terminate: () => {
       terminated = true
@@ -55,6 +61,12 @@ const makeFakeWorker = (): FakeWorker => {
         throw new Error(`no request at ${String(index)} to reply to`)
       }
       handler({ id: request.id, result: { quads } })
+    },
+    fail: (reason) => {
+      if (errorHandler === undefined) {
+        throw new Error('worker error handler is not installed')
+      }
+      errorHandler(reason)
     },
     terminated: () => terminated,
   }
@@ -306,6 +318,141 @@ describe('backpressure', () => {
       // an unbounded queue that no test would otherwise notice.
       expect(Number.isFinite(DEFAULT_MAX_QUEUED)).toBe(true)
       expect(DEFAULT_MAX_QUEUED).toBeGreaterThan(0)
+    }),
+  )
+})
+
+describe('worker failure', () => {
+  it.effect('fails the current job and replaces the failed worker', () =>
+    Effect.gen(function* () {
+      const [failedWorker] = workers(1)
+      if (failedWorker === undefined) {throw new Error('no worker')}
+      const [replacement] = workers(1)
+      if (replacement === undefined) {throw new Error('no replacement worker')}
+      const pool = yield* makeWorkerPool([failedWorker], {
+        replaceWorker: () => replacement,
+      })
+
+      const failed = yield* Effect.fork(pool.submit('a', { chunk: 'a' }))
+      yield* settle
+      failedWorker.fail(new Error('worker exited'))
+      yield* settle
+
+      expect(yield* Fiber.join(failed)).toStrictEqual({
+        _tag: 'failed',
+        error: expect.any(Error),
+      })
+      expect(failedWorker.terminated()).toBe(true)
+      expect(yield* pool.stats).toMatchObject({ failed: 1, restarted: 1, deadWorkers: 0 })
+
+      failedWorker.fail(new Error('stale worker event'))
+      yield* settle
+      expect(yield* pool.stats).toMatchObject({ failed: 1, restarted: 1, deadWorkers: 0 })
+
+      const next = yield* Effect.fork(pool.submit('b', { chunk: 'b' }))
+      yield* settle
+      expect(replacement.received()).toHaveLength(1)
+      replacement.reply(0, 11)
+      yield* settle
+
+      expect(yield* Fiber.join(next)).toStrictEqual({ _tag: 'completed', result: { quads: 11 } })
+    }),
+  )
+
+  it.effect('treats returning the failed worker as no replacement', () =>
+    Effect.gen(function* () {
+      const [worker] = workers(1)
+      if (worker === undefined) {
+        throw new Error('no worker')
+      }
+      const pool = yield* makeWorkerPool([worker], { replaceWorker: () => worker })
+      const failed = yield* Effect.fork(pool.submit('same-worker', { chunk: 'same-worker' }))
+      yield* settle
+
+      worker.fail(new Error('replacement is the failed worker'))
+      yield* settle
+
+      expect(yield* Fiber.join(failed)).toStrictEqual({ _tag: 'failed', error: expect.any(Error) })
+      expect(yield* pool.stats).toMatchObject({ failed: 1, restarted: 0, deadWorkers: 1 })
+    }),
+  )
+
+  it.effect('treats a replacement factory exception as no replacement', () =>
+    Effect.gen(function* () {
+      const [worker] = workers(1)
+      if (worker === undefined) {
+        throw new Error('no worker')
+      }
+      const pool = yield* makeWorkerPool([worker], {
+        replaceWorker: () => {
+          throw new Error('replacement factory failed')
+        },
+      })
+      const failed = yield* Effect.fork(pool.submit('factory-error', { chunk: 'factory-error' }))
+      yield* settle
+
+      worker.fail(new Error('worker exited'))
+      yield* settle
+
+      expect(yield* Fiber.join(failed)).toStrictEqual({ _tag: 'failed', error: expect.any(Error) })
+      expect(yield* pool.stats).toMatchObject({ failed: 1, restarted: 0, deadWorkers: 1 })
+    }),
+  )
+
+  it.effect('fails queued work when the last worker disappears', () =>
+    Effect.gen(function* () {
+      const [worker] = workers(1)
+      if (worker === undefined) {throw new Error('no worker')}
+      const pool = yield* makeWorkerPool([worker])
+
+      const running = yield* Effect.fork(pool.submit('running', { chunk: 'running' }))
+      yield* settle
+      const queued = yield* Effect.fork(pool.submit('queued', { chunk: 'queued' }))
+      yield* settle
+
+      worker.fail(new Error('worker exited'))
+      yield* settle
+
+      expect(yield* Fiber.join(running)).toStrictEqual({ _tag: 'failed', error: expect.any(Error) })
+      expect(yield* Fiber.join(queued)).toStrictEqual({ _tag: 'failed', error: expect.any(Error) })
+      expect(yield* pool.stats).toMatchObject({ failed: 2, restarted: 0, deadWorkers: 1, queued: 0 })
+    }),
+  )
+
+  it.effect('removes a worker that fails while idle', () =>
+    Effect.gen(function* () {
+      const [worker] = workers(1)
+      if (worker === undefined) {
+        throw new Error('no worker')
+      }
+      const pool = yield* makeWorkerPool([worker])
+
+      worker.fail(new Error('idle worker exited'))
+      yield* settle
+
+      expect(yield* pool.stats).toMatchObject({ failed: 0, restarted: 0, deadWorkers: 1, busy: 0, queued: 0 })
+    }),
+  )
+})
+
+describe('late worker replies', () => {
+  it.effect('ignore replies after their job has already completed', () =>
+    Effect.gen(function* () {
+      const [worker] = workers(1)
+      if (worker === undefined) {
+        throw new Error('no worker')
+      }
+      const pool = yield* makeWorkerPool([worker])
+      const completed = yield* Effect.fork(pool.submit('late', { chunk: 'late' }))
+      yield* settle
+
+      worker.reply(0, 1)
+      yield* settle
+      expect(yield* Fiber.join(completed)).toStrictEqual({ _tag: 'completed', result: { quads: 1 } })
+
+      worker.reply(0, 2)
+      yield* settle
+      expect(yield* pool.stats).toMatchObject({ completed: 1, busy: 0, queued: 0 })
     }),
   )
 })

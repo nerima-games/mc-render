@@ -1,7 +1,5 @@
 /**
- * The renderer: the only file in this repository that touches a GPU.
- *
- * PRE-AUDIT FIRST CUT (叩き台).
+ * The base renderer: the GPU-owning scene and mesh boundary.
  *
  * `domain/chunk-geometry.ts` is the pure half — quads to typed arrays, testable
  * in Node. This is the half that cannot be pure: it acquires a WebGL2 context,
@@ -9,11 +7,12 @@
  * makes the one `renderer.render(scene, camera)` call that `render:draw` exists
  * to place in the frame.
  *
- * It reaches `three` through `application/three-surface.ts` and never imports
- * it. Read that file's header for why; the short version is that
- * `tsconfig.build.json` still compiles this file with `lib: ["ES2024"]` and
- * `types: []`, and a `three` import would need `"DOM"` for every module in the
- * repository including the pure ones.
+ * The core remains platform-neutral through `application/three-surface.ts`.
+ * The concrete browser entry in `src/browser.ts` supplies Three's namespace and
+ * may install an EffectComposer without pulling DOM or Three types into this
+ * core project.
+ * Production composition lives in `world-renderer-production.ts`; it adds the
+ * atlas shader, water and instanced-particle resources on this base contract.
  *
  * ---------------------------------------------------------------------------
  * THE DIRECTION OF THE CAMERA COPY, WHICH IS THE WHOLE POINT OF THE REPOSITORY
@@ -53,11 +52,7 @@ import {
   boundsFromPositions,
   preparePerspectiveFrustum,
 } from '../domain/frustum-culling'
-import {
-  CHUNK_SHADER_ATTRIBUTES,
-  CHUNK_SHADER_UNIFORMS,
-  chunkShaderSource,
-} from '../domain/chunk-shader'
+import { CHUNK_HEIGHT, CHUNK_SIZE } from '@nerima-games/mc-meshing'
 import {
   COLOR_COMPONENTS,
   type ChunkGeometryBuffers,
@@ -75,43 +70,49 @@ import {
 } from '../domain/render-environment'
 import { Effect, Ref } from 'effect'
 import {
-  type MobAnimationInput,
-  type MobVisualPartPlan,
-  planMobVisual,
-} from '../domain/mob-visual'
-import { type ParticlePool, type ParticlePoolOptions, advanceParticles, makeParticlePool } from '../domain/particle-pool'
-import { type ParticleSystem, makeParticleSystem } from './particle-system'
+  FULL_SUN_INTENSITY,
+  type Viewport,
+} from './world-renderer-materials'
+import {
+  type RenderEntity,
+  copyRenderEntity,
+  planEntityVisual,
+} from './entity-visual-plan'
 import type {
   ThreeBufferGeometry,
   ThreeCamera,
   ThreeEuler,
-  ThreeInstancedBufferGeometry,
-  ThreeInstancedSurface,
   ThreeMaterial,
   ThreeMesh,
   ThreePerspectiveCamera,
   ThreeScene,
-  ThreeShaderSurface,
   ThreeSurface,
-  ThreeUniform,
   ThreeVector3,
   ThreeWebGLRenderer,
 } from './three-surface'
-import { WATER_MATERIAL_SPEC, WATER_WRITES_DEPTH } from '../domain/water-surface'
-import { type WeatherRenderer, makeWeatherRenderer } from './weather-renderer'
 import {
-  type WitherSkullVisualInput,
-  type WitherVisualPartDescriptor,
-  type WitherVisualPosition,
-  type WitherVisualStateInput,
-  planWitherSkullVisual,
-  planWitherVisual,
-} from '../domain/wither-visual'
+  type VehicleCameraContext,
+  type VehicleRenderPlan,
+  planVehicleVisual,
+} from '../domain/vehicle-visual'
+import { type WeatherRenderer, makeWeatherRenderer } from './weather-renderer'
+import { CHUNK_SHADER_ATTRIBUTES } from '../domain/chunk-shader'
 import type { MirroredCameraState } from '../domain/camera-mirror'
 import type { PostProcessingStep } from '../domain/post-processing'
+import type { Vehicle } from '@nerima-games/mc-sim'
 import type { WeatherFrameOptions } from '../domain/weather-rendering'
 import { makeThreeWeatherPrecipitation } from './three-weather-runtime'
-import { waterShaderSource } from '../domain/water-shader'
+import { makeUnitCubeBuffers } from './world-renderer-geometry'
+
+export {
+  FULL_SUN_INTENSITY,
+  REFRACTION_UNAVAILABLE,
+  UNIFORM_ORIGIN,
+  applyChunkShaderEnvironment,
+  makeChunkShaderMaterial,
+  makeWaterMaterial,
+} from './world-renderer-materials'
+export type { ChunkShaderMaterial, Viewport } from './world-renderer-materials'
 
 /**
  * Vertical field of view, in degrees.
@@ -150,20 +151,31 @@ export const CAMERA_NEAR_PLANE = 0.1
  *
  *   far: Math.max(initialSettings.renderDistance * CHUNK_SIZE * 1.5 + CHUNK_HEIGHT, 300)
  *
- * and 300 is the FLOOR of that expression, not the value it usually takes. This
- * repository uses the floor, and says so rather than transcribing the formula,
- * because two of the formula's three inputs are unreachable from here:
- * `renderDistance` is a setting owned by mc-sim, and `CHUNK_SIZE`/`CHUNK_HEIGHT`
- * are mc-meshing's — neither is published (see `domain/chunk-geometry.ts`'s
- * header). Restating the formula with mirrored constants would produce a number
- * that looks derived and is not, which is the failure mode this project has
- * eight recorded instances of.
- *
- * So: 300 is a FLOOR STANDING IN FOR A COMPUTATION, and it is wrong in the safe
- * direction — a far plane that is too near clips distant terrain, which is
- * visible immediately, rather than costing depth precision, which is not.
+ * and 300 is the FLOOR of that expression, not the value it usually takes.
+ * `renderDistance` is accepted at this renderer boundary so mc-sim can pass its
+ * setting without making this package depend on the simulation layer. The chunk
+ * dimensions come from mc-meshing's published constants. An explicit `farPlane`
+ * still wins when a host needs a different projection.
  */
 export const CAMERA_FAR_PLANE = 300
+
+const RENDER_DISTANCE_FAR_PLANE_MARGIN = 1.5
+const MIN_RENDER_DISTANCE = 0
+
+/**
+ * Resolve the camera far plane from the number of visible chunk columns.
+ * Invalid and negative values retain the conservative renderer floor.
+ */
+export const cameraFarPlaneForRenderDistance = (renderDistance: number): number => {
+  if (!Number.isFinite(renderDistance)) {
+    return CAMERA_FAR_PLANE
+  }
+  const normalizedRenderDistance = Math.max(MIN_RENDER_DISTANCE, Math.trunc(renderDistance))
+  return Math.max(
+    normalizedRenderDistance * CHUNK_SIZE * RENDER_DISTANCE_FAR_PLANE_MARGIN + CHUNK_HEIGHT,
+    CAMERA_FAR_PLANE,
+  )
+}
 
 /** The fewest weather particles a capacity is ever clamped down to: none. */
 const MIN_WEATHER_CAPACITY = 0
@@ -217,6 +229,7 @@ export type DrawPort = {
   /** Select the immutable post-FX plan used by the next draw. */
   readonly setPostProcessingChain: (chain: ReadonlyArray<PostProcessingStep>) => Effect.Effect<void>
 }
+export type { EntityRenderCategory, RenderEntity } from './entity-visual-plan'
 
 /**
  * "This platform has no GPU." The default, and true in Node and in every
@@ -230,181 +243,6 @@ export const NO_DRAW_TARGET: DrawPort = {
   draw: () => Effect.void,
   resize: () => Effect.void,
   setPostProcessingChain: () => Effect.void,
-}
-
-/**
- * Full daylight: the value `uSunIntensity` takes when nothing drives it.
- *
- * 1 and not 0, which is the difference between "no day/night cycle exists" and
- * "it is midnight". `SKY_CLEAR_COLOR` above already records the cycle as unowned
- * and takes its day value for the same reason; a sky-blue background over a
- * world lit at 0 would be a contradiction visible on the first frame.
- */
-export const FULL_SUN_INTENSITY = 1
-
-/**
- * The material for the textured, packed-light path.
- *
- * Takes the atlas texture AS A VALUE rather than loading one, which is what
- * keeps this function in the same Node-testable half as everything else here.
- * `TextureLoader` needs the DOM; `application/dom-surface.ts` is where that
- * belongs, and a host passes the result across. The type is `unknown` because
- * this file never reads the texture — it hands it to three, and enumerating
- * three's texture type would be a mirror maintained for no check (the same
- * argument `ThreeUniform.value` makes).
- *
- * THE UNIFORM RECORD IS RETURNED, not just the material, because the boxes are
- * the point: a host that wants a day/night cycle writes
- * `uniforms.uSunIntensity.value = 0.3` and every chunk sharing this material
- * follows on the next frame with no recompile. See `ThreeUniform`'s header.
- */
-export type ChunkShaderMaterial<TShaderMaterial extends ThreeMaterial> = {
-  readonly material: TShaderMaterial
-  readonly uniforms: Record<string, ThreeUniform>
-}
-
-/** Update the shared shader's stable uniform boxes without rebuilding it. */
-export const applyChunkShaderEnvironment = (
-  uniforms: Record<string, ThreeUniform>,
-  environment: RenderEnvironmentPlan,
-): void => {
-  const values: Readonly<Record<string, unknown>> = {
-    [CHUNK_SHADER_UNIFORMS.sunIntensity]: environment.sunIntensity,
-    [CHUNK_SHADER_UNIFORMS.fogColor]: [...environment.fogColor],
-    [CHUNK_SHADER_UNIFORMS.fogNear]: environment.fogNear,
-    [CHUNK_SHADER_UNIFORMS.fogFar]: environment.fogFar,
-  }
-  for (const [name, value] of Object.entries(values)) {
-    const uniform = uniforms[name]
-    if (uniform) {uniform.value = value}
-  }
-}
-
-/**
- * Build the shader material and its uniform boxes.
- *
- * The GLSL comes from `domain/chunk-shader.ts`, which generates it from the
- * lighting constants — see that file's header on why the coefficients are
- * interpolated rather than typed. Nothing here restates a formula.
- */
-export const makeChunkShaderMaterial = <
-  TCanvas,
-  TGeometry extends ThreeBufferGeometry,
-  TMaterial extends ThreeMaterial,
-  TShaderMaterial extends ThreeMaterial,
->(
-  three: ThreeShaderSurface<TCanvas, TGeometry, TMaterial, TShaderMaterial>,
-  atlasTexture: unknown,
-  sunIntensity: number = FULL_SUN_INTENSITY,
-): ChunkShaderMaterial<TShaderMaterial> => {
-  const source = chunkShaderSource()
-  const defaultEnvironment = planRenderEnvironment(FULL_SUN_INTENSITY)
-  const uniforms: Record<string, ThreeUniform> = {
-    [CHUNK_SHADER_UNIFORMS.atlas]: { value: atlasTexture },
-    [CHUNK_SHADER_UNIFORMS.sunIntensity]: { value: sunIntensity },
-    [CHUNK_SHADER_UNIFORMS.fogColor]: { value: [...defaultEnvironment.fogColor] },
-    [CHUNK_SHADER_UNIFORMS.fogNear]: { value: defaultEnvironment.fogNear },
-    [CHUNK_SHADER_UNIFORMS.fogFar]: { value: defaultEnvironment.fogFar },
-  }
-  return {
-    material: new three.ShaderMaterial({
-      fragmentShader: source.fragmentShader,
-      uniforms,
-      // Required `true` by the parameter type, not defaulted here. See
-      // `ThreeShaderMaterialParameters`: without it three does not define the
-      // `color` attribute and the shader fails to link in the browser only.
-      vertexColors: true,
-      vertexShader: source.vertexShader,
-    }),
-    uniforms,
-  }
-}
-
-/**
- * "Nothing has drawn into the refraction target yet."
- *
- * A FLOAT AND NOT A BOOL, because GLSL ES 1.00 uniforms are floats and the
- * fragment stage uses this as a `mix` weight rather than as a branch — see
- * `domain/water-shader.ts`. 0 means the tint alone; 1 means the sampled
- * refraction is real.
- *
- * The default is 0 for the same reason `NO_DRAW_TARGET` is the default
- * `DrawPort`: "there is no refraction here" is a true state and the common one,
- * and a shader that sampled an unfilled target would mirror uninitialised
- * memory — which looks like a driver fault rather than a missing pass.
- */
-export const REFRACTION_UNAVAILABLE = 0
-
-/**
- * The origin, as a `vec3` uniform's initial value.
- *
- * AN ARRAY AND NOT `null`, AND THAT DISTINCTION WAS A REAL DEFECT — the first
- * cut of `makeWaterMaterial` initialised `uCameraPosition` to `null`, on the
- * reasoning that "no camera has been supplied yet" is the honest state and that
- * `uRefractionMap: null` is fine for a sampler.
- *
- * It is not fine for a vector. three uploads a `vec3` by reading `.x` off the
- * value, so a null threw `TypeError: Cannot read properties of null (reading
- * 'x')` on the first render — and NOTHING IN THIS REPOSITORY COULD HAVE SEEN
- * IT. Every Node test passed: the material was constructed, the uniform record
- * had the right six keys, and the GLSL declared the right six names. The upload
- * is three's, it happens on a real driver, and the only check in this
- * organisation that runs one is mc-compose's `apps/shader-probe`, which caught
- * this on its first execution.
- *
- * A plain array rather than a `Vector3` because this repository cannot
- * construct one — `application/three-surface.ts` names no vector constructor,
- * and three accepts either (`setValueV3f` branches on `v.x === undefined` and
- * falls back to `uniform3fv`).
- */
-/** Each component of the zero vector `UNIFORM_ORIGIN` starts from. */
-const ORIGIN_COMPONENT = 0
-
-export const UNIFORM_ORIGIN: ReadonlyArray<number> = [ORIGIN_COMPONENT, ORIGIN_COMPONENT, ORIGIN_COMPONENT]
-
-/**
- * The water material, and the boxes a host writes into every frame.
- *
- * `PER_FRAME_WATER_UNIFORMS` in `domain/water-surface.ts` records WHICH of them
- * change per frame — `uTime`, `uCameraPosition`, `uSunIntensity` — and that
- * split is a performance contract invisible in the shader. This function hands
- * back the whole record rather than the three, because a host also has to
- * rebind `uResolution` on resize and `uRefractionMap` once; naming only the
- * per-frame three here would make the other two look optional.
- */
-export const makeWaterMaterial = <
-  TCanvas,
-  TGeometry extends ThreeBufferGeometry,
-  TMaterial extends ThreeMaterial,
-  TShaderMaterial extends ThreeMaterial,
->(
-  three: ThreeShaderSurface<TCanvas, TGeometry, TMaterial, TShaderMaterial>,
-  viewport: Viewport,
-  sunIntensity: number = FULL_SUN_INTENSITY,
-): ChunkShaderMaterial<TShaderMaterial> => {
-  const source = waterShaderSource()
-  const uniforms: Record<string, ThreeUniform> = {
-    /* NOT `null`. See `UNIFORM_ORIGIN` — a null here is a TypeError inside
-       three's uniform upload, on a real driver, and on no test in Node. */
-    uCameraPosition: { value: [...UNIFORM_ORIGIN] },
-    uRefractionMap: { value: null },
-    uRefractionValid: { value: REFRACTION_UNAVAILABLE },
-    uResolution: { value: [viewport.width, viewport.height] },
-    uSunIntensity: { value: sunIntensity },
-    uTime: { value: ORIGIN_COMPONENT },
-  }
-  return {
-    material: new three.ShaderMaterial({
-      depthWrite: WATER_WRITES_DEPTH,
-      forceSinglePass: true,
-      fragmentShader: source.fragmentShader,
-      transparent: WATER_MATERIAL_SPEC.transparent,
-      uniforms,
-      vertexColors: true,
-      vertexShader: source.vertexShader,
-    }),
-    uniforms,
-  }
 }
 
 /** How a chunk's geometry is keyed while it is in the scene. */
@@ -421,29 +259,6 @@ type ChunkEntry<TGeometry> = {
   readonly mesh: ThreeMesh
   readonly geometry: TGeometry
   readonly bounds: AxisAlignedBounds | undefined
-}
-
-/** Coarse render policy without importing simulation entity classes. */
-export type EntityRenderCategory = 'hostile' | 'passive' | 'item'
-
-/** The renderer-owned entity projection consumed by compose. */
-export type RenderEntity = {
-  readonly id: string
-  readonly kind: string
-  readonly feetPosition: {
-    readonly x: number
-    readonly y: number
-    readonly z: number
-  }
-  readonly category?: EntityRenderCategory
-  /** Horizontal world-space orientation, in radians. */
-  readonly facingRadians?: number
-  /** Pure animation input used to derive part transforms deterministically. */
-  readonly animation?: MobAnimationInput
-  /** State projection for a `wither` entity, compatible with mc-sim. */
-  readonly witherState?: WitherVisualStateInput
-  /** Projectile projection for a `wither_skull` entity, compatible with mc-sim. */
-  readonly witherSkullProjectile?: WitherSkullVisualInput
 }
 
 /**
@@ -493,6 +308,15 @@ export type WorldRenderer = DrawPort & {
   readonly entityCount: Effect.Effect<number>
   /** Last reconciled renderer DTOs, detached from caller-owned values. */
   readonly entitySnapshot: Effect.Effect<ReadonlyArray<RenderEntity>>
+  /** Reconcile renderer-owned boat and minecart meshes by stable vehicle id. */
+  readonly syncVehicles: (
+    vehicles: ReadonlyArray<Vehicle>,
+    options?: VehicleSyncOptions,
+  ) => Effect.Effect<void>
+  /** Number of logical vehicles currently owned by the renderer. */
+  readonly vehicleCount: Effect.Effect<number>
+  /** Last reconciled vehicle snapshots, detached from caller-owned values. */
+  readonly vehicleSnapshot: Effect.Effect<ReadonlyArray<Vehicle>>
   /** Frames actually submitted to the GPU by this renderer. */
   readonly framesRendered: Effect.Effect<number>
   /** The latest post-processing plan supplied by the frame pipeline. */
@@ -504,6 +328,16 @@ export type WorldRenderer = DrawPort & {
   /** Release the renderer, all cached geometry, and every shared material. */
   readonly dispose: Effect.Effect<void>
 }
+
+/** Pose data used to build one vehicle frame from the current simulation snapshot. */
+export type VehicleSyncOptions = Readonly<{
+  /** Matching previous snapshots used for interpolation. */
+  readonly previous?: ReadonlyArray<Vehicle>
+  /** Interpolation amount, clamped by the pure vehicle planner. */
+  readonly interpolation?: number
+  /** Camera context used to decide whether a local occupant is visible. */
+  readonly camera?: VehicleCameraContext
+}>
 
 /**
  * How the one shared material gets built.
@@ -526,6 +360,8 @@ export type MaterialFactory<TMaterial extends ThreeMaterial> = () => TMaterial
 export type WorldRendererOptions<TMaterial extends ThreeMaterial = ThreeMaterial> = {
   readonly fovDegrees?: number
   readonly nearPlane?: number
+  /** Chunk-column render distance used to derive the camera far plane. */
+  readonly renderDistance?: number
   readonly farPlane?: number
   readonly clearColor?: number
   /** Initial daylight in the inclusive 0..1 range; invalid values are clamped by the planner. */
@@ -554,6 +390,10 @@ export type WorldRendererOptions<TMaterial extends ThreeMaterial = ThreeMaterial
   readonly weather?: WeatherFrameOptions
   /** Optional host-owned compositor; absent in headless and preview renders. */
   readonly postProcessing?: PostProcessingRendererFactory
+  /** Run after culling and immediately before the host or raw renderer draws. */
+  readonly beforeRender?: (context: WorldRenderContext) => void
+  /** Keep the WebGL drawing buffer for host-side screenshots. */
+  readonly preserveDrawingBuffer?: boolean
 }
 
 export type PostProcessingRenderer = {
@@ -569,10 +409,11 @@ export type PostProcessingRendererFactory = (surface: {
   readonly viewport: Viewport
 }) => PostProcessingRenderer
 
-/** The drawing surface's size in device-independent pixels. */
-export type Viewport = {
-  readonly width: number
-  readonly height: number
+export type WorldRenderContext = {
+  readonly renderer: ThreeWebGLRenderer
+  readonly scene: ThreeScene
+  readonly camera: ThreeCamera
+  readonly chain: ReadonlyArray<PostProcessingStep>
 }
 
 /**
@@ -631,6 +472,18 @@ type TransformableThreeMesh = ThreeMesh & {
   readonly scale: ThreeVector3
 }
 
+type VisualPosition = Readonly<{
+  readonly x: number
+  readonly y: number
+  readonly z: number
+}>
+
+type VisualPartTransform = Readonly<{
+  readonly center: readonly [number, number, number]
+  readonly rotation: readonly [number, number, number]
+  readonly size: readonly [number, number, number]
+}>
+
 /** One entity visual part's live mesh, keyed for reconciliation against the next plan. */
 type EntityPartEntry = {
   readonly id: string
@@ -650,225 +503,95 @@ type ReconcileContext = {
   readonly next: Map<string, EntityEntry>
 }
 
-type EntityVisualPartPlan = MobVisualPartPlan | WitherVisualPartDescriptor
-
-type EntityVisualPlan = Readonly<{
-  position: WitherVisualPosition
-  facingRadians: number
-  parts: ReadonlyArray<EntityVisualPartPlan>
-}>
-
-/** The item visual's part centre: slightly above the feet position, on no horizontal offset. */
-const ITEM_CENTER_X = 0
-const ITEM_CENTER_Y = 0.15
-const ITEM_CENTER_Z = 0
-
-/** The dropped-item colour: a warm gold, standing in for a real per-item texture. */
-const ITEM_COLOR_RED = 225
-const ITEM_COLOR_GREEN = 165
-const ITEM_COLOR_BLUE = 65
-
-/** No rotation on any axis: the item cube is drawn axis-aligned. */
-const ITEM_ROTATION_X = 0
-const ITEM_ROTATION_Y = 0
-const ITEM_ROTATION_Z = 0
-
-/** The item visual's cube size: smaller than a full block on every axis. */
-const ITEM_SIZE_X = 0.3
-const ITEM_SIZE_Y = 0.3
-const ITEM_SIZE_Z = 0.3
-
-const ITEM_VISUAL_PARTS: ReadonlyArray<EntityVisualPartPlan> = [
-  {
-    center: [ITEM_CENTER_X, ITEM_CENTER_Y, ITEM_CENTER_Z],
-    color: [ITEM_COLOR_RED, ITEM_COLOR_GREEN, ITEM_COLOR_BLUE],
-    id: 'item',
-    role: 'body',
-    rotation: [ITEM_ROTATION_X, ITEM_ROTATION_Y, ITEM_ROTATION_Z],
-    size: [ITEM_SIZE_X, ITEM_SIZE_Y, ITEM_SIZE_Z],
-  },
-]
-
-/** The facing this repository assumes for an entity that reports none. */
-const DEFAULT_FACING_RADIANS = 0
-
-const entityFacing = (entity: RenderEntity): number => {
-  if (typeof entity.facingRadians === 'number' && Number.isFinite(entity.facingRadians)) {
-    return entity.facingRadians
-  }
-  return DEFAULT_FACING_RADIANS
+/** One vehicle visual part's live mesh, keyed for reconciliation. */
+type VehiclePartEntry = {
+  readonly id: string
+  readonly color: readonly [number, number, number]
+  readonly mesh: TransformableThreeMesh
 }
 
-const facingDirection = (facingRadians: number): WitherVisualPosition => ({
-  x: -Math.sin(facingRadians),
-  y: 0,
-  z: -Math.cos(facingRadians),
-})
-
-const planItemVisual = (entity: RenderEntity, facingRadians: number): EntityVisualPlan => ({
-  facingRadians,
-  parts: ITEM_VISUAL_PARTS,
-  position: entity.feetPosition,
-})
-
-const planWitherEntityVisual = (entity: RenderEntity, facingRadians: number): EntityVisualPlan => {
-  const state: WitherVisualStateInput = entity.witherState ?? {
-    chargeRemainingSecs: 0,
-    feetPosition: entity.feetPosition,
-    healthPoints: 300,
-    phase: 'airborne',
-    velocity: facingDirection(facingRadians),
-  }
-  const visual = planWitherVisual(state)
-  return {
-    facingRadians: visual.yawRadians,
-    parts: visual.parts,
-    position: visual.position,
-  }
+/** A synced vehicle's detached source snapshot and current live parts. */
+type VehicleEntry = {
+  readonly vehicle: Vehicle
+  readonly parts: ReadonlyArray<VehiclePartEntry>
 }
 
-const planWitherSkullEntityVisual = (entity: RenderEntity, facingRadians: number): EntityVisualPlan => {
-  const projectile: WitherSkullVisualInput = entity.witherSkullProjectile ?? {
-    destroysResistantBlocks: false,
-    direction: facingDirection(facingRadians),
-    explosivePower: 0,
-    kind: 'wither_skull',
-    origin: entity.feetPosition,
-    speed: 0,
-    variant: 'normal',
-  }
-  const visual = planWitherSkullVisual(projectile)
-  return {
-    facingRadians: visual.yawRadians,
-    parts: visual.parts,
-    position: visual.position,
-  }
+/** Working state for one `syncVehicles` reconciliation pass. */
+type VehicleReconcileContext = {
+  readonly current: ReadonlyMap<string, VehicleEntry>
+  readonly next: Map<string, VehicleEntry>
 }
 
-const planDefaultEntityVisual = (entity: RenderEntity, facingRadians: number): EntityVisualPlan => ({
-  facingRadians,
-  parts: planMobVisual(entity.kind, entity.animation).parts,
-  position: entity.feetPosition,
-})
-
-const planEntityVisual = (entity: RenderEntity): EntityVisualPlan => {
-  const facingRadians = entityFacing(entity)
-  if (entity.category === 'item') {
-    return planItemVisual(entity, facingRadians)
+/** Detach the nested vectors before the renderer stores a simulation snapshot. */
+const copyVehicle = (vehicle: Vehicle): Vehicle => {
+  const copy = {
+    dimension: vehicle.dimension,
+    id: vehicle.id,
+    position: { ...vehicle.position },
+    type: vehicle.type,
+    velocity: { ...vehicle.velocity },
+    yawRadians: vehicle.yawRadians,
   }
-  if (entity.kind === 'wither') {
-    return planWitherEntityVisual(entity, facingRadians)
+  if (vehicle.occupant === undefined) {
+    return copy
   }
-  if (entity.kind === 'wither_skull') {
-    return planWitherSkullEntityVisual(entity, facingRadians)
-  }
-  return planDefaultEntityVisual(entity, facingRadians)
+  return { ...copy, occupant: vehicle.occupant }
 }
 
-/** The unit cube's extent from its centre along each axis: a block is one unit wide, centred on the origin. */
-const CUBE_MIN = -0.5
-const CUBE_MAX = 0.5
-
-/** The unit cube's eight corners, in the winding order `unitCubeBuffers`'s index list assumes. */
-const CUBE_VERTEX_0 = 0
-const CUBE_VERTEX_1 = 1
-const CUBE_VERTEX_2 = 2
-const CUBE_VERTEX_3 = 3
-const CUBE_VERTEX_4 = 4
-const CUBE_VERTEX_5 = 5
-const CUBE_VERTEX_6 = 6
-const CUBE_VERTEX_7 = 7
-
-/** Vertices in `unitCubeBuffers`'s position array: one per cube corner. */
-const UNIT_CUBE_VERTEX_COUNT = 8
-
-const unitCubeBuffers = (color: readonly [number, number, number]) => {
-  const positions = new Float32Array([
-    CUBE_MIN, CUBE_MIN, CUBE_MIN, CUBE_MAX, CUBE_MIN, CUBE_MIN, CUBE_MAX, CUBE_MAX, CUBE_MIN, CUBE_MIN, CUBE_MAX, CUBE_MIN,
-    CUBE_MIN, CUBE_MIN, CUBE_MAX, CUBE_MAX, CUBE_MIN, CUBE_MAX, CUBE_MAX, CUBE_MAX, CUBE_MAX, CUBE_MIN, CUBE_MAX, CUBE_MAX,
-  ])
-  const colors = new Uint8Array(UNIT_CUBE_VERTEX_COUNT * COLOR_COMPONENTS)
-  for (let offset = 0; offset < colors.length; offset += COLOR_COMPONENTS) {
-    colors.set(color, offset)
+const indexVehicles = (vehicles: ReadonlyArray<Vehicle>): Map<string, Vehicle> => {
+  const indexed = new Map<string, Vehicle>()
+  for (const vehicle of vehicles) {
+    indexed.set(vehicle.id, vehicle)
   }
-  return {
-    colors,
-    indices: new Uint32Array([
-      CUBE_VERTEX_0, CUBE_VERTEX_2, CUBE_VERTEX_1, CUBE_VERTEX_0, CUBE_VERTEX_3, CUBE_VERTEX_2,
-      CUBE_VERTEX_4, CUBE_VERTEX_5, CUBE_VERTEX_6, CUBE_VERTEX_4, CUBE_VERTEX_6, CUBE_VERTEX_7,
-      CUBE_VERTEX_0, CUBE_VERTEX_4, CUBE_VERTEX_7, CUBE_VERTEX_0, CUBE_VERTEX_7, CUBE_VERTEX_3,
-      CUBE_VERTEX_1, CUBE_VERTEX_2, CUBE_VERTEX_6, CUBE_VERTEX_1, CUBE_VERTEX_6, CUBE_VERTEX_5,
-      CUBE_VERTEX_0, CUBE_VERTEX_1, CUBE_VERTEX_5, CUBE_VERTEX_0, CUBE_VERTEX_5, CUBE_VERTEX_4,
-      CUBE_VERTEX_3, CUBE_VERTEX_7, CUBE_VERTEX_6, CUBE_VERTEX_3, CUBE_VERTEX_6, CUBE_VERTEX_2,
-    ]),
-    positions,
-  }
+  return indexed
 }
 
-/** `entity.category`, present only when the source entity has one. */
-const copiedCategory = (entity: RenderEntity): Pick<RenderEntity, 'category'> => {
-  if (typeof entity.category === 'undefined') {
-    return {}
+/** Build only the vehicle planner options whose values are actually present. */
+const vehiclePlanOptions = (
+  previous: Vehicle | undefined,
+  options: VehicleSyncOptions,
+): {
+  previous?: Vehicle
+  interpolation?: number
+  camera?: VehicleCameraContext
+} => {
+  const planOptions: {
+    previous?: Vehicle
+    interpolation?: number
+    camera?: VehicleCameraContext
+  } = {}
+  if (previous !== undefined) {
+    planOptions.previous = previous
   }
-  return { category: entity.category }
+  if (options.interpolation !== undefined) {
+    planOptions.interpolation = options.interpolation
+  }
+  if (options.camera !== undefined) {
+    planOptions.camera = options.camera
+  }
+  return planOptions
 }
 
-/** `entity.facingRadians`, present only when the source entity has one. */
-const copiedFacingRadians = (entity: RenderEntity): Pick<RenderEntity, 'facingRadians'> => {
-  if (typeof entity.facingRadians === 'undefined') {
-    return {}
-  }
-  return { facingRadians: entity.facingRadians }
+/** Apply the shared local-part transform used by entities and vehicles. */
+const applyVisualPartTransform = (
+  mesh: TransformableThreeMesh,
+  position: VisualPosition,
+  facingRadians: number,
+  part: VisualPartTransform,
+): void => {
+  const cosine = Math.cos(facingRadians)
+  const sine = Math.sin(facingRadians)
+  const [centerX, centerY, centerZ] = part.center
+  const [sizeX, sizeY, sizeZ] = part.size
+  mesh.position.set(
+    position.x + centerX * cosine + centerZ * sine,
+    position.y + centerY,
+    position.z - centerX * sine + centerZ * cosine,
+  )
+  mesh.scale.set(sizeX, sizeY, sizeZ)
+  const [rotationX, rotationY, rotationZ] = part.rotation
+  mesh.rotation.set(rotationX, rotationY + facingRadians, rotationZ, 'YXZ')
 }
-
-/** A detached copy of `entity.animation`, present only when the source entity has one. */
-const copiedAnimation = (entity: RenderEntity): Pick<RenderEntity, 'animation'> => {
-  if (typeof entity.animation === 'undefined') {
-    return {}
-  }
-  return { animation: { ...entity.animation } }
-}
-
-/** A detached copy of `entity.witherState`, present only when the source entity has one. */
-const copiedWitherState = (entity: RenderEntity): Pick<RenderEntity, 'witherState'> => {
-  const { witherState } = entity
-  if (typeof witherState === 'undefined') {
-    return {}
-  }
-  return {
-    witherState: {
-      ...witherState,
-      feetPosition: { ...witherState.feetPosition },
-      velocity: { ...witherState.velocity },
-    },
-  }
-}
-
-/** A detached copy of `entity.witherSkullProjectile`, present only when the source entity has one. */
-const copiedWitherSkullProjectile = (entity: RenderEntity): Pick<RenderEntity, 'witherSkullProjectile'> => {
-  const { witherSkullProjectile } = entity
-  if (typeof witherSkullProjectile === 'undefined') {
-    return {}
-  }
-  return {
-    witherSkullProjectile: {
-      ...witherSkullProjectile,
-      direction: { ...witherSkullProjectile.direction },
-      origin: { ...witherSkullProjectile.origin },
-    },
-  }
-}
-
-const copyEntity = (entity: RenderEntity): RenderEntity => ({
-  feetPosition: { ...entity.feetPosition },
-  id: entity.id,
-  kind: entity.kind,
-  ...copiedCategory(entity),
-  ...copiedFacingRadians(entity),
-  ...copiedAnimation(entity),
-  ...copiedWitherState(entity),
-  ...copiedWitherSkullProjectile(entity),
-})
 
 /**
  * Build a renderer on a canvas.
@@ -928,7 +651,13 @@ export const makeWorldRenderer = <
       readonly weatherCapacity: number
       readonly initialAspect: number
     } => {
-      const farPlane = options.farPlane ?? CAMERA_FAR_PLANE
+      const { farPlane: explicitFarPlane, renderDistance } = options
+      let farPlane = CAMERA_FAR_PLANE
+      if (explicitFarPlane !== undefined) {
+        farPlane = explicitFarPlane
+      } else if (renderDistance !== undefined) {
+        farPlane = cameraFarPlaneForRenderDistance(renderDistance)
+      }
       const weatherCapacity = Math.max(
         MIN_WEATHER_CAPACITY,
         Math.trunc(options.weather?.particleCapacity ?? DEFAULT_WEATHER_CAPACITY),
@@ -964,6 +693,7 @@ export const makeWorldRenderer = <
         canvas,
         failIfMajorPerformanceCaveat: false,
         powerPreference: 'high-performance',
+        preserveDrawingBuffer: options.preserveDrawingBuffer ?? false,
         stencil: false,
       })
       renderer.setSize(viewport.width, viewport.height, UPDATE_CANVAS_STYLE)
@@ -999,9 +729,10 @@ export const makeWorldRenderer = <
      * `domain/chunk-geometry.ts` the only thing visible in the mesh.
      *
      * `domain/material-policy.ts`'s rule does not bite here and it is worth
-     * saying why: `requiresForceSinglePass` fires on shared + two-pass + cutout,
-     * and this material is shared but neither transparent nor a cutout. The
-     * water material, when it exists, is the one that will need the audit.
+     * saying why: `requiresForceSinglePass` fires on shared + two-pass +
+     * cutout-or-flat, and this material is shared but neither transparent nor
+     * a cutout/flat surface. Water and particles are checked at their concrete
+     * material construction boundary.
      */
     /**
      * THE ONE ASSERTION IN THIS FILE, and it is confined to the branch where it
@@ -1024,14 +755,15 @@ export const makeWorldRenderer = <
         wireframe: options.wireframe ?? false,
       }) as unknown as TUsedMaterial)
 
-    const [chunks, viewportAspect, entities, framesRendered, postProcessingChain] = yield* Effect.all([
+    const [chunks, viewportAspect, entities, vehicles, framesRendered, postProcessingChain] = yield* Effect.all([
       Ref.make(new Map<ChunkKey, ChunkEntry<TGeometry>>()),
       Ref.make(initialAspect),
       Ref.make(new Map<string, EntityEntry>()),
+      Ref.make(new Map<string, VehicleEntry>()),
       Ref.make(INITIAL_FRAMES_RENDERED),
       Ref.make<ReadonlyArray<PostProcessingStep>>([]),
     ])
-    const entityAssets: { readonly entityGeometries: Map<string, TGeometry>; entityMaterial: TMaterial | null } = {
+    const visualAssets: { readonly entityGeometries: Map<string, TGeometry>; entityMaterial: TMaterial | null } = {
       entityGeometries: new Map<string, TGeometry>(),
       entityMaterial: null,
     }
@@ -1066,26 +798,6 @@ export const makeWorldRenderer = <
           ops.releaseChunk(previous)
         }
         next.set(key, ops.buildChunkEntry(buffers))
-      },
-
-      applyEntityPartTransform: (
-        mesh: TransformableThreeMesh,
-        visual: EntityVisualPlan,
-        part: EntityVisualPartPlan,
-      ): void => {
-        const facing = visual.facingRadians
-        const cosine = Math.cos(facing)
-        const sine = Math.sin(facing)
-        const [centerX, centerY, centerZ] = part.center
-        const [sizeX, sizeY, sizeZ] = part.size
-        mesh.position.set(
-          visual.position.x + centerX * cosine + centerZ * sine,
-          visual.position.y + centerY,
-          visual.position.z - centerX * sine + centerZ * cosine,
-        )
-        mesh.scale.set(sizeX, sizeY, sizeZ)
-        const [rotationX, rotationY, rotationZ] = part.rotation
-        mesh.rotation.set(rotationX, rotationY + facing, rotationZ, 'YXZ')
       },
 
       attachChunkGeometryAttributes: (geometry: TGeometry, buffers: ChunkGeometryBuffers): void => {
@@ -1129,16 +841,42 @@ export const makeWorldRenderer = <
       buildEntity: (entity: RenderEntity): EntityEntry => {
         const visual = planEntityVisual(entity)
         const parts = visual.parts.map((part): EntityPartEntry => {
-          const mesh = new three.Mesh(ops.buildEntityGeometry(part.color), ops.getEntityMaterial())
-          ops.applyEntityPartTransform(mesh, visual, part)
+          const mesh = new three.Mesh(ops.buildVisualGeometry(part.color), ops.getVisualMaterial())
+          applyVisualPartTransform(mesh, visual.position, visual.facingRadians, part)
           scene.add(mesh)
           return { color: part.color, id: part.id, mesh }
         })
         return { entity, parts }
       },
 
-      buildEntityCubeGeometry: (color: readonly [number, number, number]): TGeometry => {
-        const buffers = unitCubeBuffers(color)
+      buildGeometry: (buffers: ChunkGeometryBuffers): TGeometry => {
+        const geometry = new three.BufferGeometry()
+        ops.attachChunkGeometryAttributes(geometry, buffers)
+        geometry.setIndex(new three.BufferAttribute(buffers.indices, INDEX_ITEM_SIZE, false))
+        /* Before the first render, not lazily. See `ThreeBufferGeometry`: three
+           computes this on demand and warns on an empty position attribute, and
+           an empty chunk is the normal case at the edge of the loaded world. */
+        geometry.computeBoundingSphere()
+        return geometry
+      },
+
+      buildVehicle: (
+        vehicle: Vehicle,
+        previous: Vehicle | undefined,
+        syncOptions: VehicleSyncOptions,
+      ): VehicleEntry => {
+        const plan: VehicleRenderPlan = planVehicleVisual(vehicle, vehiclePlanOptions(previous, syncOptions))
+        const parts = plan.parts.map((part): VehiclePartEntry => {
+          const mesh = new three.Mesh(ops.buildVisualGeometry(part.color), ops.getVisualMaterial())
+          applyVisualPartTransform(mesh, plan.position, plan.yawRadians, part)
+          scene.add(mesh)
+          return { color: part.color, id: part.id, mesh }
+        })
+        return { parts, vehicle }
+      },
+
+      buildVisualCubeGeometry: (color: readonly [number, number, number]): TGeometry => {
+        const buffers = makeUnitCubeBuffers(color)
         const geometry = new three.BufferGeometry()
         geometry.setAttribute(
           'position',
@@ -1153,29 +891,19 @@ export const makeWorldRenderer = <
         return geometry
       },
 
-      buildEntityGeometry: (color: readonly [number, number, number]): TGeometry => {
+      buildVisualGeometry: (color: readonly [number, number, number]): TGeometry => {
         const key = color.join(',')
-        const cached = entityAssets.entityGeometries.get(key)
+        const cached = visualAssets.entityGeometries.get(key)
         if (cached) {return cached}
-        const geometry = ops.buildEntityCubeGeometry(color)
-        entityAssets.entityGeometries.set(key, geometry)
+        const geometry = ops.buildVisualCubeGeometry(color)
+        visualAssets.entityGeometries.set(key, geometry)
         return geometry
       },
 
-      buildGeometry: (buffers: ChunkGeometryBuffers): TGeometry => {
-        const geometry = new three.BufferGeometry()
-        ops.attachChunkGeometryAttributes(geometry, buffers)
-        geometry.setIndex(new three.BufferAttribute(buffers.indices, INDEX_ITEM_SIZE, false))
-        /* Before the first render, not lazily. See `ThreeBufferGeometry`: three
-           computes this on demand and warns on an empty position attribute, and
-           an empty chunk is the normal case at the edge of the loaded world. */
-        geometry.computeBoundingSphere()
-        return geometry
-      },
-
-      disposeChunksAndEntities: (
+      disposeChunksEntitiesAndVehicles: (
         currentChunks: ReadonlyMap<ChunkKey, ChunkEntry<TGeometry>>,
         currentEntities: ReadonlyMap<string, EntityEntry>,
+        currentVehicles: ReadonlyMap<string, VehicleEntry>,
       ): void => {
         for (const entry of currentChunks.values()) {
           ops.releaseChunk(entry)
@@ -1183,20 +911,23 @@ export const makeWorldRenderer = <
         for (const entry of currentEntities.values()) {
           ops.releaseEntity(entry)
         }
-        for (const geometry of entityAssets.entityGeometries.values()) {geometry.dispose()}
-        entityAssets.entityGeometries.clear()
+        for (const entry of currentVehicles.values()) {
+          ops.releaseVehicle(entry)
+        }
+        for (const geometry of visualAssets.entityGeometries.values()) {geometry.dispose()}
+        visualAssets.entityGeometries.clear()
       },
 
       disposeSharedMaterials: (): void => {
-        entityAssets.entityMaterial?.dispose()
-        entityAssets.entityMaterial = null
+        visualAssets.entityMaterial?.dispose()
+        visualAssets.entityMaterial = null
         material.dispose()
         renderer.dispose()
       },
 
-      getEntityMaterial: (): TMaterial => {
-        entityAssets.entityMaterial ??= new three.MeshBasicMaterial({ vertexColors: true, wireframe: false })
-        return entityAssets.entityMaterial
+      getVisualMaterial: (): TMaterial => {
+        visualAssets.entityMaterial ??= new three.MeshBasicMaterial({ vertexColors: true, wireframe: false })
+        return visualAssets.entityMaterial
       },
 
       reconcileEntity: (context: ReconcileContext, id: string, entity: RenderEntity): void => {
@@ -1210,6 +941,25 @@ export const makeWorldRenderer = <
           ops.releaseEntity(previous)
         }
         next.set(id, ops.buildEntity(entity))
+      },
+
+      reconcileVehicle: (
+        context: VehicleReconcileContext,
+        id: string,
+        vehicle: Vehicle,
+        previous: Vehicle | undefined,
+        syncOptions: VehicleSyncOptions,
+      ): void => {
+        const { current, next } = context
+        const existing = current.get(id)
+        if (existing && existing.vehicle.type === vehicle.type) {
+          next.set(id, ops.updateVehicle(existing, vehicle, previous, syncOptions))
+          return
+        }
+        if (existing) {
+          ops.releaseVehicle(existing)
+        }
+        next.set(id, ops.buildVehicle(vehicle, previous, syncOptions))
       },
 
       releaseChunk: (entry: ChunkEntry<TGeometry>): void => {
@@ -1230,6 +980,21 @@ export const makeWorldRenderer = <
             ops.releaseEntity(entry)
           }
         }
+      },
+
+      releaseStaleVehicles: (
+        current: ReadonlyMap<string, VehicleEntry>,
+        desired: ReadonlyMap<string, Vehicle>,
+      ): void => {
+        for (const [id, entry] of current) {
+          if (!desired.has(id)) {
+            ops.releaseVehicle(entry)
+          }
+        }
+      },
+
+      releaseVehicle: (entry: VehicleEntry): void => {
+        for (const part of entry.parts) {scene.remove(part.mesh)}
       },
 
       renderFrame: (chain: ReadonlyArray<PostProcessingStep>): void => {
@@ -1285,9 +1050,23 @@ export const makeWorldRenderer = <
         }
         for (const [index, plan] of plans.entries()) {
           const part = entry.parts[index]
-          if (part) {ops.applyEntityPartTransform(part.mesh, visual, plan)}
+          if (part) {applyVisualPartTransform(part.mesh, visual.position, visual.facingRadians, plan)}
         }
         return { ...entry, entity }
+      },
+
+      updateVehicle: (
+        entry: VehicleEntry,
+        vehicle: Vehicle,
+        previous: Vehicle | undefined,
+        syncOptions: VehicleSyncOptions,
+      ): VehicleEntry => {
+        const plan = planVehicleVisual(vehicle, vehiclePlanOptions(previous, syncOptions))
+        for (const [index, part] of plan.parts.entries()) {
+          const mesh = entry.parts[index]!
+          applyVisualPartTransform(mesh.mesh, plan.position, plan.yawRadians, part)
+        }
+        return { ...entry, vehicle }
       },
     }
 
@@ -1317,9 +1096,10 @@ export const makeWorldRenderer = <
           Effect.all([
             Ref.getAndSet(chunks, new Map()),
             Ref.getAndSet(entities, new Map()),
+            Ref.getAndSet(vehicles, new Map()),
           ]).pipe(
-            Effect.map(([currentChunks, currentEntities]) => {
-              ops.disposeChunksAndEntities(currentChunks, currentEntities)
+            Effect.map(([currentChunks, currentEntities, currentVehicles]) => {
+              ops.disposeChunksEntitiesAndVehicles(currentChunks, currentEntities, currentVehicles)
               ops.disposeSharedMaterials()
             }),
           ),
@@ -1342,12 +1122,13 @@ export const makeWorldRenderer = <
           })
           ops.updateChunkVisibility(currentChunks, frustum)
           const chain = yield* Ref.get(postProcessingChain)
+          options.beforeRender?.({ camera, chain, renderer, scene })
           ops.renderFrame(chain)
           yield* Ref.update(framesRendered, (drawn) => drawn + FRAME_STEP)
         }),
       entityCount: Ref.get(entities).pipe(Effect.map((current) => current.size)),
       entitySnapshot: Ref.get(entities).pipe(
-        Effect.map((current) => [...current.values()].map(({ entity }) => copyEntity(entity))),
+        Effect.map((current) => [...current.values()].map(({ entity }) => copyRenderEntity(entity))),
       ),
       framesRendered: Ref.get(framesRendered),
       postProcessingChain: Ref.get(postProcessingChain),
@@ -1380,7 +1161,7 @@ export const makeWorldRenderer = <
       setPostProcessingChain: (chain) => Ref.set(postProcessingChain, chain),
       syncEntities: (incoming) =>
         Ref.update(entities, (current) => {
-          const desired = new Map(incoming.map((entity) => [entity.id, copyEntity(entity)]))
+          const desired = new Map(incoming.map((entity) => [entity.id, copyRenderEntity(entity)]))
           const next = new Map<string, EntityEntry>()
           const context: ReconcileContext = { current, next }
           for (const [id, entity] of desired) {
@@ -1389,93 +1170,22 @@ export const makeWorldRenderer = <
           ops.releaseStaleEntities(current, desired)
           return next
         }),
-      weather,
-    }
-  })
-
-export type ProductionFrame = {
-  readonly elapsedSecs: number
-  readonly deltaSecs: number
-  readonly cameraPosition: Readonly<{ worldX: number; worldY: number; worldZ: number }>
-}
-
-export type ProductionWorldRenderer<TShaderMaterial extends ThreeMaterial> = WorldRenderer & {
-  readonly chunkMaterial: TShaderMaterial
-  readonly waterMaterial: TShaderMaterial
-  readonly waterUniforms: Record<string, ThreeUniform>
-  readonly particlePool: ParticlePool
-  readonly particles: ParticleSystem
-  readonly advanceFrame: (frame: ProductionFrame) => Effect.Effect<void>
-}
-
-export type ProductionWorldRendererOptions = Omit<
-  WorldRendererOptions<ThreeMaterial>,
-  'material' | 'applyMaterialEnvironment'
-> & {
-  readonly particles?: ParticlePoolOptions
-}
-
-/** Assemble the atlas shader, animated water and instanced particles as one owned renderer. */
-export const makeProductionWorldRenderer = <
-  TCanvas,
-  TGeometry extends ThreeBufferGeometry,
-  TMaterial extends ThreeMaterial,
-  TInstancedGeometry extends ThreeInstancedBufferGeometry,
-  TShaderMaterial extends ThreeMaterial,
->(
-  three: ThreeShaderSurface<TCanvas, TGeometry, TMaterial, TShaderMaterial> &
-    ThreeInstancedSurface<TCanvas, TGeometry, TMaterial, TInstancedGeometry> & {
-      readonly Mesh: new (
-        geometry: TGeometry | TInstancedGeometry,
-        material: TMaterial | TShaderMaterial,
-      ) => TransformableThreeMesh
-    },
-  canvas: TCanvas,
-  viewport: Viewport,
-  atlasTexture: unknown,
-  options: ProductionWorldRendererOptions = {},
-): Effect.Effect<ProductionWorldRenderer<TShaderMaterial>> =>
-  Effect.gen(function* buildProductionRenderer() {
-    const chunk = makeChunkShaderMaterial(three, atlasTexture)
-    const water = makeWaterMaterial(three, viewport)
-    const particlePool = makeParticlePool(options.particles)
-    const particles = yield* makeParticleSystem(three, particlePool, atlasTexture)
-    const { particles: _particles, ...rendererOptions } = options
-    const renderer = yield* makeWorldRenderer(three, canvas, viewport, {
-      ...rendererOptions,
-      applyMaterialEnvironment: (environment) => {
-        applyChunkShaderEnvironment(chunk.uniforms, environment)
-        const sun = water.uniforms['uSunIntensity']
-        if (sun) {sun.value = environment.sunIntensity}
-      },
-      material: () => chunk.material,
-    })
-    yield* renderer.attachSceneObject(particles.mesh)
-
-    return {
-      ...renderer,
-      advanceFrame: (frame) => Effect.sync(() => {
-        advanceParticles(particlePool, frame.deltaSecs)
-        const time = water.uniforms['uTime']
-        const cameraPosition = water.uniforms['uCameraPosition']
-        if (time) {time.value = frame.elapsedSecs}
-        if (cameraPosition) {
-          cameraPosition.value = [frame.cameraPosition.worldX, frame.cameraPosition.worldY, frame.cameraPosition.worldZ]
-        }
-      }).pipe(Effect.andThen(particles.sync)),
-      chunkMaterial: chunk.material,
-      dispose: renderer.detachSceneObject(particles.mesh).pipe(
-        Effect.andThen(renderer.dispose),
-        Effect.andThen(particles.dispose),
-        Effect.andThen(Effect.sync(() => water.material.dispose())),
+      syncVehicles: (incoming, syncOptions = {}) =>
+        Ref.update(vehicles, (current) => {
+          const desired = new Map(incoming.map((vehicle) => [vehicle.id, copyVehicle(vehicle)]))
+          const previous = indexVehicles(syncOptions.previous ?? [])
+          const next = new Map<string, VehicleEntry>()
+          const context: VehicleReconcileContext = { current, next }
+          for (const [id, vehicle] of desired) {
+            ops.reconcileVehicle(context, id, vehicle, previous.get(id), syncOptions)
+          }
+          ops.releaseStaleVehicles(current, desired)
+          return next
+        }),
+      vehicleCount: Ref.get(vehicles).pipe(Effect.map((current) => current.size)),
+      vehicleSnapshot: Ref.get(vehicles).pipe(
+        Effect.map((current) => [...current.values()].map(({ vehicle }) => copyVehicle(vehicle))),
       ),
-      particlePool,
-      particles,
-      resize: (width, height) => renderer.resize(width, height).pipe(Effect.tap(() => Effect.sync(() => {
-        const resolution = water.uniforms['uResolution']
-        if (resolution) {resolution.value = [width, height]}
-      }))),
-      waterMaterial: water.material,
-      waterUniforms: water.uniforms,
+      weather,
     }
   })

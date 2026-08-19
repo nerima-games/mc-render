@@ -18,8 +18,10 @@ import {
   aoShade,
   buildChunkGeometry,
   faceNormal,
+  type CrossPlantQuad,
   type FaceDirection,
   type MeshQuad,
+  type FluidQuad,
 } from '../src/domain/chunk-geometry'
 import { LIGHT_LEVEL_MAX } from '@nerima-games/mc-kernel'
 import {
@@ -37,6 +39,7 @@ import {
   effectiveLightLevel,
   faceBrightness,
   lightSamplePoint,
+  lightSamplePointForRenderableQuad,
   lightShadeFactor,
   litColor,
   litShade,
@@ -66,6 +69,35 @@ const quad = (overrides: Partial<MeshQuad> = {}): MeshQuad => ({
   lz: 0,
   width: 1,
   height: 1,
+  ao: 0,
+  ...overrides,
+})
+
+const fluidQuad = (overrides: Partial<FluidQuad> = {}): FluidQuad => ({
+  blockId: 7,
+  direction: 'yPos',
+  vertices: [
+    [5, 64.75, 7],
+    [6, 64.75, 7],
+    [6, 64.75, 8],
+    [5, 64.75, 8],
+  ],
+  ao: 0,
+  ...overrides,
+})
+
+const crossPlant = (overrides: Partial<CrossPlantQuad> = {}): CrossPlantQuad => ({
+  blockId: 8,
+  role: 'side',
+  vertices: [
+    [5, 64, 7],
+    [5, 65, 7],
+    [6, 65, 8],
+    [6, 64, 8],
+  ],
+  nx: 0,
+  ny: 1,
+  nz: 0,
   ao: 0,
   ...overrides,
 })
@@ -299,6 +331,35 @@ describe('the sample point', () => {
         expect(moved[0]).toBeCloseTo(expectedAxisDelta(normal[0]), 10)
         expect(moved[1]).toBeCloseTo(expectedAxisDelta(normal[1]), 10)
         expect(moved[2]).toBeCloseTo(expectedAxisDelta(normal[2]), 10)
+      }
+    }),
+  )
+
+  it.effect('centres non-cubic renderables and samples along their explicit normal', () =>
+    Effect.sync(() => {
+      expect(lightSamplePointForRenderableQuad(fluidQuad())).toStrictEqual([6, 65.75, 8])
+      expect(
+        lightSamplePointForRenderableQuad(crossPlant({ nx: 0, ny: 0, nz: 1 })),
+      ).toStrictEqual([6, 65, 8.5])
+    }),
+  )
+
+  it.effect('maps a cross-plant normal to the matching face brightness direction', () =>
+    Effect.sync(() => {
+      const lit = litShade(FULLY_LIT)
+      const cases: ReadonlyArray<readonly [CrossPlantQuad, FaceDirection]> = [
+        [crossPlant({ nx: 0, ny: 1, nz: 0 }), 'yPos'],
+        [crossPlant({ nx: 0, ny: -1, nz: 0 }), 'yNeg'],
+        [crossPlant({ nx: 1, ny: 0, nz: 0 }), 'xPos'],
+        [crossPlant({ nx: -1, ny: 0, nz: 0 }), 'xNeg'],
+        [crossPlant({ nx: 0, ny: 0, nz: 1 }), 'zPos'],
+        [crossPlant({ nx: 0, ny: 0, nz: -1 }), 'zNeg'],
+      ]
+
+      for (const [plant, direction] of cases) {
+        expect(lit(plant)).toBe(
+          combinedShadeByte(FULL_LIGHT, 0, { direction, skyIntensity: 1 }),
+        )
       }
     }),
   )

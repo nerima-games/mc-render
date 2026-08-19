@@ -10,14 +10,13 @@
   // lock is survivable at all.
   //
   // NOTE what this file does NOT do: it does not add "DOM" to `lib`, and it
-  // does not add `three`. The preview renders to a terminal. When a THREE
-  // adapter exists it will need both, and it will need mc-playground-kit; that
-  // is a different app, and adding it here is the moment to re-read
-  // apps/preview-render/main.ts.
+  // does not add the browser entry. The preview intentionally renders to a
+  // terminal; `tsconfig.browser.json` checks the concrete browser runtime
+  // separately, and `tsconfig.package.json` checks both public package entries.
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
     "types": ["node"]
   },
   "include": ["apps/**/*.ts", "src/**/*.ts"],
-  "exclude": ["node_modules", "coverage", "dist"]
+  "exclude": ["node_modules", "coverage", "dist", "src/browser.ts"]
 }

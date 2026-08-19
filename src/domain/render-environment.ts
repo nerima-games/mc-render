@@ -1,3 +1,9 @@
+/** The drawing surface's size in device-independent pixels. */
+export type Viewport = {
+  readonly width: number
+  readonly height: number
+}
+
 /** A deterministic, renderer-independent description of daylight and distance fog. */
 export type RenderEnvironmentPlan = {
   readonly daylight: number

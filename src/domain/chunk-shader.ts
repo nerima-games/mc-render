@@ -1,12 +1,11 @@
 /**
  * The chunk shader, as GENERATED SOURCE.
  *
- * THE NOUN TWO OTHER FILES NAMED AS MISSING. `./voxel-lighting.ts` cannot pack
- * `R = AO, G = sky, B = block` without something to decode it, and
- * `./block-texture-map.ts` cannot turn a tile index into a texture coordinate on
- * a MERGED quad without something to resolve it per fragment. Both said the
- * missing thing was a `ShaderMaterial` in `application/three-surface.ts` plus
- * the GLSL pair. This is the GLSL pair.
+ * This closes the two domain-to-GPU seams that the geometry and lighting
+ * modules describe: `./voxel-lighting.ts` packs `R = AO, G = sky, B = block`,
+ * and `./block-texture-map.ts` assigns a tile to each face. This module
+ * resolves both values per fragment. `application/world-renderer-materials.ts`
+ * binds the generated source to a `ShaderMaterial` for the production renderer.
  *
  * ---------------------------------------------------------------------------
  * THE STRINGS ARE BUILT FROM THE DOMAIN CONSTANTS, NOT TYPED OUT

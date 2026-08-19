@@ -49,9 +49,9 @@
  * test that needs no GPU: the input snapshot is not the output, and there is no
  * path from output to input.
  *
- * The dependency graph enforces it independently: mc-render depends on mc-sim,
- * so a write-back edge would be a cycle, and `pnpm check:deps` rejects cycles
- * outright with no allowlist.
+ * The package dependency direction and one-way import convention enforce it
+ * independently: mc-render depends on mc-sim, so a write-back edge would be a
+ * cycle. TypeScript then checks the reachable source surface.
  */
 import {
   type CameraPoseSnapshot,
@@ -101,8 +101,8 @@ type EulerAngleAxis = 'x' | 'y' | 'z'
 export type MirroredCameraState = {
   readonly position: Position
   readonly rotation: Readonly<Record<EulerAngleAxis, number>> & { readonly order: 'YXZ' }
-  /** The instant mc-sim produced the pose this was mirrored from. */
-  readonly sourceCapturedAtSecs: MonotonicTimeSecs
+  /** The instant mc-sim produced the pose this was mirrored from, if any. */
+  readonly sourceCapturedAtSecs: MonotonicTimeSecs | undefined
 }
 
 /**
@@ -154,6 +154,19 @@ export const mirroredCameraState = (
 }
 
 /**
+ * Compose the startup placeholder without pretending that mc-sim published it.
+ * The placeholder still carries the same visible pose, but its missing source
+ * timestamp makes the pre-publication state explicit to every consumer.
+ */
+export const uninitializedMirroredCameraState = (
+  snapshot: CameraPoseSnapshot,
+  offset: ViewOffset = NO_VIEW_OFFSET,
+): MirroredCameraState => ({
+  ...mirroredCameraState(snapshot, offset),
+  sourceCapturedAtSecs: undefined,
+})
+
+/**
  * Unit forward vector of an authoritative snapshot.
  *
  * Present so that no code in this repository ever needs
@@ -180,8 +193,13 @@ export const forwardVector = (snapshot: CameraPoseSnapshot): Position => {
  * The renderer uses this to decide whether to interpolate or to stall, rather
  * than drawing a stale pose and finding out from a bug report.
  */
-export const mirrorLagSecs = (state: MirroredCameraState, now: MonotonicTimeSecs): number =>
-  now - state.sourceCapturedAtSecs
+export const mirrorLagSecs = (state: MirroredCameraState, now: MonotonicTimeSecs): number => {
+  if (state.sourceCapturedAtSecs === undefined) {
+    return Number.POSITIVE_INFINITY
+  }
+
+  return now - state.sourceCapturedAtSecs
+}
 
 /**
  * SECONDS of lag past which a mirrored pose is worth complaining about.

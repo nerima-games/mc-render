@@ -18,24 +18,27 @@ import { Effect } from 'effect'
 import { mirroredCameraState } from '../src/domain/camera-mirror'
 import { buildChunkGeometry, type MeshQuad } from '../src/domain/chunk-geometry'
 import { MonotonicTimeSecs, position, type CameraPoseSnapshot } from '@nerima-games/mc-kernel'
+import type { OccupantId, Vehicle, VehicleId } from '@nerima-games/mc-sim'
 import {
   CAMERA_FAR_PLANE,
   CAMERA_FOV_DEGREES,
   CAMERA_NEAR_PLANE,
-  makeProductionWorldRenderer,
+  cameraFarPlaneForRenderDistance,
   makeWorldRenderer,
   NO_DRAW_TARGET,
   SKY_CLEAR_ALPHA,
   SKY_CLEAR_COLOR,
 } from '../src/application/world-renderer'
-import { spawnBurst } from '../src/domain/particle-pool'
+import { makeProductionWorldRenderer } from '../src/application/world-renderer-production'
+import { PARTICLE_ALPHA_TEST, spawnBurst } from '../src/domain/particle-pool'
 import { FAKE_CANVAS, makeFakeThree } from './support/fake-three'
 import { planRenderEnvironment } from '../src/domain/render-environment'
 import { planMobVisual } from '../src/domain/mob-visual'
 import { buildPostProcessingChain } from '../src/domain/post-processing'
 import { planWitherSkullVisual, planWitherVisual } from '../src/domain/wither-visual'
+import { planVehicleVisual } from '../src/domain/vehicle-visual'
 import { makeThreeWeatherPrecipitation } from '../src/application/three-weather-runtime'
-import type { ThreeScene } from '../src/application/three-surface'
+import { THREE_DOUBLE_SIDE, type ThreeScene } from '../src/application/three-surface'
 
 const VIEWPORT = { width: 1280, height: 720 }
 
@@ -57,6 +60,16 @@ const poseAt = (x: number, y: number, z: number, yaw: number, pitch: number): Ca
   yawRadians: yaw,
   pitchRadians: pitch,
   capturedAtSecs: MonotonicTimeSecs(1),
+})
+
+const testVehicle = (overrides: Partial<Vehicle> = {}): Vehicle => ({
+  id: 'vehicle:test' as VehicleId,
+  type: 'boat',
+  dimension: 'overworld',
+  position: { x: 2, y: 4, z: 6 },
+  velocity: { x: 0, y: 0, z: 0 },
+  yawRadians: Math.PI / 4,
+  ...overrides,
 })
 
 describe('acquiring the renderer', () => {
@@ -95,6 +108,7 @@ describe('acquiring the renderer', () => {
         stencil: false,
         powerPreference: 'high-performance',
         failIfMajorPerformanceCaveat: false,
+        preserveDrawingBuffer: false,
       })
     }),
   )
@@ -149,10 +163,8 @@ describe('acquiring the renderer', () => {
   it.effect('builds the camera from the transcribed constants and the real aspect', () =>
     Effect.gen(function* () {
       // fov 75 / near 0.1 from `session-bootstrap-scene.ts:47,49`; far 300 is
-      // the FLOOR of that file's :50 expression, which this repository cannot
-      // evaluate because two of its three inputs live in unpublished siblings.
-      // `world-renderer.ts` says so at the constant rather than presenting 300
-      // as derived.
+      // the FLOOR of that file's :50 expression when no render distance is
+      // supplied.
       const three = makeFakeThree()
       yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT)
 
@@ -161,6 +173,32 @@ describe('acquiring the renderer', () => {
       expect(three.camera().far).toBe(CAMERA_FAR_PLANE)
       expect(three.camera().aspect).toBe(1280 / 720)
       expect([CAMERA_FOV_DEGREES, CAMERA_NEAR_PLANE, CAMERA_FAR_PLANE]).toStrictEqual([75, 0.1, 300])
+    }),
+  )
+
+  it.effect('derives the camera far plane from the chunk render distance', () =>
+    Effect.gen(function* () {
+      const three = makeFakeThree()
+      yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT, { renderDistance: 16 })
+
+      expect(three.camera().far).toBe(640)
+      expect(cameraFarPlaneForRenderDistance(5)).toBe(376)
+      expect(cameraFarPlaneForRenderDistance(0)).toBe(CAMERA_FAR_PLANE)
+    }),
+  )
+
+  it.effect('keeps an explicit far plane authoritative and rejects unsafe distances conservatively', () =>
+    Effect.gen(function* () {
+      const explicit = makeFakeThree()
+      yield* makeWorldRenderer(explicit, FAKE_CANVAS, VIEWPORT, {
+        farPlane: 512,
+        renderDistance: 16,
+      })
+
+      expect(explicit.camera().far).toBe(512)
+      expect(cameraFarPlaneForRenderDistance(Number.NaN)).toBe(CAMERA_FAR_PLANE)
+      expect(cameraFarPlaneForRenderDistance(Number.POSITIVE_INFINITY)).toBe(CAMERA_FAR_PLANE)
+      expect(cameraFarPlaneForRenderDistance(-4)).toBe(CAMERA_FAR_PLANE)
     }),
   )
 
@@ -699,17 +737,165 @@ describe('entity meshes in the scene', () => {
   )
 })
 
+describe('vehicle meshes in the scene', () => {
+  it.effect('creates and transforms vehicle parts from the mc-sim vehicle', () =>
+    Effect.gen(function* () {
+      const three = makeFakeThree()
+      const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT)
+      const vehicle = testVehicle({
+        id: 'boat:1' as VehicleId,
+        occupant: 'player:1' as OccupantId,
+      })
+      const duplicate = testVehicle({ id: vehicle.id, position: { x: -10, y: 0, z: -10 } })
+      const plan = planVehicleVisual(vehicle)
+
+      yield* renderer.syncVehicles([duplicate, vehicle])
+
+      expect(yield* renderer.vehicleCount).toBe(1)
+      expect(yield* renderer.vehicleSnapshot).toStrictEqual([vehicle])
+      expect(three.scene().members()).toHaveLength(plan.parts.length)
+
+      const [firstPart] = plan.parts
+      const [firstMesh] = three.meshes()
+      expect(firstPart).toBeDefined()
+      expect(firstMesh).toBeDefined()
+      if (firstPart === undefined || firstMesh === undefined) {
+        return
+      }
+
+      const cosine = Math.cos(plan.yawRadians)
+      const sine = Math.sin(plan.yawRadians)
+      expect(firstMesh.positions().at(-1)).toStrictEqual([
+        plan.position.x + firstPart.center[0] * cosine + firstPart.center[2] * sine,
+        plan.position.y + firstPart.center[1],
+        plan.position.z - firstPart.center[0] * sine + firstPart.center[2] * cosine,
+      ])
+      const [scale] = firstMesh.scales()
+      const [rotation] = firstMesh.rotations()
+      expect(scale).toStrictEqual(firstPart.size)
+      expect(rotation?.[1]).toBeCloseTo(firstPart.rotation[1] + plan.yawRadians, 12)
+    }),
+  )
+
+  it.effect('reuses parts and applies interpolated poses with camera options', () =>
+    Effect.gen(function* () {
+      const three = makeFakeThree()
+      const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT)
+      const previous = testVehicle({
+        id: 'boat:2' as VehicleId,
+        position: { x: 0, y: 0, z: 0 },
+        yawRadians: 0,
+      })
+      const current = testVehicle({
+        id: previous.id,
+        position: { x: 10, y: 4, z: 6 },
+        yawRadians: Math.PI,
+      })
+
+      yield* renderer.syncVehicles([previous])
+      const initialMeshes = [...three.meshes()]
+      yield* renderer.syncVehicles([current], {
+        previous: [previous],
+        interpolation: 0.5,
+        camera: { perspective: 'third-person' },
+      })
+
+      const plan = planVehicleVisual(current, {
+        previous,
+        interpolation: 0.5,
+        camera: { perspective: 'third-person' },
+      })
+      const [firstPart] = plan.parts
+      const [firstMesh] = three.meshes()
+      expect(three.meshes()).toStrictEqual(initialMeshes)
+      expect(yield* renderer.vehicleSnapshot).toStrictEqual([current])
+      expect(firstPart).toBeDefined()
+      expect(firstMesh).toBeDefined()
+      if (firstPart === undefined || firstMesh === undefined) {
+        return
+      }
+
+      const cosine = Math.cos(plan.yawRadians)
+      const sine = Math.sin(plan.yawRadians)
+      expect(firstMesh.positions().at(-1)).toStrictEqual([
+        plan.position.x + firstPart.center[0] * cosine + firstPart.center[2] * sine,
+        plan.position.y + firstPart.center[1],
+        plan.position.z - firstPart.center[0] * sine + firstPart.center[2] * cosine,
+      ])
+    }),
+  )
+
+  it.effect('rebuilds changed vehicle types and releases stale vehicles', () =>
+    Effect.gen(function* () {
+      const three = makeFakeThree()
+      const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT)
+      const boat = testVehicle({ id: 'vehicle:changed' as VehicleId })
+      const minecart = testVehicle({ id: boat.id, type: 'minecart' })
+      const stale = testVehicle({ id: 'vehicle:stale' as VehicleId })
+
+      yield* renderer.syncVehicles([boat, stale])
+      const boatPlan = planVehicleVisual(boat)
+      const boatMeshes = [...three.meshes()]
+      expect(three.scene().members()).toHaveLength(boatPlan.parts.length * 2)
+
+      yield* renderer.syncVehicles([minecart])
+
+      const minecartPlan = planVehicleVisual(minecart)
+      expect(yield* renderer.vehicleCount).toBe(1)
+      expect(yield* renderer.vehicleSnapshot).toStrictEqual([minecart])
+      expect(three.scene().members()).toHaveLength(minecartPlan.parts.length)
+      expect(three.meshes()).not.toStrictEqual(boatMeshes)
+      expect(boatPlan.parts.length).not.toBe(minecartPlan.parts.length)
+
+      yield* renderer.syncVehicles([])
+      expect(yield* renderer.vehicleCount).toBe(0)
+      expect(yield* renderer.vehicleSnapshot).toStrictEqual([])
+      expect(three.scene().members()).toStrictEqual([])
+    }),
+  )
+
+  it.effect('copies vehicle snapshots and disposes vehicle resources', () =>
+    Effect.gen(function* () {
+      const three = makeFakeThree()
+      const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT)
+      const source = testVehicle({ id: 'vehicle:dispose' as VehicleId })
+
+      yield* renderer.syncVehicles([source])
+      const snapshot = yield* renderer.vehicleSnapshot
+      ;(source.position as { x: number }).x = 99
+      expect(snapshot[0]?.position.x).toBe(2)
+
+      const vehicleGeometries = [...three.geometries()]
+      const [, vehicleMaterial] = three.materials()
+      yield* renderer.dispose
+
+      expect(vehicleGeometries.length).toBeGreaterThan(0)
+      expect(vehicleGeometries.every((geometry) => geometry.disposed())).toBe(true)
+      expect(vehicleMaterial?.disposed()).toBe(true)
+      expect(three.scene().members()).toStrictEqual([])
+      expect(yield* renderer.vehicleCount).toBe(0)
+      expect(yield* renderer.vehicleSnapshot).toStrictEqual([])
+    }),
+  )
+})
+
 describe('drawing', () => {
   it.effect('retains the post-processing plan supplied by the draw port', () =>
     Effect.gen(function* () {
       const three = makeFakeThree()
       const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT)
       const quality = {
+        bloomStrength: 0.25,
         ssaoEnabled: true,
         godRaysEnabled: false,
         bloomEnabled: true,
         dofEnabled: false,
         smaaEnabled: true,
+        composerRenderTarget: 'hdr' as const,
+        godRaysSamples: 0,
+        pixelRatioCap: 1.5,
+        refractionMinScreenRatio: 0.005,
+        refractionThrottleFrames: 2,
         useCompositePass: true,
       }
       const chain = buildPostProcessingChain(quality)
@@ -823,6 +1009,36 @@ describe('drawing', () => {
       ])
       expect(three.camera().aspect).toBe(800 / 600)
       expect(three.camera().projectionUpdates()).toBe(1)
+    }),
+  )
+
+  it.effect('runs the host hook with the live surface before post-processing draws', () =>
+    Effect.gen(function* () {
+      const three = makeFakeThree()
+      const events: Array<string> = []
+      let hookChain: unknown = undefined
+
+      const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT, {
+        beforeRender: (context) => {
+          events.push('before-render')
+          hookChain = context.chain
+          expect(context.renderer).toBe(three.renderer())
+          expect(context.scene).toBe(three.scene())
+          expect(context.camera).toBe(three.camera())
+        },
+        postProcessing: () => ({
+          render: (chain) => {
+            events.push('post-processing')
+            expect(chain).toBe(hookChain)
+          },
+          resize: () => undefined,
+          dispose: () => undefined,
+        }),
+      })
+
+      yield* renderer.draw(mirroredCameraState(poseAt(0, 0, 0, 0, 0)))
+
+      expect(events).toStrictEqual(['before-render', 'post-processing'])
     }),
   )
 })
@@ -1142,6 +1358,11 @@ describe('makeProductionWorldRenderer', () => {
       expect(renderer.waterMaterial.transparent).toBe(true)
       expect(renderer.waterMaterial.depthWrite).toBe(false)
       expect(renderer.waterMaterial.forceSinglePass).toBe(true)
+      expect(renderer.waterMaterial.side).toBe(THREE_DOUBLE_SIDE)
+      expect(three.shaderMaterials()[2]?.alphaTest).toBe(PARTICLE_ALPHA_TEST)
+      expect(three.shaderMaterials()[2]?.forceSinglePass).toBe(true)
+      expect(renderer.particles.material.forceSinglePass).toBe(true)
+      expect(three.shaderMaterials()[2]?.side).toBe(THREE_DOUBLE_SIDE)
       expect(three.shaderMaterials()[2]?.uniforms['uAtlas']?.value).toBe(atlas)
       expect(three.scene().members()).toContain(renderer.particles.mesh)
 

@@ -24,15 +24,11 @@
  *
  *   2. A second tsconfig project that compiles only adapter files with
  *      `lib: ["ES2024", "DOM"]`. Rejected on a mechanical consequence rather
- *      than on taste: `scripts/api-lock.ts` builds its report from
- *      `REPOSITORY_POLICY.tsconfigFile` = `tsconfig.build.json`, and
- *      `scripts/check-dependency-whitelist.ts` classifies shipped source by the
- *      three directory names `index.ts` / `domain/` / `application/` /
- *      `stages/` — both in the byte-identical vendored region that must not be
- *      edited per repository. An adapter outside `tsconfig.build.json` could
- *      not be re-exported from `index.ts` without the API lock either missing it
- *      or failing to emit, so the adapter would be unusable by the previews it
- *      exists for.
+ *      because it splits the shipped source contract: `src/index.ts` and
+ *      `tsconfig.build.json` would no longer describe one reachable public
+ *      surface, while the normal typecheck would not prove the adapter's
+ *      relationship to the host types. An adapter outside the build project
+ *      would therefore be unusable by the previews it exists for.
  *
  *   3. DESCRIBE, structurally, the handful of DOM members the adapter actually
  *      uses. Chosen.

@@ -26,16 +26,16 @@
  *
  * Excluded from `tsconfig.json` and `tsconfig.test.json` (`test/fixtures/**`),
  * because it names DOM types and imports `three`, and those projects
- * deliberately can see neither. It is still linted and still scanned by
- * `pnpm check:deps`.
+ * deliberately can see neither. It is still linted, while its Three
+ * compatibility is checked by `test/three-surface.test.ts`.
  */
 import * as THREE from 'three'
 import {
   makeChunkShaderMaterial,
-  makeProductionWorldRenderer,
   makeWaterMaterial,
   makeWorldRenderer,
 } from '../../src/application/world-renderer'
+import { makeProductionWorldRenderer } from '../../src/application/world-renderer-production'
 import { chunkShaderSource } from '../../src/domain/chunk-shader'
 import type {
   ThreeBufferAttribute,

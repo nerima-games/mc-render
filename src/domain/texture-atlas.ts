@@ -682,25 +682,69 @@ export const tileIndexForUvOrigin = (origin: UvOrigin): number => {
  * assert the list is empty and a future adapter can log all of them at once
  * instead of one per restart.
  */
-export const atlasLayoutViolations = (): ReadonlyArray<string> => {
-  const violations: Array<string> = []
-
-  if (!Number.isInteger(TILE_PIXELS)) {
-    violations.push(
-      `ATLAS_PIXELS ${String(ATLAS_PIXELS)} / ATLAS_COLUMNS ${String(ATLAS_COLUMNS)} is ` +
-        `${String(TILE_PIXELS)}, not a whole number of pixels, so tile boundaries land mid-texel.`,
-    )
-  }
-
-  if (HALF_TEXEL_UV * TEXEL_INSET_SIDES * ATLAS_COLUMNS >= TILE_UV_PITCH * ATLAS_COLUMNS) {
-    violations.push(
-      'the half-texel inset consumes a whole tile: HALF_TEXEL_UV is not derived from ATLAS_PIXELS.',
-    )
-  }
-
-  if (TILE_UV_SPAN <= MIN_UV_SPAN) {
-    violations.push('TILE_UV_SPAN is not positive, so no quad can sample a tile at all.')
-  }
-
-  return violations
+export type AtlasLayoutInputs = {
+  readonly atlasColumns: number
+  readonly atlasPixels: number
+  readonly halfTexelUv: number
 }
+
+const atlasTilePixelsViolation = ({
+  atlasColumns,
+  atlasPixels,
+}: AtlasLayoutInputs): string | undefined => {
+  const tilePixels = atlasPixels / atlasColumns
+  if (Number.isInteger(tilePixels)) {
+    return undefined
+  }
+  return (
+    `ATLAS_PIXELS ${String(atlasPixels)} / ATLAS_COLUMNS ${String(atlasColumns)} is ` +
+    `${String(tilePixels)}, not a whole number of pixels, so tile boundaries land mid-texel.`
+  )
+}
+
+const atlasInsetViolation = ({
+  atlasColumns,
+  halfTexelUv,
+}: AtlasLayoutInputs): string | undefined => {
+  if (halfTexelUv * TEXEL_INSET_SIDES * atlasColumns < UV_UNIT) {
+    return undefined
+  }
+  return 'the half-texel inset consumes a whole tile: HALF_TEXEL_UV is not derived from ATLAS_PIXELS.'
+}
+
+const atlasUvSpanViolation = ({
+  atlasColumns,
+  halfTexelUv,
+}: AtlasLayoutInputs): string | undefined => {
+  const tileUvSpan = UV_UNIT / atlasColumns - TEXEL_INSET_SIDES * halfTexelUv
+  if (tileUvSpan > MIN_UV_SPAN) {
+    return undefined
+  }
+  return 'TILE_UV_SPAN is not positive, so no quad can sample a tile at all.'
+}
+
+/**
+ * Check a candidate atlas layout without mutating the production constants.
+ * The parameterised form lets tests exercise the defensive diagnostics rather
+ * than leaving their branches dependent on an impossible production state.
+ */
+export const atlasLayoutViolationsFor = ({
+  atlasColumns,
+  atlasPixels,
+  halfTexelUv,
+}: AtlasLayoutInputs): ReadonlyArray<string> => {
+  const candidate = { atlasColumns, atlasPixels, halfTexelUv }
+  return [
+    atlasTilePixelsViolation(candidate),
+    atlasInsetViolation(candidate),
+    atlasUvSpanViolation(candidate),
+  ].filter((violation): violation is string => violation !== undefined)
+}
+
+/** Validate the production atlas constants. */
+export const atlasLayoutViolations = (): ReadonlyArray<string> =>
+  atlasLayoutViolationsFor({
+    atlasColumns: ATLAS_COLUMNS,
+    atlasPixels: ATLAS_PIXELS,
+    halfTexelUv: HALF_TEXEL_UV,
+  })

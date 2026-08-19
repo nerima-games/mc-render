@@ -1,142 +1,38 @@
 /**
- * Quads to interleaved vertex buffers. THE HALF OF THE RENDERER THAT IS PURE.
+ * Converts `@nerima-games/mc-meshing` output into renderer-owned typed-array buffers.
  *
- * PRE-AUDIT FIRST CUT (叩き台).
- *
- * mc-meshing turns block ids into face lists; this turns a face list into the
- * five typed arrays a `BufferGeometry` is assembled from. No THREE, no DOM, no
- * services — so the whole of the geometry contract is testable under
- * `environment: 'node'`, and `application/world-renderer.ts` is left holding
- * only the calls that genuinely need a GPU.
- *
- * ---------------------------------------------------------------------------
- * Why `MeshQuad` is declared here and not imported from mc-meshing
- * ---------------------------------------------------------------------------
- *
- * `@nerima-games/mc-meshing` IS a permitted parent of this repository —
- * `scripts/check-dependency-whitelist.ts`'s authoritative row is
- * `mc-meshing, mc-sim, mc-worldgen`. It still cannot be imported because the
- * package publication boundary is unchanged:
- *
- *   1. NOTHING IS PUBLISHED (plan.md §6 Step 3 is bottom-up
- *      publish-then-pin), and mc-dev-meta's `check-repoint.ts` states the
- *      organisation-wide consequence — each repository also builds standalone
- *      in its own CI, where a `workspace:*` specifier does not resolve, so no
- *      package.json on disk may gain a sibling before it is published.
- *   2. mc-compose's `vite.config.ts` aliases exactly three siblings
- *      (`mc-render`, `mx-ui`, `mx-redstone`), because those are the three whose
- *      registration requirements a host can discharge. An import of
- *      `@nerima-games/mc-meshing` from this file would not resolve in the
- *      browser at all: the composed page would fail to boot, and mc-compose's
- *      smoke test #3 would go red for a reason that has nothing to do with
- *      rendering.
- *
- * So the type is MIRRORED, and the mirror is a copy with a scheduled death:
- * when mc-meshing is published, this declaration is deleted and the import
- * replaces it. What makes that safe is that the mirror is STRUCTURAL — a real
- * `mc-meshing.Quad` satisfies `MeshQuad` with no adaptation, because it is the
- * same shape spelled the same way. `test/chunk-geometry.test.ts` pins the field
- * names against mc-meshing's `domain/mesh.ts:149-169` so that a divergence is a
- * failing test rather than a silent mis-read.
- *
- * ---------------------------------------------------------------------------
- * QUADS ARE NOT UNIT FACES. This is the thing that is wrong everywhere if wrong
- * ---------------------------------------------------------------------------
- *
- * mc-meshing merges coplanar like-for-like faces into maximal rectangles, so
- * `width` and `height` are extents and are frequently much larger than 1 — on
- * flat terrain almost every quad is merged. A builder that assumed unit faces
- * would produce a mesh that is wrong over the overwhelming majority of the
- * surface, and wrong in the way that is hardest to see: the FACE COUNT and the
- * emission order would both be right, and only the shape would have moved.
- *
- * `width` and `height` run along `tangentAxes(direction)`, in that order, and
- * mc-meshing's `domain/faces.ts` is emphatic that this convention was implicit
- * until LOD simplification needed it and that implicit was wrong. It is
- * mirrored below rather than re-derived, because "the two axes that are not the
- * normal, in x, y, z order" is a rule that a reader and a writer can each get
- * right on their own and still disagree about.
- *
- * NOTE that this is NOT the reference's convention, and the difference is a
- * transposition rather than a disagreement. ts-minecraft's x-facing passes scan
- * `u = lz, v = y` (`packages/rendering/infrastructure/meshing/greedy-meshing-algorithms.ts:24`
- * and :63), so its `du` is the z extent and its `dv` is the y extent — the
- * opposite way round from `tangentAxes('xPos') === ['y', 'z']`. Transcribing
- * the reference's vertex formulae without applying that swap is exactly the
- * silent shape error above, on the four side directions only. `quadCorners`
- * below does the swap once, in one place, and the test file checks it by
- * measuring the emitted extents rather than by re-reading the formula.
- *
- * ---------------------------------------------------------------------------
- * AO IS ONE VALUE PER QUAD, NOT FOUR PER VERTEX
- * ---------------------------------------------------------------------------
- *
- * `MeshQuad.ao` is a single `[0, AO_MAX]` level for the whole face, and that is
- * the reference's model rather than a simplification of it —
- * mc-meshing's `domain/ambient-occlusion.ts` argues it at length, and its
- * central point is that PER-VERTEX AO AND GREEDY MERGING CONFLICT: a 16x1 run
- * has 17 corners and no set of four vertex shades reproduces them. Per-face AO
- * does not conflict, because the value joins the merge key, so every cell a
- * quad covers already agreed on it.
- *
- * The consequence here is that all four vertices of a quad get the SAME colour,
- * which is what `greedy-meshing-passes.ts:154` does too (`aoQuad[0] = ao;
- * aoQuad[1] = ao; ...`). The four-value write is kept anyway rather than being
- * collapsed into a per-face attribute, because per-vertex is where this has to
- * end up when a light grid arrives and the two stop agreeing.
+ * Geometry stays independent of Three.js and DOM state. The dependency owns
+ * voxel identities and meshing output; this module owns GPU-buffer layout.
  */
+import {
+  AO_LEVELS,
+  AO_MAX,
+  AO_NONE,
+  type CrossPlantQuad as MeshingCrossPlantQuad,
+  type FaceDirection as MeshingFaceDirection,
+  type FaceRole as MeshingFaceRole,
+  type FluidQuad as MeshingFluidQuad,
+  type Quad as MeshingQuad,
+  type QuadAxis as MeshingQuadAxis,
+  faceOf,
+  tangentAxes,
+} from '@nerima-games/mc-meshing'
 
-/** The six face directions. Structural mirror of mc-meshing's `FaceDirection`. */
-export type FaceDirection = 'xPos' | 'xNeg' | 'yPos' | 'yNeg' | 'zPos' | 'zNeg'
+/** Shared face vocabulary, consumed directly from mc-meshing. */
+export type FaceDirection = MeshingFaceDirection
+export type FaceRole = MeshingFaceRole
 
-/** The three texturing roles. Structural mirror of mc-meshing's `FaceRole`. */
-export type FaceRole = 'top' | 'bottom' | 'side'
+/** One of the three chunk-local axes used by quad extents. */
+export type QuadAxis = MeshingQuadAxis
 
-/** One of the three chunk-local axes. Not a coordinate — a choice of axis. */
-export type QuadAxis = 'x' | 'y' | 'z'
+/** Direct aliases keep geometry aligned with the published meshing output. */
+export type MeshQuad = MeshingQuad
+export type FluidQuad = MeshingFluidQuad
+export type CrossPlantQuad = MeshingCrossPlantQuad
+export type RenderableQuad = MeshQuad | CrossPlantQuad | FluidQuad
 
-/**
- * One emitted quad. STRUCTURAL MIRROR of `mc-meshing/domain/mesh.ts:149-169`.
- *
- * Positions are chunk-local and `(lx, y, lz)` is the MINIMUM corner on every
- * axis; `width` and `height` are the extents along `tangentAxes(direction)`.
- * See this file's header for why the type is mirrored and when it dies.
- */
-export type MeshQuad = {
-  readonly blockId: number
-  readonly direction: FaceDirection
-  readonly role: FaceRole
-  readonly lx: number
-  readonly y: number
-  readonly lz: number
-  /** Extent along the face's first tangent axis. At least 1; larger when merged. */
-  readonly width: number
-  /** Extent along the face's second tangent axis. At least 1; larger when merged. */
-  readonly height: number
-  /** Ambient occlusion for the WHOLE quad, in `[0, AO_MAX]`. Higher is darker. */
-  readonly ao: number
-}
-
-/**
- * The two axes a quad's `width` and `height` run along, in that order.
- *
- * Mirror of `mc-meshing/domain/faces.ts`'s `tangentAxes`. Present so that
- * `quadCorners` reads the convention from a named function rather than from six
- * hand-transposed formulae, and so that a test can assert the convention itself
- * rather than its consequences.
- */
-export const tangentAxes = (direction: FaceDirection): readonly [QuadAxis, QuadAxis] => {
-  switch (direction) {
-    case 'xPos':
-    case 'xNeg':
-      return ['y', 'z']
-    case 'yPos':
-    case 'yNeg':
-      return ['x', 'z']
-    default:
-      return ['x', 'y']
-  }
-}
+/** Use mc-meshing's canonical width/height axis convention directly. */
+export { tangentAxes }
 
 /** Vertices and indices per quad. Two triangles, four shared corners. */
 export const VERTICES_PER_QUAD = 4
@@ -161,16 +57,6 @@ export const TILE_INDEX_COMPONENTS = 1
 export const FLUID_DIRECTION_COMPONENTS = 2
 export const FLUID_FALLING_COMPONENTS = 1
 
-export type FluidQuad = {
-  readonly blockId: number
-  readonly direction: FaceDirection
-  readonly vertices: readonly [QuadVertex, QuadVertex, QuadVertex, QuadVertex]
-  readonly flow?: {
-    readonly direction: readonly [flowX: number, flowZ: number]
-    readonly falling: boolean
-  }
-  readonly ao: number
-}
 
 /**
  * How dark each AO level draws, as an 8-bit vertex-colour channel.
@@ -184,12 +70,12 @@ export type FluidQuad = {
  * difference is stated here rather than discovered later. The reference feeds
  * this into a custom fragment shader that combines it as
  * `diffuse *= (0.45 + 0.55*light) * (0.8 + 0.2*R)` (:135), so its AO spans a
- * 20% range. This repository has no shader yet: `MeshBasicMaterial` with
+ * 20% range. The production chunk path now applies that curve in
+ * `./chunk-shader.ts`, while the base renderer still accepts `MeshBasicMaterial`
+ * as an intentionally unlit fallback. In that fallback,
  * `vertexColors` multiplies the base colour by the vertex colour directly, so
- * the same table spans 100% down to 40%. The shading is therefore STRONGER than
- * the reference's, by a factor this file does not attempt to correct — dividing
- * the range here would put a shader's job in a geometry builder, and the number
- * to divide by is a property of a shader that has not been written.
+ * the same table spans 100% down to 40%. Geometry does not rewrite the table to
+ * compensate for a material; the material owns the final interpretation.
  */
 /** 8-bit shade for AO level 0: fully unoccluded. */
 const AO_LEVEL_0_SHADE = 255
@@ -207,17 +93,11 @@ export const AO_SHADE_BY_LEVEL: ReadonlyArray<number> = [
   AO_LEVEL_3_SHADE,
 ]
 
-/** Levels `AO_SHADE_BY_LEVEL` covers. Mirrors mc-meshing's `AO_LEVELS`. */
-export const AO_LEVELS = AO_SHADE_BY_LEVEL.length
-
-/** Converts a count (here, `AO_LEVELS`) to its highest valid index. */
-const INDEX_FROM_COUNT = 1
-
-/** Highest (darkest) level. Mirrors mc-meshing's `AO_MAX`. */
-export const AO_MAX = AO_LEVELS - INDEX_FROM_COUNT
+/** Keep the renderer's public AO vocabulary sourced from mc-meshing. */
+export { AO_LEVELS, AO_MAX }
 
 /** The lowest AO level: fully unoccluded. The floor `aoShade` clamps to. */
-const AO_MIN_LEVEL = 0
+const AO_MIN_LEVEL = AO_NONE
 
 /** The shade of the most occluded level. See `aoShade` on why it is a fallback. */
 const AO_DARKEST = AO_LEVEL_3_SHADE
@@ -249,29 +129,10 @@ export type QuadVertex = readonly [number, number, number]
 /** The four corners of a quad, in winding order. */
 export type QuadCorners = readonly [QuadVertex, QuadVertex, QuadVertex, QuadVertex]
 
-/** A unit normal's component along its own axis, pointing toward positive infinity. */
-const AXIS_POSITIVE = 1
-/** A unit normal's component along its own axis, pointing toward negative infinity. */
-const AXIS_NEGATIVE = -1
-/** A unit normal's component along an axis it does not point along. */
-const AXIS_NONE = 0
-
 /** The unit normal of a face direction. */
 export const faceNormal = (direction: FaceDirection): QuadVertex => {
-  switch (direction) {
-    case 'xPos':
-      return [AXIS_POSITIVE, AXIS_NONE, AXIS_NONE]
-    case 'xNeg':
-      return [AXIS_NEGATIVE, AXIS_NONE, AXIS_NONE]
-    case 'yPos':
-      return [AXIS_NONE, AXIS_POSITIVE, AXIS_NONE]
-    case 'yNeg':
-      return [AXIS_NONE, AXIS_NEGATIVE, AXIS_NONE]
-    case 'zPos':
-      return [AXIS_NONE, AXIS_NONE, AXIS_POSITIVE]
-    default:
-      return [AXIS_NONE, AXIS_NONE, AXIS_NEGATIVE]
-  }
+  const { nx, ny, nz } = faceOf(direction)
+  return [nx, ny, nz]
 }
 
 /**
@@ -504,7 +365,7 @@ const EMPTY_BUFFERS: ChunkGeometryBuffers = {
  * keeps the decision outside — `./voxel-lighting.ts` holds the curve, a host
  * supplies the light readings, and this file multiplies nothing.
  */
-export type QuadShade = (quad: MeshQuad) => number
+export type QuadShade = (quad: RenderableQuad) => number
 
 /**
  * The three colour channels of a quad's vertices, 0-255 each.
@@ -512,9 +373,9 @@ export type QuadShade = (quad: MeshQuad) => number
  * THREE CHANNELS AND NOT ONE, because the two paths this repository has to
  * support disagree about what a channel means and agree about the layout:
  *
- *   NO SHADER — `MeshBasicMaterial` multiplies the vertex colour directly, so
- *   the only honest output is a GREY: one number, written three times. See
- *   `./voxel-lighting.ts`'s header.
+ *   FALLBACK MATERIAL — `MeshBasicMaterial` multiplies the vertex colour
+ *   directly, so the only honest output is a GREY: one number, written three
+ *   times. The base renderer keeps this path for unlit callers.
  *
  *   WITH A SHADER — the reference packs `R = AO, G = sky, B = block` and lets
  *   the fragment stage combine them, so the three channels carry three
@@ -525,7 +386,7 @@ export type QuadShade = (quad: MeshQuad) => number
  * serve both without a `packed: boolean` that would have to be threaded
  * through every caller. `greyChannels` below is the adapter for the first.
  */
-export type QuadColor = (quad: MeshQuad) => readonly [number, number, number]
+export type QuadColor = (quad: RenderableQuad) => readonly [number, number, number]
 
 /** One value in all three channels: the grey an unlit material can show. */
 export const greyChannels = (shade: number): readonly [number, number, number] => [shade, shade, shade]
@@ -569,7 +430,7 @@ export const AO_ONLY_COLOR: QuadColor = greyQuadColor(AO_ONLY_SHADE)
  * (`block-texture-map.ts` imports `FaceRole` from here) and the reverse would
  * close a cycle.
  */
-export type QuadTile = (quad: MeshQuad) => number
+export type QuadTile = (quad: RenderableQuad) => number
 
 /** The tile index every quad draws when no atlas is bound. See `UNTEXTURED_TILE`. */
 const UNTEXTURED_TILE_INDEX = 0
@@ -767,16 +628,53 @@ const writeQuadIndices = (indices: Uint32Array, indexOffset: number, base: numbe
  * four times and quietly quadruples the cost of a re-mesh. Once per quad for
  * the same reason `tile` is: the tile joins the merge key upstream too.
  */
-const processQuad = (context: ChunkBuildContext, quad: MeshQuad, quadIndex: number): void => {
+type ProjectedQuad = MeshQuad | FluidQuad
+
+const processQuad = (
+  context: ChunkBuildContext,
+  source: ProjectedQuad,
+  quad: MeshQuad,
+  quadIndex: number,
+): void => {
   const corners = quadCorners(quad, context.originX, context.originZ)
   const normal = faceNormal(quad.direction)
-  const color = context.color(quad)
+  const color = context.color(source)
   const [uExtent, vExtent] = quadUvExtent(quad)
-  const tileIndex = context.tile(quad)
+  const tileIndex = context.tile(source)
   const base = quadIndex * VERTICES_PER_QUAD
   writeQuadCorners(context.buffers, base, { color, corners, normal, tileIndex })
   writeQuadUVs(context.buffers.uvs, base * UV_COMPONENTS, [uExtent, vExtent])
   writeQuadIndices(context.buffers.indices, quadIndex * INDICES_PER_QUAD, base)
+}
+
+const buildProjectedGeometry = <TQuad extends ProjectedQuad>(
+  quads: ReadonlyArray<TQuad>,
+  project: (quad: TQuad) => MeshQuad,
+  originX: number,
+  originZ: number,
+  color: QuadColor,
+  tile: QuadTile,
+): ChunkGeometryBuffers => {
+  const quadCount = quads.length
+  if (quadCount === EMPTY_QUAD_COUNT) {
+    return EMPTY_BUFFERS
+  }
+
+  const buffers = allocateChunkWriteBuffers(quadCount * VERTICES_PER_QUAD, quadCount * INDICES_PER_QUAD)
+  const context: ChunkBuildContext = { buffers, color, originX, originZ, tile }
+  for (let quadIndex = 0; quadIndex < quadCount; quadIndex += LOOP_STEP) {
+    const quad = quads[quadIndex]
+    if (quad) {
+      processQuad(context, quad, project(quad), quadIndex)
+    }
+  }
+
+  return {
+    ...buffers,
+    indexCount: quadCount * INDICES_PER_QUAD,
+    quadCount,
+    vertexCount: quadCount * VERTICES_PER_QUAD,
+  }
 }
 
 /**
@@ -813,6 +711,44 @@ export const buildChunkGeometry = (
   originZ = DEFAULT_CHUNK_ORIGIN,
   color: QuadColor = AO_ONLY_COLOR,
   tile: QuadTile = UNTEXTURED_TILE,
+): ChunkGeometryBuffers => buildProjectedGeometry(quads, (quad) => quad, originX, originZ, color, tile)
+
+const UNIT_UV_EXTENT = 1
+const CROSS_PLANT_UV_EXTENT: readonly [number, number] = [UNIT_UV_EXTENT, UNIT_UV_EXTENT]
+const X_COMPONENT_INDEX = 0
+const Y_COMPONENT_INDEX = 1
+const Z_COMPONENT_INDEX = 2
+
+const crossPlantCorners = (quad: CrossPlantQuad, originX: number, originZ: number): QuadCorners => {
+  const [first, second, third, fourth] = quad.vertices
+  return [
+    [first[X_COMPONENT_INDEX] + originX, first[Y_COMPONENT_INDEX], first[Z_COMPONENT_INDEX] + originZ],
+    [second[X_COMPONENT_INDEX] + originX, second[Y_COMPONENT_INDEX], second[Z_COMPONENT_INDEX] + originZ],
+    [third[X_COMPONENT_INDEX] + originX, third[Y_COMPONENT_INDEX], third[Z_COMPONENT_INDEX] + originZ],
+    [fourth[X_COMPONENT_INDEX] + originX, fourth[Y_COMPONENT_INDEX], fourth[Z_COMPONENT_INDEX] + originZ],
+  ]
+}
+
+const processCrossPlantQuad = (context: ChunkBuildContext, quad: CrossPlantQuad, quadIndex: number): void => {
+  const base = quadIndex * VERTICES_PER_QUAD
+  const color = context.color(quad)
+  const tileIndex = context.tile(quad)
+  writeQuadCorners(context.buffers, base, {
+    color,
+    corners: crossPlantCorners(quad, context.originX, context.originZ),
+    normal: [quad.nx, quad.ny, quad.nz],
+    tileIndex,
+  })
+  writeQuadUVs(context.buffers.uvs, base * UV_COMPONENTS, CROSS_PLANT_UV_EXTENT)
+  writeQuadIndices(context.buffers.indices, quadIndex * INDICES_PER_QUAD, base)
+}
+
+export const buildCrossPlantGeometry = (
+  quads: ReadonlyArray<CrossPlantQuad>,
+  originX = DEFAULT_CHUNK_ORIGIN,
+  originZ = DEFAULT_CHUNK_ORIGIN,
+  color: QuadColor = AO_ONLY_COLOR,
+  tile: QuadTile = UNTEXTURED_TILE,
 ): ChunkGeometryBuffers => {
   const quadCount = quads.length
   if (quadCount === EMPTY_QUAD_COUNT) {
@@ -824,7 +760,7 @@ export const buildChunkGeometry = (
   for (let quadIndex = 0; quadIndex < quadCount; quadIndex += LOOP_STEP) {
     const quad = quads[quadIndex]
     if (quad) {
-      processQuad(context, quad, quadIndex)
+      processCrossPlantQuad(context, quad, quadIndex)
     }
   }
 
@@ -1070,7 +1006,14 @@ export const buildFluidGeometry = (
   const fallingCells = new Set(
     quads.filter((quad) => quad.direction === 'yPos' && quad.flow?.falling === true).map(fluidCellKey),
   )
-  const built = buildChunkGeometry(quads.map(fluidProxyQuad), DEFAULT_CHUNK_ORIGIN, DEFAULT_CHUNK_ORIGIN, color, tile)
+  const built = buildProjectedGeometry(
+    quads,
+    fluidProxyQuad,
+    DEFAULT_CHUNK_ORIGIN,
+    DEFAULT_CHUNK_ORIGIN,
+    color,
+    tile,
+  )
   const context: FluidQuadContext = { built, fallingCells, origin: [originX, originZ] }
 
   for (let quadIndex = 0; quadIndex < quads.length; quadIndex += LOOP_STEP) {

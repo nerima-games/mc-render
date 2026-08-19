@@ -54,16 +54,23 @@
  * domain. Whether a click may take the pointer is decided there, not here.
  *
  * ---------------------------------------------------------------------------
- * What this file does NOT do about Tab
+ * What this file does NOT do about Tab, and what it delegates for arrows
  * ---------------------------------------------------------------------------
  *
- * It does not listen for it, does not move focus, and does not suppress it. The
- * browser already moves focus on Tab, and mx-ui deliberately put its focus ring
- * and its single tab stop on the SAME slot so that the platform's own answer is
- * the right one by construction. What was missing was nobody noticing, and
- * `focusin`/`focusout` are the whole of the fix. See `FOCUS_NAVIGATION_POLICY`
- * in `input-service.ts` for why suppressing Tab is not an option at any lock
- * state, and `PREVENT_DEFAULT_EVENTS` below for the list that stays at two.
+ * It does not listen for Tab, move focus for Tab, or suppress it. The browser
+ * already moves focus on Tab, and mx-ui deliberately put its focus ring and its
+ * single tab stop on the SAME slot so that the platform's own answer is the
+ * right one by construction. What was missing was nobody noticing, and
+ * `focusin`/`focusout` are the whole of the fix.
+ *
+ * Arrow-key movement is different: the browser cannot know the host's inventory
+ * or hotbar topology. An optional host callback receives a declared focus
+ * target and semantic direction; only a callback result of `true` suppresses
+ * that arrow's default. The callback owns the actual UI operation, including
+ * `focus()`. See `FOCUS_NAVIGATION_POLICY` in `input-listener-plan.ts` and
+ * `ARROW_FOCUS_NAVIGATION_POLICY` in `domain/focus-navigation.ts` for the two
+ * ownership rules, and `PREVENT_DEFAULT_EVENTS` below for the events
+ * whose listeners must be able to make a conditional suppression.
  *
  * ---------------------------------------------------------------------------
  * Teardown is exact, and it is checkable
@@ -84,6 +91,7 @@
  * silently does nothing, which is why the options object is stored rather than
  * rebuilt.
  */
+import * as focusNavigation from '../domain/focus-navigation'
 import {
   type Bindings,
   type ClickLanding,
@@ -108,12 +116,12 @@ import {
   type InputEvent,
   InputService,
   type InputServiceApi,
-  LISTENER_PLAN,
   type PointerLockPort,
   type PointerLockRequestOutcome,
   UNAVAILABLE_POINTER_LOCK,
   makeInputService,
 } from './input-service'
+import { LISTENER_PLAN } from './input-listener-plan'
 
 /**
  * The two objects the plan's two `ListenerTarget`s name.
@@ -195,6 +203,13 @@ export type FocusGroupTargets = {
   readonly group: string
   readonly targets: ReadonlyArray<unknown>
 }
+
+type FocusNavigationDirection = NonNullable<ReturnType<typeof focusNavigation.focusNavigationDirectionForCode>>
+
+export type FocusNavigationHandler = (
+  direction: FocusNavigationDirection,
+  current: FocusTarget,
+) => boolean
 
 /**
  * The group and position of a focused element, or `undefined` for an element in
@@ -399,11 +414,12 @@ export type DomEventContext = {
  * The events whose handler MAY call `preventDefault()`, and therefore the events
  * that must be registered with `passive: false`.
  *
- * Exactly two, and the same two the domain has predicates for:
- * `wheel` (`suppressesBrowserScroll`) and `contextmenu`
- * (`suppressesBrowserContextMenu`). One list drives both the listener options
- * and the handler, so "non-passive" and "may prevent the default" cannot drift
- * apart.
+ * The list contains the two unconditional gameplay predicates — `wheel`
+ * (`suppressesBrowserScroll`) and `contextmenu` (`suppressesBrowserContextMenu`)
+ * — plus `keydown`, whose handler may suppress a consumed host-owned arrow.
+ * One list drives both the listener options and the handler, so "non-passive"
+ * and "may prevent the default" cannot drift apart. Tab is never consumed even
+ * though its shared keydown listener is registered with `passive: false`.
  *
  * Only `wheel` strictly NEEDS it — browsers make `wheel`, `mousewheel`,
  * `touchstart` and `touchmove` passive by default at `window`, `document` and
@@ -433,7 +449,7 @@ export type DomEventContext = {
  * undeclared touch control would have read "not UI" and grabbed the pointer on
  * every single tap.
  */
-export const PREVENT_DEFAULT_EVENTS: ReadonlyArray<string> = ['wheel', 'contextmenu']
+export const PREVENT_DEFAULT_EVENTS: ReadonlyArray<string> = ['wheel', 'contextmenu', 'keydown']
 
 /** Whether the handler for `eventName` may call `preventDefault()`. */
 export const mayPreventDefault = (eventName: string): boolean =>
@@ -735,6 +751,17 @@ export type InstallInputListenersOptions = {
    */
   readonly focusGroups?: ReadonlyArray<FocusGroupTargets>
   /**
+   * The host's UI-specific arrow-key movement policy.
+   *
+   * The adapter calls this only for an arrow `keydown` whose target belongs to
+   * a declared focus group and while pointer lock is not held. Returning true
+   * means the host moved focus, so the adapter prevents the browser default and
+   * does not dispatch the key to `InputService`. Returning false leaves the key
+   * on the ordinary input path. The callback owns the actual UI operation,
+   * including any `focus()` call; Tab remains user-agent-owned.
+   */
+  readonly focusNavigation?: FocusNavigationHandler
+  /**
    * The element the pointer lock would be granted to — the canvas.
    *
    * The SAME object the `PointerLockPort` asks, and that is the whole rule:
@@ -803,7 +830,7 @@ const dispatchTouchRelease = (
     return
   }
   state.touchActions.delete(contact.identifier)
-  const count = state.touchActionCounts.get(action) ?? ONE_FINGER_HOLDING
+  const count = state.touchActionCounts.get(action)!
   if (count <= ONE_FINGER_HOLDING) {
     state.touchActionCounts.delete(action)
     Effect.runSync(state.input.dispatch({ action, kind: 'touchrelease', target }))
@@ -840,12 +867,86 @@ const dispatchTouchEvent = (state: TouchDispatchState, request: TouchDispatchReq
   return true
 }
 
+type InputListenerContext = {
+  readonly focusGroups: ReadonlyArray<FocusGroupTargets>
+  readonly focusNavigation: FocusNavigationHandler | undefined
+  readonly planned: PlannedListener
+  readonly pointerLockTarget: unknown
+  readonly readsLockElement: boolean
+  readonly suppression: Effect.Effect<boolean> | undefined
+  readonly targets: BrowserInputTargets
+  readonly touchState: TouchDispatchState
+}
+
+const consumeFocusNavigation = (
+  event: DomInputEvent,
+  context: InputListenerContext,
+): boolean => {
+  if (context.planned.event !== 'keydown' || typeof context.focusNavigation === 'undefined') {
+    return false
+  }
+  const direction = focusNavigation.focusNavigationDirectionForCode(event.code)
+  if (typeof direction === 'undefined' || isPointerLockHeld(context.targets.document)) {
+    return false
+  }
+  const current = resolveFocusTarget(context.focusGroups, event.target)
+  if (typeof current === 'undefined' || !context.focusNavigation(direction, current)) {
+    return false
+  }
+  event.preventDefault()
+  return true
+}
+
+const preventDefaultForSuppression = (
+  event: DomInputEvent,
+  suppression: Effect.Effect<boolean> | undefined,
+): void => {
+  if (typeof suppression !== 'undefined' && Effect.runSync(suppression)) {
+    event.preventDefault()
+  }
+}
+
+const handleTouchEvent = (event: DomInputEvent, context: InputListenerContext): boolean => {
+  const { planned, touchState } = context
+  if (planned.event === 'touchstart') {
+    return dispatchTouchEvent(touchState, { event, kind: 'touchpress', target: planned.target })
+  }
+  if (planned.event === 'touchend' || planned.event === 'touchcancel') {
+    return dispatchTouchEvent(touchState, { event, kind: 'touchrelease', target: planned.target })
+  }
+  return false
+}
+
+const handleInputEvent = (event: DomInputEvent, context: InputListenerContext): void => {
+  const { planned, suppression, targets, touchState } = context
+  /* Suppression runs before translation so an untranslatable wheel still cannot
+     scroll the page out from under a locked canvas. */
+  preventDefaultForSuppression(event, suppression)
+  if (handleTouchEvent(event, context)) {
+    return
+  }
+  if (consumeFocusNavigation(event, context)) {
+    return
+  }
+
+  const translated = translateDomEvent(planned, event, {
+    focusGroups: context.focusGroups,
+    pointerLockHeld: context.readsLockElement && isPointerLockHeld(targets.document),
+    pointerLockTarget: context.pointerLockTarget,
+    touchControls: touchState.touchControls,
+  })
+  if (typeof translated !== 'undefined') {
+    Effect.runSync(touchState.input.dispatch(translated))
+  }
+}
+
 export const installInputListeners = (
   targets: BrowserInputTargets,
   input: InputServiceApi,
   options: InstallInputListenersOptions = {},
 ): InstalledInputListeners => {
   const focusGroups = options.focusGroups ?? []
+  const navigationHandler = options.focusNavigation
   const { pointerLockTarget } = options
   const touchControls = options.touchControls ?? []
   const touchState: TouchDispatchState = {
@@ -861,40 +962,17 @@ export const installInputListeners = (
        test rather than a property read on `document` for every mousemove. */
     const readsLockElement = planned.event === 'pointerlockchange'
 
-    const listener: DomListener = (event) => {
-      /* BEFORE the dispatch. The two are independent for the two events that
-         have a suppression — neither `wheel` nor `contextmenu` changes the lock
-         state — but doing it first means the browser default is suppressed even
-         when the event turns out to be untranslatable. A wheel whose
-         `deltaMode` cannot be named must still not scroll the page out from
-         under a locked canvas. */
-      if (typeof suppression !== 'undefined' && Effect.runSync(suppression)) {
-        event.preventDefault()
-      }
-
-      if (
-        planned.event === 'touchstart' &&
-        dispatchTouchEvent(touchState, { event, kind: 'touchpress', target: planned.target })
-      ) {
-        return
-      }
-      if (
-        (planned.event === 'touchend' || planned.event === 'touchcancel') &&
-        dispatchTouchEvent(touchState, { event, kind: 'touchrelease', target: planned.target })
-      ) {
-        return
-      }
-
-      const translated = translateDomEvent(planned, event, {
+    const listener: DomListener = (event) =>
+      handleInputEvent(event, {
         focusGroups,
-        pointerLockHeld: readsLockElement && isPointerLockHeld(targets.document),
+        focusNavigation: navigationHandler,
+        planned,
         pointerLockTarget,
-        touchControls,
+        readsLockElement,
+        suppression,
+        targets,
+        touchState,
       })
-      if (typeof translated !== 'undefined') {
-        Effect.runSync(input.dispatch(translated))
-      }
-    }
 
     return {
       event: planned.event,
@@ -1070,6 +1148,13 @@ export type BrowserInputOptions = {
    */
   readonly focusGroups?: ReadonlyArray<FocusGroupTargets>
   /**
+   * Optional host-owned movement for an arrow key on a declared focus target.
+   * A true result consumes the key and prevents its browser default; false
+   * keeps the normal `InputService` dispatch. The callback is not called while
+   * pointer lock is held and never handles Tab.
+   */
+  readonly focusNavigation?: FocusNavigationHandler
+  /**
    * The on-screen controls to bind, if this host drew any.
    *
    * A touch host passes one entry per control —
@@ -1121,11 +1206,15 @@ export const browserInputLayer = (options: BrowserInputOptions): Layer.Layer<Inp
          second from the first is what makes the fix cost a browser host nothing
          — the declaration it already had to make now also scopes the
          acquisition (DN-16 §5(b)). */
-      yield* scopedInputListeners(options.targets, input, {
+      let listenerOptions: InstallInputListenersOptions = {
         focusGroups: options.focusGroups ?? [],
         pointerLockTarget: options.canvas,
         touchControls: options.touchControls ?? [],
-      })
+      }
+      if (typeof options.focusNavigation !== 'undefined') {
+        listenerOptions = { ...listenerOptions, focusNavigation: options.focusNavigation }
+      }
+      yield* scopedInputListeners(options.targets, input, listenerOptions)
       return input
     }),
   )

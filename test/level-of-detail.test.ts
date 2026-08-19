@@ -14,7 +14,7 @@
  *   4. the dead-tier defect at `renderDistance = 4`, pinned as arithmetic
  *   5. the ratio rule, shown to fix (4) without touching (3)
  *   6. forward and inverse are actually inverses
- *   7. the mirror agrees with mc-meshing, and with `world-renderer.ts`
+ *   7. the shared mc-meshing vocabulary agrees with the renderer's policy
  */
 import { describe, expect, it } from '@effect/vitest'
 import { Effect, FastCheck } from 'effect'
@@ -32,7 +32,7 @@ import {
   unreachableLodTiers,
   type LodThresholds,
 } from '../src/domain/level-of-detail'
-import { CHUNK_SIZE, LOD_LEVELS, STEP_FOR_LOD, type LodLevel } from '../src/domain/lod-vocabulary'
+import { CHUNK_SIZE, LOD_LEVELS, STEP_FOR_LOD, type LodLevel } from '@nerima-games/mc-meshing'
 import { CAMERA_FOV_DEGREES } from '../src/application/world-renderer'
 
 const arbitraryLevel: FastCheck.Arbitrary<LodLevel> = FastCheck.constantFrom(...LOD_LEVELS)
@@ -390,28 +390,21 @@ describe('lodThresholdsForRenderDistance', () => {
   )
 })
 
-describe('the mirrored vocabulary, and the constants it has to agree with', () => {
+describe('the shared mc-meshing vocabulary and its renderer invariants', () => {
   it.effect('REGRESSION: the step table matches mc-meshing`s, value for value', () =>
     Effect.sync(() => {
-      // `domain/lod-vocabulary.ts` mirrors `mc-meshing/domain/lod.ts:84`.
-      // mc-dev-meta's `check:mirrors` compares the two repositories on every
-      // run; this is the assertion INSIDE this repository, which is what fails
-      // first if somebody edits the mirror to make a local test pass.
-      //
-      // A stale step here does not produce a compile error or an obviously wrong
-      // picture — it makes `lodScreenErrorPixels` report a plausible pixel count
-      // that is wrong by the ratio of the two steps.
+      // These values are imported directly from mc-meshing, so this test
+      // protects the renderer's projection math against an upstream vocabulary
+      // change that would otherwise alter its pixel-error calculation.
       expect(STEP_FOR_LOD).toStrictEqual({ 0: 1, 1: 2, 2: 4 })
       expect(CHUNK_SIZE).toBe(16)
     }),
   )
 
-  it.effect('REGRESSION: mirrors the level union WHOLE, not a prefix of it', () =>
+  it.effect('REGRESSION: uses every published level, not a prefix of it', () =>
     Effect.sync(() => {
-      // The `ITEM_TYPES` lesson: mc-sim mirrored 23 of mc-kernel's 97 literals,
-      // both suites stayed green because each pinned its own copy, and only
-      // `check:repoint` found it. A partial mirror of a closed union is a
-      // narrower type, and the narrow direction is the one that type-checks.
+      // Importing the published closed union directly keeps this test aligned
+      // with upstream additions; a local copy could silently narrow it.
       expect([...LOD_LEVELS]).toStrictEqual([0, 1, 2])
       expect(Object.keys(STEP_FOR_LOD).length).toBe(LOD_LEVELS.length)
     }),
@@ -429,21 +422,11 @@ describe('the mirrored vocabulary, and the constants it has to agree with', () =
     }),
   )
 
-  it.effect('REGRESSION: the mirror is NOT re-exported from the barrel', () =>
+  it.effect('REGRESSION: mc-meshing vocabulary is NOT re-exported from the barrel', () =>
     Effect.gen(function* () {
-      // FOUND BY `check:repoint`, NOT BY ANYTHING IN THIS REPOSITORY, which is
-      // the whole reason this test exists rather than a comment.
-      //
-      // `export * from './domain/lod-vocabulary'` in index.ts becomes
-      // `export * from '@nerima-games/mc-meshing'` the day the mirror dies — a
-      // re-export of that package's entire surface — and nine of its names
-      // collide with `domain/chunk-geometry.ts`'s own structural mirrors.
-      // `pnpm verify` is green on either side of that line, because the
-      // collision only exists once the import is repointed.
-      //
-      // 14 of the 15 repositories in this organisation exclude their mirrors
-      // from their barrels for this reason. The exclusion is a claim, and an
-      // unpinned claim is one an `export *` restores by accident.
+      // The shared package is an implementation dependency, not part of this
+      // package's public barrel. Keeping that boundary prevents its broad
+      // surface from colliding with renderer-owned geometry vocabulary.
       const barrel = yield* Effect.promise(() => import('../src/index'))
       const names = Object.keys(barrel)
 

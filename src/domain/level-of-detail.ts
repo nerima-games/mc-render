@@ -7,7 +7,7 @@
  * `LOD2_DISTANCE_CHUNKS` are mc-render's, because `distanceChunks` is the norm
  * between the player's chunk and another one and mc-meshing holds no
  * coordinates (§3.3). `simplifyMesh` and the level vocabulary stayed there;
- * `./lod-vocabulary.ts` mirrors the vocabulary back.
+ * `@nerima-games/mc-meshing` owns the shared vocabulary.
  *
  * ---------------------------------------------------------------------------
  * THE TWO CONSTANTS ARRIVED WITH A JUSTIFICATION THAT IS WRONG BY A FACTOR OF TEN
@@ -120,7 +120,7 @@
  * `lodForDistance` is a pure function of a distance and holds no cache: the
  * cache belongs to whatever owns the chunk meshes, not to the level rule.
  */
-import { CHUNK_SIZE, LOD_LEVELS, type LodLevel, STEP_FOR_LOD } from './lod-vocabulary'
+import { CHUNK_SIZE, LOD_LEVELS, type LodLevel, STEP_FOR_LOD } from '@nerima-games/mc-meshing'
 
 /** The three tiers, named — derived from `LOD_LEVELS` rather than re-spelling `0, 1, 2`. */
 const [LOD_LEVEL_FINEST, LOD_LEVEL_MIDDLE, LOD_LEVEL_COARSEST] = LOD_LEVELS
@@ -338,7 +338,7 @@ const pixelsPerBlockAt = (distanceBlocks: number, view: ViewingConditions): numb
  *
  *   error[px] = (step - 1) / (CHUNK_SIZE * d) * H / (2 * tan(fov_v / 2))
  *
- * with `step = STEP_FOR_LOD[level]` mirrored from mc-meshing, so the numerator
+ * with `step = STEP_FOR_LOD[level]` from mc-meshing, so the numerator
  * tracks the snapping mechanism rather than a copy of it.
  *
  * WHY `step - 1` IS THE RIGHT NUMERATOR, since it is the one part that is not

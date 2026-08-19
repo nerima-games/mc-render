@@ -12,10 +12,12 @@
  *
  * docs/testing.md names this repository's preview 「固定チャンクを読み込んで
  * マテリアルとポストFXを目視」 — load a fixed chunk and eyeball the materials
- * and the post-processing. That needs a THREE.js adapter, a canvas and a GPU,
- * and mc-render deliberately has none of them: `tsconfig.base.json` omits "DOM"
- * from `lib`, which is exactly what makes the post-FX ordering, the wheel model
- * and the lock state machine testable in Node.
+ * and the post-processing. That needs a host-owned Three runtime adapter, a
+ * canvas and a GPU. mc-render's shipped preview intentionally does not own
+ * those runtime resources: `application/three-surface.ts` defines the
+ * structural contract, while `tsconfig.base.json` omits "DOM" from `lib`,
+ * which keeps the post-FX ordering, the wheel model and the lock state machine
+ * testable in Node.
  *
  * Adding THREE to the preview alone would trade that mechanical guarantee for a
  * promise that some other tsconfig keeps — the same argument mc-worldgen's
@@ -41,10 +43,9 @@
  * Constraints this app is written under
  * ---------------------------------------------------------------------------
  *
- *  - `apps` is in `SCAN_ROOTS` (scripts/check-dependency-whitelist.ts), so the
- *    preview's imports are gated like any other source here. It imports this
- *    repository's own modules and `effect`, which is already a declared
- *    dependency. No org package, no new npm dependency, no THREE.
+ *  - The preview is covered by the same TypeScript and lint gates as shipped
+ *    source. It imports this repository's own modules and `effect`, which is
+ *    already a declared dependency. No new npm dependency, no THREE.
  *  - The `Date.now()` / `new Date()` / `performance.now()` ban applies. The
  *    camera mirror's staleness is measured against a `MonotonicTimeSecs` this
  *    app holds and the operator moves, which is the whole point of that view.

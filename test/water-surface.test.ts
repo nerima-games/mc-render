@@ -3,10 +3,10 @@
  *
  * Two groups carry the weight:
  *
- *   - THE `forceSinglePass` GAP. The shared rule in domain/material-policy.ts
- *     returns `review-sharing` for water, and the reference sets the flag
- *     anyway. Both halves are pinned, so a future widening of the shared
- *     predicate fails here and leads the reader to the argument.
+ *   - THE `forceSinglePass` RULE. The shared rule in domain/material-policy.ts
+ *     classifies a flat water plane directly, while a closed translucent
+ *     volume remains review-sharing. Both sides are pinned so the semantic
+ *     boundary cannot silently widen to every transparent material.
  *   - THE SINE APPROXIMATION. Its error bound is MEASURED rather than quoted,
  *     which is how the reference's `~0.056` turns out to be a true statement
  *     about a function one sign away from the one it labels.
@@ -35,7 +35,6 @@ import {
   WATER_UNIFORM_NAMES,
   WATER_WRITES_DEPTH,
   waterDepthFactor,
-  waterForceSinglePassVerdict,
   waterSunAttenuation,
   waterTint,
   WAVE_APPROX_MAX_ERROR,
@@ -345,18 +344,15 @@ describe('the sun response', () => {
   )
 })
 
-// ---------------------------------------------------------------------------
-// LOAD-BEARING, and the finding this file exists to record. See the header of
-// domain/water-surface.ts.
-// ---------------------------------------------------------------------------
 describe('forceSinglePass on the water material', () => {
-  it.effect('the material is transcribed truthfully, alphaTest 0 and all', () =>
+  it.effect('the material is transcribed truthfully, including flatSurface', () =>
     Effect.sync(() => {
       expect(WATER_MATERIAL_SPEC).toStrictEqual({
         name: 'waterSurfaceMaterial',
         transparent: true,
         side: 'double',
         alphaTest: 0,
+        flatSurface: true,
         shared: true,
       })
       expect(WATER_WRITES_DEPTH).toBe(false)
@@ -364,52 +360,28 @@ describe('forceSinglePass on the water material', () => {
     }),
   )
 
-  it.effect('KNOWN GAP: the shared rule does NOT classify water as needing the flag', () =>
+  it.effect('the shared rule classifies a flat water plane without falsifying alphaTest', () =>
     Effect.sync(() => {
-      // material-policy.ts's predicate is `shared && two-pass && cutout`, and
-      // water is not a cutout. Its own header names water as one of the four
-      // correct applications (:67-68) and its own prose states the criterion as
-      // 「a cutout OR A FLAT SURFACE」 (:62-63) — only the cutout half is encoded.
-      //
-      // THE FAILURE MESSAGES BELOW CARRY THE ARGUMENT, not just the expectation.
-      // This test is designed to fail the day someone widens the predicate, and
-      // the person it fails for will be reading a CI log rather than this file.
-      // A bare `expected true to be false` would send them to delete the test.
-      const guidance =
-        'If you just taught requiresForceSinglePass about FLAT surfaces, this failure is ' +
-        'EXPECTED and this test is what should change — see docs/responsibility.md §2.1 and ' +
-        "domain/water-surface.ts's header. Water is shared + transparent + DoubleSide with " +
-        'alphaTest 0, so the cutout test says review-sharing, yet the reference correctly sets ' +
-        'forceSinglePass (water-material.ts:137) because a greedy-meshed water plane is not a ' +
-        'closed volume and the two-pass ordering resolves nothing. Delete this assertion ONLY ' +
-        'together with WATER_SURFACE_IS_FLAT and waterForceSinglePassVerdict, which exist ' +
-        'solely to cover the gap it records. Do NOT make this pass by giving water a non-zero ' +
-        'alphaTest: that would be falsifying the material to satisfy the rule.'
-
-      expect(requiresForceSinglePass(WATER_MATERIAL_SPEC), guidance).toBe(false)
-      expect(describeMaterialPolicy(WATER_MATERIAL_SPEC).kind, guidance).toBe('review-sharing')
-    }),
-  )
-
-  it.effect('and the reference nonetheless sets it, correctly — so this file composes the missing clause', () =>
-    Effect.sync(() => {
-      const verdict = waterForceSinglePassVerdict()
+      expect(requiresForceSinglePass(WATER_MATERIAL_SPEC)).toBe(true)
+      const verdict = describeMaterialPolicy(WATER_MATERIAL_SPEC)
       expect(verdict.kind).toBe('must-force-single-pass')
-      // The diagnostic carries the ARGUMENT, not just the verdict, the way
-      // docs/testing.md §5.6 requires of describeMaterialPolicy's.
-      expect(verdict.reason).toContain('FLAT')
-      expect(verdict.reason).toContain('not a closed volume')
-      expect(verdict.reason).toContain('water-material.ts:137')
+      expect(verdict.reason).toContain('flatSurface')
+      expect(verdict.reason).toContain('waterSurfaceMaterial')
     }),
   )
 
-  it.effect('and it defers to the shared rule for every case the shared rule DOES cover', () =>
+  it.effect('a closed translucent volume remains review-sharing', () =>
     Effect.sync(() => {
-      // The reverse test: the composed verdict must not simply always say
-      // "force it". A material that is not shared, or not two-pass, still gets
-      // material-policy's own answer.
-      const shared = describeMaterialPolicy(WATER_MATERIAL_SPEC)
-      expect(shared.kind).not.toBe(waterForceSinglePassVerdict().kind)
+      const closedVolume = { ...WATER_MATERIAL_SPEC, flatSurface: false }
+      const verdict = describeMaterialPolicy(closedVolume)
+      expect(requiresForceSinglePass(closedVolume)).toBe(false)
+      expect(verdict.kind).toBe('review-sharing')
+      expect(verdict.reason).toContain('genuinely translucent')
+    }),
+  )
+
+  it.effect('sharing and face-side policy still control the urgency', () =>
+    Effect.sync(() => {
       expect(describeMaterialPolicy({ ...WATER_MATERIAL_SPEC, shared: false }).kind).toBe('ok')
       expect(describeMaterialPolicy({ ...WATER_MATERIAL_SPEC, side: 'front' }).kind).toBe('ok')
     }),

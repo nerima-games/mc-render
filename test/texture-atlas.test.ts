@@ -14,6 +14,7 @@ import {
   ATLAS_PIXELS,
   ATLAS_TILE_COUNT,
   atlasLayoutViolations,
+  atlasLayoutViolationsFor,
   generateTerrainAtlas,
   HALF_TEXEL_UV,
   isTileIndex,
@@ -46,17 +47,9 @@ const tileAlphas = (data: Uint8ClampedArray, tile: number): ReadonlySet<number> 
 
 describe('generated terrain atlas', () => {
   /**
-   * Generates the full 512x512 atlas twice, deliberately (this is the one test
-   * proving `generateTerrainAtlas` doesn't share backing storage across
-   * calls), so it's the single heaviest test in this file. It fits well inside
-   * the suite's default 10s `testTimeout` (vitest.config.ts) uninstrumented,
-   * but V8's per-branch coverage counters (`pnpm test:coverage`) add enough
-   * overhead to a tight pixel-generation loop to cross that margin -- an
-   * instrumentation-overhead flake, not a regression (confirmed empirically,
-   * fix/ci-green-10, 2026-08-09: this test alone takes ~6-9s without
-   * coverage and consistently 11-14s with it, with zero change to
-   * `generateTerrainAtlas` itself on this branch). A longer timeout on just
-   * this test, rather than raising `testTimeout` for the whole suite.
+   * Generates the full atlas twice so the test covers both determinism and
+   * independent backing storage. Native byte comparison keeps the exactness
+   * check cheap when the suite runs with V8 coverage instrumentation.
    */
   it.effect(
     'has exact RGBA dimensions and is deterministic without sharing storage',
@@ -67,7 +60,7 @@ describe('generated terrain atlas', () => {
         expect(first.width).toBe(512)
         expect(first.height).toBe(512)
         expect(first.data).toHaveLength(512 * 512 * 4)
-        expect(first.data).toStrictEqual(second.data)
+        expect(Buffer.compare(Buffer.from(first.data), Buffer.from(second.data))).toBe(0)
         expect(first.data).not.toBe(second.data)
       }),
     20000,
@@ -129,6 +122,27 @@ describe('the atlas layout constants', () => {
   it.effect('are internally consistent', () =>
     Effect.sync(() => {
       expect(atlasLayoutViolations()).toStrictEqual([])
+    }),
+  )
+
+  it.effect('reports each malformed candidate layout instead of hiding its cause', () =>
+    Effect.sync(() => {
+      expect(
+        atlasLayoutViolationsFor({
+          atlasColumns: ATLAS_COLUMNS,
+          atlasPixels: ATLAS_PIXELS + 1,
+          halfTexelUv: HALF_TEXEL_UV,
+        }),
+      ).toHaveLength(1)
+
+      const consumedTile = atlasLayoutViolationsFor({
+        atlasColumns: ATLAS_COLUMNS,
+        atlasPixels: ATLAS_PIXELS,
+        halfTexelUv: TILE_UV_PITCH / 2,
+      })
+      expect(consumedTile).toHaveLength(2)
+      expect(consumedTile[0]).toContain('whole tile')
+      expect(consumedTile[1]).toContain('not positive')
     }),
   )
 })

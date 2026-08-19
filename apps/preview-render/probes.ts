@@ -10,10 +10,10 @@
  *
  * **Nothing here asserts.** These probes print. Anything in here that turns out
  * to be a real invariant belongs in `test/`, where it can fail CI; each note
- * says which test holds the claim, and each KNOWN GAP says why it is a pin
- * rather than a fix.
+ * says which test holds the claim, and each host-owned gap says why it remains
+ * a boundary rather than a fix.
  */
-import { Effect } from 'effect'
+import { Effect, Ref } from 'effect'
 import {
   InputService,
   InputServiceLayer,
@@ -279,11 +279,13 @@ const blurProbe = Effect.gen(function* () {
 
 const mirrorProbe = Effect.gen(function* () {
   const state = yield* makeRenderFrameState()
-  const seededMirror = mirroredCameraState(UNSET_CAMERA_POSE)
+  const initialMirror = yield* Ref.get(state.mirroredCamera)
+  const initialLag = yield* Ref.get(state.mirrorLagSecs)
+  const publishedMirror = mirroredCameraState(UNSET_CAMERA_POSE)
 
   const rows = [0, 0.05, 0.1, 0.100001, 1, 30].map((now) => {
     const at = MonotonicTimeSecs(now)
-    return `   ${padStart(fixed(now, 6), 12)}${padStart(fixed(mirrorLagSecs(seededMirror, at), 6), 16)}${padStart(String(isMirrorStale(seededMirror, at)), 16)}`
+    return `   ${padStart(fixed(now, 6), 12)}${padStart(fixed(mirrorLagSecs(publishedMirror, at), 6), 16)}${padStart(String(isMirrorStale(publishedMirror, at)), 16)}`
   })
 
   return [
@@ -293,36 +295,20 @@ const mirrorProbe = Effect.gen(function* () {
     ),
     `   makeRenderFrameState() seeds:`,
     `   ${cell('authoritativePose', 26)}UNSET_CAMERA_POSE, capturedAtSecs ${String(UNSET_CAMERA_POSE.capturedAtSecs)}`,
-    `   ${cell('mirroredCamera', 26)}mirroredCameraState(UNSET_CAMERA_POSE), sourceCapturedAtSecs ${String(seededMirror.sourceCapturedAtSecs)}`,
-    `   ${cell('mirrorLagSecs', 26)}${String(yield* Effect.map(Effect.succeed(0), (value) => value))}   <-- the literal 0: "perfectly fresh"`,
+    `   ${cell('mirroredCamera', 26)}uninitializedMirroredCameraState(...), sourceCapturedAtSecs ${String(initialMirror.sourceCapturedAtSecs)}`,
+    `   ${cell('mirrorLagSecs', 26)}${String(initialLag)}   <-- "never published"`,
     '',
     `   ${padStart('now (s)', 12)}${padStart('mirrorLagSecs', 16)}${padStart('isMirrorStale', 16)}`,
     ...rows,
     '',
     `   MIRROR_LAG_WARNING_SECS = ${String(MIRROR_LAG_WARNING_SECS)}, compared with > (strict), so exactly 0.1 is NOT stale.`,
     '',
-    '   KNOWN GAP RND-4, pinned rather than fixed. Two answers to "how stale is the mirror?" exist',
-    '   at startup and disagree. `makeRenderFrameState` builds `mirroredCamera` from',
-    '   UNSET_CAMERA_POSE — whose capturedAtSecs is 0, i.e. the beginning of the monotonic epoch —',
-    '   and `mirrorLagSecs` from the literal 0. A consumer reading the Ref before',
-    '   render:camera-mirror first runs is told the mirror is current; the same consumer calling',
-    '   mirrorLagSecs() on the mirrored state is told it is as old as the process. Nothing in',
-    '   stages/ ever writes authoritativePose (only mc-sim does, across the boundary), so in the',
-    '   renderModule path — where the state is deliberately not exposed — isMirrorStale is true',
-    '   from the first frame until a pose arrives, with no way to tell "stale" from "never set".',
+    '   RND-4 is fixed. Startup is explicitly unpublished: the visible placeholder remains',
+    '   UNSET_CAMERA_POSE, sourceCapturedAtSecs is undefined, mirrorLagSecs is Infinity,',
+    '   and isMirrorStale is true. The diagnostic Ref and the derived state now agree.',
     '',
-    '   NOT FIXED. There is no honest value to seed the gauge with: makeRenderFrameState has no',
-    '   clock (it is a constructor, not a stage, and plan.md §5.1-3 bans reading a global one), and',
-    '   seeding Infinity would only MOVE the contradiction — mirroredCamera.sourceCapturedAtSecs',
-    '   would still read 0, and that is the value consumers actually read. Making the two agree',
-    '   means distinguishing "never set" from "stale" in MirroredCameraState itself, which every',
-    '   consumer must then handle. That belongs with the mc-sim pin, when authoritativePose stops',
-    '   being a FIRST CUT Ref and becomes PlayerService.cameraPose read at registration time — at',
-    '   which point the window closes by construction. Until then it is bounded by the first frame',
-    '   and the only in-repo reader is a diagnostic gauge.',
-    '',
-    '   Pinned by test/stage-registration.test.ts `KNOWN GAP: before a pose arrives, the two',
-    '   staleness answers DISAGREE`, which also shows one run of the stage reconciling them.',
+    '   After mc-sim publishes a pose, the camera stage replaces the unpublished state',
+    '   with a timestamped mirror and the finite lag table above applies.',
     '   Watch it: pnpm preview --view mirror --scenario mirror-staleness --at 4 --once --ascii',
     '',
     '   RND-5 is fixed. domain/camera-mirror.ts documented the constant as "Milliseconds of lag',
@@ -411,7 +397,7 @@ const registrationLayerProbe = Effect.gen(function* () {
     `   \`frameStages\` from inside that same provide, which is what the ${String(asks)} above says happened.`,
     '',
     '   test/stage-registration.test.ts uses the single-provide form and is right to. Nothing',
-    '   referenced RenderRegistrationLayer outside api-lock.md — it was exported, locked, and',
+    '   referenced RenderRegistrationLayer outside src/index.ts — it was exported, and',
     '   unused, which is why nothing had noticed.',
   ]
 })
@@ -441,84 +427,64 @@ const scratchProbe = (): ReadonlyArray<string> => {
     buffer.set('a', 1)
     return { escaped: buffer }
   })
-  const wrappedIsLive = wrapped.escaped === scratch.buffer
+  const wrappedUse = attempt(() => wrapped.escaped.size)
 
   const closure = withScratch(scratch, (buffer) => {
     buffer.set('b', 2)
     buffer.set('c', 3)
     return (): number => buffer.size
   })
-  const closureSawBeforeNextBorrow = closure()
-  withScratch(scratch, (buffer) => buffer.size)
-  const closureSawAfterNextBorrow = closure()
+  const closureUse = attempt(() => closure())
 
-  const borrowedDuringDeferred = ((): number => {
-    withScratch(scratch, (buffer) => (): number => buffer.size)
-    return scratch.borrowedCount()
-  })()
+  const deferred = withScratch(scratch, (buffer) => Effect.sync(() => buffer.size))
+  const deferredUse = attempt(() => Effect.runSync(deferred))
+
+  const iterator = withScratch(scratch, (buffer) => {
+    buffer.set('iterator', 4)
+    return buffer.entries()
+  })
+  const iteratorUse = attempt(() => iterator.next())
 
   const foreign = attempt(() =>
     withScratch(
-      { name: 'foreign', buffer: new Map<string, number>(), usageCount: () => 0, borrowedCount: () => 0 } as ScratchMap<
-        string,
-        number
-      >,
+      { name: 'foreign', usageCount: () => 0, borrowedCount: () => 0 } as ScratchMap<string, number>,
       (buffer) => buffer.size,
     ),
   )
 
-  const directRead = scratch.buffer.size
+  const nativeField = Reflect.has(scratch, 'buffer') ? 'public' : 'private'
   const usage = scratch.usageCount()
 
   return [
     ...section(
       'SCRATCH-DISCIPLINE',
-      'withScratch guards the borrow. Which escapes does it actually catch?',
+      'withScratch guards a reusable lease. Which escapes does it catch?',
     ),
     `   ${cell('attempt', 44)}${cell('result', 22)}`,
     `   ${cell('re-entrant borrow', 44)}${cell(reentrant, 22)}   caught`,
-    `   ${cell('return the buffer itself', 44)}${cell(identity, 22)}   caught`,
-    `   ${cell('return { escaped: buffer }', 44)}${cell(wrappedIsLive ? 'live Map escaped' : 'copied', 22)}   NOT caught`,
-    `   ${cell('return () => buffer.size', 44)}${cell(`reads ${String(closureSawBeforeNextBorrow)}, then ${String(closureSawAfterNextBorrow)}`, 22)}   NOT caught`,
-    `   ${cell('a deferred callback (Effect / Promise)', 44)}${cell(`borrowed = ${String(borrowedDuringDeferred)}`, 22)}   NOT caught`,
-    `   ${cell('scratch.buffer read outside any borrow', 44)}${cell(`size ${String(directRead)}`, 22)}   NOT caught`,
-    `   ${cell('a ScratchMap built elsewhere', 44)}${cell(foreign, 22)}   wrong error`,
+    `   ${cell('return the lease itself', 44)}${cell(identity, 22)}   caught`,
+    `   ${cell('use { escaped: lease } later', 44)}${cell(wrappedUse, 22)}   caught`,
+    `   ${cell('call a returned closure later', 44)}${cell(closureUse, 22)}   caught`,
+    `   ${cell('run a deferred Effect later', 44)}${cell(deferredUse, 22)}   caught`,
+    `   ${cell('advance an escaped iterator', 44)}${cell(iteratorUse, 22)}   caught`,
+    `   ${cell('native map field on ScratchMap', 44)}${cell(nativeField, 22)}   enforced`,
+    `   ${cell('a ScratchMap built elsewhere', 44)}${cell(foreign, 22)}   caught`,
     '',
     `   usageCount() after the borrows above: ${String(usage)}`,
     '',
-    '   KNOWN GAP RND-7, pinned rather than fixed. domain/frame-scratch.ts says the cross-frame',
-    '   invariant "is enforced rather than documented". One shape of escape is enforced: the',
-    '   identity check compares the RESULT against the buffer. A wrapper object, a closure over',
-    '   `buffer`, and `scratch.buffer` read directly all hand out the same live Map and the same',
-    '   lifetime bug, undetected — and `buffer` is a public field on `ScratchMap`, documented as',
-    '   "Valid ONLY inside a withScratch callback" with nothing making that true.',
+    '   RND-7 is fixed in domain/frame-scratch.ts. ScratchMap keeps its native Map private and',
+    '   gives each scratch set one reusable lease facade. Every operation checks that the lease',
+    '   is active, and iterators check again when they advance.',
     '',
-    '   The deferred-callback row is the sharpest one, because it is the shape Effect code',
-    '   naturally reaches for. `withScratch` releases the lease in a `finally`, so',
-    '   `withScratch(s, b => Effect.sync(() => b.size))` returns an unevaluated Effect with the',
-    '   lease already gone; by the time it runs, the next borrow has cleared the buffer. The',
-    '   shipped call site (render:chunk-sync) is synchronous and therefore safe, which is why',
-    '   nothing has hit it.',
+    '   A wrapper, closure, deferred Effect, or iterator can still be returned as a JavaScript',
+    '   value, but using it after the callback fails with ScratchMisuseError instead of reading',
+    '   a cleared or next-frame map. `snapshotScratch` is the explicit copying boundary.',
     '',
-    '   NOT FIXED. Detecting these means not handing out the live Map at all — a lease-checked',
-    '   facade, or making `buffer` private. Both change the public type, and the facade puts a',
-    '   branch and a wrapper object on the hot path this module exists to keep allocation-free,',
-    '   which is the deviation plan.md §5.2 sanctions BY NAME. That is not a local decision.',
+    '   The facade is allocated once per scratch set, not once per borrow. Borrowing still clears',
+    '   the private map on entry, and returning a copy remains the only supported cross-frame use.',
     '',
-    '   The foreign-ScratchMap row is the one piece that is cheap in isolation — withScratch casts',
-    '   to a private shape the public type does not carry, so a hand-built ScratchMap dies with a',
-    '   TypeError rather than a diagnostic. It is left with the rest deliberately: makeScratchMap',
-    '   is the only constructor and it is exported, so reaching that row means hand-writing an',
-    '   object literal against a type documented as "only withScratch may drive it". Paying a new',
-    '   public ScratchViolation rule for a case nothing in the org can reach, while the escapes',
-    '   above stay open, buys a louder error on the least likely path. Both, or neither.',
-    '',
-    '   usageCount is documented as "Frames this buffer has served". It increments in `enter()`,',
-    '   i.e. once per BORROW — and a borrow that dies on the escape check has already counted.',
-    '',
-    '   Every row above is pinned by test/frame-scratch.test.ts, under',
-    '   `KNOWN GAP: withScratch catches only the identity escape`. When the module is fixed, those',
-    '   are the tests that fail.',
+    '   Every row above is pinned by test/frame-scratch.test.ts (18 tests), including the foreign',
+    '   object diagnostic and the fact that the reusable lease has no public native-map field.',
   ]
 }
 
@@ -597,11 +563,11 @@ const FOOTER: ReadonlyArray<string> = [
   '',
   '== what this report does NOT cover',
   '',
-  '   Anything that needs a GPU. mc-render deliberately ships no THREE.js and no `lib.DOM`, and',
-  '   that is what makes everything above testable in Node — but it also means this preview can',
-  '   show you the post-FX chain and not the picture it produces, the material policy and not the',
-  '   material, the camera mirror and not the view. When a THREE adapter exists, an eyeball test',
-  '   of a fixed chunk (docs/testing.md) belongs beside it and will need mc-playground-kit.',
+  '   Anything that needs a GPU. This Node preview deliberately does not import runtime THREE.js or',
+  '   `lib.DOM`; `application/three-surface.ts` still defines the structural contract used by the',
+  '   renderer and its fake fixtures. The preview can show the post-FX chain and material policy,',
+  '   but not the picture produced by a host canvas. A fixed-chunk browser/GPU eyeball test',
+  '   (docs/testing.md) belongs in the consuming host and may use mc-playground-kit.',
   '',
   '   Nothing here is a substitute for that. It is the half that can be checked without one, and',
   '   the input state machine in particular has no other home: Playwright cannot do pointer lock.',

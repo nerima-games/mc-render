@@ -21,6 +21,7 @@ import {
   mirroredCameraState,
   mirrorLagSecs,
   NO_VIEW_OFFSET,
+  uninitializedMirroredCameraState,
   snapshotAgeSecs,
   type ViewOffset,
 } from '../src/domain/camera-mirror'
@@ -145,6 +146,18 @@ describe('forwardVector — no camera.getWorldDirection() anywhere', () => {
 })
 
 describe('mirror staleness', () => {
+  it.effect('an unpublished mirror is infinitely stale and has no source timestamp', () =>
+    Effect.sync(() => {
+      const mirrored = uninitializedMirroredCameraState(AUTHORITATIVE)
+
+      expect(mirrored.sourceCapturedAtSecs).toBeUndefined()
+      expect(mirrorLagSecs(mirrored, MonotonicTimeSecs(100))).toBe(
+        Number.POSITIVE_INFINITY,
+      )
+      expect(isMirrorStale(mirrored, MonotonicTimeSecs(100))).toBe(true)
+    }),
+  )
+
   it.effect('lag is measured from the instant the SIMULATION stamped the pose', () =>
     Effect.sync(() => {
       const mirrored = mirroredCameraState(AUTHORITATIVE)

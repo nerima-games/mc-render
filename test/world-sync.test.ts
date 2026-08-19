@@ -28,8 +28,8 @@ import {
   type ChunkRef,
   type DirtyBatch,
 } from '../src/application/world-sync'
-import { CHUNK_SIZE } from '../src/domain/lod-vocabulary'
-import type { MeshQuad, QuadColor } from '../src/domain/chunk-geometry'
+import { CHUNK_SIZE } from '@nerima-games/mc-meshing'
+import type { MeshQuad, QuadColor, RenderableQuad } from '../src/domain/chunk-geometry'
 import { FAKE_CANVAS, makeFakeThree } from './support/fake-three'
 
 const VIEWPORT = { width: 1280, height: 720 }
@@ -60,10 +60,10 @@ const scriptedSource = (batches: ReadonlyArray<DirtyBatch>) =>
   })
 
 describe('chunkOrigin', () => {
-  it.effect('scales the chunk coordinate by the mirrored CHUNK_SIZE', () =>
+  it.effect('scales the chunk coordinate by mc-meshing CHUNK_SIZE', () =>
     Effect.sync(() => {
-      // Derived from the mirror, not from a 16 typed in the test — a test that
-      // restated the constant would agree with a builder that had drifted.
+      // Derived from mc-meshing, not from a 16 typed in the test — a test
+      // that restated the constant would agree with a builder that had drifted.
       expect(chunkOrigin({ cx: 0, cz: 0 })).toStrictEqual([0, 0])
       expect(chunkOrigin({ cx: 3, cz: -2 })).toStrictEqual([3 * CHUNK_SIZE, -2 * CHUNK_SIZE])
     }),
@@ -148,8 +148,8 @@ describe('syncWorld', () => {
       const three = makeFakeThree()
       const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT)
       const source = yield* scriptedSource([{ changed: [{ cx: 0, cz: 0 }], removed: [] }])
-      const flatColorCalls: Array<MeshQuad> = []
-      const chunkColorCalls: Array<{ chunk: ChunkRef; quads: ReadonlyArray<MeshQuad> }> = []
+      const flatColorCalls: Array<RenderableQuad> = []
+      const chunkColorCalls: Array<{ chunk: ChunkRef; quads: ReadonlyArray<RenderableQuad> }> = []
       const flatColor: QuadColor = (meshQuad) => {
         flatColorCalls.push(meshQuad)
         return [1, 0, 0]

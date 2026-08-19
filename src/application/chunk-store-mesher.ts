@@ -1,4 +1,16 @@
 import {
+  BLOCK_IDS,
+  type FluidKind,
+  type RenderKind,
+  blockIdOf,
+  blockIdsWithOpacity,
+  blockPosition,
+  blockTypeOfId,
+  chunkCoord,
+  propertyOfBlockId,
+} from '@nerima-games/mc-kernel'
+import { CHUNK_SIZE, type MeshConfig, meshChunk } from '@nerima-games/mc-meshing'
+import {
   type ChunkMesher,
   type SyncOptions,
   type WorldRendererAttachment,
@@ -8,19 +20,11 @@ import {
   type LightSampler,
   NO_LIGHT,
   type SkyBlockLight,
-  lightSamplePoint,
+  lightSamplePointForRenderableQuad,
   packedLightColor,
 } from '../domain/voxel-lighting'
-import { type MeshConfig, meshChunk } from '@nerima-games/mc-meshing'
-import { type MeshQuad, type QuadColor, faceNormal } from '../domain/chunk-geometry'
-import {
-  blockIdsWithOpacity,
-  blockPosition,
-  blockTypeOfId,
-  chunkCoord,
-} from '@nerima-games/mc-kernel'
+import { type QuadColor, type RenderableQuad } from '../domain/chunk-geometry'
 import type { BlockNameLookup } from '../domain/block-texture-map'
-import { CHUNK_SIZE } from '../domain/lod-vocabulary'
 import type { ChunkStoreApi } from '@nerima-games/mc-worldgen'
 import { Effect } from 'effect'
 import type { WorldRenderer } from './world-renderer'
@@ -28,27 +32,24 @@ import type { WorldRenderer } from './world-renderer'
 /** The kernel registry is the single numeric-id to texture-name authority. */
 export const blockNameFromKernel: BlockNameLookup = (blockId) => blockTypeOfId(blockId) ?? 'unknown'
 
-/** Water's block id in the kernel registry (`BlockId(6)`, block-registry-data.ts). */
-const WATER_BLOCK_ID = 6
-/** Water's maximum fluid fall-off level: 8 levels, 0-7. */
-const WATER_MAX_FLUID_LEVEL = 7
-/** Lava's block id in the kernel registry (`BlockId(11)`, block-registry-data.ts). */
-const LAVA_BLOCK_ID = 11
-/** Lava's maximum fluid fall-off level: 4 levels, 0-3 — lava spreads over fewer levels than water. */
-const LAVA_MAX_FLUID_LEVEL = 3
-
 /**
- * Material routing supported by the current renderer geometry.
- *
- * Cross-plants and variable-height fluids intentionally stay disabled until
- * `buildChunkGeometry` can represent their non-rectangular geometry. They are
- * still visible as cubes and routed to their correct material layer.
+ * Propagation levels are meshing policy; block identities come from the kernel
+ * registry so numeric ids cannot drift from the shared block vocabulary.
  */
+const WATER_MAX_LEVEL = 7
+const LAVA_MAX_LEVEL = 3
+const FLUID_MAX_LEVELS = [
+  ['water', WATER_MAX_LEVEL],
+  ['lava', LAVA_MAX_LEVEL],
+] as const satisfies ReadonlyArray<readonly [Exclude<FluidKind, 'none'>, number]>
+
+const blockIdsWithRenderKind = (renderKind: RenderKind): ReadonlySet<number> =>
+  new Set(BLOCK_IDS.filter((blockId) => propertyOfBlockId(blockId, 'renderKind') === renderKind))
+
+/** Material routing derived from the kernel's block registry. */
 export const KERNEL_MESH_CONFIG: MeshConfig = {
-  fluidMaxLevels: new Map([
-    [WATER_BLOCK_ID, WATER_MAX_FLUID_LEVEL],
-    [LAVA_BLOCK_ID, LAVA_MAX_FLUID_LEVEL],
-  ]),
+  crossPlantBlockIds: blockIdsWithRenderKind('cross'),
+  fluidMaxLevels: new Map(FLUID_MAX_LEVELS.map(([fluid, maxLevel]) => [blockIdOf(fluid), maxLevel] as const)),
   transparentSolidBlockIds: blockIdsWithOpacity('transparentSolid'),
   waterBlockIds: blockIdsWithOpacity('fluid'),
 }
@@ -90,11 +91,11 @@ const lightSamplePositionFor = (
 /** Every distinct light-sample position a chunk's quads reference, keyed for lookup by `lightKey`. */
 const collectLightSamplePositions = (
   chunk: { readonly cx: number; readonly cz: number },
-  quads: ReadonlyArray<MeshQuad>,
+  quads: ReadonlyArray<RenderableQuad>,
 ): ReadonlyMap<string, LightSamplePosition> => {
   const samples = new Map<string, LightSamplePosition>()
   for (const quad of quads) {
-    const [localX, localY, localZ] = lightSamplePoint(quad, faceNormal(quad.direction))
+    const [localX, localY, localZ] = lightSamplePointForRenderableQuad(quad)
     const position = lightSamplePositionFor(chunk, { localX, localY, localZ })
     samples.set(lightKey(position.blockX, position.blockY, position.blockZ), position)
   }
@@ -105,7 +106,7 @@ const collectLightSamplePositions = (
 export const makeChunkStoreLightColor = (
   store: Pick<ChunkStoreApi, 'getLight'>,
   chunk: { readonly cx: number; readonly cz: number },
-  quads: ReadonlyArray<MeshQuad>,
+  quads: ReadonlyArray<RenderableQuad>,
 ): Effect.Effect<QuadColor> =>
   Effect.gen(function* () {
     const samples = collectLightSamplePositions(chunk, quads)
@@ -144,7 +145,7 @@ export const makeChunkStoreMesher = (
       const neighbours = yield* store.neighbours(coord)
       const layers = meshChunk(chunk, neighbours, config)
       const quads = [...layers.opaque, ...layers.water, ...layers.transparentSolid]
-      return Object.assign(quads, { fluids: layers.fluids })
+      return Object.assign(quads, { crossPlants: layers.crossPlants, fluids: layers.fluids })
     })
 
 /** `options` with a light-sampling `colorForChunk` filled in, unless the caller already supplied one (or a flat `color`). */
@@ -154,7 +155,7 @@ const withDefaultColorForChunk = (store: RendererChunkStore, options: SyncOption
   }
   return {
     ...options,
-    colorForChunk: (chunk: { readonly cx: number; readonly cz: number }, quads: ReadonlyArray<MeshQuad>) =>
+    colorForChunk: (chunk: { readonly cx: number; readonly cz: number }, quads: ReadonlyArray<RenderableQuad>) =>
       makeChunkStoreLightColor(store, chunk, quads),
   }
 }

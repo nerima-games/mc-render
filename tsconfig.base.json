@@ -7,19 +7,11 @@
     "target": "ES2024",
     "module": "ESNext",
     "moduleResolution": "bundler",
-    // ES2024 only, deliberately — AND THE `window` INPUT ADAPTER DID NOT CHANGE
-    // THAT.
-    //
-    // mc-render is the one repository that legitimately needs the DOM: THREE.js,
-    // WebGL, `window` event registration, pointer lock. It now HAS the `window`
-    // event registration (`application/browser-input-adapter.ts`) and `"DOM"` is
-    // still absent, because the adapter describes the ~8 DOM members it actually
-    // uses as structural types in `application/dom-surface.ts` rather than
-    // importing a 20,000-line lib. Read that file's header for the argument; the
-    // short version is that `lib: ["ES2024"]` + `types: []` on THIS project is
-    // the mechanism that keeps the pointer-lock state machine testable under
-    // `environment: 'node'`, and plan.md §3.10 says no browser test could
-    // replace it (Playwright is on SwiftShader and cannot do pointer lock).
+    // ES2024 only, deliberately. The core, test and terminal-preview projects
+    // remain DOM-free; the explicit browser/package projects opt into DOM for
+    // `src/browser.ts` only. This keeps the pointer-lock state machine and all
+    // pure modules testable under `environment: 'node'` while still shipping a
+    // real WebGL boundary for browser consumers.
     // Turning the flag on for the whole project to serve one adapter would have
     // removed that mechanism from every pure file at the same time, and nothing
     // would have noticed for months.
@@ -29,9 +21,10 @@
     // compiled against the real `lib.dom.d.ts` by
     // `test/browser-input-adapter.test.ts`.
     //
-    // The THREE.js adapter and the worker pool are where `"DOM"` /
-    // `"WebWorker"` get argued about again — a class hierarchy the size of
-    // THREE's is not a handful of members. See docs/design-notes.md.
+    // `application/dom-surface.ts` and `application/three-surface.ts` keep the
+    // core contracts narrow. `tsconfig.browser.json` and
+    // `tsconfig.package.json` are the only projects that compile the concrete
+    // browser entry with DOM and the real Three declarations.
     "lib": ["ES2024"],
     "types": [],
 
@@ -75,11 +68,9 @@
     "newLine": "lf",
     "stripInternal": true,
 
-    // No build step yet (see README 現状). Every tsconfig here is check-only;
-    // `package.json#exports` points at TypeScript source. The emitting
-    // build/publish pipeline is added when this repo reaches completion.
-    "noEmit": true,
-    "baseUrl": "."
+    // Source-oriented configs remain check-only; the package build emits the
+    // public artifacts through tsdown.
+    "noEmit": true
 
   }
 }

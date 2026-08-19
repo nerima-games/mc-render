@@ -14,8 +14,8 @@
  * input service lived there, the shipped game would have no input handling at
  * all — it would build, start, render, and ignore the keyboard. That failure is
  * silent at compile time and total at run time, which is the worst combination,
- * so `scripts/check-dependency-whitelist.ts` makes a runtime dependency on
- * mc-playground-kit a hard CI failure (`dev-only-package-in-dependencies`).
+ * so placing runtime input in mc-playground-kit would violate the
+ * direct-dependency and shipped-source boundary.
  *
  * mc-render is the right owner because input is a browser-platform concern and
  * mc-render is already the repository that owns the browser platform (canvas,
@@ -62,7 +62,7 @@
  * ---------------------------------------------------------------------------
  *
  * Everything here is data and pure functions: no `window`, no `document`, no
- * DOM types. The browser adapter is `application/input-service.ts`, which takes
+ * DOM types. The browser adapter is `application/browser-input-adapter.ts`, which takes
  * an injected event source. That split is what lets key remapping, chord
  * resolution and the Escape rule be tested in Node under
  * `environment: 'node'` — no jsdom, no Playwright, no SwiftShader.
@@ -71,9 +71,8 @@
 /**
  * Every action the game can be told to perform by an input device.
  *
- * PRE-AUDIT FIRST CUT. The reference's real set is larger (hotbar slots 1-9,
- * gamepad axes, touch gestures, screenshot, debug overlay). This is the subset
- * needed to express the Escape rule and the remapping mechanism.
+ * This is the renderer's current action vocabulary. Platform-specific sources
+ * translate their controls into these actions at the application boundary.
  */
 export const INPUT_ACTIONS = [
   'moveForward',
@@ -885,7 +884,7 @@ export const acquiresPointerLock = (
  * one must not be: the answer is no, at every lock state, forever.
  * `FOCUS_NAVIGATION_KEY_CODE` and `FOCUS_NAVIGATION_OWNER` record the ownership
  * as values instead, `remap` refuses to give the key a second owner, and
- * `FOCUS_NAVIGATION_POLICY` in `application/input-service.ts` states the whole
+ * `FOCUS_NAVIGATION_POLICY` in `application/input-listener-plan.ts` states the whole
  * rule where `ESCAPE_POLICY` states Escape's.
  */
 

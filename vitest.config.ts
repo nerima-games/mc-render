@@ -49,22 +49,12 @@ export default defineConfig({
       all: true,
       reporter: ['text', 'json', 'html', 'lcov'],
       reportsDirectory: './coverage',
-      // TEST_STANDARD.md §3: 4-metric 99% gate, enabled org-wide, no phase-in.
-      // Real measurement at rollout (2026-08-01, `pnpm test:coverage`, see PR
-      // description): statements 98.5%, branches 96.11%, functions 99.54%,
-      // lines 98.5% — three of the four metrics are below 99% (worst gaps:
-      // domain/texture-atlas.ts 81.66%, domain/voxel-lighting.ts 87.32%
-      // stmts / 90.9% funcs, domain/water-surface.ts 96.74%). This means CI
-      // goes red the moment this gate is enabled. That is a known, accepted
-      // result (TEST_STANDARD.md §3: rollout is immediate and org-wide, and
-      // known shortfalls are tracked as follow-up work, not a reason to defer
-      // or lower the threshold — see mc-audio/mc-compose/mc-playground-kit for
-      // the same treatment).
-      thresholds: { branches: 99, functions: 99, lines: 99, statements: 99 },
+      // TEST_STANDARD.md §3: four-metric 100% gate.
+      thresholds: { branches: 100, functions: 100, lines: 100, statements: 100 },
     },
   },
   esbuild: {
-    target: 'node22',
+    target: 'node24',
     format: 'esm',
     platform: 'node',
   },

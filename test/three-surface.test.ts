@@ -9,9 +9,9 @@
  *
  *   (a) `test/fixtures/three-surface.ts` compiles against the REAL `three`
  *       declarations and the real `lib.dom.d.ts`, with zero errors;
- *   (b) `tsconfig.build.json` still has no `"DOM"`, no `types`, and no file
- *       that imports `three` — so the shipped package remains compilable
- *       without either.
+ *   (b) `tsconfig.build.json` still has no `"DOM"` or `types`, and the core
+ *       entry remains free of a runtime `three` import. The separate
+ *       `./browser` entry is the intentional DOM/Three boundary.
  *
  * (b) is the load-bearing one. Without it, (a) could be made to pass at any
  * time by importing `three` in `application/world-renderer.ts` and deleting the
@@ -23,11 +23,20 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from '@effect/vitest'
 import { Effect } from 'effect'
-import ts from 'typescript'
+import { DoubleSide } from 'three'
+import ts from 'typescript-compiler-api'
+import { THREE_DOUBLE_SIDE } from '../src/application/three-surface'
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 
 describe('REGRESSION: the THREE surface is a real subset of the real three', () => {
+  it.effect('keeps the transparent flat-surface side value aligned with Three', () =>
+    Effect.sync(() => {
+      expect(THREE_DOUBLE_SIDE).toBe(2)
+      expect(THREE_DOUBLE_SIDE).toBe(DoubleSide)
+    }),
+  )
+
   it.effect(
     'the real `three` namespace satisfies ThreeSurface without a cast',
     () =>
@@ -96,7 +105,7 @@ describe('REGRESSION: the THREE surface is a real subset of the real three', () 
     }),
   )
 
-  it.effect('the shipped project still compiles with no DOM and no three', () =>
+  it.effect('the core project still compiles with no DOM and no runtime three import', () =>
     Effect.sync(() => {
       // The other half of the proof, and the one that stops the first half from
       // being satisfiable by giving up. `pnpm typecheck` runs
@@ -120,14 +129,11 @@ describe('REGRESSION: the THREE surface is a real subset of the real three', () 
     }),
   )
 
-  it.effect('NO shipped file imports three, and package.json keeps it a devDependency', () =>
+  it.effect('the core entry keeps three at the browser boundary', () =>
     Effect.sync(() => {
-      // Stated as a grep rather than trusted to the compiler, because the
-      // compiler would be perfectly happy with a `three` import in
-      // `application/` — `skipLibCheck` would swallow the DOM references inside
-      // the declarations and hand every use site `any`. That is the exact
-      // failure this surface exists to prevent, and it is INVISIBLE to
-      // `pnpm typecheck`.
+      // Stated as a source inspection rather than trusted to the compiler,
+      // because the browser entry is intentionally the only runtime Three
+      // boundary and the compiler does not enforce that architectural split.
       const config = ts.readConfigFile(
         path.join(repositoryRoot, 'tsconfig.build.json'),
         ts.sys.readFile,
@@ -146,13 +152,16 @@ describe('REGRESSION: the THREE surface is a real subset of the real three', () 
         readonly devDependencies?: Record<string, string>
       }
 
-      expect(manifest.dependencies?.['three']).toBeUndefined()
-      expect(manifest.devDependencies?.['three']).toBeDefined()
+      expect(manifest.dependencies?.['three']).toBeDefined()
+      expect(manifest.devDependencies?.['three']).toBeUndefined()
       // Pinned to the same major/minor as the types, and that is not
       // bookkeeping: docs/versioning.md §5 records that THREE ships breaking
       // changes in MINOR releases, so a `@types/three` a minor ahead of `three`
       // describes a library that is not installed.
-      expect(manifest.devDependencies?.['@types/three']).toBe(manifest.devDependencies?.['three'])
+      const majorMinor = (range: string | undefined) => range?.match(/^\^?(?<majorMinor>\d+\.\d+)/)?.groups?.['majorMinor']
+      expect(majorMinor(manifest.devDependencies?.['@types/three'])).toBe(
+        majorMinor(manifest.dependencies?.['three']),
+      )
     }),
   )
 })

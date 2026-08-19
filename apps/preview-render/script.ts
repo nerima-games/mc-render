@@ -240,26 +240,24 @@ const BLUR_WHILE_LOCKED: Scenario = {
 /**
  * The camera mirror, and the state it starts in.
  *
- * `makeRenderFrameState` seeds `mirroredCamera` from `UNSET_CAMERA_POSE`
- * (`capturedAtSecs` 0) and `mirrorLagSecs` from the literal `0`. Those two
- * disagree from the first instant.
+ * `makeRenderFrameState` seeds `mirroredCamera` from `UNSET_CAMERA_POSE` as an
+ * explicitly unpublished state. Its source timestamp is undefined and its
+ * mirror lag is Infinity until mc-sim publishes a pose.
  */
 const MIRROR_STALENESS: Scenario = {
   name: 'mirror-staleness',
-  headline: 'KNOWN GAP: the mirrored pose starts unset, and starts claiming to be fresh',
+  headline: 'the mirrored pose starts explicitly unpublished and stale',
   detail: [
     'No render stage ever writes authoritativePose — mc-sim does, across the',
     'boundary. Until it does, the mirror holds UNSET_CAMERA_POSE with',
-    'capturedAtSecs 0, while mirrorLagSecs is initialised to 0, i.e. "perfectly',
-    'fresh". Advance the injected clock and the two answers diverge without any',
-    'pose having changed. Then publish a pose and watch it settle.',
-    'Pinned, not fixed: there is no honest value to seed the gauge with, because',
-    'makeRenderFrameState has no clock and Infinity would only move the',
-    'contradiction into sourceCapturedAtSecs. See test/stage-registration.test.ts.',
+    'an undefined source timestamp, and mirrorLagSecs is Infinity: both values',
+    'say "no pose has been published". Advance the injected clock and that',
+    'answer remains explicit without a pose having changed. Then publish a pose',
+    'and watch the finite lag settle.',
   ],
   steps: [
-    at(0, 'nothing has published a pose yet', cmd({ kind: 'note', text: 'lag says 0; the pose is UNSET' })),
-    at(1, 'a tenth of a second of real startup', cmd({ kind: 'advanceClock', seconds: 0.1 })),
+    at(0, 'nothing has published a pose yet', cmd({ kind: 'note', text: 'lag says Infinity; the pose is UNSET and unpublished' })),
+    at(1, 'a tenth of a second while still unpublished', cmd({ kind: 'advanceClock', seconds: 0.1 })),
     at(2, 'a second more', cmd({ kind: 'advanceClock', seconds: 1 })),
     at(3, 'four seconds of chunk loading', cmd({ kind: 'advanceClock', seconds: 4 })),
     at(4, 'mc-sim finally publishes', cmd({ kind: 'publishPose', x: 8, y: 65.62, z: -8 })),

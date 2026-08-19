@@ -537,6 +537,21 @@ describe('eviction, when the pool is full', () => {
     }),
   )
 
+  it.effect('falls back to eviction when the raw buffers report every slot live', () =>
+    Effect.sync(() => {
+      // The typed arrays are intentionally exposed to the rendering adapter;
+      // exercise the defensive path where a direct write gets ahead of the
+      // pool's internal active counter.
+      const pool = makeParticlePool({ capacity: 2, seed: 7 })
+      spawnBurst(pool, 0, 0, 0, 0, 0, 1)
+      pool.lifetimesSecs[1] = 0.25
+
+      expect(spawnBurst(pool, 0, 0, 0, 0, 0, 1)).toBe(1)
+      expect(pool.evictionCount()).toBe(1)
+      expect(pool.activeCount()).toBe(1)
+    }),
+  )
+
   it.effect('a saturated pool that then drains reuses slots instead of leaking them', () =>
     Effect.sync(() => {
       const pool = makeParticlePool({ capacity: 4, seed: 7 })
