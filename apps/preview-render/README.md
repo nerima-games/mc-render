@@ -16,13 +16,15 @@ $ pnpm preview --scenario stranded-request --at 10 --once --ascii
 ```
 
 `pnpm verify` はこれを実行しない。ただし `pnpm typecheck`（`tsconfig.preview.json`）と
-`pnpm lint` と `pnpm check:deps` の対象には**入っている**。
+`pnpm lint` の対象には**入っている**。
 
 ## なぜ「固定チャンクのビューア」ではないのか
 
 [docs/testing.md](../../docs/testing.md) はこのリポジトリのプレビューを
 **「固定チャンクを読み込んでマテリアルとポストFXを目視」**と定めている。
-それには THREE.js アダプタと canvas と GPU が要る。**mc-render にはどれも無い。**
+Node 上の構造 surface と数値プレビューに加えて、公開 `@nerima-games/mc-render/browser`
+エントリが実際の `three` namespace、canvas、GPU を接続する既定ランタイムを持つ。
+ただし固定ワールドを使ったブラウザ/GPU fixture と screenshot 受入れはまだホスト側の責務である。
 
 `tsconfig.base.json` の `lib` に `"DOM"` が無い。これが偶然ではないのは、
 ポストFXの順序も、ホイールのモデルも、ポインタロックの 4 値状態機械も、
@@ -78,19 +80,18 @@ plan.md §3.10 は **Playwright が SwiftShader 上で動き、ポインタロ�
 
 ## 見つけたもの
 
-`--stats` が全部を数値で出す。**8 件のうち 6 件は修正済み、2 件は「直さない」と決めて
-テストで固定した。** `--stats` の数字は、見つけるための数字から、戻っていないことを確かめる
-数字になった —— そして `--stats` の行はピンではないので、保留分にも `test/` のテストがある。
+`--stats` が全部を数値で出す。**8 件すべてを修正し、テストで固定した。**
+`--stats` の数字は、見つけるための数字から、戻っていないことを確かめる数字になった。
 
 | # | 内容 | 状態 |
 | --- | --- | --- |
 | RND-1 | **`requested` は吸収状態だった。** `blur` が保存し、`requestPointerLock` は再送しない。セッション中もう二度とマウスルックに入れない | **修正** |
 | RND-2 | **`endFrame` が、どのフレームにも報告していないホイール段を消費していた。** `Math.trunc` を 2 回別々の瞬間に取っていた | **修正** |
 | RND-3 | **`blur` が `pointerLocked` を残していた。** タブに戻るためのクリックが `attack` になる | **修正** |
-| RND-4 | ミラーの初期状態が自己矛盾。`UNSET_CAMERA_POSE`（`capturedAtSecs` 0）に対し `mirrorLagSecs` はリテラル `0`（＝新鮮） | **保留（ピン）** |
+| RND-4 | ミラーの初期状態は `UNSET_CAMERA_POSE` の未発行を明示し、`sourceCapturedAtSecs` は `undefined`、`mirrorLagSecs` は `Infinity` | **修正** |
 | RND-5 | `MIRROR_LAG_WARNING_SECS` の doc が「Milliseconds」と書いていた。名前は `_SECS`、値は `0.1`、比較対象は秒 | **修正** |
 | RND-6 | **`RenderRegistrationLayer` が `renderModule` の引数を捨てていた。** ステージが別インスタンスに結び付く | **修正（削除）** |
-| RND-7 | `withScratch` が捕まえるのは同一性エスケープだけ。包んで返す / クロージャ / 遅延コールバック / 直接読みはすべて素通り | **保留（ピン）** |
+| RND-7 | `withScratch` は非公開の native `Map` と再利用 lease facade を使い、返却後の wrapper / closure / 遅延 callback / iterator の利用も捕まえる | **修正** |
 | RND-8 | **`buildPostProcessingChain` が `high` と `ultra` に同一の配列を返していた。** composite の入力が型に無い | **修正** |
 
 各行がどのテストに固定されたかは [`docs/testing.md`](../../docs/testing.md) §2.2 にある。
@@ -184,25 +185,22 @@ $ pnpm preview --stats | sed -n '/WHEEL-LEDGER/,/^$/p'
 `GameModule` は、その間違いを書けなくする形だった: `module.layers` を **1 回**
 provide し、`frameStages` はその中から取る。
 
-### RND-4 / RND-7 —— ピンであって修正ではない
+### RND-7 —— lease で返却後の利用も止める
 
-- **RND-4**: ゲージに入れる正直な値が無い。`makeRenderFrameState` は時計を持たない
-  （ステージではなくコンストラクタで、plan.md §5.1-3 がグローバル時計の読み取りを禁じている）し、
-  `Infinity` を入れても矛盾が `mirroredCamera.sourceCapturedAtSecs` に移るだけである
-  —— 消費側が実際に読むのはそちらだ。両者を一致させるには `MirroredCameraState` 自身で
-  「未設定」と「陳腐化」を区別する必要があり、それは mc-sim を pin して
-  `authoritativePose` が `PlayerService.cameraPose` になるときの仕事である。
-  そのとき窓は構造的に閉じる。
-- **RND-7**: 検出するには生の `Map` を渡すのをやめるしかない（lease 付き facade、または
-  `buffer` の非公開化）。どちらも公開型を変え、facade はこのモジュールが
-  無アロケーションに保つためのホットパスに分岐とラッパーを載せる —— それは
-  plan.md §5.2 が**名指しで**認めている逸脱であり、局所的に決めてよい話ではない。
-  「他所で作った `ScratchMap` が `TypeError` で死ぬ」行だけは単体では安いが、
-  `makeScratchMap` が唯一のコンストラクタで export もされている以上、
-  そこに到達するには「`withScratch` だけが駆動する」と書かれた型に対して
-  手書きのオブジェクトリテラルを当てるしかない。到達不能な経路のために公開
-  `ScratchViolation` を 1 つ増やしても、隣のエスケープが開いたままなら
-  モジュールの中心的な主張は同じだけ嘘のままである。**両方まとめてか、どちらもか。**
+`withScratch` は native `Map` を `ScratchMap` から非公開にし、各 scratch に 1 つだけ
+再利用する lease facade を持つ。借用時に private map を `clear()` し、借用中の全操作と
+iterator の `next()` が lease の有効期間を検査するため、返却後の次の経路が同じ
+`ScratchMisuseError` になる。
+
+- lease 自体を返す
+- lease を wrapper に包んで返す
+- lease を closure や遅延 Effect に閉じ込める
+- lease の iterator を返却後に進める
+
+結果をフレーム境界の外へ持ち出す場合は `snapshotScratch` で明示的にコピーする。
+facade は borrow ごとに作らず、`Map` も置き換えないので、定常フレームでの scratch
+lease と native map の割り当ては増えない。`test/frame-scratch.test.ts` は 18 件の不変条件を
+固定している。
 
 ## クロックを読んでいない
 
@@ -218,16 +216,16 @@ provide し、`frameStages` はその中から取る。
 **GPU が要るものすべて。** ポストFXチェーンは見せられるが、それが作る絵は見せられない。
 マテリアルポリシーは見せられるが、マテリアルは見せられない。カメラミラーは見せられるが、視界は見せられない。
 
-THREE アダプタができたら、固定チャンクの目視テストはその隣に置くのが正しく、
-そのときは mc-playground-kit が要る。**ここにあるのはその代わりではない。**
+`./browser` の Three 境界は実装済みだが、固定チャンクの目視テストはその隣に置くのが正しく、
+その fixture には mc-playground-kit が要る。**ここにあるのはその代わりではない。**
 GPU 無しで確かめられる半分であり、入力状態機械にいたっては
 **他に置き場所が無い**（Playwright はポインタロックを扱えない）。
 
 ## 依存
 
-**このリポジトリ自身のモジュールと `effect` だけ。**
-`effect` は既に `dependencies` にある。org パッケージも新規 npm 依存も THREE も無い。
-`apps` は `SCAN_ROOTS` に入っているので、import は `domain/` と同じゲートを通る。
+**このリポジトリ自身のモジュール、宣言済みの `mc-*` パッケージ、`effect`、`three`。**
+`three` は preview source から import せず、`./browser` だけが実行時の Three namespace を使う。
+依存境界は `package.json` の直接依存宣言、TypeScript の import graph、typecheck で検証する。
 
 ## ファイル
 

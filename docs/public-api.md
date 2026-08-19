@@ -33,7 +33,15 @@ const POST_PROCESSING_PASS_ORDER: readonly [
 ]
 type PostProcessingPass = (typeof POST_PROCESSING_PASS_ORDER)[number]
 
+type ComposerRenderTarget = 'ldr' | 'hdr'
+
 type GraphicsQuality = {
+  readonly composerRenderTarget: ComposerRenderTarget
+  readonly godRaysSamples: number
+  readonly bloomStrength: number
+  readonly refractionThrottleFrames: number
+  readonly refractionMinScreenRatio: number
+  readonly pixelRatioCap: number
   readonly ssaoEnabled: boolean
   readonly godRaysEnabled: boolean
   readonly bloomEnabled: boolean
@@ -43,6 +51,7 @@ type GraphicsQuality = {
 }
 const QUALITY_PRESETS: Record<'low' | 'medium' | 'high' | 'ultra', GraphicsQuality>
 
+const qualityUsesHdrRenderTarget: (quality: GraphicsQuality) => boolean
 const isCompositeActive: (quality: GraphicsQuality) => boolean
 
 // チェーンの要素は「パス」と「そのパスが実行するエフェクト」。
@@ -66,22 +75,30 @@ const isCanonicalChain: (chain: ReadonlyArray<PostProcessingPass>) => boolean
 | 構築箇所 | `packages/app/application/main/session-post-processing.ts:33-154`（**mc-app にあった**） | mc-render 内。合成層に描画設定を置かない |
 | パス順序 | `addPass` の文の並び（:51, :63, :76, :94, :110, :127, :137, :142） | 配列 `POST_PROCESSING_PASS_ORDER` + 検証関数 |
 | 無効パス | 作って `enabled = false`（composite 有効時） | **作らない**。無効パスもレンダーターゲットは確保する（:53-56） |
-| プリセット解決 | `resolvePreset`（`packages/game/application/settings-service.config.ts`） | `QUALITY_PRESETS`。ただしポストFX部分のみ（§1.3） |
-| 定数 | `packages/app/application/main.config.ts:30-32` `GTAO_BLEND_INTENSITY = 0.8`、`BLOOM_*`、`BOKEH_*` | 未移植 |
+| プリセット解決 | `resolvePreset`（`packages/game/application/settings-service.config.ts`） | `QUALITY_PRESETS`。ポストFX、屈折の間引き、DPR 上限、コンポーザー精度を保持し、その他は§1.3の範囲外 |
+| 定数 | `packages/app/application/main.config.ts:30-32` `GTAO_BLEND_INTENSITY = 0.8`、`BLOOM_*`、`BOKEH_*` | ブラウザアダプタの既定値として必要なものだけを定義 |
 
-### 1.3 まだ無いプリセット項目
+### 1.3 mc-render の範囲外に残るプリセット項目
 
-参照実装の `resolvePreset` はポストFX以外も返す。少なくとも:
+参照実装の `resolvePreset` はポストFX以外も返す。mc-render が所有する項目は `GraphicsQuality`
+と `QUALITY_PRESETS` に移している。参照実装に残る項目のうち、現行 renderer に所有者がないものは:
 
-- `composerRtType`（`WebGLRenderTarget` の `type`。:48）
-- `bloomStrength`（プリセットごとに違う。:92）
-- `godRaysSamples`（:78。しかも `render-stage.ts:67-69` が**適応的に**減らす）
-- レンダースケール（`browser-runtime-resize-layout.ts` がこれで各パスのサイズを決める）
-- 影解像度・視界距離
+- 影解像度・実 Three のライト
 
-`GraphicsQuality` にはポストFXの有無しか入っていない。**本実装で拡張が要る。**
-拡張は `mc-playground-kit` と `mx-ui`（設定画面）の両方に波及するので、
-1 度で決めること。
+`bloomStrength`（:92）、`godRaysSamples`（:78）、レンダースケール
+（`browser-runtime-resize-layout.ts` がこれで各パスのサイズを決める）は移植済みである。
+ただし参照実装の god-rays のフレーム適応制御までは移植せず、`godRaysSamples` を品質プリセットの
+固定値として扱う。
+
+`composerRtType` は `GraphicsQuality.composerRenderTarget` に移し、`./browser` が
+`'ldr'` を `THREE.UnsignedByteType`、`'hdr'` を `THREE.HalfFloatType` に変換する。
+同じ値を EffectComposer と水面屈折のターゲットへ渡すため、bloom の入力が LDR でクリップされない。
+`pixelRatioCap` は `renderer.setPixelRatio` の上限、`bloomStrength` と `godRaysSamples` は
+bloom / god-rays の実パス、`refractionThrottleFrames` と `refractionMinScreenRatio` は
+水面屈折プリパスへ接続されている。描画距離は `WorldRendererOptions.renderDistance` で受け取り、
+`Math.max(renderDistance * CHUNK_SIZE * 1.5 + CHUNK_HEIGHT, 300)` としてカメラの far plane、
+フォグ、天候の距離へ同じ値を渡す。`farPlane` を明示した場合はそちらを優先する。影解像度と
+実 Three のライトは引き続き mc-render の責務外である。
 
 ### 1.4 THREE.js アダプタへの契約
 
@@ -241,7 +258,7 @@ const ESCAPE_POLICY
 | 押下エッジ | `justPressedKeysRef` を別に持つ（:161） | `justPressed`。同じ設計 |
 | blur クリア | `handleBlur`（:159-168） | `clearHeld` / `dispatch({kind:'blur'})` |
 | ポインタロック | `requestPointerLock`（:252-269）、`pointerlockchange`（:184）、`pointerlockerror`（:185, :150-153 は `console.warn` のみ） | `PointerLockPort` 越しに要求し、`pointerlockchange` / `pointerlockerror` の 2 つで答えを受ける 4 状態機械。§2.8 |
-| ロック要求の失敗 | `pointerLockFallbackRef`（:52）。feature policy が拒否したら**ロック済みと嘘をつく**（:263-266, :282-284） | `refused` 状態。嘘をつかない。**未移植**（§2.8） |
+| ロック要求の失敗 | `pointerLockFallbackRef`（:52）。feature policy が拒否したら**ロック済みと嘘をつく**（:263-266, :282-284） | `refused` 状態。嘘をつかない。実装済み（§2.8） |
 | ホイール | 生の `event.deltaY` を累積（:130-133）。`deltaMode` を見ない | ノッチに正規化して累積。`endFrame` でクリア、端数は持ち越し。§2.7 |
 | ホットバー | 1-9 キーは `KeyMappings.HOTBAR_SLOT_*`、循環は `hotbar-service.ts:74-80` が符号だけ見る | `hotbarSlot1`..`9` は普通のバインド。循環幅は `wheelSteps`、剰余は `wrapHotbarSelection`。§2.7 |
 | マウスボタン | `HashMap<number, boolean>` + `HashSet<number>`（:46-48）。`isMouseDown(2)` のように**番号で**読む | 名前（`MouseLeft` / `MouseMiddle` / `MouseRight`）でキーと**同じコード空間**に入れる。§2.5 |
@@ -249,7 +266,7 @@ const ESCAPE_POLICY
 | `contextmenu` | 無条件 `preventDefault`（:140-142） | ロック中のみ抑止。`suppressesBrowserContextMenu`。§2.6 |
 | ゲームパッド | `domain/gamepad-input.ts` + `application/gamepad-input-adapter.ts` | 実装済み。ホストが `GamepadSource` を注入し、毎フレーム `poll` する |
 | タッチ / 仮想入力 | `domain/input-bindings.ts` + `application/browser-input-adapter.ts` | 実装済み。DOM のタッチイベントを `InputEvent` に変換する |
-| スクリーンショット | `screenshot-service.ts`（50 LOC） | 未実装。**mc-render に置くか要検討**（QA API は mc-compose の責務） |
+| スクリーンショット | `@nerima-games/mc-render/browser` の `captureScreenshot` | canvas の PNG capture は mc-render が提供。ファイル保存・比較・受入れ fixture は browser/QA ホストの責務 |
 | キーリマッピング | 参照実装では UI 側（`packages/presentation/settings`） | `remap`。**規則（Escape 不可・重複不可）をここに持つ**のが差分 |
 
 ### 2.3 拒否を throw ではなく値で返す
@@ -420,9 +437,9 @@ JavaScript の `%` は被除数の符号を保つので、`+ HOTBAR_SIZE` 1 回�
 
 ## 2.8 ポインタロックは**要求**であり、拒否されうる
 
-§2.2 が「要求側（`requestPointerLock`）は未実装」と書いていた穴。
-`uiClicks`（§2.5）は「ロックを取り直すクリック」を記録するのに、それを受ける側が無かったので、
-**プレビューはマウスルックに入れなかった。**
+旧 §2.2 が「要求側（`requestPointerLock`）は未実装」と記録していた穴は、現在は
+`PointerLockPort` と `render:input` stage の登録で解消している。`uiClicks`（§2.5）は
+ロックを取り直すクリックを記録し、browser adapter がその要求をホストへ渡す。
 
 ### 状態は boolean ではなく 4 つ
 
@@ -486,8 +503,8 @@ unlocked ──requestPointerLock──▶ requested ──pointerlockchange(tru
 
 ## 2.9 `window` 入力アダプタ — **DOM を `lib` ではなく型で受ける**
 
-§2.2 の表がずっと「`window` アダプタは別 Layer」とだけ書いていた穴。
-§7 の表にも「`window` 入力アダプタ: 未実装、消費者は全プレビュー」とあった。**実装済み。**
+旧 §2.2 の表が「`window` アダプタは別 Layer」とだけ書き、旧 §7 の表にも
+「`window` 入力アダプタ: 未実装」と記載していた穴は、**実装済み**である。
 
 ### 2.9.1 公開するもの
 
@@ -521,7 +538,7 @@ type DomEventContext = {
   readonly pointerLockTarget?: unknown          // ロック対象。**比較するだけ**（§2.11）
 }
 
-const PREVENT_DEFAULT_EVENTS: ReadonlyArray<string>   // ['wheel', 'contextmenu']
+const PREVENT_DEFAULT_EVENTS: ReadonlyArray<string>   // ['wheel', 'contextmenu', 'keydown']
 const mayPreventDefault: (eventName: string) => boolean
 const listenerOptionsFor: (eventName: string) => DomListenerOptions
 const TRANSLATED_DOM_EVENTS: ReadonlyArray<string>
@@ -534,7 +551,7 @@ const scopedInputListeners: (targets, input, focusGroups?, pointerLockTarget?) =
 type BrowserPointerLockOptions = { canvas: PointerLockTarget; allowsPointerLock?: () => boolean }
 const makeBrowserPointerLockPort: (options) => PointerLockPort
 
-type BrowserInputOptions = { targets; canvas?; allowsPointerLock?; bindings?; focusGroups? }
+type BrowserInputOptions = { targets; canvas?; allowsPointerLock?; bindings?; focusGroups?; focusNavigation? }
 const browserInputLayer: (options: BrowserInputOptions) => Layer<InputService>
 
 // キーボードフォーカス（§2.10）
@@ -554,12 +571,10 @@ const resolveClickLanding: (pointerLockTarget: unknown, groups, target: unknown)
 plan.md §3.10（Playwright は SwiftShader でポインタロック不可）により
 ブラウザ側にも逃げ場が無い。1 つのアダプタのために全ファイルからその歯止めを外すのは高すぎる。
 
-アダプタ専用の 2 つ目の tsconfig プロジェクトも採れない。
-`scripts/api-lock.ts` は `tsconfig.build.json` から公開面を作り、
-`scripts/check-dependency-whitelist.ts` は `index.ts` / `domain/` / `application/` / `stages/` で
-出荷ソースを分類する。どちらも 16 リポジトリに byte-identical で vendor される領域であり、
-build プロジェクトの外に置いたアダプタは `index.ts` から re-export できない
-——つまり**それが存在する理由であるプレビューから使えない**。
+`tsconfig.preview.json` は Node の内蔵プレビューを対象にする。公開ブラウザ実装は別の
+`./browser` エントリであり、`tsconfig.browser.json` と package build 用の
+`tsconfig.package.json` がその DOM / Three 境界だけを検査する。
+ルートの `index.ts` は依然としてコア API のままで、browser 固有の実体を再 export しない。
 
 代入可能性はテストで証明してある（§8.1 相当は [testing.md](./testing.md) §8.1）。
 `test/fixtures/dom-surface.ts` を**本物の `lib.dom.d.ts`** に対してコンパイルし、
@@ -605,20 +620,22 @@ build プロジェクトの外に置いたアダプタは `index.ts` から re-e
 キーが 2 つのことをする。kit はプレビューを 2 枚並べるので、**このリポジトリは 2 個目を先に見る**。
 だから `browserInputLayer` が既定の入口であり、解除は Scope に結ばれている。
 
-### 2.9.5 `passive: false` は 2 つだけ
+### 2.9.5 `passive: false` は既定を抑止しうるイベントだけ
 
 `preventDefault()` を呼びうるリスナだけが `passive: false` で登録される
-（`PREVENT_DEFAULT_EVENTS` = `wheel` / `contextmenu`）。
+（`PREVENT_DEFAULT_EVENTS` = `wheel` / `contextmenu` / `keydown`）。
+`keydown` は、宣言されたフォーカス対象上の矢印キーをホストが消費した場合だけ
+`preventDefault()` を呼ぶために含まれる。Tab はこのコールバックでは消費しない。
 スクロール経路上の非 passive リスナは実際にフレーム時間を食う——
 ブラウザはスクロールしてよいかを知るためにハンドラの復帰を待たなければならない。
 
-厳密に**必要**なのは `wheel` だけである（ブラウザが既定で passive にするのは
+厳密に**必要**なのは `wheel` と、消費済み矢印キーを扱う `keydown` である（ブラウザが既定で passive にするのは
 `wheel` / `mousewheel` / `touchstart` / `touchmove` であり、`contextmenu` は元から非 passive）。
 `contextmenu` も列挙してあるのは、この 1 つのリストが
 「既定を抑止しうる」と「非 passive で登録する」の両方を表しており、
 既に非 passive なものに `passive: false` を明示しても挙動もフレーム時間も変わらないからである。
 
-## 2.10 キーボードフォーカスは**観測**であって移動ではない
+## 2.10 キーボードフォーカスは観測とホスト所有の移動
 
 mx-ui が半分だけ作って止めた穴（mx-ui/docs/design-notes.md DN-UI-13i）。
 向こうはホットバーを roving-`tabindex` グループにし（**ネイティブなタブストップは 1 つ**）、
@@ -629,8 +646,9 @@ mx-ui が半分だけ作って止めた穴（mx-ui/docs/design-notes.md DN-UI-13
 | --- | --- | --- |
 | スロットがフォーカスを持てる | `setAttribute` | mx-ui |
 | フォーカスが**どう見えるか** | `style.setProperty` | mx-ui |
-| フォーカスを**動かす**キーストローク | `addEventListener` | **mc-render** |
-| 動いたことを mx-ui に**伝える** | — | **mc-render** |
+| 矢印キーを検出して移動を委譲する | `addEventListener` | **mc-render** |
+| フォーカスを**動かす**キーストローク | `focusNavigation` と `focus()` | **host** |
+| 動いたことを mx-ui に**伝える** | `HudView.setKeyboardFocus` | **host** |
 
 ### 2.10.1 公開するもの
 
@@ -642,6 +660,15 @@ const FOCUS_NAVIGATION_KEY_CODE: KeyCode               // 'Tab'
 const FOCUS_NAVIGATION_OWNER: 'user-agent'
 const reportsKeyboardFocus: (state: PointerLockState) => boolean
 
+type FocusNavigationDirection = 'up' | 'left' | 'right' | 'down'
+type FocusNavigationHandler = (
+  direction: FocusNavigationDirection,
+  current: FocusTarget,
+) => boolean
+const ARROW_FOCUS_NAVIGATION_POLICY: {
+  codes; owner: 'host'; preventDefault: 'when-consumed'; disabledWhilePointerLocked: true
+}
+
 // application/input-service.ts
 type InputEvent = ... | { kind: 'focuschange'; focus: FocusTarget | undefined }
 type InputSnapshot = { ...; readonly keyboardFocus: FocusTarget | undefined }
@@ -649,7 +676,7 @@ type InputServiceApi = { ...; readonly keyboardFocus: Effect<FocusTarget | undef
 const FOCUS_NAVIGATION_POLICY: { key; owner; preventDefault: false; registeredBy; rationale }
 ```
 
-### 2.10.2 Tab は**実装しない**。ブラウザが既にやっている
+### 2.10.2 Tab は**実装しない**。矢印キーはホストへ委譲する
 
 mx-ui は**リングとタブストップを同じスロットに置いた**。
 だから Tab でブラウザがネイティブにフォーカスする要素は、
@@ -660,12 +687,16 @@ mx-ui がリングを描いた要素と**構成上一致する**。
 `focusin` / `focusout` の 2 リスナと、それを運ぶ 1 ケースだけで、
 `keydown` の Tab ハンドラも `focus()` 呼び出しも**無い**。
 
+これは Tab の契約である。矢印キーは別の境界として、宣言されたフォーカス対象上で
+`focusNavigation(direction, current)` に委譲する。実際の次要素、端で止めるか循環するか、
+`focus()` の呼び出し、mx-ui の表示更新はホストが所有する。
+
 `focus` / `blur` ではなく `focusin` / `focusout` なのは、**後者だけがバブルする**からである。
 前者なら mx-ui が作るスロット 1 つ 1 つにリスナを付けることになり、
 このリポジトリが所有しない要素を知り、HUD が組み直されるたびに登録し直す必要がある。
 `document` の 1 本は、まだ存在しないスロットも覆う。
 
-### 2.10.3 `preventDefault` は**どのロック状態でも**しない
+### 2.10.3 Tab の `preventDefault` は**どのロック状態でも**しない。矢印キーは消費時だけ抑止する
 
 `suppressesBrowserContextMenu` / `suppressesBrowserScroll` は「ロック中だけ」という
 **擁護できる絞り込み**を持つ（§2.6 / §2.7）。Tab にはそれが**無い**。程度の差ではない:
@@ -679,6 +710,10 @@ mx-ui がリングを描いた要素と**構成上一致する**。
 だから対になる述語 `suppressesBrowserFocusNavigation` は**作っていない**。
 述語は議論を再開する場所であり、この答えは全ロック状態で不変だからである。
 代わりに `FOCUS_NAVIGATION_POLICY.preventDefault === false` を値として置き、テストが見張る。
+一方、矢印キーの `keydown` は `focusNavigation` が `true` を返した場合だけ
+`preventDefault()` される。`false` を返した場合、またはフォーカスグループ外・ポインタロック中の場合は
+通常の `InputEvent` 経路へ進む。`keydown` リスナ自体はこの条件付き抑止のため
+`passive: false` で登録されるが、アダプタが Tab を消費することはない。
 
 同じ理由で **Tab は縛れない**（`remap` は `key-reserved-by-user-agent` で拒否する）。
 Escape の所有者はこちらが選んだフレームハンドラで、動かそうと思えば動かせる。
@@ -773,6 +808,15 @@ const inputLayer = browserInputLayer({
   canvas,
   bindings: savedBindings ?? defaultBindings(),
   focusGroups: [{ group: HOTBAR_FOCUS_GROUP, targets: slots }],
+  focusNavigation: (direction, current) => {
+    // 次の要素の決定と実フォーカスはホストの UI 契約で行う。
+    const nextIndex = moveWithinHotbar(direction, current)
+    if (typeof nextIndex !== 'number' || nextIndex < 0 || nextIndex >= slots.length) {
+      return false
+    }
+    slots[nextIndex].focus()
+    return true
+  },
 })
 
 // ── 4. 毎フレーム、`render:input` の**後**に 1 回。上の provide の中 ────────
@@ -814,9 +858,10 @@ hud.setKeyboardFocus(
 フォーカス中の要素は blur しない）ので、ロックが明ければ mc-render が同じ index を再び報告し、
 同じ 1 行がリングを元に戻す。往復するために mx-ui 側に状態は要らない。
 
-**ホストがやってはいけないこと。** `focus()` を呼ばない、Tab を `preventDefault` しない、
-`tabindex` を自分で書かない。3 つとも所有者が別に居り、最初の 2 つは §2.10.2 / §2.10.3、
-3 つ目は mx-ui の `setSlotTabStop` である。
+**Tab の経路でホストがやってはいけないこと。** Tab のために `focus()` を呼ばない、
+Tab を `preventDefault` しない、`tabindex` を自分で書かない。矢印キーの
+`focusNavigation` コールバックだけは、消費する場合に次の要素へ `focus()` を呼ぶ。
+`tabindex` の管理は mx-ui の `setSlotTabStop` が所有する。
 
 **`canvas` を渡し忘れると 2 つ同時に壊れる。** ロックの要求先が無くなり
 （`UNAVAILABLE_POINTER_LOCK` になる）、同時にどのクリックも `lock-target` に解決されない。
@@ -824,9 +869,13 @@ hud.setKeyboardFocus(
 逆に **canvas をフォーカスグループに入れてはならない**——`resolveClickLanding` は
 ロック対象を先に見るので害は無いが、その 2 つは別の問い（§2.11）である。
 
-**まだ閉じていない 1 点**——グループ内をキーボードで移動する手段が無いこと——は
-[design-notes.md](./design-notes.md) DN-16 §5(a) に、どのリポジトリが変わる必要があるかと
-一緒に書いてある。**HUD の上のクリックがポインタロック要求になる問題（§5(b)）は閉じた。**
+グループ内の矢印キー移動という**境界は閉じた**。mc-render は矢印キーを検出し、
+ポインタロック中でなく、宣言された対象上で、ホストの `focusNavigation` に委譲する。
+ホストが実際に移動して `true` を返したときだけ既定動作を抑止し、通常入力も発行しない。
+次要素のトポロジー、mx-ui の inventory/hotbar ごとの移動規則、実ブラウザの `focus()` は
+ホストの責務である。mx-ui 自身が inventory の `keydown` を所有する構成では、同じ矢印キーを
+二重に処理しないよう、ホストはキーの所有者を 1 つに決めてこのコールバックと併用する。
+**HUD の上のクリックがポインタロック要求になる問題（§5(b)）は閉じた。**
 下の §2.11 がその決定である。
 
 ## 2.11 クリックは**どこに落ちたか**で意味が変わる
@@ -916,6 +965,16 @@ mx-ui はリスナも `stopPropagation()` も持たないまま（DN-UI-4 は無
 `planRenderEnvironment(daylight, farPlane)` と副作用境界の
 `WorldRenderer.setEnvironment(plan)` に分ける。
 
+`makeProductionWorldRenderer` は同じ `WorldRenderer` の描画契約に、atlas-aware な chunk
+shader、アニメーション水面、インスタンス化パーティクルを組み合わせる公開 composition である。
+最小の `makeWorldRenderer` と production composition を分けることで、Node 側の stage・同期テストは
+GPU リソースを要求せず、`./browser` だけが実 Three namespace と canvas を接続する。
+
+`WorldRendererOptions.renderDistance` を渡すと、mc-meshing が公開する
+`CHUNK_SIZE` / `CHUNK_HEIGHT` を使ってカメラの far plane を導出する。mc-sim の設定をそのまま
+渡せるようにしてあり、mc-render はシミュレーション層へ依存しない。`farPlane` を同時に渡した
+場合は明示値が優先される。
+
 ```ts
 const shader = makeChunkShaderMaterial(three, atlasTexture)
 const renderer = yield* makeWorldRenderer(three, canvas, {
@@ -981,7 +1040,39 @@ for (const coord of changed) {
 | `packages/rendering/infrastructure/renderer/world-renderer-refraction*.ts` | — | 屈折プリパス。:119「allocation-free on both paths」 |
 | `packages/rendering/infrastructure/renderer/` 合計 | **1,429** | |
 
-### 3.3 設計時に決めること
+### 3.3 `./browser` 描画入口
+
+`@nerima-games/mc-render/browser` は、構造的な `ThreeSurface` を外から組み立てるための
+補助コードではなく、この package が提供する既定のブラウザ境界である。
+`WebGLRenderer`、`Scene`、`PerspectiveCamera`、`EffectComposer` と実際の post-processing
+pass を生成し、`buildPostProcessingChain` の順序を実行可能な Three の pass 列へ変換する。
+アトラスは `RgbaAtlas` から `DataTexture` へ、または URL からロードした `Texture` へ転送でき、
+水面を接続した場合は屈折 render target も毎フレーム更新する。
+
+```ts
+import { makeBrowserWorldRuntime } from '@nerima-games/mc-render/browser'
+
+const runtime = await makeBrowserWorldRuntime({
+  canvas,
+  atlas: '/assets/terrain.rgba.png',
+  quality: 'high',
+})
+
+runtime.render(camera)
+runtime.advanceFrame(frame)
+const png = await runtime.captureScreenshot()
+runtime.dispose()
+```
+
+`render` はミラー済みカメラを描画し、`advanceFrame` は `ProductionFrame` を同期する。
+継続ループが必要なホストは `start(() => nextFrame())` を使い、単発描画や独自 scheduler は
+`render` / `advanceFrame` を直接呼ぶ。`captureScreenshot` は現在の canvas を PNG の `Blob` として返し、
+`attachWaterSurface`、`resize`、`stop` も公開されている。capture が不要な場合は
+`preserveDrawingBuffer: false` を指定でき、その場合 `captureScreenshot` は拒否される。
+ルート `.` のコア API は DOM-free のまま維持され、PNG の保存・比較、固定ワールドを使った GPU/screenshot
+受入れ fixture とゲーム固有のアセット配布はホストまたは CI の責務である。
+
+### 3.4 設計時に決めること
 
 - ~~ダーティ通知は push か pull か~~ → **決着済み。§3.1 を見よ。**
   「毎フレーム全チャンク走査になるから pull は不可」という指摘はそのまま正しく、
@@ -998,6 +1089,7 @@ type MaterialSpec = {
   readonly transparent: boolean
   readonly side: 'front' | 'back' | 'double'
   readonly alphaTest: number
+  readonly flatSurface: boolean
   readonly shared: boolean
 }
 const requiresForceSinglePass: (material: MaterialSpec) => boolean
@@ -1005,21 +1097,31 @@ const describeMaterialPolicy: (material: MaterialSpec) => MaterialPolicyVerdict
 const auditMaterials: (materials) => ReadonlyArray<{ material; verdict }>
 ```
 
-`MaterialSpec` は `THREE.Material` の構造的部分集合なので、実マテリアルがそのまま適合する。
-アダプタは起動時に共有マテリアルを全部 `auditMaterials` に通し、
-開発ビルドで大声で落ちるようにすること（[design-notes.md](./design-notes.md) DN-02）。
+`MaterialSpec` は `THREE.Material` の構造的部分集合ではなく、マテリアルとメッシュの
+意味論をまとめた DOM/Three 非依存の DTO である。`flatSurface` は Three のマテリアル
+フラグから推論できないため、平面メッシュ側が明示する。
+`auditMaterials` は一般の共有マテリアルを診断する純粋関数であり、既定の renderer は
+水面とパーティクルの spec を同じ `describeMaterialPolicy` に通し、実 Three の
+`forceSinglePass` 転送を構築時に検査する（[design-notes.md](./design-notes.md) DN-02）。
 
 ## 5. フレーム毎スクラッチ
 
 ```typescript
 // domain/frame-scratch.ts
 type ScratchMap<K, V>
+type ScratchBuffer<K, V>
 const makeScratchMap: <K, V>(name: string, initialCapacity?: number) => ScratchMap<K, V>
-const withScratch: <K, V, A>(scratch: ScratchMap<K, V>, use: (buffer: Map<K, V>) => A) => A
-const snapshotScratch: <K, V>(buffer: ReadonlyMap<K, V>) => ReadonlyMap<K, V>
+const withScratch: <K, V, A>(scratch: ScratchMap<K, V>, use: (buffer: ScratchBuffer<K, V>) => A) => A
+const snapshotScratch: <K, V>(buffer: Iterable<readonly [K, V]>) => ReadonlyMap<K, V>
 type FrameScratch = { visibleChunks; entityInstances; lightUpdates }
 const makeFrameScratch: () => FrameScratch
 ```
+
+`ScratchMap` は native `Map` を公開しない。`withScratch` の callback が受け取る
+`ScratchBuffer` は scratch ごとに再利用される lease facade で、借用中だけ map 操作と
+iterator を使える。callback が lease を直接返す場合だけでなく、wrapper・closure・遅延
+処理・iterator に閉じ込めて返却後に使う場合も `ScratchMisuseError` になる。フレーム境界の
+外へ結果を持ち出す場合は、明示的に `snapshotScratch` でコピーする。
 
 `FrameScratch` の中身は**暫定**。参照実装のフレーム毎一時オブジェクトから名前を取り、
 コメントの記述からサイズを見積もっただけである。実際の集合は THREE.js アダプタと一緒に決まる。
@@ -1032,12 +1134,17 @@ type ViewOffset = { right: number; up: number; rollRadians: number }
 type MirroredCameraState = {
   readonly position: Position
   readonly rotation: { x: number; y: number; z: number; order: 'YXZ' }
-  readonly sourceCapturedAtSecs: MonotonicTimeSecs
+  readonly sourceCapturedAtSecs: MonotonicTimeSecs | undefined
 }
 const mirroredCameraState: (snapshot: CameraPoseSnapshot, offset?: ViewOffset) => MirroredCameraState
+const uninitializedMirroredCameraState: (snapshot: CameraPoseSnapshot, offset?: ViewOffset) => MirroredCameraState
 const forwardVector: (snapshot: CameraPoseSnapshot) => Position
 const mirrorLagSecs / isMirrorStale
 ```
+
+`uninitializedMirroredCameraState` は、mc-sim が最初の pose を発行する前の可視 placeholder を
+表す。`sourceCapturedAtSecs` は `undefined` になり、`mirrorLagSecs` は `Infinity` を返す。
+明示的な初期 pose を `makeRenderFrameState` に渡した場合は、その pose が発行済みの seed として扱われる。
 
 **`CameraPoseSnapshot` を受け取る口しかない。書き戻す口は無く、作ってはならない**
 （[design-notes.md](./design-notes.md) DN-06）。
@@ -1053,9 +1160,9 @@ const RENDER_STAGE_IDS: {
   postFx: StageId         // 'render:post-fx'
 }
 
-const renderModule: (quality?) => GameModule<InputService, never, never, InputService>
+const renderModule: (quality?, pointerLock?, draw?, initialPose?, control?, chunkSync?) => GameModule<InputService, never, never, InputService>
 const renderStages: (state, input) => ReadonlyArray<StageRegistration>
-const makeRenderFrameState: (quality?) => Effect<RenderFrameState>
+const makeRenderFrameState: (quality?, initialPose?) => Effect<RenderFrameState>
 const makeRenderStagesForPreview: (quality?) => Effect<{state, stages}, never, InputService>
 ```
 
@@ -1104,74 +1211,56 @@ RRegister = InputService   — しかし render:input を登録するには必�
 `RRegister` を `RIn` に畳むと「自分が出荷するサービスをホストが供給しろ」と言うことになる。
 経緯は mc-kernel `docs/freeze-checklist.md` (b)。
 
-### FIRST CUT の範囲
+### ホスト資源との境界
 
 **フレーム位置と順序制約は確定**である。mc-compose が必要とするのはそれであり、
-本体が埋まっても変わらない。
+stage の実装が増えても変わらない。
 
-本体のうち、まだ到達できないサービスを要するものは FIRST CUT として最小限のことをする
-（`mx-gameplay/stages/registration.ts` と同じ書き方）。
-mc-sim と mc-meshing は mc-render の宣言済みの親だが未 publish なので、
-それらを読むはずの箇所はプレビューやテストが埋める `Ref` を読む。
+本体のうちホストの実行資源を要するものは、Node で検査できる計画と実 Three 接続を分ける。
+mc-sim と mc-meshing は宣言済みの直接依存であり、source はそれらの公開型・関数を直接読む。
+プレビューやテストの `Ref` は canvas/GPU などホスト資源の fake に限り、mc-sim/mc-meshing の
+API を置き換えるローカルポートではない。
 ローカルポートを発明していないのは、それが「カメラ姿勢を所有するのは誰か」への 2 つ目の答えになり、
 plan.md §3.8 が参照実装の最悪の構造バグとして記録している逆転そのものだからである。
 
-## 7. まだ設計していない公開API
+## 7. 残る機能とホスト統合
 
-**着手前に本書へ追記すること。**
+この表は参照実装との対応と、mc-render が所有する境界をまとめる。`WorldRenderer`、入力、
+ワーカープール、クロス/流体メッシュ、ボクセル照明は現行実装に含まれる。browser entry は
+canvas/GPU/Three/DataTexture の接続と PNG capture API を提供するが、PNG の保存・比較、UI と
+voxel-DDA は下表のホストまたは別 package が所有する。
 
-| 領域 | 参照実装 | LOC | 主な消費者 |
-| --- | --- | ---: | --- |
-| **`WorldRenderer`** | `infrastructure/renderer/` | 1,429 | kit / compose |
-| エンティティ描画 | `infrastructure/entity/` | 2,080 | mx-gameplay 経由 |
-| テクスチャアトラス | `infrastructure/textures/` | 555 | 全描画 |
-| パーティクル | `infrastructure/particles/` | 414 | mx-gameplay |
-| 水面 / 屈折 | `infrastructure/post-processing/water-material.ts` ほか | 587 | — |
-| プレイヤー描画（一人称の手など） | `infrastructure/player/` | 384 | — |
-| 性能計測 HUD | `infrastructure/perf/` + `presentation/` | 698 | 開発時 |
-| レイキャスト（描画側の当たり） | `infrastructure/raycasting/` | 89 | **要検討**: voxel-DDA は mc-physics（plan.md §3.4） |
-| ワーカープール実装 | `src/application/worker-pool.ts` | 実装済み | mc-worldgen / mc-meshing の Port を消費 |
-| ~~`window` 入力アダプタ~~ | ~~`input-service.ts:171-205`~~ | — | **実装済。§2.9** |
-| ゲームパッド / タッチ | `domain/gamepad-input.ts` / `application/gamepad-input-adapter.ts` / `application/browser-input-adapter.ts` | 実装済み | ホストがゲームパッドの読み取りと毎フレーム `poll` を担当 |
+| 領域 | 参照実装 / 対応 | 現状 | 主な消費者 |
+| --- | --- | --- | --- |
+| **`WorldRenderer`** | `infrastructure/renderer/` | 実装済み。opaque / water / transparent / cross / fluid と packed lighting、dirty sync を扱う | ホスト renderer |
+| エンティティ描画 | `infrastructure/entity/` | 視覚データ型は一部あり。シーンの実体・アニメーションは host/gameplay | mc-sim / mx-gameplay |
+| テクスチャアトラス | `infrastructure/textures/` | RGBA生成とレイアウト算術は実装済み。PNG/DataTexture 転送・同梱は host | host renderer |
+| パーティクル | `infrastructure/particles/` | pool / instancing / shader binding は実装済み。actual Three/canvas は host | host renderer |
+| 水面 / 屈折 | `infrastructure/post-processing/water-material.ts` ほか | shader factory / refraction plan は実装済み。render target の接続は host | host renderer |
+| プレイヤー描画（一人称の手など） | `infrastructure/player/` | この package の現行公開面には含めない | gameplay / host |
+| 性能計測 HUD | `infrastructure/perf/` + `presentation/` | UI は host。Node preview は計画・統計のみ | 開発 host |
+| レイキャスト（描画側の当たり） | `infrastructure/raycasting/` | ブロック狙撃は mc-physics の voxel-DDA。visual Raycaster は実装しない | mc-physics / host |
+| ワーカープール / ブラウザ Worker 境界 | `src/application/worker-pool.ts` / `src/application/browser-worker-port.ts` | プールと実 `Worker` 接続用 `WorkerPort` adapter を実装済み。スケジューリングは host | host scheduler |
+| ウィンドウ入力 | `application/browser-input-adapter.ts` | 実装済み。DOMイベントの変換はここ、listener lifecycle は host | browser host |
+| ゲームパッド / タッチ | `domain/gamepad-input.ts` ほか | 実装済み。GamepadList取得・毎frame pollは host | browser host |
 
-`raycasting-service.ts`（89 LOC）に注意。plan.md §3.4 は
+レイキャストの責務に注意。plan.md §3.4 は
 「ブロック狙撃はレイキャストではなく voxel-DDA（参照実装で 2.3ms→0.09ms、25倍）」として
 **mc-physics** に置いている。mc-render 側に残るのは THREE の `Raycaster` を使う
-**描画専用**の用途（マウスピッキング等）だけのはずである。**実装時に切り分けること。**
+**描画専用**の用途（マウスピッキング等）だけであり、現行パッケージでは実装しない。
 
-## 8. APIロック
+## 8. 公開面の検証
 
-plan.md §6 Step 0-3。**実装済みで、§9 のツール選定も決着している。**
-mc-render の下流は kit のみだが、kit は全プレビューの土台なので実質的な影響範囲は広い。
+このリポジトリは `api-lock.md`、API lock 生成器、`api:check` / `api:update` スクリプトを
+持たない。公開面の source of truth は `src/index.ts` とそこから到達する型であり、変更時は
+型・挙動・統合ゲートを現行の package scripts で検証する。
 
-| 項目 | 内容 |
+| 対象 | 現行の検証 |
 | --- | --- |
-| 生成物 | リポジトリ直下の `api-lock.md`（公開宣言 121 件 + 参照されている非 export 宣言 17 件。コミット対象） |
-| 生成器 | `scripts/api-lock.ts`（16 リポジトリに byte-identical で vendor。`scripts/check-dependency-whitelist.ts` と同じ方式で、編集してよいのは `REPOSITORY_POLICY` だけ） |
-| 検査 | `pnpm api:check` — `api-lock.md` が実際の公開 API と食い違えば非ゼロ終了 |
-| 更新 | `pnpm api:update` |
-| 配線 | `pnpm verify` の `check:deps` と `test` の間、および CI の `API lock` ステップ |
-| 追加依存 | **なし**（`typescript` は既に devDependency） |
+| 公開型と依存関係 | `pnpm typecheck` |
+| ドメイン・アプリケーションの挙動 | `pnpm test` |
+| lint と typecheck と test の統合 | `pnpm verify` |
 
-`@microsoft/api-extractor` を先に試して却下した経緯・実測・仕組み・限界は
-mc-kernel の `docs/versioning.md` §7 が正本。ここでは mc-render にとっての意味だけ書く。
-
-**この選定は本書 §6 の `RRegister` 議論と同じものを守っている。** api-extractor は
-`Context.Tag` のサービスクラスを「forgotten export」として落とし、Tag 識別子文字列と
-束ねられた service 型を捨てる。mc-render の `api-lock.md` にはそれが残っている:
-
-```ts
-const InputService_base: Context.TagClass<InputService, "@nerima-games/mc-render/InputService", InputServiceApi>;
-```
-
-`InputService` は §6 が言う通り `ROut` にも `RRegister` にも現れ、`RIn` には現れないサービスである。
-この Tag 文字列は mc-compose がステージを合成するときの解決鍵であり、
-黙って変わると mc-render 単体では型検査を通ったまま、合成した瞬間に実行時で壊れる。
-`GameModule<ROut, E, RIn, RRegister = never>` の型引数と既定値がロックにそのまま写るのも同じ理由で重要である
-（生成器が `checker.typeToString` ではなく declaration emit を使っているのはこのため）。
-
-捕まえないもの: **挙動**（THREE のアダプタが何を描くかはこのファイルに出ない。テストの仕事）と、
-**interface / 型リテラルのメンバ順**（ソース順を保つので並べ替えは API 変更でなくても diff になる）。
-
-公開面を変える PR は `pnpm api:update` の結果を**同じ PR に**含めること。
-§7 の `WorldRenderer` が入るときが、このロックの最初の大きな diff になる。
+型検査が実行時の Three.js の挙動を保証するわけではないため、shader、atlas、ジオメトリ、
+lighting の規則は対応する単体テストで固定する。browser canvas、GPU、PNG の texture 転送と
+`captureScreenshot` の実画面比較はホスト側の fixture/QA 層で検証する。

@@ -87,17 +87,25 @@ plan.md の見出しと §2.4 は「**15 リポジトリで固定**」と書き�
   worldgen / sim / render / kit / gameplay / redstone / ui / multiplayer / compose）
 - **依存ホワイトリストが知るべきリポジトリ = 16**（上記 + `mc-dev-meta`）
 
-`REPOSITORY_POLICY.dependencyGraph` は後者の 16 行を持つ。dev-meta は依存を 1 つも持たず
-（`repos/` に clone を並べるだけ）、誰からも依存されないため、循環検査には影響しない。
-行を置くのは「16 リポジトリ全部について、意図が記録されている」状態にするためである。
+この図は組織側の依存計画を記録するものであり、`mc-render` がローカルに
+`REPOSITORY_POLICY` や依存ホワイトリストを複製することを意味しない。各 package の
+直接依存宣言と TypeScript の import graph が実装上の境界である。
 
 `mc-dev-meta` は 15 リポジトリの clone を `repos/` に並べて 1 つの pnpm workspace として
 束ねる薄いリポジトリで、開発中は `workspace:*` 解決でモノレポ同等の DX を得る。
-npm 公開・バージョン bump 運用は界面安定（APIロック 4 週間無変更）まで開始しない（plan.md §6 Step 0-2）。
+npm 公開・バージョン bump は各 package の公開手順で管理し、この package の公開面は
+`src/index.ts` と到達可能な型を source of truth とする。
 
-このグラフは `scripts/check-dependency-whitelist.ts` の `REPOSITORY_POLICY.dependencyGraph` に
-**全 16 行そのまま**記録されており、`pnpm check:deps` が循環検査を行う。
-`test/check-dependency-whitelist.test.ts` が「16 行あること」「全体が非循環であること」を assert している。
+この境界は各 package の直接依存宣言と TypeScript の import graph に記録される。`pnpm typecheck`
+と lint は、現在のソースが公開された型・構文・依存宣言に対して成立することを検証する。
+
+### 2.1 TypeScript の実行系と compiler API
+
+通常の型検査・ビルドは TypeScript 7 を使う。一方、テストが `ts.createProgram` や
+`ts.readConfigFile` を直接呼ぶ箇所には `typescript-compiler-api`（TypeScript 6 の npm alias）を
+使う。TypeScript 7 の公開 runtime package は version metadata のみを公開し、これらの compiler API
+を持たないためである。したがって、これは旧 API を出荷物へ持ち込む互換アダプタではなく、
+テスト専用の compiler API 境界である。
 
 ## 3. mc-render の位置
 
@@ -106,26 +114,16 @@ npm 公開・バージョン bump 運用は界面安定（APIロック 4 週間�
 | 依存先 | 何をもらうか |
 | --- | --- |
 | `mc-kernel` | 共有語彙。**どのリポジトリからも import 可**。ただし `package.json` の `dependencies` への記載は必要 |
-| `mc-meshing` | `mesh(chunk, neighbors, config) → {opaque, water, transparentSolid}` |
+| `mc-meshing` | `mesh(chunk, neighbors, config) → {opaque, water, transparentSolid, crossPlants, fluids}` と公開 quad 型 |
 | `mc-sim` | `CameraPoseSnapshot`、描画すべき状態（チャンクダーティ購読は mc-worldgen） |
 | `mc-worldgen` | `Chunk` データ、ライトグリッド（BFS光伝播の結果。**適用**がこちらの責務） |
 
 ### 3.2 子（mc-render に依存するもの）
 
-`mc-playground-kit` と **`mc-compose`**。
-
-compose のエッジは縦切りスパイクで足されたものである。それ以前は kit だけが mc-render を
-依存に持ち、kit は devDependency 専用なので実行時エッジを作らない。つまり
-**mc-render は動いているゲームからどこからも到達できなかった**。
-
-それは抽象的な問題ではなかった。`InputService.endFrame` はフレーム毎にちょうど 1 回
-呼ばれなければならず、それは定義上 stage である。ところがロスター全体で登録されていた入力 stage は
-kit の `input:sample` だけで、**出荷ビルドには入力 stage が存在しなかった**。
-plan.md §2.3-2 が防ぐために書かれた失敗そのものである。詳細は
-`mc-compose/docs/architecture.md` §5 と、本リポジトリの `stages/stage-ids.ts`。
-
-kit のほうも「界面が安定しなくてよい」という意味ではない。kit は全プレビューの土台であり、
-kit が壊れると 15 リポジトリの完了条件（「内蔵プレビューが操作可能」）が全部止まる。
+`mc-playground-kit` と **`mc-compose`** は mc-render を利用するホスト側である。
+kit は共通プレビューの入力・品質設定・起動を組み立て、compose は複数 package を統合する。
+どちらも mc-render の実行時依存ではないが、mc-render の公開 API を利用するため、
+`src/index.ts` と stage 登録の界面は安定させる必要がある。
 
 ### 3.3 推移閉包は禁止
 
@@ -135,7 +133,7 @@ kit が壊れると 15 リポジトリの完了条件（「内蔵プレビュー
 同じ問いへの独立した 2 つの答えになり、必ず食い違う。
 
 同様に `mc-save` も推移依存であり import 禁止。レンダラはセーブファイルを読まない。
-`test/check-dependency-whitelist.test.ts` の `transitive-import` 回帰テストが両方を固定している。
+直接依存宣言と import graph を越えた利用は、公開ソースの型検査とレビューで防ぐ。
 
 ## 4. 構成の成立条件（plan.md §2.3）
 
@@ -166,13 +164,12 @@ kit は出荷ビルドに入らない。もし実行時入力サービスが kit
 **ビルドが通り、起動し、描画し、キーボードを完全に無視する**。コンパイル時に無音で、
 実行時に全損。これが最悪の組み合わせであり、だから機械的に防いでいる。
 
-| 違反 | `pnpm check:deps` の検出ルール |
+| 境界 | 現在の確認方法 |
 | --- | --- |
-| `dependencies` に kit がある | `dev-only-package-in-dependencies` |
-| `index.ts` / `domain/` / `application/` から kit を import | `dev-only-package-in-shipped-source` |
+| `dependencies` の runtime 宣言 | `package.json` と `pnpm typecheck` |
+| shipped source からの import | TypeScript の import graph と公開面のレビュー |
 
-kit は実行時エッジを作らないため依存グラフの循環には参加しない。
-`test/check-dependency-whitelist.test.ts` に「kit は依存に無い」ことを assert する回帰テストがある。
+kit は実行時エッジを作らないため、renderer の runtime dependency には含めない。
 
 **逆向きの誤解に注意**: 制約は「誰が kit に依存してよいか」についてのものである。
 kit 自身が mc-render に依存するのは正常な実行時依存であり、何も問題はない。
@@ -198,7 +195,7 @@ input → simulation(physics → interactions → entities → fluids → redsto
    逆順にすると 1 フレーム古い姿勢を描くことになり、参照実装の逆転構造が実行順序の形で復活する。
 2. **`post-fx` は `render` の直前にチェーンを選択する独立段**。`domain/post-processing.ts` の
    チェーン順序はこの段の**内部**の話で、選択済みの計画を `DrawPort` へ渡す。実際の
-   `EffectComposer` pass 生成・実行はブラウザ adapter の責務であり、stage 順序表とは別物である。
+   `EffectComposer` pass 生成・実行は `src/browser.ts` の既定ブラウザ境界、または外部ホストの adapter の責務であり、stage 順序表とは別物である。
 
 ### 4.4 §2.3-4 プレビューは検証対象と同居
 
@@ -219,28 +216,32 @@ plan.md §5.1-2「カメラ姿勢は sim 所有」。詳細と参照実装の証
 ```
 
 構造的保証は**依存の向き**である。`mc-render → mc-sim` があるため `mc-sim → mc-render` は循環になり、
-`pnpm check:deps` が例外リスト無しで落とす。mc-sim には「レンダラに問い合わせる」という選択肢が
-そもそも存在しない。
+package の直接依存宣言と import graph のレビューで逆向きの参照を許さない。mc-sim には
+「レンダラに問い合わせる」という選択肢がそもそも存在しない。
 
 攻撃スイングのバンプのような演出は、ミラーした姿勢の**上に**適用し、mc-sim には戻さない。
 `domain/camera-mirror.ts` の `ViewOffset` がその置き場である。
 
-## 6. なぜ現在のソースに THREE.js が 1 行も無いのか
+## 6. なぜコア入口とブラウザ入口を分けるのか
 
-**意図的**である。現在の `domain/` と `application/` は純粋な値と関数だけでできている。
+**意図的**である。`domain/` は純粋な値と関数で構成し、コアの `./` 入口と
+`application/three-surface.ts` は Three の実行時 namespace ではなく、必要な構造的な surface を
+受け取る契約だけを定義する。DOM・Three・EffectComposer を実際に接続する公開ブラウザ入口は
+`./browser`（`src/browser.ts`）として分離している。
 
 | 本来 THREE.js に埋まっている知識 | ここでの表現 | 効果 |
 | --- | --- | --- |
 | `composer.addPass()` の呼び出し順 | `POST_PROCESSING_PASS_ORDER` 配列 + 検証関数 | 順序バグが GPU 無しの単体テストで落ちる |
 | どのマテリアルに `forceSinglePass` が要るか | `requiresForceSinglePass` 述語 | マテリアルを名指しせず**規則**で表現できる |
 | どのイベントをどこに登録するか | `LISTENER_PLAN` + `GAMEPLAY_LISTENER_TARGET` | window/document の遮蔽関係を DOM 無しで assert できる |
-| フレーム毎の一時オブジェクト再利用 | `withScratch` | 「バッファがフレームを跨いで逃げた」を実行時に検出できる |
+| フレーム毎の一時オブジェクト再利用 | `withScratch` | private native `Map` と lease facade により、返却後の直接利用・wrapper・iterator を実行時に検出できる |
 
 これらは全部、参照実装では**文の並び順**にしか書かれておらず、読むことでしか検査できず、
 GPU が無いとテストできなかった知識である。データにすると `environment: 'node'` で固定できる。
 
-THREE.js アダプタの仕事は、これらのデータを読んで `composer.addPass` を呼ぶだけになる。
-順序を間違えるには、GPU 不要のテストを落とすしかない。
+既定の `src/browser.ts` の THREE.js adapter は、これらのデータを読んで concrete pass を
+`composer.addPass` へ渡す。外部ホストも同じ契約へ独自実装を注入でき、順序規則そのものは
+GPU 不要のコアテストで固定される。
 
 `tsconfig.base.json` の `lib` に **`"DOM"` は入っていない。`window` 入力アダプタが入った後もである。**
 アダプタが実際に触る DOM メンバは 8 個しかないので、`application/dom-surface.ts` に
@@ -250,5 +251,10 @@ THREE.js アダプタの仕事は、これらのデータを読んで `composer.
 実物の `Window` が**キャスト無しで**適合することはテストで証明してある
 （[design-notes.md](./design-notes.md) DN-15、[testing.md](./testing.md) §8.1）。
 
-`"DOM"` / `"WebWorker"` を入れるかどうかは最初の THREE.js アダプタで改めて議論する。
-THREE のクラス階層は「メンバ 8 個」ではない（[versioning.md](./versioning.md) §5）。
+`application/three-surface.ts` の基底面は `WebGLRenderer`、`Scene`、`PerspectiveCamera`、
+`BufferGeometry`、`BufferAttribute`、`Mesh`、`MeshBasicMaterial` を扱い、shader と instancing
+用の拡張面を分けている。`application/world-renderer.ts` は基底面を使って chunk mesh、scene、
+camera、draw の契約を実装し、`application/world-renderer-production.ts` がその契約へ chunk
+shader、水面 shader、instanced particle を組み合わせる。実際の Three namespace、canvas、WebGL/GPU は
+既定の `src/browser.ts` または外部ホストが接続し、生成RGBA・URLアトラスの texture 転送は
+ブラウザ入口が扱う。したがって Node preview でも描画同期と shader 入力の契約を検証できる。

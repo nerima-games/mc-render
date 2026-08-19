@@ -170,7 +170,7 @@ plan.md §3.9 の「~7k」はどちらの基準でも丸めとして妥当（6,7
 | `infrastructure/perf/` | 345 | mc-render |
 | `infrastructure/player/` | 384 | mc-render |
 | `infrastructure/post-processing/` | 587 | mc-render（`water-material.ts:137` / `god-rays-pass.ts` / `composite-pass.ts`） |
-| `infrastructure/raycasting/` | 89 | **要判断**（§2.1） |
+| `infrastructure/raycasting/` | 89 | **移植しない**（§2.1） |
 | `infrastructure/renderer/` | **1,429** | mc-render。`WorldRenderer` 本体 |
 | `infrastructure/scene/` | 16 | mc-render |
 | `infrastructure/textures/` | 555 | mc-render（アセット同梱。plan.md §5.3） |
@@ -191,8 +191,9 @@ plan.md §3.4 は「ブロック狙撃はレイキャストではなく voxel-DD
 `scratchNormal`（:25, :60-70）で法線から対象ブロック座標を求めている。
 これは**遅いほう**の実装であり、ブロック狙撃としては mc-physics の voxel-DDA に置き換わる。
 
-mc-render に残るのは、THREE シーングラフ上のオブジェクトを拾う用途（マウスピッキング、
-デバッグ用の当たり判定）だけのはずである。**移植時に切り分けること。**
+mc-render ではこの 89 LOC を再実装しない。ブロック狙撃は mc-physics の voxel-DDA、
+THREE シーングラフ上のオブジェクトを拾うマウスピッキング／デバッグ用当たり判定は
+ホストの責務と確定した。現行 mc-render に raycasting source は存在しない。
 
 ## 3. `packages/app` から mc-render へ来るもの
 
@@ -235,7 +236,7 @@ plan.md §3.9 は「`packages/worker` のプール実装」とだけ書く。Por
 | ファイル | LOC | 行き先 |
 | --- | ---: | --- |
 | `application/terrain-worker-pool-port.ts` | 48 | **Port → mc-worldgen** |
-| `application/meshing-worker-pool-port.ts` | 36 | **Port → mc-meshing または mc-render**（要判断） |
+| `application/meshing-worker-pool-port.ts` | 36 | **Port → mc-meshing** |
 | `domain/terrain-worker-protocol.ts` | 66 | Port 側と同居 |
 | `domain/meshing-worker-pool-types.ts` | 26 | 同上 |
 | `infrastructure/terrain-worker-pool.ts` | 272 | **実装 → mc-render** |
@@ -247,31 +248,36 @@ plan.md §3.9 は「`packages/worker` のプール実装」とだけ書く。Por
 | `infrastructure/meshing/meshing-worker-pool-protocol.ts` | 153 | 実装 → mc-render |
 | `infrastructure/meshing/meshing-worker-sync.ts` | 117 | 実装 → mc-render |
 | `infrastructure/meshing/meshing-worker-pool-port-layer.ts` | 22 | 実装 → mc-render |
-| `infrastructure/meshing/meshing-worker-config.ts` | 42 | **plan.md §3.3 は mc-meshing 行きとしている**（§4.1） |
+| `infrastructure/meshing/meshing-worker-config.ts` | 42 | **mc-meshing**（§4.1で確定） |
 | `index.ts` | 7 | — |
 | **合計** | **1,556** | |
 
 概算: Port + protocol 176 LOC が使う側へ、実装 1,373 LOC が mc-render へ。
 
-### 4.1 `meshing-worker-config.ts` の行き先が plan.md 内で矛盾
+### 4.1 `meshing-worker-config.ts` の行き先
 
 plan.md §3.3（mc-meshing の移植元）は
 「greedy-meshing.ts + chunk-mesh-geometry + **meshing-worker-config.ts**（計 3,994 LOC）」と書く。
 plan.md §3.9 は「`packages/worker` のプール実装」と書く。
-このファイルはどちらにも該当しうる。**実装時に決めて両リポジトリの porting.md に記録すること。**
+plan.md §3.9 は「`packages/worker` のプール実装」と書くが、設定値はメッシングの
+プロトコルと共有する。したがって `meshing-worker-config.ts` は **mc-meshing** に置き、
+mc-render は公開された設定型と Port を利用する。この判断を本書の表にも反映した。
 
-## 5. `three` のバージョン
+## 5. `three` のバージョンと公開境界
 
-参照実装 `package.json`:
+参照実装の `package.json`（旧構成）:
 
 ```
 "three": "^0.170.0"
 "@types/three": "^0.170.0"
 ```
 
-**まだ `dependencies` に入れていない**（[versioning.md](./versioning.md) §5）。
-現在のソースは THREE.js を 1 行も import していないので、依存を宣言すると
-「使っていないものへの依存」になる。最初の THREE.js アダプタと同じコミットで追加する。
+現行では `three@^0.185.1` を `dependencies`、`@types/three@^0.185.4` を
+`devDependencies` に宣言している。`src/index.ts` とコア application/domain は実行時 Three を
+import せず、`src/browser.ts` が公開 `./browser` 入口として Three namespace、canvas、
+EffectComposer、アトラス texture を接続する。`test/fixtures/three-surface.ts` は構造的な
+surface と実際の Three 型との適合を検査し、固定ワールドの GPU/screenshot fixture と
+ゲーム固有の PNG 配布はホスト側に残る。
 
 参照実装は `three/addons/postprocessing/*` を直接使っている
 （`EffectComposer` / `RenderPass` / `GTAOPass` / `UnrealBloomPass` / `BokehPass` / `SMAAPass` /
@@ -279,7 +285,9 @@ plan.md §3.9 は「`packages/worker` のプール実装」と書く。
 `GodRaysPass` と `CompositePass` は**自作**で、`packages/rendering/infrastructure/post-processing/`
 にある（`god-rays-pass.ts` / `composite-pass.ts`、ディレクトリ計 587 LOC）。
 
-`0.170.0` を採るかは移植時に再確認すること。THREE は minor でも破壊的変更を入れる。
+現行は `0.185.1`（型定義 `0.185.4`）。THREE は minor でも破壊的変更を入れるため、
+依存更新時に再確認する。Node コア／プレビューは `DOM` 無しの tsconfig を保ち、ブラウザ入口は
+専用の package/browser tsconfig で DOM 型を限定的に有効化する。
 
 ## 6. テスト資産の移植
 

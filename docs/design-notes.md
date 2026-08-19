@@ -17,7 +17,7 @@ plan.md §3.9「設計注意（参照実装の実測知見）」の全項目を�
 | DN-07 | GTAOPass は無効時も VRAM を食う。作らない | 済（部分） |
 | DN-08 | 入力サービスは blur で保持キーをクリア | 済 |
 | DN-09 | ポインタロック解除時にデルタを捨てる | 済 |
-| DN-10 | ワーカープールは Port と実装を分ける | 要 |
+| DN-10 | ワーカープールは Port と実装を分ける | 済 |
 | DN-11 | `Date.now()` を使わない | 済 |
 | DN-12 | クリックはロック状態で意味が変わる。`contextmenu` はロック中のみ抑止 | 済 |
 | DN-13 | ホイールはエッジでもレベルでもなくデルタ。単位はドメインで正規化する | 済 |
@@ -118,12 +118,12 @@ low/medium the CompositePass would have no inputs to composite
 
 これは上記 `isCompositeActive` の第 2 項そのものである。
 
-移植していないが**順序に隣接するため記録しておく 2 点**:
+移植時に**順序に隣接するため記録しておく 2 点**:
 
-- `composerRtType` は low/medium の `THREE.UnsignedByteType`(1009) から
-  high/ultra で `THREE.HalfFloatType`(1016) に変わる。bloom が HDR レンダーターゲットを
-  必要とするためで、bloom を有効にしながら HDR ターゲットにしないプリセットは、
-  bloom が拾うはずのハイライトを先にクリップしてしまう。
+- `composerRtType` は `GraphicsQuality.composerRenderTarget` として low/medium の
+  `THREE.UnsignedByteType`(1009) から high/ultra の `THREE.HalfFloatType`(1016) に変わる。
+  既定ブラウザはこれを EffectComposer と水面屈折の両方へ反映する。bloom を有効にしながら
+  HDR ターゲットにしないプリセットは、bloom が拾うはずのハイライトを先にクリップしてしまう。
 - FR-4.3 の統合による削減量は同ファイルで **~25 MB/frame の帯域**と記録されている。
   8 段目が存在する理由そのもの。
 
@@ -164,7 +164,7 @@ THREE.js アダプタの仕事は `buildPostProcessingChain` の出力（`PostPr
 | `is only active when it actually has something to composite` | `compositeFlagsAnyEnabled` 相当 |
 | `REGRESSION: rejects SMAA before Bloom` / `rejects Bokeh before Bloom` / `rejects anything after output` | 検証関数側 |
 | `every one of the 64 on/off combinations produces a canonical chain` | 6 bool の**全数**。1 組合せだけ壊れるバグは開発者より先にプレイヤーに届く |
-| **（要追加）** `the THREE adapter adds passes in exactly buildPostProcessingChain order` | アダプタ実装時。`addPass` のスパイで assert |
+| **ブラウザ入口で実装済み** `the browser entry materializes passes in buildPostProcessingChain order` | `src/browser.ts` が `PostProcessingStep` を実 Three pass へ変換する。実 GPU の見た目は browser fixture で追加検証する |
 
 ---
 
@@ -230,12 +230,12 @@ Measured before/after (idle, settled world):
 
 参照実装で `forceSinglePass: true` が立っているのは 4 箇所:
 
-| 箇所 | マテリアル | 共有か | `alphaTest` |
-| --- | --- | --- | ---: |
-| `packages/rendering/infrastructure/meshing/chunk-mesh-materials.ts:164` | ガラス/葉チャンクマテリアル | **共有** | 0.1 |
-| `packages/rendering/infrastructure/post-processing/water-material.ts:137` | 水面マテリアル（:134-136 に同趣旨の説明） | **共有** | — |
-| `packages/rendering/infrastructure/particles/particle-system.ts:60` | プールされたパーティクルマテリアル（:57-59「Cutout particles don't need it」） | **共有**（プール） | 0.5 |
-| `packages/presentation/hud/first-person-held-item.ts:131` | 一人称の手持ちアイテム。`transparent: !isBlock` + `DoubleSide`、平板は `PlaneGeometry` | **非共有**（呼び出しごとに `new`） | — |
+| 箇所 | マテリアル | 共有か | `alphaTest` | `flatSurface` |
+| --- | --- | --- | ---: | ---: |
+| `packages/rendering/infrastructure/meshing/chunk-mesh-materials.ts:164` | ガラス/葉チャンクマテリアル | **共有** | 0.1 | false（cutout） |
+| `packages/rendering/infrastructure/post-processing/water-material.ts:137` | 水面マテリアル（:134-136 に同趣旨の説明） | **共有** | —（0） | **true** |
+| `packages/rendering/infrastructure/particles/particle-system.ts:60` | プールされたパーティクルマテリアル（:57-59「Cutout particles don't need it」） | **共有**（プール） | 0.5 | false（cutout） |
+| `packages/presentation/hud/first-person-held-item.ts:131` | 一人称の手持ちアイテム。`transparent: !isBlock` + `DoubleSide`、平板は `PlaneGeometry` | **非共有**（呼び出しごとに `new`） | —（0） | **true** |
 
 4 番目は 2 つの点で他と違い、どちらも記録する価値がある。
 
@@ -267,9 +267,9 @@ cutout ないし平板で `DoubleSide` なマテリアルは、共有されて�
 `forceSinglePass` はタダではない。2 パス描画は**本当に半透明な物体**の内側の面を外側より先に
 描くために存在する。ステンドグラスや水中から見た深い水に付けると、順序が目に見えて壊れる。
 
-見分けは **`alphaTest > 0`**。アルファテスト付きは cutout であり、各フラグメントは完全不透明か
-破棄かのどちらかなので、2 パス順序が解決すべきものが無い。
-参照実装の 4 箇所はすべて cutout か平板である。
+見分けは **`alphaTest > 0` または `flatSurface: true`**。アルファテスト付きは cutout であり、
+各フラグメントは完全不透明か破棄かのどちらかなので、2 パス順序が解決すべきものが無い。
+平面にも遠い壁が無く、同じ結論になる。参照実装の 4 箇所はすべて cutout か平板である。
 
 `domain/material-policy.ts` はこれを**規則**として書いており、3 つのマテリアルを名指ししていない
 （plan.md §3.1 の「能力フラグ vs 名指しブロックID」と同じ手）。
@@ -279,12 +279,12 @@ cutout ないし平板で `DoubleSide` なマテリアルは、共有されて�
 | verdict | 意味 |
 | --- | --- |
 | `ok` | 2 パス経路に入らない、または共有されていない |
-| `must-force-single-pass` | 共有 + 2パス + cutout。`forceSinglePass: true` が必要 |
-| `review-sharing` | 共有 + 2パス + **真の半透明**。forceSinglePass は見た目を壊す。共有をやめるか、コストを意図的に受け入れる |
+| `must-force-single-pass` | 共有 + 2パス + (cutout または flatSurface)。`forceSinglePass: true` が必要 |
+| `review-sharing` | 共有 + 2パス + **真の半透明**（cutout でも flatSurface でもない）。forceSinglePass は見た目を壊す。共有をやめるか、コストを意図的に受け入れる |
 
 ### 書くべき回帰テスト
 
-`test/material-policy.test.ts`（10 テスト）。
+`test/material-policy.test.ts`（11 テスト）。
 
 | テスト名 | 内容 |
 | --- | --- |
@@ -294,7 +294,7 @@ cutout ないし平板で `DoubleSide` なマテリアルは、共有されて�
 | `a FrontSide material does not` / `an opaque material does not` | 条件の独立性 |
 | `REGRESSION: alphaTest 0 means the two-pass ordering is doing real work` | 付けてはいけない場合 |
 | `the diagnostic names the measurement, not just the rule` | メッセージに `33ms -> 9.2ms` が入る。次の人が「整理」しないため |
-| **（要追加）** `every shared material built by the adapter passes auditMaterials` | アダプタ実装時、起動時アサーションとして |
+| `an all-clear audit is empty, so a startup assertion can be \`length === 0\`` | 診断用 `auditMaterials` は純粋関数として全件確認 |
 
 ---
 
@@ -351,34 +351,41 @@ packages/rendering/infrastructure/renderer/world-renderer-refraction-ratio.ts:4
 
 `withScratch` はこれを機構化している。
 
-- 借用時にクリア（退出時ではない。デバッグ時に中身を見られるようにするため、かつ
-  本当に重要な不変条件は「コールバックが古いデータを見ない」ほう）
-- コールバックがバッファ**そのもの**を返したら `ScratchMisuseError`
+- native `Map` は `ScratchMap` から非公開にし、scratch ごとに 1 つだけ作った
+  lease facade を callback に渡す
+- 借用時に private map をクリア（退出時ではない。重要な不変条件は「callback が古い
+  データを見ない」ほう）
+- lease の全操作と iterator の `next()` は借用期間を検査し、返却後の利用を
+  `ScratchMisuseError` にする
 - 二重借用（再入）も `ScratchMisuseError`
 - 持ち出したいときは `snapshotScratch` でコピー。**アロケートするのが目的**——
   タダに見えて実はタダでない参照より、明示的で帰属可能なアロケーションのほうがよい
 
-> 実装者向けの罠: `Map.prototype.set` は Map 自身を返す。
-> `withScratch(s, (b) => b.set(k, v))` はバッファを返してしまい escape 検査に引っかかる。
-> ブロック本体を使うこと。**引っかかるのが正しい**——暗黙に返してしまうバッファは、
+> 実装者向けの罠: `ScratchBuffer.prototype.set` は lease 自身を返す。
+> `withScratch(s, (b) => b.set(k, v))` は lease を返してしまい escape 検査に引っかかる。
+> ブロック本体を使うこと。**引っかかるのが正しい**——暗黙に返してしまう lease は、
 > まさにこの機構が防ぎたい「うっかり漏れ」であり、いちばん書きやすい間違いである。
 
 ### 書くべき回帰テスト
 
-`test/frame-scratch.test.ts`（12 テスト）。
+`test/frame-scratch.test.ts`（18 テスト。下表は主要な不変条件）。
 
 | テスト名 | 内容 |
 | --- | --- |
-| `the SAME Map object serves every frame — no allocation per frame` | 5 フレームで同一オブジェクト |
+| `the same lease object serves every frame — no per-frame wrapper allocation` | 5 フレームで同一 lease |
 | `REGRESSION: the buffer is cleared on ENTRY, so a frame never sees stale data` | |
 | `clearing keeps the buffer identity, which is what keeps the bucket array` | |
-| `returning the buffer itself throws rather than handing out a live reference` | |
+| `the native map is private and the lease is only active during the callback` | public `buffer` が無いことと map 操作 |
+| `returning the lease itself throws and releases the borrow` | |
+| `a wrapper that retains the lease fails when read after the callback` | wrapper の返却後利用 |
+| `a closure over the lease fails when invoked later` | closure の返却後利用 |
+| `a deferred Effect cannot read a lease after its synchronous borrow` | Effect の返却後利用 |
+| `an escaped iterator fails on its next operation` | iterator の返却後利用 |
 | `a failed escape still releases the borrow, so the buffer stays usable` | |
 | `snapshotScratch is the sanctioned way to keep results, and it copies` | |
 | `two nested users of one buffer would clobber each other` | 再入検出 |
 | `two DIFFERENT buffers may be borrowed at once` | 検出が過剰でないこと |
 | `two frame-scratch sets are independent, so two renderers can coexist` | kit の 2 枚並列 |
-| **（要追加）** `a full frame allocates no new Map` | アダプタ実装時。`--expose-gc` かアロケーション計測で |
 
 ---
 
@@ -596,7 +603,7 @@ packages/app/application/frame/stages/render-stage.ts:98-100
 | `a vertical bob stays vertical whatever the pitch` | pitch を掛けない理由 |
 | `is a unit vector at every pitch, so a raycast needs no renormalisation` | |
 | `a pose more than 100 ms old is reported as stale rather than silently drawn` | |
-| **（要追加）** `no source file in this repository reads camera.position` | アダプタ実装時。走査テストで |
+| **（未自動化）** `no source file in this repository reads camera.position` | `camera.position.set` の書き込みは許可し、読み出しだけを走査する |
 
 ---
 
@@ -626,7 +633,7 @@ packages/app/application/main/session-post-processing.ts:53-56
 | --- | --- |
 | `the minimum chain is render then output` | `test/post-processing.test.ts` |
 | `REGRESSION: replaces bloom, godRays and bokeh — never runs alongside them` | 同上 |
-| **（要追加）** `a disabled pass is never constructed` | アダプタ実装時 |
+| **（未自動化）** `a disabled pass is never constructed` | Node テストでは未検証。ブラウザ/GPU 境界で確認する |
 
 ---
 
@@ -695,21 +702,23 @@ plan.md §3.7 は mc-worldgen に「ワーカープールPort（実装は利用�
 | ファイル | LOC | 分割先 |
 | --- | ---: | --- |
 | `application/terrain-worker-pool-port.ts` | 48 | Port → mc-worldgen |
-| `application/meshing-worker-pool-port.ts` | 36 | Port → mc-meshing または mc-render |
+| `application/meshing-worker-pool-port.ts` | 36 | Port → mc-meshing |
 | `infrastructure/terrain-worker-pool.ts` | 272 | 実装 → mc-render |
 | `infrastructure/meshing/meshing-worker-pool.ts` | 307 | 実装 → mc-render |
-| `infrastructure/meshing/meshing-worker-config.ts` | 42 | plan.md §3.3 は **mc-meshing** 行きとしている |
+| `infrastructure/meshing/meshing-worker-config.ts` | 42 | **mc-meshing** |
 
-**`meshing-worker-config.ts` の行き先が plan.md 内で食い違っている。**
-§3.3（mc-meshing の移植元）に含まれているが、§3.9 の「ワーカープール実装」にも該当しうる。
-実装時に決めて本文書に追記すること。
+`meshing-worker-config.ts` はメッシングのプロトコルと共有する設定値なので、
+**mc-meshing** に置く。mc-render は公開された設定型と Port を利用し、実装を重複させない。
 
-### 書くべき回帰テスト（要）
+### 回帰テスト（済）
 
 | テスト名 | 内容 |
 | --- | --- |
-| `the pool implementation satisfies the Port without importing its owner's internals` | |
-| `a worker that dies is replaced rather than deadlocking the pool` | |
+| `the pool implementation satisfies the Port without importing its owner's internals` | `test/worker-pool.test.ts` が構造的な `WorkerPort` fake を通して、キュー・キャンセル・終了を検証する |
+| `a worker that dies is replaced rather than deadlocking the pool` | 同上。失敗した worker の終了、置換、キュー済みジョブの失敗を検証する |
+| `a browser Worker surface adapts to the Port without importing DOM into core` | `test/browser-worker-port.test.ts` が実 DOM `Worker` 型、メッセージ、エラー、transfer list、終了を検証する |
+
+構造化複製の実データ互換性と実ブラウザ thread の E2E は、Node の fake port では証明できないため、ホスト側ブラウザ fixture の責務として残る。
 
 ---
 
@@ -717,27 +726,21 @@ plan.md §3.7 は mc-worldgen に「ワーカープールPort（実装は利用�
 
 plan.md §4.3 / §5.1-3。時刻はすべて注入された Clock Port から取る。
 
-強制は `scripts/check-dependency-whitelist.ts` の `findBannedTimeSources`
-（`Date.now()` / `new Date()` / `performance.now()`）。**`.oxlintrc.json` ではない**——
-oxlint 0.12 は `no-restricted-syntax` も `no-restricted-properties` も実装しておらず、
-`no-restricted-globals` は一覧に出るが実装されていない（mc-kernel で 0.12.0 に対し実測確認済み）。
+専用の依存ホワイトリスト・スクリプトで機械的に検出する構成は採用していない。出荷コードでは
+`Date.now()` / `new Date()` / `performance.now()` を直接読まず、必要な時刻は注入された
+`MonotonicTimeSecs` などの Clock Port から受け取る。`typecheck` と lint は現在の import・型・
+構文を検証し、raw clock read の不在はソースレビューと検索で確認する。
 
-**mc-render はこの禁止が最も効くリポジトリである。** `performance.now()` は FPS 計測・
-フレーム時間計測・アニメーション補間で自然に手が伸びる。参照実装にも
-`packages/rendering/presentation/perf-hud-counters.ts` のような計測コードがある。
-
-そして**ブラウザプラットフォームを所有するのがここである以上、Clock Port の実装アダプタは
-おそらくここに置かれる**。だからエスケープハッチは**ファイト単位ではなく行単位**である
-（`mc-kernel-allow-time-source` コメント）。アダプタの 1 行だけが例外になり、
-同じファイルの他の行は例外にならない。
+**mc-render はこの方針が特に重要なリポジトリである。** `performance.now()` は FPS 計測・
+フレーム時間計測・アニメーション補間で自然に手が伸びるが、時刻を読むホストと純粋な描画
+ロジックを分離すれば、Node テストでも同じ入力を再現できる。
 
 ### 書くべき回帰テスト
 
 | テスト名 | 場所 |
 | --- | --- |
-| `catches all three raw clock reads, with line numbers` | `test/check-dependency-whitelist.test.ts` |
-| `ignores the same text inside a comment or a string` | 同上 |
-| `the escape hatch exempts exactly the line that carries it` | 同上 |
+| `the camera mirror uses injected monotonic time` | `test/camera-mirror.test.ts` |
+| `raw clock reads remain absent from shipped source` | ソースレビューと `rg` による確認 |
 
 ---
 
@@ -931,8 +934,9 @@ JavaScript の `%` は被除数の符号を保つ。`+ HOTBAR_SIZE` 1 回で足�
 ## DN-14 ポインタロックは**要求**であり、拒否されうる
 
 plan.md には無い。[public-api.md](./public-api.md) §2.2 が
-「要求側（`requestPointerLock`）は未実装」と自分で記録していた穴である。
-DN-12 が `uiClicks`（ロックを取り直すクリック）をモデル化したが、
+「要求側（`requestPointerLock`）は未実装」と記録していた穴を扱う設計ノートである。
+現在は `PointerLockPort`、`render:input` stage、browser adapter まで実装済みだが、
+DN-12 が `uiClicks`（ロックを取り直すクリック）をモデル化した時点では
 **それを受ける側が無かったので、プレビューはマウスルックに入れなかった。**
 
 決定（4 状態、`PointerLockPort`、誰がいつ要求するか）は
@@ -1029,13 +1033,14 @@ Playwright は SwiftShader でポインタロックを扱えないので、
 | 案 | 結果 |
 | --- | --- |
 | `lib` に `"DOM"` を足す | 純粋なファイル全部から同時に歯止めが消える。しかも**数ヶ月誰も気づかない** |
-| アダプタ専用の 2 つ目の tsconfig プロジェクト（`lib.DOM` 付き） | **機械的に詰む**。`scripts/api-lock.ts` は `tsconfig.build.json` から公開面を作り、`scripts/check-dependency-whitelist.ts` は `index.ts` / `domain/` / `application/` / `stages/` で出荷ソースを分類する。どちらも 16 リポジトリに byte-identical で vendor される領域で、リポジトリ毎に編集してはならない。build プロジェクト外のアダプタは `index.ts` から re-export できず、**それが存在する理由であるプレビューから使えない** |
-| **実際に使う DOM メンバだけを構造的に書く** | 採用 |
+| browser/package entry 専用の tsconfig（`lib.DOM` 付き） | **採用**。`src/browser.ts` を公開する明示的な境界として検査し、コアの `tsconfig.base.json` / `tsconfig.build.json` は DOM-free のまま保つ。 |
+| **実際に使う DOM メンバだけを構造的に書く** | `application/browser-input-adapter.ts` と `application/three-surface.ts` では引き続き採用。 |
 
 ### 採ったかたち
 
-`application/dom-surface.ts` が**このリポジトリの DOM 依存の全部**である（メンバ 8 個）。
-`application/browser-input-adapter.ts` がそれを使う唯一のファイルである。
+`application/dom-surface.ts` が入力アダプタの DOM 依存を構造的に閉じ込める（メンバ 8 個）。
+一方、`src/browser.ts` は Three / canvas / `ResizeObserver` / URL アセットを扱うための
+**明示的な公開ブラウザ境界**であり、コアの structural surface とは別の層である。
 
 構造的な型は「実物が代入できる」ことが保証されなければ意味が無く、それは自明ではない。
 `strictFunctionTypes` によりリスナの引数は反変なので、
@@ -1050,7 +1055,8 @@ Playwright は SwiftShader でポインタロックを扱えないので、
 | 半分 | 何を証明するか | どこ |
 | --- | --- | --- |
 | ドメインは DOM 非依存のまま | `pnpm typecheck` が `lib: ["ES2024"]` / `types: []` で**出荷ソース全部**を通す | `pnpm verify` |
-| 同上（設定が後から緩められていない） | `tsconfig.build.json` の `lib` / `types` を assert | `the shipped project still compiles with NO DOM at all` |
+| 同上（設定が後から緩められていない） | コア tsconfig の `lib` / `types` と runtime import graph を assert | `the core project still compiles with no DOM and no runtime three import` |
+| browser 境界が実装面に接続している | `tsconfig.browser.json` と package build が `src/browser.ts` を検査 | `the core entry keeps three at the browser boundary` |
 | 狭い型が実物の**部分集合**である | `test/fixtures/dom-surface.ts` を**本物の `lib.dom.d.ts`** に対してコンパイルし、診断 0 件を assert | `a real Window, Document and HTMLCanvasElement satisfy the adapter without a cast` |
 
 3 番目のフィクスチャは `tsconfig.json` / `tsconfig.test.json` から `test/fixtures/**` として
@@ -1060,8 +1066,11 @@ DOM の無いプロジェクトに入れれば落ちるだけで、出荷プロ�
 
 ### 適用範囲の限定
 
-**これは THREE.js には持ち越せない。** THREE のクラス階層は「メンバ 8 個」ではない。
-`"DOM"` / `"WebWorker"` を入れるかどうかは最初の THREE.js アダプタで改めて議論する。
+これは実 Three のクラス階層を shipped source に import する、という意味ではない。
+`application/three-surface.ts` は必要なコンストラクタだけを構造的に表す。既定の実 Three
+namespace、canvas、WebGL、post-processing は `src/browser.ts` が接続し、別のホストは
+同じ core surface を直接使える。`"DOM"` / `"WebWorker"` をコア全体へ追加する必要はなく、
+DN-15 の制約と browser/GPU fixture の検証を両立させる。
 DN-15 が言えるのは「1 つのアダプタのために全ファイルから歯止めを外すのは高すぎる」であって、
 「構造的な型はいつでも DOM の代わりになる」ではない。
 
@@ -1070,11 +1079,12 @@ DN-15 が言えるのは「1 つのアダプタのために全ファイルから
 | テスト名 | 場所 |
 | --- | --- |
 | `a real Window, Document and HTMLCanvasElement satisfy the adapter without a cast` | `test/browser-input-adapter.test.ts` |
-| `the shipped project still compiles with NO DOM at all` | 同上 |
+| `the core project still compiles with no DOM and no runtime three import` | `test/three-surface.test.ts` |
+| `the core entry keeps three at the browser boundary` | `test/three-surface.test.ts` |
 
 ---
 
-## DN-16 キーボードフォーカスは**観測**である。Tab は奪わない
+## DN-16 キーボードフォーカスは観測し、Tab は奪わず、矢印移動は host に委譲する
 
 plan.md には無い。**mx-ui が半分だけ作って止めた**ところである
 （mx-ui/docs/design-notes.md DN-UI-13i、`mx-ui/application/slot-element.ts`）。
@@ -1082,7 +1092,7 @@ plan.md には無い。**mx-ui が半分だけ作って止めた**ところで�
 公開モデルの決定（`FocusTarget`、`focusin`/`focusout`、ロック中のマスク、
 同一性による解決）は [public-api.md](./public-api.md) §2.10 にある。
 ここに書くのは**設計注意**の側、すなわち「知らないと必ず踏む」4 つと、
-**まだ閉じていない 2 点**（§5）である。
+この境界で閉じた 2 点（§5）である。
 
 ### 証跡
 
@@ -1125,7 +1135,7 @@ WCAG 2.1 SC 2.1.2（No Keyboard Trap）そのものである。
 
 だから対になる述語を**作っていない**。`suppressesBrowserFocusNavigation(pointerLocked)` は
 恒偽の関数であり、恒偽の述語は「いつか true になる分岐がある」という誤った合図である。
-代わりに `FOCUS_NAVIGATION_POLICY`（`application/input-service.ts`、`ESCAPE_POLICY` の隣）に
+代わりに `FOCUS_NAVIGATION_POLICY`（`application/input-listener-plan.ts`、`ESCAPE_POLICY` の隣）に
 `preventDefault: false` を**値として**置いた。
 「抑止しない」は**何かを足すことで破られる**約束であり、
 不在としてしか存在しない約束は CI が見張れない。
@@ -1198,35 +1208,33 @@ DN-08 の「blur で保持キーを消す」は、**ブラウザが keyup を送
 `unknown` を選んだ理由は `pointerLockElement` が `unknown` である理由と同じ——
 **比較しかしないから**である。
 `application/dom-surface.ts` に増えたのは `DomInputEvent` の省略可能フィールド **1 つだけ**で、
-型宣言も述語も 1 つも増えていない（`index.ts` 経由の公開エントリは 7 つのまま）。
+型宣言も述語も 1 つも増えていない（`application/dom-surface.ts` の公開エントリは 7 つのまま）。
 
-### 5. 観測の外に残った 2 点。**どちらも観測の欠陥ではなく、決定が要った**
+### 5. 観測の外にあった 2 点。**どちらも観測の欠陥ではなく、責務の決定が要った**
 
-（(b) は閉じた。(a) は依然 mx-ui と一緒に決める。）
+（(b) はクリック境界として閉じた。(a) は host-owned の移動へ委譲する境界として閉じた。）
 
 入っているのは**観測**であり、それは mx-ui が名指しで待っていたもの
 （DN-UI-13i「閉じるにはキーストロークに気づく必要がある」）そのものである。
-一方で `setSlotTabStop` のコメントは「`'-1'` にして**消さない**のは、
-入力を所有する側がグループ**内**でフォーカスを動かせるようにするためだ」と書いている。
-その動詞はまだ無い。書いておかないと、次に読む人が観測の側を疑い始める。
+**(a) グループ内の移動（矢印キー）は host-owned として境界を閉じた。** ホットバーは
+タブストップが 1 つなので、Tab で入るのは常に `DEFAULT_TAB_STOP_INDEX`（= スロット 0）だけである。
+mc-render は DOM 要素の配列や UI の移動トポロジーを所有しないため、`dom-surface.ts` に
+`focus()` を追加して UI 実装を複製するのではなく、`focusNavigation` callback を公開する。
 
-**(a) グループ内の移動（矢印キー）が無い。** ホットバーはタブストップが 1 つなので、
-Tab で入れるのは常に `DEFAULT_TAB_STOP_INDEX`（= スロット 0）だけである。
-`focus()` を呼ぶ主体が居ないので、キーボードだけでスロット 1..8 に**リングを動かす手段は無い**。
+`focusNavigationDirectionForCode` は `ArrowUp` / `ArrowLeft` / `ArrowRight` / `ArrowDown` を
+意味方向へ変換する。入力アダプタは、ポインタロック中でなく、宣言された `FocusTarget` の上でだけ
+callback を呼ぶ。callback が `true` を返した場合だけその keydown を `preventDefault` し、通常の
+入力サービスへの dispatch も行わない。`false` なら通常の入力経路へ残す。Tab は常に
+ユーザーエージェントへ残る。
 
-これを欠陥と呼ばない理由が 2 つある。
-1 つは、キーボードのスロット選択は既に `hotbarSlot1..9`（`Digit1`..`Digit9`）で閉じており、
-リング（キーボードの居場所）と選択（ゲームが使っているスロット）は
-mx-ui のパレットが**意図的に別々の問い**として持っているものだからである
-（`FOCUS_RING` と `SLOT_SELECTED`、別要素・同時点灯可）。
-もう 1 つは、閉じるには**この 1 リポジトリでは決められないこと**が要るからである:
-`dom-surface.ts` に `focus()` を足す（DN-15 の代入可能性の証明をやり直す）、
-どのキーが移動するかを決める（矢印か、Home/End か、循環するのか）、
-そして**ロック中はそのキーが移動してはならない**——
-ロック中は同じ矢印がプレイヤーを動かすかもしれないからである。
-述語 1 つでは済まず、`FOCUS_NAVIGATION_POLICY` の隣にもう 1 つ方針が要る。
-**採るなら mx-ui と一緒に決める。** それまで観測だけで正しく閉じているのは
-「Tab で入る / Tab で出る / リングが正しいスロットに出る」までである。
+callback の実体は host が所有する。callback は次の要素を決めて `focus()` を呼び、必要なら
+mx-ui の inventory の `moveInventoryFocus(direction)` または hotbar の
+`HudView.setKeyboardFocus(index)` と同期する。mx-ui が inventory の keydown を自ら所有する場合は、
+host が同じキーを二重処理しないよう、所有者を一つに定める。この分離により、mc-render の
+DOM-free surface と、UI 固有の循環・端点・フォーカス表示規則を混ぜずに済む。
+
+したがって repo 内で検証するのは方向変換、ロック / focus-group 境界、消費時だけの既定動作抑止までである。
+実 DOM の `focus()` と mx-ui への実配線は、GPU / browser fixture と同じ host-owned の受入れに残る。
 
 **(b) HUD の上のクリックが、ポインタロック要求になる。—— 閉じた。**
 これは DN-12 / DN-14 から来ていた既存の穴で、
@@ -1322,15 +1330,18 @@ HUD を建て直したのに入力スコープを建て直していない）**�
 そのホストは canvas を名指しするべきである。この 1 ケースのために
 DN-15 の代入可能性の証明をやり直す価値は無い。
 
-### 誰がまだ必要か —— **誰も要らない**
+### 誰がどこに必要か —— **境界は mc-render、実体は host**
 
 **mx-ui は変わらない。** リスナも `stopPropagation()` も要らず、
 DN-UI-4 の「`addEventListener` を持たない」は無傷である。
-**ホストも新しい宣言をしない。** `browserInputLayer` が `options.canvas` を
-ロック要求の宛先とクリックのスコープの**両方**に渡す。
-`installInputListeners` を直に呼ぶホスト（Port を自前で組む場合）だけが
-第 4 引数で canvas をもう一度渡す必要がある。
-残っているのは §5(a)（グループ内の矢印キー移動）だけで、そちらは**依然 mx-ui と一緒に決める**。
+矢印キーについても mx-ui にリスナを追加しない。`browserInputLayer` は任意の
+`focusNavigation` callback を入力アダプタへ渡し、host が実際の要素を `focus()` する。
+inventory / hotbar の UI 規則を持つ host は、mx-ui が既に keydown を所有している範囲と
+二重処理しないように接続する。`installInputListeners` を直に呼ぶ host は、必要な場合だけ
+同じ callback を `InstallInputListenersOptions` に渡す。
+
+つまり §5(a) の mc-render 側の決定は完了している。残るのは実 DOM の focus と、
+host が選んだ mx-ui の移動規則を browser fixture で受け入れることである。
 
 ### 書くべき回帰テスト
 
@@ -1346,7 +1357,7 @@ DN-UI-4 の「`addEventListener` を持たない」は無傷である。
 | `focus is NOT reported while the pointer is LOCKED — Tab then is not navigation` | ロック規則 | input |
 | `REGRESSION: the lock MASKS the focus, it does not forget it` | **上記 3 の本体** | input |
 | ``the mask is exactly `locked`: requested and refused still report`` | 4 状態のうちどれか | input |
-| `NOTHING suppresses Tab: the preventDefault list stays at wheel and contextmenu` | **上記 1** | input |
+| `consumed arrows may prevent their default, but NOTHING suppresses Tab` | Tab は抑止せず、消費した矢印だけを条件付きで抑止する | input |
 | `Tab cannot be bound to an action — the owner that cannot be removed gets no second` | 上記 2 | input |
 | `actionForKey never resolves Tab, even from a corrupt persisted blob` | もう 1 つの入口 | input |
 | `a Tab keydown still reaches the service as an ordinary held code` | 飲み込んでいないこと | input |
@@ -1359,6 +1370,10 @@ DN-UI-4 の「`addEventListener` を持たない」は無傷である。
 | `a move within the group settles on the ARRIVAL, not on the departure` | focusout→focusin の順序 | adapter |
 | `REGRESSION: no focus handler EVER calls preventDefault` | **上記 1 を実リスナ越しに** | adapter |
 | `the focus listeners make NO preventDefault claim — no passive: false on either` | 上記 1 を登録オプションの側から。`passive: false` は「既定を抑止しうる」の宣言であり、フォーカスのハンドラが名乗ってはならない | adapter |
+| `a consumed arrow delegates the move and suppresses only that browser default` | host callback が移動を消費した矢印だけを抑止する | adapter |
+| `an unconsumed or unrelated key stays on the ordinary input path` | 境界キーと通常キーを入力サービスへ残す | adapter |
+| `arrow navigation is disabled while locked and outside declared focus groups` | ロック中または対象外では host 移動を呼ばない | adapter |
+| `maps every supported browser code to its semantic direction` | `Arrow*` と意味方向の対応を固定する | focus-navigation |
 | `a real Window, Document and HTMLCanvasElement satisfy the adapter without a cast` | `target` を足しても DN-15 が成立。**ロック対象を `===` でしか触らないハンドラも含む**（§5(b)） | adapter |
 
 §5(b) の分（**実装済**。名前は「どちらの半分が壊れたか」を言うようにしてある）:
@@ -1445,16 +1460,16 @@ DN-UI-4 の「`addEventListener` を持たない」は無傷である。
 
 全文: `domain/water-surface.ts` と `domain/water-refraction.ts` のヘッダ。
 
-### `forceSinglePass` の穴
+### `forceSinglePass` の判定
 
-DN-02 の述語（`shared && two-pass && cutout`）は**水面を分類できない**。
-`alphaTest` が 0 だからである。詳細と対処は
-[responsibility.md §2.1](./responsibility.md)。要点だけ:
+DN-02 の述語は **`shared && two-pass && (cutout || flatSurface)`** である。
+詳細と対処は [responsibility.md §2.1](./responsibility.md)。要点だけ:
 
 - 参照実装は `water-material.ts:137` でフラグを立てており、それは**正しい**
 - 正しい理由は「平面だから」であって「cutout だから」ではない
-- `material-policy.ts:62-63` は基準を「cutout **または平面**」と書き、`:92-96` で cutout 側だけを述語にした
-- 共有述語は書き換えていない。欠けた条項を `WATER_SURFACE_IS_FLAT` として合成した
+- `MaterialSpec` が平面性を意味論として持つので、水面は `alphaTest: 0` と `flatSurface: true` を忠実に表せる
+- 水面専用の判定関数は不要で、通常の `describeMaterialPolicy` が直接 `must-force-single-pass` を返す
+- `flatSurface: false` の閉じた透明体は `review-sharing` のままなので、半透明全体を単一パスにはしない
 
 ### 数値の出所
 
