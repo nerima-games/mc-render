@@ -417,12 +417,12 @@ assert している。同時に `flatSurface: false` の閉じた透明体が `r
 
 ```
 install --frozen-lockfile
-  → typecheck (build + test + preview)
+  → typecheck (build + test + preview + browser)
   → lint (Nix 提供の oxlint)
   → test
   → changeset status (pull request のみ)
   → coverage (4 指標 100% ゲート)
-  → package check (build + tarball contents)
+  → package check (build + tarball contents + manifest/exports + core/browser import probes)
 ```
 
 `check:deps` や API lock の独立ゲートは現在の構成にはない。直接依存宣言、TypeScript の
@@ -559,7 +559,7 @@ Three namespace と canvas を所有するホスト fixture に残る。
 ## 9. 現行 lint/typecheck の対象
 
 `package.json` の `lint` / `lint:fix` は `src apps scripts test` を対象にする。
-`typecheck` は build / test / preview の各 tsconfig を実行し、公開 index から到達する stages も検査する。
+`typecheck` は build / test / preview / browser の各 tsconfig を実行し、公開 index から到達する stages も検査する。
 依存境界は package.json の直接依存宣言と TypeScript import graph で検証し、別の `check:deps` スクリプトは持たない。
 
 ## 12. Three surface と renderer path のテスト
@@ -586,7 +586,8 @@ DOM 証明と同じ機構である（`ts.createProgram` を直接叩く）。
 
 同じテストが 3 つの周辺事実も固定している: コア用 `tsconfig.build.json` が
 `lib: ["ES2024"]` / `types: []` のままであること、コア出荷面に `three` の import が
-無く、**`src/browser.ts` だけが意図した runtime 境界であること**（grep。`skipLibCheck` が
+無く、**`src/browser.ts` を root とする browser entry graph だけが意図した runtime 境界であること**（grep。
+`src/browser-water-visibility.ts` など、その graph から到達する Three import は含む。`skipLibCheck` が
 あるので型検査では見えない）、`three` と `@types/three` のバージョン文字列が一致していること。
 
 ### 12.2 chunk geometry と voxel lighting

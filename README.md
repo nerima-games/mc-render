@@ -107,7 +107,7 @@ Nix を使わない場合は Node.js 24 以上と pnpm 11 以上（`corepack` �
 | `pnpm test:coverage` | カバレッジ計測。`vitest.config.ts` の branches / functions / lines / statements 100% 閾値を適用 |
 | `pnpm preview` | 内蔵プレビュー（入力状態機械とポリシー表のステッパ）。**`pnpm verify` には入らない**。[`apps/preview-render/README.md`](./apps/preview-render/README.md) |
 | `pnpm build` | `tsdown` で ESM、型宣言、source map を `dist/` に出力 |
-| `pnpm pack:check` | 一時 tarball を作成し、公開物の必須ファイルと `src/` 非同梱を検査 |
+| `pnpm pack:check` | 一時 tarball を作成し、公開物の必須ファイル、`src/` 非同梱、manifest の `main` / `types` / `exports`、ビルド済み core / browser の import と browser runtime entry を検査 |
 | `pnpm verify` | `typecheck && lint && test && build` |
 
 ## 現状
