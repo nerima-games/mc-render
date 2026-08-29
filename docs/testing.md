@@ -441,6 +441,10 @@ assert しているのは文字列の存在であって、数値の再現では�
 
 ## 7. CI
 
+ローカルで品質ゲートを再現する場合、Nix の開発環境では lint を
+`nix develop --command pnpm lint` として実行する。型検査とテストは同じ環境で
+`pnpm typecheck` と `pnpm test` を実行し、CI と同じ検証対象を確認する。
+
 `.github/workflows/ci.yaml` は、型検査・lint・テスト・ビルド・カバレッジを個別に実行する。
 
 ```
