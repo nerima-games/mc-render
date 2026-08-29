@@ -327,8 +327,8 @@ export type ThreeSurface<
   ) => ThreeBufferAttribute
   readonly Mesh: new (geometry: TGeometry, material: TMaterial) => ThreeMesh
   readonly MeshBasicMaterial: new (parameters: {
-    readonly vertexColors: boolean
-    readonly wireframe: boolean
+    readonly vertexColors?: boolean
+    readonly wireframe?: boolean
   }) => TMaterial
 }
 
@@ -371,10 +371,13 @@ export type ThreeShaderMaterialParameters = {
   readonly depthWrite?: boolean
   readonly forceSinglePass?: boolean
   readonly alphaTest?: number
-  readonly side?: unknown
+  readonly side?: ThreeMaterialSide
 }
 
-export const THREE_DOUBLE_SIDE = 2
+// oxlint-disable-next-line no-magic-numbers -- THREE's Side type is the literal enum 0|1|2.
+export type ThreeMaterialSide = 0 | 1 | 2
+
+export const THREE_DOUBLE_SIDE: ThreeMaterialSide = 2
 
 /**
  * The surface, plus a `ShaderMaterial`.

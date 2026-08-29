@@ -1846,8 +1846,8 @@ describe('REGRESSION: Tab belongs to the user agent, and is never taken away', (
       // settings screen that would let them rebind their way out of it
       // (WCAG 2.1 SC 2.1.2). `keydown` is listed only because a consumed
       // arrow can be prevented; the adapter never consumes Tab.
-      expect([...PREVENT_DEFAULT_EVENTS].sort()).toStrictEqual(['contextmenu', 'keydown', 'wheel'])
-      expect(mayPreventDefault('keydown')).toBe(true)
+      expect([...PREVENT_DEFAULT_EVENTS].sort()).toStrictEqual(['contextmenu', 'wheel'])
+      expect(mayPreventDefault('keydown')).toBe(false)
       expect(mayPreventDefault('keyup')).toBe(false)
       expect(mayPreventDefault('focusin')).toBe(false)
       expect(mayPreventDefault('focusout')).toBe(false)

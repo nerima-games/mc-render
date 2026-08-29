@@ -442,7 +442,7 @@ export const AO_ONLY_COLOR: QuadColor = greyQuadColor(AO_ONLY_SHADE)
  * (`block-texture-map.ts` imports `FaceRole` from here) and the reverse would
  * close a cycle.
  */
-export type QuadTile = (quad: GeometryQuad) => number
+export type QuadTile = (quad: GeometryQuad | FluidQuad) => number
 
 /** The tile index every quad draws when no atlas is bound. See `UNTEXTURED_TILE`. */
 const UNTEXTURED_TILE_INDEX = 0

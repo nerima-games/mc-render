@@ -743,6 +743,7 @@ const SCENARIO_LIST = [
   'stranded-request',
   'lost-notch',
   'blur-while-locked',
+  'hud-click',
   'mirror-staleness',
   'rebinding',
 ] as const

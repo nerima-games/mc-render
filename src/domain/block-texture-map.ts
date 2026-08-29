@@ -322,8 +322,15 @@ export const tileIndexResolver =
  */
 export const quadTileFromResolver =
   (resolve: (blockId: number, role: FaceRole) => number): QuadTile =>
-  (quad) =>
-    resolve(quad.blockId, quad.role)
+  (quad) => {
+    if ('role' in quad) {
+      return resolve(quad.blockId, quad.role)
+    }
+    if (quad.direction === 'yPos') {
+      return resolve(quad.blockId, 'top')
+    }
+    return resolve(quad.blockId, 'side')
+  }
 
 /**
  * The whole binding in one call: a host's `id -> name` becomes a `QuadTile`.

@@ -66,7 +66,6 @@ import type {
   ThreeMesh,
   ThreePerspectiveCamera,
   ThreeRendererParameters,
-  ThreeMaterialSide,
   ThreeInstancedBufferAttribute,
   ThreeInstancedBufferGeometry,
   ThreeScene,
@@ -132,7 +131,7 @@ export type FakeShaderMaterial = ThreeMaterial & {
   readonly transparent?: boolean
   readonly depthWrite?: boolean
   readonly forceSinglePass?: boolean
-  readonly side?: ThreeMaterialSide
+  readonly side?: unknown
   readonly disposed: () => boolean
 }
 
@@ -149,7 +148,7 @@ export type FakeInstancedGeometry = FakeGeometry & ThreeInstancedBufferGeometry
 
 export type FakeMesh = ThreeMesh & {
   readonly geometry: FakeGeometry
-  readonly material: FakeMaterial | FakeShaderMaterial
+  readonly material: ThreeMaterial
   readonly positions: () => ReadonlyArray<readonly [number, number, number]>
   readonly scales: () => ReadonlyArray<readonly [number, number, number]>
   readonly rotations: () => ReadonlyArray<readonly [number, number, number, 'YXZ']>
@@ -369,11 +368,11 @@ export const makeFakeThree = (): FakeThree => {
   ) => ThreeBufferAttribute
 
   const MeshBasicMaterial = class {
-    constructor(parameters: { readonly vertexColors: boolean; readonly wireframe: boolean }) {
+    constructor(parameters: { readonly vertexColors?: boolean; readonly wireframe?: boolean }) {
       let disposed = false
       const self: FakeMaterial = {
-        vertexColors: parameters.vertexColors,
-        wireframe: parameters.wireframe,
+        vertexColors: parameters.vertexColors ?? false,
+        wireframe: parameters.wireframe ?? false,
         disposed: () => disposed,
         dispose: () => {
           disposed = true
@@ -383,8 +382,8 @@ export const makeFakeThree = (): FakeThree => {
       return self
     }
   } as unknown as new (parameters: {
-    readonly vertexColors: boolean
-    readonly wireframe: boolean
+    readonly vertexColors?: boolean
+    readonly wireframe?: boolean
   }) => FakeMaterial
 
   const InstancedBufferAttribute = class {
@@ -477,7 +476,7 @@ export const makeFakeThree = (): FakeThree => {
   } as unknown as new (parameters: ThreeShaderMaterialParameters) => FakeShaderMaterial
 
   const Mesh = class {
-    constructor(geometry: FakeGeometry, material: FakeMaterial | FakeShaderMaterial) {
+    constructor(geometry: FakeGeometry, material: ThreeMaterial) {
       const positions: Array<readonly [number, number, number]> = []
       const scales: Array<readonly [number, number, number]> = []
       const rotations: Array<readonly [number, number, number, 'YXZ']> = []
@@ -502,7 +501,7 @@ export const makeFakeThree = (): FakeThree => {
     // not have.
   } as unknown as new (
     geometry: FakeGeometry,
-    material: FakeMaterial | FakeShaderMaterial,
+    material: ThreeMaterial,
   ) => FakeMesh
 
   return {

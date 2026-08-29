@@ -2,13 +2,13 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { expect, it } from '@effect/vitest'
 import * as Effect from 'effect/Effect'
-import ts from 'typescript-compiler-api'
 import {
   makeBrowserWorkerPort,
   type BrowserWorkerErrorEvent,
   type BrowserWorkerLike,
   type BrowserWorkerMessageEvent,
 } from '../src/application/browser-worker-port'
+import { inspectTypeScriptFixture } from './typescript-project'
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -109,28 +109,9 @@ it.effect('forwards transfer lists and all browser error forms', () =>
 it.effect('accepts the real DOM Worker surface without a cast', () =>
   Effect.sync(() => {
     const fixture = `${repositoryRoot}/test/fixtures/browser-worker-port.ts`
-    const program = ts.createProgram({
-      rootNames: [fixture],
-      options: {
-        baseUrl: repositoryRoot,
-        exactOptionalPropertyTypes: true,
-        lib: ['lib.es2022.d.ts', 'lib.dom.d.ts'],
-        module: ts.ModuleKind.ESNext,
-        moduleDetection: ts.ModuleDetectionKind.Force,
-        moduleResolution: ts.ModuleResolutionKind.Bundler,
-        noEmit: true,
-        noUncheckedIndexedAccess: true,
-        skipLibCheck: true,
-        strict: true,
-        target: ts.ScriptTarget.ES2022,
-        types: [],
-      },
-    })
-    const diagnostics = [...program.getSemanticDiagnostics(), ...program.getSyntacticDiagnostics()].filter(
-      (diagnostic) => diagnostic.category === ts.DiagnosticCategory.Error,
-    )
+    const inspection = inspectTypeScriptFixture(repositoryRoot, fixture, ['ES2022', 'DOM'])
 
-    expect(diagnostics.map((diagnostic) => ts.flattenDiagnosticMessageText(diagnostic.messageText, ' '))).toStrictEqual([])
+    expect(inspection.errors).toStrictEqual([])
   }),
   60_000,
 )

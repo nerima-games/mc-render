@@ -1005,6 +1005,8 @@ const applyInputEvent = (current: InputState, event: InputEvent): InputState => 
       return { ...current, pointerLockState: 'refused' }
     case 'blur':
       return withBlur(current)
+    default:
+      return current
   }
 }
 

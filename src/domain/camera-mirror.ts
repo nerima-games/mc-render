@@ -102,6 +102,7 @@ export type MirroredCameraState = {
   readonly rotation: Readonly<Record<EulerAngleAxis, number>> & { readonly order: 'YXZ' }
   /** The instant mc-sim produced the pose, or `undefined` before first publish. */
   readonly sourceCapturedAtSecs: MonotonicTimeSecs | undefined
+  readonly unpublished?: boolean
 }
 
 /**
@@ -159,6 +160,9 @@ export const mirroredCameraState = (
   }
 }
 
+export const uninitializedMirroredCameraState = (_snapshot: CameraPoseSnapshot): MirroredCameraState =>
+  ({ ...mirroredCameraState(undefined), unpublished: true })
+
 /**
  * Unit forward vector of an authoritative snapshot.
  *
@@ -192,6 +196,9 @@ export const mirrorLagSecs = (
 ): number | undefined => {
   const capturedAtSecs = state.sourceCapturedAtSecs
   if (capturedAtSecs === undefined) {
+    if (state.unpublished === true) {
+      return Number.POSITIVE_INFINITY
+    }
     return undefined
   }
   return now - capturedAtSecs
