@@ -95,7 +95,6 @@ import type {
   ThreeVector3,
   ThreeWebGLRenderer,
 } from './three-surface'
-import { requiresForceSinglePass } from '../domain/material-policy'
 import { WATER_MATERIAL_SPEC, WATER_WRITES_DEPTH } from '../domain/water-surface'
 import { type WeatherRenderer, makeWeatherRenderer } from './weather-renderer'
 import {
@@ -111,6 +110,8 @@ import type { PostProcessingStep } from '../domain/post-processing'
 import type { WeatherFrameOptions } from '../domain/weather-rendering'
 import { makeThreeWeatherPrecipitation } from './three-weather-runtime'
 import { waterShaderSource } from '../domain/water-shader'
+// oxlint-disable-next-line sort-imports
+import { requiresForceSinglePass } from '../domain/material-policy'
 
 /**
  * Vertical field of view, in degrees.

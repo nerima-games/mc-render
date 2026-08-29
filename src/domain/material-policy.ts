@@ -150,6 +150,13 @@ export type MaterialPolicyVerdict =
   | { readonly kind: 'must-force-single-pass'; readonly reason: string }
   | { readonly kind: 'review-sharing'; readonly reason: string }
 
+const cutoutReason = (material: MaterialSpec): string => {
+  if (material.flatSurface) {
+    return 'flatSurface is true: the geometry is not a closed volume; '
+  }
+  return `alphaTest ${String(material.alphaTest)} makes it a cutout; `
+}
+
 /**
  * Explain what to do about a material.
  *
@@ -179,11 +186,7 @@ export const describeMaterialPolicy = (material: MaterialSpec): MaterialPolicyVe
         `${material.name} is shared, transparent and DoubleSide, so every frame bumps ` +
         'material.version twice and re-resolves the shader program for every mesh that shares it ' +
         '(~15k getParameters calls per 3s at idle in the reference; p95 frame time 33ms -> 9.2ms ' +
-        `once forced). ${
-          material.flatSurface
-            ? 'flatSurface is true: the geometry is not a closed volume; '
-            : `alphaTest ${String(material.alphaTest)} makes it a cutout; `
-        }` +
+        `once forced). ${cutoutReason(material)}` +
         'the two-pass ordering buys nothing. Set forceSinglePass: true.',
     }
   }
