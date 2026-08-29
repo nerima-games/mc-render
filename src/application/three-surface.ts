@@ -370,7 +370,11 @@ export type ThreeShaderMaterialParameters = {
   readonly transparent?: boolean
   readonly depthWrite?: boolean
   readonly forceSinglePass?: boolean
+  readonly alphaTest?: number
+  readonly side?: unknown
 }
+
+export const THREE_DOUBLE_SIDE = 2
 
 /**
  * The surface, plus a `ShaderMaterial`.
