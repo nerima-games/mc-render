@@ -165,6 +165,17 @@ export const REFRACTION_MIN_SCREEN_RATIO: Readonly<Record<QualityPreset, number>
   ultra: 0.005,
 }
 
+const MIN_SCREEN_RATIO = 0
+const MAX_SCREEN_RATIO = 1
+
+/** Keep custom quality values inside the measurable screen-ratio domain. */
+export const normalizeRefractionMinScreenRatio = (value: number): number => {
+  if (!Number.isFinite(value)) {
+    return MIN_SCREEN_RATIO
+  }
+  return Math.min(MAX_SCREEN_RATIO, Math.max(MIN_SCREEN_RATIO, value))
+}
+
 /**
  * Whether this frame is a refraction frame for a given interval.
  *
@@ -443,8 +454,10 @@ const gateFires = (gate: RefractionGate, inputs: RefractionInputs): boolean => {
       }
       return sameRefractionKey(inputs.cameraKey, lastRenderedKey)
     }
-    case 'below-screen-ratio':
-      return inputs.minScreenRatio > SCREEN_RATIO_GATE_DISABLED && inputs.waterScreenRatio < inputs.minScreenRatio
+    case 'below-screen-ratio': {
+      const minScreenRatio = normalizeRefractionMinScreenRatio(inputs.minScreenRatio)
+      return minScreenRatio > SCREEN_RATIO_GATE_DISABLED && inputs.waterScreenRatio < minScreenRatio
+    }
     default: {
       const exhaustive: never = gate
       throw new Error(`Unhandled refraction gate: ${String(exhaustive)}`)

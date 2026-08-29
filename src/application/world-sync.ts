@@ -32,9 +32,22 @@
  * drain per frame re-meshes it once per frame, which is the most often anything
  * can be seen. The batch is the unit of work because the frame is.
  */
+import {
+  type BlockShapeQuad,
+  type CrossPlantQuad,
+  type FluidQuad,
+  type GeometryQuad,
+  type MeshQuad,
+  type QuadColor,
+  type QuadTile,
+  buildBlockShapeGeometry,
+  buildChunkGeometry,
+  buildCrossPlantGeometry,
+  buildFluidGeometry,
+  combineChunkGeometry,
+} from '../domain/chunk-geometry'
 import type { ChunkGeometryUpdate, ChunkKey, WorldRenderer } from './world-renderer'
 import { Effect, Ref } from 'effect'
-import { type FluidQuad, type MeshQuad, type QuadColor, type QuadTile, buildChunkGeometry, buildFluidGeometry, combineChunkGeometry } from '../domain/chunk-geometry'
 import { CHUNK_SIZE } from '../domain/lod-vocabulary'
 
 /**
@@ -91,7 +104,11 @@ export type DirtySubscriptionStore = {
  * Collapsing the two would remove a previously visible chunk when a transient
  * lookup cannot supply its contents.
  */
-export type ChunkMesh = ReadonlyArray<MeshQuad> & { readonly fluids?: ReadonlyArray<FluidQuad> }
+export type ChunkMesh = ReadonlyArray<MeshQuad> & {
+  readonly blockShapes?: ReadonlyArray<BlockShapeQuad>
+  readonly crossPlants?: ReadonlyArray<CrossPlantQuad>
+  readonly fluids?: ReadonlyArray<FluidQuad>
+}
 export type ChunkMesher = (chunk: ChunkRef) => Effect.Effect<ChunkMesh | undefined>
 
 /** How a chunk coordinate becomes the renderer's key. */
@@ -102,8 +119,8 @@ export const chunkKeyOf = (chunk: ChunkRef): ChunkKey => `${chunk.cx},${chunk.cz
  *
  * mc-meshing emits chunk-LOCAL positions and says "mc-render applies the
  * offset" (`mc-meshing/domain/mesh.ts:143`), and this is where it is applied.
- * `CHUNK_SIZE` comes from `domain/lod-vocabulary.ts`, which is the mirror that
- * already carries it — not a 16 typed here.
+ * `CHUNK_SIZE` comes from this repository's local LOD vocabulary, backed by the
+ * shared kernel constant, rather than a duplicated literal.
  *
  * There is no Y term because there is no vertical chunking: `CHUNK_HEIGHT` is
  * the whole column.
@@ -133,7 +150,7 @@ export type SyncOptions = {
   /** Resolve vertex colouring after meshing, for chunk-scoped data such as light. */
   readonly colorForChunk?: (
     chunk: ChunkRef,
-    quads: ReadonlyArray<MeshQuad>,
+    quads: ReadonlyArray<GeometryQuad>,
   ) => Effect.Effect<QuadColor>
   /** Atlas tile per quad. Defaults to the untextured tile. */
   readonly tile?: QuadTile
@@ -167,17 +184,29 @@ export const NO_CHUNK_SYNC: ChunkSyncPort = {
  */
 /** The amount every one-more-chunk counter in this file advances by. */
 const COUNT_STEP = 1
+const EMPTY_GEOMETRY_COUNT = 0
 
 /** `options.colorForChunk` wins when given; otherwise the flat `options.color`. */
 const resolveChunkColor = (
   options: SyncOptions,
   chunk: ChunkRef,
-  quads: ReadonlyArray<MeshQuad>,
+  quads: ReadonlyArray<GeometryQuad>,
 ): Effect.Effect<QuadColor | undefined> => {
   if (options.colorForChunk === undefined) {
     return Effect.succeed(options.color)
   }
   return options.colorForChunk(chunk, quads)
+}
+
+const colorQuadsForMesh = (
+  quads: ReadonlyArray<MeshQuad>,
+  blockShapes: ReadonlyArray<BlockShapeQuad>,
+  crossPlants: ReadonlyArray<CrossPlantQuad>,
+): ReadonlyArray<GeometryQuad> => {
+  if (crossPlants.length === EMPTY_GEOMETRY_COUNT && blockShapes.length === EMPTY_GEOMETRY_COUNT) {
+    return quads
+  }
+  return [...quads, ...crossPlants, ...blockShapes]
 }
 
 /** Resolve one changed chunk's mesh, if the mesher has it ready. */
@@ -191,13 +220,17 @@ const meshChangedChunk = (
     if (mesh === undefined) {
       return undefined
     }
-    const quads = mesh
+    const blockShapes = mesh.blockShapes ?? []
+    const crossPlants = mesh.crossPlants ?? []
     const fluids = mesh.fluids ?? []
     const [originX, originZ] = chunkOrigin(chunk)
-    const color = yield* resolveChunkColor(options, chunk, quads)
+    const colorQuads = colorQuadsForMesh(mesh, blockShapes, crossPlants)
+    const color = yield* resolveChunkColor(options, chunk, colorQuads)
     return {
       buffers: combineChunkGeometry(
-        buildChunkGeometry(quads, originX, originZ, color, options.tile),
+        buildChunkGeometry(mesh, originX, originZ, color, options.tile),
+        buildBlockShapeGeometry(blockShapes, originX, originZ, color, options.tile),
+        buildCrossPlantGeometry(crossPlants, originX, originZ, color, options.tile),
         buildFluidGeometry(fluids, originX, originZ, color, options.tile),
       ),
       key: chunkKeyOf(chunk),

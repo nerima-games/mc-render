@@ -59,9 +59,12 @@
  * reading.
  *
  * `withScratch` below is the safe way to use one: the buffer is cleared before
- * the callback, and the callback's return value must not be the buffer itself.
- * `borrowedCount` tracks re-entrancy, which is the other way this goes wrong —
- * two nested users of the same buffer clobber each other.
+ * the callback, and the callback receives a lease-checked Map view rather than
+ * the native backing Map. Retaining the view, a wrapper, an iterator, or a
+ * deferred callback is therefore detected when it is used after the lease.
+ * `snapshotScratch` is the explicit copy operation for values that must live
+ * beyond the borrow. `borrowedCount` tracks re-entrancy, which is the other way
+ * this goes wrong — two nested users of the same buffer clobber each other.
  */
 
 /**
@@ -72,8 +75,8 @@
  */
 export type ScratchMap<Key, Value> = {
   readonly name: string
-  /** The live buffer. Valid ONLY inside a `withScratch` callback. */
-  readonly buffer: Map<Key, Value>
+  /** Type-only brand; the field is omitted from every runtime scratch value. */
+  readonly __scratchMapTypes?: readonly [Key, Value]
   /** Frames this buffer has served. Never resets; diagnostics only. */
   readonly usageCount: () => number
   /** Nesting depth. Greater than 1 means two users are clobbering each other. */
@@ -81,7 +84,7 @@ export type ScratchMap<Key, Value> = {
 }
 
 export type ScratchViolation = {
-  readonly rule: 're-entrant-borrow' | 'escaped-buffer'
+  readonly rule: 're-entrant-borrow' | 'escaped-buffer' | 'foreign-scratch'
   readonly message: string
 }
 
@@ -95,21 +98,9 @@ export class ScratchMisuseError extends Error {
   }
 }
 
-/**
- * Borrow bookkeeping, deliberately absent from the public `ScratchMap` type.
- *
- * Only `withScratch` may drive it, which is what guarantees that a borrow
- * cannot happen without the clear that goes with it.
- */
-type ScratchLease = {
-  readonly enter: () => void
-  readonly exit: () => void
-}
-
-type LeasedScratchMap<Key, Value> = ScratchMap<Key, Value> & { readonly lease: ScratchLease }
-
 /** One lease entered or exited, for the `usage`/`borrowed` counters below — named so the `+= `/`-= ` reads as "one lease" rather than an arbitrary tuning knob. */
 const LEASE_STEP = 1
+const NO_ACTIVE_LEASES = 0
 
 /** The buffer's diagnostic name, with its capacity hint appended when one was given. */
 const scratchDisplayName = (name: string, initialCapacity: number | undefined): string => {
@@ -117,6 +108,158 @@ const scratchDisplayName = (name: string, initialCapacity: number | undefined): 
     return name
   }
   return `${name}[~${String(initialCapacity)}]`
+}
+
+type ScratchOwner = {
+  readonly assertActive: () => void
+}
+
+class GuardedIterator<Item> implements IterableIterator<Item> {
+  constructor(
+    private readonly source: Iterator<Item>,
+    private readonly owner: ScratchOwner,
+  ) {}
+
+  next(...args: [] | [undefined]): IteratorResult<Item> {
+    this.owner.assertActive()
+    return this.source.next(...args)
+  }
+
+  [Symbol.iterator](): IterableIterator<Item> {
+    this.owner.assertActive()
+    return this
+  }
+}
+
+class GuardedMap<Key, Value> implements Map<Key, Value> {
+  readonly [Symbol.toStringTag] = 'Map'
+
+  constructor(
+    private readonly source: Map<Key, Value>,
+    private readonly owner: ScratchOwner,
+  ) {}
+
+  get size(): number {
+    this.owner.assertActive()
+    return this.source.size
+  }
+
+  clear(): void {
+    this.owner.assertActive()
+    this.source.clear()
+  }
+
+  delete(key: Key): boolean {
+    this.owner.assertActive()
+    return this.source.delete(key)
+  }
+
+  entries(): ReturnType<Map<Key, Value>['entries']> {
+    this.owner.assertActive()
+    return new GuardedIterator(this.source.entries(), this.owner) as unknown as ReturnType<
+      Map<Key, Value>['entries']
+    >
+  }
+
+  forEach(
+    callbackfn: (value: Value, key: Key, map: Map<Key, Value>) => void,
+    thisArg?: unknown,
+  ): void {
+    this.owner.assertActive()
+    this.source.forEach((value, key) => callbackfn.call(thisArg, value, key, this), thisArg)
+  }
+
+  get(key: Key): Value | undefined {
+    this.owner.assertActive()
+    return this.source.get(key)
+  }
+
+  has(key: Key): boolean {
+    this.owner.assertActive()
+    return this.source.has(key)
+  }
+
+  keys(): ReturnType<Map<Key, Value>['keys']> {
+    this.owner.assertActive()
+    return new GuardedIterator(this.source.keys(), this.owner) as unknown as ReturnType<Map<Key, Value>['keys']>
+  }
+
+  set(key: Key, value: Value): this {
+    this.owner.assertActive()
+    this.source.set(key, value)
+    return this
+  }
+
+  values(): ReturnType<Map<Key, Value>['values']> {
+    this.owner.assertActive()
+    return new GuardedIterator(this.source.values(), this.owner) as unknown as ReturnType<
+      Map<Key, Value>['values']
+    >
+  }
+
+  [Symbol.iterator](): ReturnType<Map<Key, Value>['entries']> {
+    return this.entries()
+  }
+}
+
+class ScratchState<Key, Value> implements ScratchOwner {
+  readonly buffer = new Map<Key, Value>()
+  readonly view: Map<Key, Value>
+  private active = false
+  private usage = NO_ACTIVE_LEASES
+  private borrowed = NO_ACTIVE_LEASES
+
+  constructor(readonly name: string) {
+    this.view = new GuardedMap(this.buffer, this)
+  }
+
+  assertActive(): void {
+    if (!this.active) {
+      throw new ScratchMisuseError({
+        message: `scratch buffer '${this.name}' was used outside its withScratch borrow. Copy results with snapshotScratch before returning.`,
+        rule: 'escaped-buffer',
+      })
+    }
+  }
+
+  enter(): void {
+    this.usage += LEASE_STEP
+    this.borrowed += LEASE_STEP
+    this.active = true
+  }
+
+  exit(): void {
+    this.borrowed -= LEASE_STEP
+    this.active = false
+  }
+
+  borrowedCount(): number {
+    return this.borrowed
+  }
+
+  usageCount(): number {
+    return this.usage
+  }
+}
+
+const scratchStates = new WeakMap<object, ScratchState<unknown, unknown>>()
+
+const stateFor = <Key, Value>(scratch: ScratchMap<Key, Value>): ScratchState<Key, Value> => {
+  if (typeof scratch !== 'object' || scratch === null) {
+    throw new ScratchMisuseError({
+      message: 'withScratch received a non-object scratch value created outside makeScratchMap.',
+      rule: 'foreign-scratch',
+    })
+  }
+
+  const state = scratchStates.get(scratch)
+  if (state === undefined) {
+    throw new ScratchMisuseError({
+      message: 'withScratch received a ScratchMap that was not created by makeScratchMap.',
+      rule: 'foreign-scratch',
+    })
+  }
+  return state as ScratchState<Key, Value>
 }
 
 /**
@@ -128,48 +271,36 @@ const scratchDisplayName = (name: string, initialCapacity: number | undefined): 
  * that keeps rehashing has outgrown its intended contents and should be split.
  */
 export const makeScratchMap = <Key, Value>(name: string, initialCapacity?: number): ScratchMap<Key, Value> => {
-  const buffer = new Map<Key, Value>()
-  let usage = 0
-  let borrowed = 0
-
-  const leased: LeasedScratchMap<Key, Value> = {
-    borrowedCount: () => borrowed,
-    buffer,
-    lease: {
-      enter: () => {
-        usage += LEASE_STEP
-        borrowed += LEASE_STEP
-      },
-      exit: () => {
-        borrowed -= LEASE_STEP
-      },
-    },
-    name: scratchDisplayName(name, initialCapacity),
-    usageCount: () => usage,
+  const state = new ScratchState<Key, Value>(scratchDisplayName(name, initialCapacity))
+  const scratch: ScratchMap<Key, Value> = {
+    borrowedCount: () => state.borrowedCount(),
+    name: state.name,
+    usageCount: () => state.usageCount(),
   }
 
-  return leased
+  scratchStates.set(scratch, state as ScratchState<unknown, unknown>)
+  return scratch
 }
 
 /** No lease is currently held on the buffer. */
 const NO_ACTIVE_BORROW = 0
 
-const assertNotReentrant = <Key, Value>(scratch: ScratchMap<Key, Value>): void => {
-  if (scratch.borrowedCount() > NO_ACTIVE_BORROW) {
+const assertNotReentrant = <Key, Value>(state: ScratchState<Key, Value>): void => {
+  if (state.borrowedCount() > NO_ACTIVE_BORROW) {
     throw new ScratchMisuseError({
       message:
-        `scratch buffer '${scratch.name}' is already borrowed. Two concurrent users share one ` +
+        `scratch buffer '${state.name}' is already borrowed. Two concurrent users share one ` +
         'mutable buffer and will clobber each other. Give the inner operation its own buffer.',
       rule: 're-entrant-borrow',
     })
   }
 }
 
-const assertNotEscaped = <Key, Value>(scratch: ScratchMap<Key, Value>, result: unknown): void => {
-  if (result === scratch.buffer) {
+const assertNotEscaped = <Key, Value>(state: ScratchState<Key, Value>, result: unknown): void => {
+  if (result === state.view) {
     throw new ScratchMisuseError({
       message:
-        `a caller returned scratch buffer '${scratch.name}' from withScratch. The buffer is ` +
+        `a caller returned scratch buffer '${state.name}' from withScratch. The buffer is ` +
         'cleared and refilled every frame, so the escaped reference would silently change ' +
         'under its holder. Copy what you need out of it instead.',
       rule: 'escaped-buffer',
@@ -187,7 +318,8 @@ const assertNotEscaped = <Key, Value>(scratch: ScratchMap<Key, Value>, result: u
  * Throws `ScratchMisuseError` when:
  *
  * - the buffer is already borrowed (re-entrant use — two users clobbering);
- * - the callback returns the buffer itself (the reference escapes the frame).
+ * - the callback returns the live buffer itself (the reference escapes the frame);
+ * - a buffer or iterator retained by a caller is used after the borrow ends.
  *
  * Throwing, rather than returning an Either, is deliberate. Both conditions are
  * programmer errors that must fail loudly in development; neither is a
@@ -205,17 +337,17 @@ export const withScratch = <Key, Value, Result>(
   scratch: ScratchMap<Key, Value>,
   use: (buffer: Map<Key, Value>) => Result,
 ): Result => {
-  const { lease } = scratch as LeasedScratchMap<Key, Value>
-  assertNotReentrant(scratch)
+  const state = stateFor(scratch)
+  assertNotReentrant(state)
 
-  lease.enter()
+  state.enter()
   try {
-    scratch.buffer.clear()
-    const result = use(scratch.buffer)
-    assertNotEscaped(scratch, result)
+    state.buffer.clear()
+    const result = use(state.view)
+    assertNotEscaped(state, result)
     return result
   } finally {
-    lease.exit()
+    state.exit()
   }
 }
 
@@ -232,8 +364,8 @@ export const snapshotScratch = <Key, Value>(buffer: ReadonlyMap<Key, Value>): Re
 /**
  * The buffers one frame needs.
  *
- * PRE-AUDIT FIRST CUT: named after the reference's per-frame temporaries, sized
- * from its comments. The real set arrives with the THREE.js adapter.
+ * Named after the renderer's per-frame temporaries; the storage stays separate
+ * from the rendering backend so the update logic remains testable.
  */
 export type FrameScratch = {
   /** Chunk key -> distance to camera. Rebuilt every frame by frustum culling. */

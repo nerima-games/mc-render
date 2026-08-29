@@ -1,6 +1,6 @@
 import { describe, expect, it } from '@effect/vitest'
 import { Effect, Ref } from 'effect'
-import { isMirrorStale, mirrorLagSecs, type MirroredCameraState } from '../src/domain/camera-mirror'
+import { isMirrorStale, type MirroredCameraState } from '../src/domain/camera-mirror'
 import { type ChunkSyncPort } from '../src/application/world-sync'
 import { NO_DRAW_TARGET, type DrawPort } from '../src/application/world-renderer'
 import {
@@ -139,7 +139,7 @@ describe('what mc-render registers', () => {
 
   // REGRESSION: plan.md §2.3-1 — no edge to a sibling experience module, at the
   // ORDERING level as well as the import level. An `after: ['ui:hud-sync']`
-  // would pass `pnpm check:deps` (it is a string) while still coupling
+  // would pass static import analysis (it is a string) while still coupling
   // mc-render's frame position to mx-ui's existence.
   it.effect('orders itself against no experience module', () =>
     withStages((stages) =>
@@ -496,56 +496,23 @@ describe('render:camera-mirror', () => {
     }),
   )
 
-  it.effect('KNOWN GAP: before a pose arrives, the two staleness answers DISAGREE', () =>
+  it.effect('represents an unpublished pose as pending rather than fresh', () =>
     withStages((stages, state) =>
       Effect.gen(function* () {
-        // Pinning current behaviour, not endorsing it. `makeRenderFrameState`
-        // seeds `mirrorLagSecs` with the literal 0 — "perfectly fresh" — while
-        // `mirroredCamera` is built from UNSET_CAMERA_POSE, whose
-        // `capturedAtSecs` is 0, i.e. the beginning of the monotonic epoch. A
-        // consumer reading the Ref before `render:camera-mirror` has ever run
-        // is told the mirror is current; the same consumer calling
-        // `mirrorLagSecs` on the mirrored state is told it is as old as the
-        // process. Nothing in stages/ ever writes `authoritativePose` (only
-        // mc-sim does, across the boundary), so in the `renderModule` path —
-        // where the state is deliberately not exposed — `isMirrorStale` is true
-        // from the first frame until a pose arrives, with no way to tell
-        // "stale" from "never set".
-        //
-        // NOT FIXED, deliberately. There is no honest value to seed the gauge
-        // with: `makeRenderFrameState` has no clock (it is a constructor, not a
-        // stage, and plan.md §5.1-3 bans reading a global one), and seeding
-        // Infinity would only move the contradiction, because
-        // `mirroredCamera.sourceCapturedAtSecs` would still read 0 and that is
-        // the value consumers actually read. Making them agree means
-        // distinguishing "never set" from "stale" in `MirroredCameraState`
-        // itself — an Option, or a nullable `sourceCapturedAtSecs` every
-        // consumer must then handle. That is an API change worth making WITH
-        // the mc-sim pin, when `authoritativePose` stops being a FIRST CUT Ref
-        // and becomes `PlayerService.cameraPose` read at registration time —
-        // at which point the window closes by construction and the Option may
-        // turn out to be unnecessary. Until then the window is "before the
-        // first frame" and the only in-repo reader is a diagnostic gauge.
-        const before = yield* Ref.get(state.mirrorLagSecs)
-        const mirrored = yield* Ref.get(state.mirroredCamera)
+        expect(yield* Ref.get(state.authoritativePose)).toBeUndefined()
+        const initialMirror = yield* Ref.get(state.mirroredCamera)
+        expect(initialMirror.sourceCapturedAtSecs).toBeUndefined()
+        expect(yield* Ref.get(state.mirrorLagSecs)).toBeUndefined()
+        expect(isMirrorStale(initialMirror, MonotonicTimeSecs(100))).toBe(false)
 
-        // The gauge says fresh...
-        expect(before).toBe(0)
-        // ...and the mirrored state it is supposed to describe says the epoch.
-        expect(mirrored.sourceCapturedAtSecs).toBe(0)
-        expect(mirrorLagSecs(mirrored, MonotonicTimeSecs(100))).toBe(100)
-        expect(isMirrorStale(mirrored, MonotonicTimeSecs(100))).toBe(true)
-
-        // One run of the stage replaces the guess with a measurement, and from
-        // then on the two agree — which is why the gap is bounded by the first
-        // frame.
         yield* stageById(stages, RENDER_STAGE_IDS.cameraMirror)
           .run(dt)
           .pipe(Effect.provide(FRAME_SERVICES))
 
-        expect(yield* Ref.get(state.mirrorLagSecs)).toBe(
-          mirrorLagSecs(yield* Ref.get(state.mirroredCamera), MonotonicTimeSecs(100)),
-        )
+        const mirrored = yield* Ref.get(state.mirroredCamera)
+        expect(mirrored.sourceCapturedAtSecs).toBeUndefined()
+        expect(yield* Ref.get(state.mirrorLagSecs)).toBeUndefined()
+        expect(isMirrorStale(mirrored, MonotonicTimeSecs(100))).toBe(false)
       }),
     ),
   )

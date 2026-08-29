@@ -14,6 +14,7 @@ import {
   ATLAS_PIXELS,
   ATLAS_TILE_COUNT,
   atlasLayoutViolations,
+  atlasLayoutViolationsFor,
   generateTerrainAtlas,
   HALF_TEXEL_UV,
   isTileIndex,
@@ -129,6 +130,21 @@ describe('the atlas layout constants', () => {
   it.effect('are internally consistent', () =>
     Effect.sync(() => {
       expect(atlasLayoutViolations()).toStrictEqual([])
+    }),
+  )
+
+  it.effect('reports each invalid atlas derivation', () =>
+    Effect.sync(() => {
+      const violations = atlasLayoutViolationsFor({
+        atlasPixels: 10,
+        atlasColumns: 3,
+        tilePixels: 10 / 3,
+        halfTexelUv: 0.2,
+        tileUvPitch: 0.1,
+        tileUvSpan: 0,
+      })
+
+      expect(violations).toHaveLength(3)
     }),
   )
 })

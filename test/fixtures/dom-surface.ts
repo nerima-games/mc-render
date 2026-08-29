@@ -18,7 +18,7 @@
  *
  * Excluded from `tsconfig.json` and `tsconfig.test.json` (`test/fixtures/**`),
  * because it names DOM types those projects deliberately cannot see. It is
- * still linted and still scanned by `pnpm check:deps`.
+ * still linted and compiled by the dedicated surface test.
  */
 import {
   isPointerLockHeld,

@@ -14,7 +14,7 @@
  *   4. the dead-tier defect at `renderDistance = 4`, pinned as arithmetic
  *   5. the ratio rule, shown to fix (4) without touching (3)
  *   6. forward and inverse are actually inverses
- *   7. the mirror agrees with mc-meshing, and with `world-renderer.ts`
+ *   7. the canonical vocabulary agrees with `world-renderer.ts`
  */
 import { describe, expect, it } from '@effect/vitest'
 import { Effect, FastCheck } from 'effect'
@@ -390,14 +390,9 @@ describe('lodThresholdsForRenderDistance', () => {
   )
 })
 
-describe('the mirrored vocabulary, and the constants it has to agree with', () => {
-  it.effect('REGRESSION: the step table matches mc-meshing`s, value for value', () =>
+describe('the canonical vocabulary, and the constants it owns', () => {
+  it.effect('the canonical step table has the expected values', () =>
     Effect.sync(() => {
-      // `domain/lod-vocabulary.ts` mirrors `mc-meshing/domain/lod.ts:84`.
-      // mc-dev-meta's `check:mirrors` compares the two repositories on every
-      // run; this is the assertion INSIDE this repository, which is what fails
-      // first if somebody edits the mirror to make a local test pass.
-      //
       // A stale step here does not produce a compile error or an obviously wrong
       // picture — it makes `lodScreenErrorPixels` report a plausible pixel count
       // that is wrong by the ratio of the two steps.
@@ -406,12 +401,8 @@ describe('the mirrored vocabulary, and the constants it has to agree with', () =
     }),
   )
 
-  it.effect('REGRESSION: mirrors the level union WHOLE, not a prefix of it', () =>
+  it.effect('contains the complete canonical level union', () =>
     Effect.sync(() => {
-      // The `ITEM_TYPES` lesson: mc-sim mirrored 23 of mc-kernel's 97 literals,
-      // both suites stayed green because each pinned its own copy, and only
-      // `check:repoint` found it. A partial mirror of a closed union is a
-      // narrower type, and the narrow direction is the one that type-checks.
       expect([...LOD_LEVELS]).toStrictEqual([0, 1, 2])
       expect(Object.keys(STEP_FOR_LOD).length).toBe(LOD_LEVELS.length)
     }),
@@ -429,33 +420,18 @@ describe('the mirrored vocabulary, and the constants it has to agree with', () =
     }),
   )
 
-  it.effect('REGRESSION: the mirror is NOT re-exported from the barrel', () =>
+  it.effect('the barrel exposes the canonical LOD vocabulary', () =>
     Effect.gen(function* () {
-      // FOUND BY `check:repoint`, NOT BY ANYTHING IN THIS REPOSITORY, which is
-      // the whole reason this test exists rather than a comment.
-      //
-      // `export * from './domain/lod-vocabulary'` in index.ts becomes
-      // `export * from '@nerima-games/mc-meshing'` the day the mirror dies — a
-      // re-export of that package's entire surface — and nine of its names
-      // collide with `domain/chunk-geometry.ts`'s own structural mirrors.
-      // `pnpm verify` is green on either side of that line, because the
-      // collision only exists once the import is repointed.
-      //
-      // 14 of the 15 repositories in this organisation exclude their mirrors
-      // from their barrels for this reason. The exclusion is a claim, and an
-      // unpinned claim is one an `export *` restores by accident.
       const barrel = yield* Effect.promise(() => import('../src/index'))
       const names = Object.keys(barrel)
 
-      for (const mirrored of ['LOD_LEVELS', 'LodLevelSchema', 'STEP_FOR_LOD', 'CHUNK_SIZE']) {
-        expect(names).not.toContain(mirrored)
+      for (const canonical of ['LOD_LEVELS', 'LodLevelSchema', 'STEP_FOR_LOD', 'CHUNK_SIZE']) {
+        expect(names).toContain(canonical)
       }
-      // The names `chunk-geometry.ts` owns must still be THIS repository's, and
-      // must be reachable — they are what would have been shadowed.
+      // The names `chunk-geometry.ts` owns must remain reachable from this barrel.
       for (const owned of ['tangentAxes', 'totalQuadArea', 'AO_MAX', 'VERTICES_PER_QUAD']) {
         expect(names).toContain(owned)
       }
-      // And what the barrel DOES publish from this feature is mc-render's own.
       expect(names).toContain('lodForDistance')
       expect(names).toContain('lodScreenErrorPixels')
       expect(names).toContain('lodTierCensus')

@@ -11,12 +11,18 @@ import { Effect, FastCheck } from 'effect'
 import {
   MISSING_TILE,
   TILE_BY_BLOCK_NAME,
+  quadTileFromResolver,
   referencedTileIndices,
   tileIndexForBlockName,
   tileIndexResolver,
 } from '../src/domain/block-texture-map'
 import { ATLAS_TILE_COUNT, isTileIndex } from '../src/domain/texture-atlas'
-import type { FaceRole } from '../src/domain/chunk-geometry'
+import type {
+  CrossPlantQuad,
+  FaceDirection,
+  FaceRole,
+  FluidQuad,
+} from '../src/domain/chunk-geometry'
 
 const ROLES: ReadonlyArray<FaceRole> = ['top', 'bottom', 'side']
 
@@ -210,6 +216,50 @@ describe('the injected name lookup', () => {
         { seed: 0, numRuns: 100 },
       )
       expect(tileIndexForBlockName('not_a_block', 'side')).toBe(MISSING_TILE)
+    }),
+  )
+
+  it.effect('selects the tile role from renderable geometry', () =>
+    Effect.sync(() => {
+      const resolve = (_blockId: number, role: FaceRole): number => {
+        if (role === 'top') {
+          return 10
+        }
+        if (role === 'bottom') {
+          return 20
+        }
+        return 30
+      }
+      const tile = quadTileFromResolver(resolve)
+      const fluid = (direction: FaceDirection): FluidQuad => ({
+        blockId: 3,
+        direction,
+        vertices: [
+          [0, 0, 0],
+          [0, 1, 0],
+          [1, 1, 1],
+          [1, 0, 1],
+        ],
+        ao: 0,
+      })
+      const cross: CrossPlantQuad = {
+        blockId: 3,
+        role: 'bottom',
+        vertices: [
+          [0, 0, 0],
+          [0, 1, 0],
+          [1, 1, 1],
+          [1, 0, 1],
+        ],
+        nx: 0,
+        ny: 0,
+        nz: 1,
+        ao: 0,
+      }
+
+      expect(tile(cross)).toBe(20)
+      expect(tile(fluid('yPos'))).toBe(10)
+      expect(tile(fluid('xPos'))).toBe(30)
     }),
   )
 })

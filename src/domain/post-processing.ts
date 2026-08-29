@@ -133,6 +133,18 @@ export const passOrderIndex = (pass: PostProcessingPass): number =>
  * `resolvePreset`), so that the preset table ports across unchanged.
  */
 export type GraphicsQuality = {
+  /** The color precision required by the post-processing render target. */
+  readonly composerRenderTarget: ComposerRenderTarget
+  /** Maximum number of samples used by the god-rays shader. */
+  readonly godRaysSamples: number
+  /** Strength passed to the UnrealBloomPass when bloom is enabled. */
+  readonly bloomStrength: number
+  /** Frames between refraction pre-passes; zero disables refraction. */
+  readonly refractionThrottleFrames: number
+  /** Minimum visible water area required for a refraction pre-pass. */
+  readonly refractionMinScreenRatio: number
+  /** Maximum device-pixel ratio used by the browser runtime. */
+  readonly pixelRatioCap: number
   readonly ssaoEnabled: boolean
   readonly godRaysEnabled: boolean
   readonly bloomEnabled: boolean
@@ -146,6 +158,9 @@ export type GraphicsQuality = {
    */
   readonly useCompositePass: boolean
 }
+
+/** Renderer-independent precision choices for post-processing. */
+export type ComposerRenderTarget = 'ldr' | 'hdr'
 
 /**
  * The four presets.
@@ -183,16 +198,17 @@ export type GraphicsQuality = {
  *
  * which is exactly the second conjunct of `isCompositeActive` below.
  *
- * PROVISIONAL: the reference's real preset table also carries render scale,
- * shadow resolution, view distance and composer render-target type. Only the
- * post-FX half is reproduced here, because only the post-FX half has an
- * ordering rule to protect. Two omitted fields are worth recording because they
+ * The reference's real preset table also carries shadow and sky settings.
+ * The post-FX fields, refraction scheduling and browser pixel-ratio cap are
+ * reproduced here because this package owns those execution paths. Shadow
+ * resolution and view distance stay outside this package until a renderer
+ * owner exists for them. Two omitted fields are worth recording because they
  * are ordering-adjacent rather than cosmetic:
  *
  *   - `composerRtType` flips from THREE.UnsignedByteType (1009) on low/medium
  *     to THREE.HalfFloatType (1016) on high/ultra, because bloom needs an HDR
- *     render target. A preset that enables bloom without the HDR target would
- *     clip the highlights bloom is supposed to pick up.
+ *     render target. `composerRenderTarget` keeps that decision independent of
+ *     Three.js and the browser adapter maps it to the concrete texture type.
  *   - FR-4.3's composite merge is quoted there as saving ~25 MB/frame of
  *     bandwidth, which is the reason the eighth pass exists at all.
  */
@@ -201,37 +217,65 @@ export type QualityPreset = 'low' | 'medium' | 'high' | 'ultra'
 export const QUALITY_PRESETS: Readonly<Record<QualityPreset, GraphicsQuality>> = {
   high: {
     bloomEnabled: true,
+    bloomStrength: 0.25,
+    composerRenderTarget: 'hdr',
     dofEnabled: false,
     godRaysEnabled: false,
+    godRaysSamples: 25,
+    pixelRatioCap: 1.5,
+    refractionMinScreenRatio: 0.005,
+    refractionThrottleFrames: 2,
     smaaEnabled: true,
     ssaoEnabled: true,
     useCompositePass: true,
   },
   low: {
     bloomEnabled: false,
+    bloomStrength: 0,
+    composerRenderTarget: 'ldr',
     dofEnabled: false,
     godRaysEnabled: false,
+    godRaysSamples: 0,
+    pixelRatioCap: 1,
+    refractionMinScreenRatio: 0.05,
+    refractionThrottleFrames: 0,
     smaaEnabled: false,
     ssaoEnabled: false,
     useCompositePass: false,
   },
   medium: {
     bloomEnabled: false,
+    bloomStrength: 0,
+    composerRenderTarget: 'ldr',
     dofEnabled: false,
     godRaysEnabled: false,
+    godRaysSamples: 0,
+    pixelRatioCap: 1.25,
+    refractionMinScreenRatio: 0.05,
+    refractionThrottleFrames: 0,
     smaaEnabled: false,
     ssaoEnabled: false,
     useCompositePass: false,
   },
   ultra: {
     bloomEnabled: true,
+    bloomStrength: 0.3,
+    composerRenderTarget: 'hdr',
     dofEnabled: true,
     godRaysEnabled: true,
+    godRaysSamples: 40,
+    pixelRatioCap: 2,
+    refractionMinScreenRatio: 0.005,
+    refractionThrottleFrames: 1,
     smaaEnabled: true,
     ssaoEnabled: true,
     useCompositePass: true,
   },
 }
+
+/** True when the browser adapter must retain HDR highlights between passes. */
+export const qualityUsesHdrRenderTarget = (quality: GraphicsQuality): boolean =>
+  quality.composerRenderTarget === 'hdr'
 
 /**
  * True when the composite shader is worth building.

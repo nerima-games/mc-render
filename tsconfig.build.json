@@ -3,6 +3,12 @@
   // ever leaks into `domain/` or `application/` this project fails, which is
   // what keeps the package usable from browser, worker and server alike.
   "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "emitDeclarationOnly": true,
+    "rootDir": "./src",
+    "outDir": "./dist"
+  },
   "include": ["src/index.ts", "src/domain/**/*.ts", "src/application/**/*.ts", "src/stages/**/*.ts"],
   "exclude": [
     "node_modules",

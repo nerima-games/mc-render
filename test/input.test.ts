@@ -374,6 +374,17 @@ describe('InputService frame semantics', () => {
       expect(yield* input.isActionActive('moveRight')).toBe(false)
     }),
   )
+
+  it.effect('unknown event kinds leave state unchanged', () =>
+    Effect.gen(function* () {
+      const input = yield* makeInputService()
+      const before = yield* input.snapshot
+
+      yield* input.dispatch({ kind: 'future-event' } as unknown as Parameters<typeof input.dispatch>[0])
+
+      expect(yield* input.snapshot).toStrictEqual(before)
+    }),
+  )
 })
 
 /**
@@ -1827,13 +1838,14 @@ describe('REGRESSION: Tab belongs to the user agent, and is never taken away', (
     }),
   )
 
-  it.effect('NOTHING suppresses Tab: the preventDefault list stays at wheel and contextmenu', () =>
+  it.effect('consumed arrows may prevent their default, but NOTHING suppresses Tab', () =>
     Effect.sync(() => {
       // A suppressed context menu costs a player "copy" on a chat line; a
       // suppressed scroll costs them the bottom of a settings screen; a
       // suppressed Tab costs them every way out of the canvas — including the
       // settings screen that would let them rebind their way out of it
-      // (WCAG 2.1 SC 2.1.2). So this list must not grow a key event at all.
+      // (WCAG 2.1 SC 2.1.2). `keydown` is listed only because a consumed
+      // arrow can be prevented; the adapter never consumes Tab.
       expect([...PREVENT_DEFAULT_EVENTS].sort()).toStrictEqual(['contextmenu', 'wheel'])
       expect(mayPreventDefault('keydown')).toBe(false)
       expect(mayPreventDefault('keyup')).toBe(false)

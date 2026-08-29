@@ -31,10 +31,11 @@ mc-playground-kit は devDependency 専用で出荷ビルドに入らないた�
 `mc-playground-kit` には**依存しない**（devDependency 専用。§2.3-2）。
 
 `@nerima-games/mc-kernel` は公開済みの直接依存で、共有語彙を同パッケージから直接 import している。
-`mc-meshing` / `mc-sim` / `mc-worldgen` は引き続き publication boundary のため直接 import せず、
-レンダラの境界は Port と構造ミラーで保つ。
+`mc-meshing` はチャンクメッシュ生成を担う application adapter から直接利用し、
+`mc-sim` / `mc-worldgen` との境界は Port と構造ミラーで保つ。
 
-**`three` / `@types/three` は `devDependencies` に入った**（`^0.170.0`、参照実装と同じ）。
+**`three` / `@types/three` は `devDependencies` に入った**（現在はそれぞれ `^0.185.1` / `^0.185.4`）。
+メジャー・マイナーを揃え、patch 差だけを許すことをテストで検査する。
 `dependencies` ではない。**出荷ソースは THREE.js を 1 行も import していない** ——
 `application/three-surface.ts` が使う 7 個のコンストラクタを構造的な型として書き、
 ホストが本物の名前空間を渡す。`three` が要るのは
@@ -50,54 +51,38 @@ mc-playground-kit は devDependency 専用で出荷ビルドに入らないた�
 「実行時入力（キーボード/マウス/ポインタロック/タッチ/リマッピング）」の
 **両方**を割り当てられている唯一のリポジトリである。
 
-実行時依存元は `mc-playground-kit` のみ（`mc-compose` は推移的）。
-**ただしそれは界面が揺れてよいという意味ではない。** kit は全プレビューの土台であり、
-kit が壊れると 15 リポジトリの完了条件「内蔵プレビューが操作可能」が全部止まる。
+この package は `mc-kernel`、`mc-meshing`、`mc-sim`、`mc-worldgen` を直接依存として宣言する。
+`mc-meshing` はメッシュアルゴリズムのアダプタ、その他は共有データとシミュレーション結果の
+入力として使う。`mc-playground-kit` は統合側の開発依存であり、この package の出荷依存ではない。
 
 依存グラフ全体・4 階層・名詞/動詞ルール・kit の devDependency 専用規則・stage 全順序の所有者は
 [`docs/architecture.md`](./docs/architecture.md) を参照。
 
-### 依存ルール（16 リポジトリ共通）
+### 依存ルール（この package の境界）
 
 | ルール | 内容 |
 | --- | --- |
-| ハード失敗 | 違反があれば CI は必ず非ゼロ終了する。警告で済ませない |
-| 循環禁止 | 循環依存は一切許可しない。「co-evolution ペア」のような例外リストは設けない |
-| 推移閉包の禁止 | A→B、B→C のとき A は C を import できない |
-| kernel は例外 | mc-kernel はどこからでも import 可（`dependencies` への記載は必要） |
-| 宣言と実体の一致 | import する `@nerima-games/*` は `package.json` に記載必須 |
-| mc-playground-kit は devDependency 専用 | `dependencies` に入れてはならない。**実行時依存になると出荷ビルドから入力処理が消える** |
-| `Date.now()` 禁止 | 時刻はすべて注入された Clock Port から取得する |
+| 直接依存の宣言 | import する `@nerima-games/*` は `package.json` の直接依存に記載する |
+| kernel | `mc-kernel` は共有語彙として利用する。出荷依存への記載は必要 |
+| 可搬な定義 | チャンク寸法、LOD、メッシュの基本表現は `src/domain/` が所有する |
+| アルゴリズム境界 | `mc-meshing` の import は `src/application/chunk-store-mesher.ts` のアダプタに限定する |
+| 時刻 | ドメイン処理は注入された時刻値を使い、グローバル時計を読まない |
 
-`scripts/check-dependency-whitelist.ts` は 16 リポジトリ共通のテンプレートである。
-冒頭で囲ってある `REPOSITORY_POLICY` 定数だけを書き換え、それ以外はそのままコピーする。
-本リポジトリの版は **plan.md §2.1 の 16 リポジトリ全行**を保持しており、循環検査が全体を見る。
-
-### `Date.now()` 禁止の実装方法
-
-oxlint 0.12 は `no-restricted-syntax` も `no-restricted-properties` も実装しておらず、
-`no-restricted-globals` は `oxlint --rules` の一覧に出るものの実装されていない
-（mc-kernel で 0.12.0 に対し実測確認済み。3 ルールすべて設定した状態で `Date.now()` を書いても診断 0 件）。
-
-そのため禁止は **`scripts/check-dependency-whitelist.ts` 側で実装**している。
-対象は `Date.now()` / `new Date()` / `performance.now()` の 3 つ。
-コメント・文字列リテラル・正規表現リテラルの中身はマスクされるので誤検知しない。
-
-**この禁止が最も効くのがこのリポジトリである。** `performance.now()` は FPS 計測・
-フレーム時間計測・アニメーション補間で自然に手が伸びる。
-そして**ブラウザプラットフォームを所有する以上、Clock Port の実装アダプタはおそらくここに置かれる**。
-だからエスケープハッチ（`mc-kernel-allow-time-source`）は**ファイル単位ではなく行単位**である。
+依存境界は `.oxlintrc.json` の `no-restricted-imports` で検査する。
+`pnpm lint` はソース、アプリ、スクリプト、テストを対象にし、警告も失敗として扱う。
+循環検査や API lock の生成スクリプトはこのリポジトリの現行ツールチェーンには含めない。
 
 ## 開発
 
 ### セットアップ
 
 ```console
-$ direnv allow          # flake.nix の devShell で nodejs_22 + corepack が入る
+$ direnv allow          # flake.nix の devShell で nodejs_24 + corepack が入る
 $ pnpm install
 ```
 
-Nix を使わない場合は Node.js 22 以上と pnpm 9.15.0（`corepack` 推奨）を用意する。
+Nix を使わない場合は Node.js 24 以上と pnpm 11.21.0（`corepack` 推奨）を用意する。
+asdf を使う場合は、リポジトリ直下の `.tool-versions` をそのまま読み込む。
 
 > **注意**: ツールチェーンは `devenv.nix` から `flake.nix` + `flake.lock` に移行済みである。
 > `flake.lock` はコミットされているので、`nix develop`（`.envrc` は `use flake`）は
@@ -112,16 +97,16 @@ Nix を使わない場合は Node.js 22 以上と pnpm 9.15.0（`corepack` 推�
 | `pnpm lint:fix` | oxlint の自動修正 |
 | `pnpm test` | vitest（`@effect/vitest` の `it.effect` が主 API、`environment: 'node'`） |
 | `pnpm test:watch` | vitest watch |
-| `pnpm test:coverage` | カバレッジ計測（閾値は未設定。後述） |
-| `pnpm check:deps` | 依存ホワイトリスト + 循環検査 + `Date.now()` 禁止の検査 |
-| `pnpm api:check` | `api-lock.md` が実際の公開 API と食い違えば非ゼロ終了（[`docs/public-api.md`](./docs/public-api.md) §8） |
-| `pnpm api:update` | `api-lock.md` を書き直す。公開面を変える PR は結果を同じ PR に含める |
+| `pnpm test:coverage` | 全指標 100% の閾値付きカバレッジ計測 |
+| `pnpm build` | `dist/` を掃除し、宣言ファイルと ESM bundle を生成 |
+| `pnpm pack --dry-run` | package に含まれる生成物が `dist` / `LICENSE` / `README.md`（および npm 必須の `package.json`）だけであることを確認 |
 | `pnpm preview` | 内蔵プレビュー（入力状態機械とポリシー表のステッパ）。**`pnpm verify` には入らない**。[`apps/preview-render/README.md`](./apps/preview-render/README.md) |
-| `pnpm verify` | `typecheck && lint && check:deps && api:check && test`。CI と同じ内容 |
+| `pnpm benchmark` | チャンク更新の逐次処理とバッチ処理を同一条件で測定し、JSON の中央値と速度比を出力 |
+| `pnpm verify` | `typecheck && lint && test`。package build と coverage は別途実行 |
 
 ## 現状
 
-**このリポジトリはまだ叩き台（pre-audit first cut）である。しかも THREE.js が 1 行も入っていない。**
+**このリポジトリは純粋な domain と注入可能な browser / THREE 境界を中心に実装されている。**
 
 ドメインはすべて**純粋**である。ポストFXチェーンは配列、マテリアル方針は述語、
 入力バインディングは表、スクラッチバッファはただの `Map`。WebGL は無い。
@@ -202,11 +187,11 @@ DOM に触るのは `window` 入力アダプタ 1 つだけで、**`tsconfig` �
   `poll` 呼び出しはホストの責務で、DOM API は mc-render の型境界に入れない。
 - **グラフィックス品質プリセットの残り半分。** レンダースケール・影解像度・視界距離・
   `bloomStrength` / `godRaysSamples`・`composerRtType`。
-- **ビルド／publish はまだない。** `exports` は TypeScript ソースを直接指している。
-  `version` は `0.x` に留める（[`docs/versioning.md`](./docs/versioning.md)）。
-- **カバレッジ閾値は未設定。** 99% ゲートは完了条件到達時に有効化する。
-- **mc-kernel の語彙は公開 package から直接 import。** ローカルミラーと専用テストは削除済み。
-  `index.ts` から re-export していないのは、真実の出所を 2 つにしないため。
+- **ビルドは実装済みだが、publish はまだ運用していない。** `pnpm build` が `dist/index.js` と宣言ファイルを生成し、
+  `package.json` の `exports` はその生成物を指す。`version` は `0.x` に留める（[`docs/versioning.md`](./docs/versioning.md)）。
+- **カバレッジ閾値は全指標 100% に設定済み。** 未達時は `pnpm test:coverage` が失敗する。
+- **共有語彙は出所を分離している。** `mc-kernel` の定数は公開 package から直接 import し、
+  mc-meshing と共有する可搬なメッシュ表現・LOD 定義はこのリポジトリの domain vocabulary として所有する。
   公開型との assignability は `pnpm typecheck` と各 domain test が検査する。
 
 ## ドキュメント

@@ -1,10 +1,11 @@
 import { describe, expect, it } from '@effect/vitest'
-import { BlockId, chunkCoord, type ChunkCoord } from '@nerima-games/mc-kernel'
+import { BLOCK_IDS, BlockId, chunkCoord, propertyOfBlockId, type ChunkCoord } from '@nerima-games/mc-kernel'
 import { emptyBlocks, setBlockAt, type Chunk, type SubscriberId } from '@nerima-games/mc-worldgen'
 import { Effect, Ref } from 'effect'
 import {
   attachChunkStoreRenderer,
   blockNameFromKernel,
+  KERNEL_MESH_CONFIG,
   makeChunkStoreLightColor,
   makeChunkStoreMesher,
   type MeshingChunkStore,
@@ -64,6 +65,29 @@ describe('makeChunkStoreMesher', () => {
     }),
   )
 
+  it.effect('derives fluid and cross-plant routing from kernel properties', () =>
+    Effect.gen(function* () {
+      const waterId = BLOCK_IDS.find((blockId) => propertyOfBlockId(blockId, 'fluid') === 'water')
+      const lavaId = BLOCK_IDS.find((blockId) => propertyOfBlockId(blockId, 'fluid') === 'lava')
+      const plantId = BLOCK_IDS.find((blockId) => propertyOfBlockId(blockId, 'renderKind') === 'cross')
+      if (waterId === undefined || lavaId === undefined || plantId === undefined) {
+        throw new Error('mc-kernel must expose water, lava, and cross-plant block IDs')
+      }
+
+      expect(KERNEL_MESH_CONFIG.waterBlockIds.has(waterId)).toBe(true)
+      expect(KERNEL_MESH_CONFIG.waterBlockIds.has(lavaId)).toBe(false)
+      expect(KERNEL_MESH_CONFIG.fluidMaxLevels?.get(waterId)).toBe(7)
+      expect(KERNEL_MESH_CONFIG.fluidMaxLevels?.get(lavaId)).toBe(3)
+      expect(KERNEL_MESH_CONFIG.crossPlantBlockIds?.has(plantId)).toBe(true)
+
+      const resident = chunk(0, 0, [[1, 20, 1, plantId]])
+      const quads = yield* makeChunkStoreMesher(storeOf(resident))(chunkCoord(0, 0))
+
+      expect(quads?.crossPlants).toHaveLength(2)
+      expect(quads?.crossPlants?.every(({ blockId }) => blockId === plantId)).toBe(true)
+    }),
+  )
+
   it.effect('uses resident neighbours to hide shared boundary faces', () =>
     Effect.gen(function* () {
       const center = chunk(0, 0, [[15, 20, 1, 2]])
@@ -73,6 +97,21 @@ describe('makeChunkStoreMesher', () => {
 
       expect(quads).toHaveLength(5)
       expect(quads?.some(({ direction }) => direction === 'xPos')).toBe(false)
+    }),
+  )
+
+  it.effect('supports a meshing config without local shape routing', () =>
+    Effect.gen(function* () {
+      const resident = chunk(0, 0, [[1, 20, 1, 2]])
+      const config = {
+        waterBlockIds: KERNEL_MESH_CONFIG.waterBlockIds,
+        transparentSolidBlockIds: KERNEL_MESH_CONFIG.transparentSolidBlockIds,
+      }
+
+      const quads = yield* makeChunkStoreMesher(storeOf(resident), config)(chunkCoord(0, 0))
+
+      expect(quads).toHaveLength(6)
+      expect(quads?.blockShapes).toStrictEqual([])
     }),
   )
 })

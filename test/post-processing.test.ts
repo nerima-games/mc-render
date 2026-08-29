@@ -26,6 +26,7 @@ import {
   passOrderIndex,
   POST_PROCESSING_PASS_ORDER,
   QUALITY_PRESETS,
+  qualityUsesHdrRenderTarget,
   validatePostProcessingChain,
   type GraphicsQuality,
   type PostProcessingPass,
@@ -33,11 +34,17 @@ import {
 } from '../src/domain/post-processing'
 
 const ALL_ON: GraphicsQuality = {
+  bloomStrength: 1,
   ssaoEnabled: true,
   godRaysEnabled: true,
   bloomEnabled: true,
   dofEnabled: true,
   smaaEnabled: true,
+  composerRenderTarget: 'hdr',
+  godRaysSamples: 40,
+  pixelRatioCap: 2,
+  refractionMinScreenRatio: 0,
+  refractionThrottleFrames: 1,
   useCompositePass: false,
 }
 
@@ -161,7 +168,10 @@ describe('buildPostProcessingChain', () => {
       const flags = ['ssaoEnabled', 'godRaysEnabled', 'bloomEnabled', 'dofEnabled', 'smaaEnabled', 'useCompositePass'] as const
       for (let mask = 0; mask < 1 << flags.length; mask += 1) {
         const quality = Object.fromEntries(
-          flags.map((flag, index) => [flag, (mask & (1 << index)) !== 0]),
+          [
+            ['composerRenderTarget', 'ldr'],
+            ...flags.map((flag, index) => [flag, (mask & (1 << index)) !== 0]),
+          ],
         ) as unknown as GraphicsQuality
         const chain = buildPostProcessingChain(quality)
         expect(
@@ -173,6 +183,17 @@ describe('buildPostProcessingChain', () => {
         const effects = chainEffects(chain)
         expect(new Set(effects).size, `mask ${String(mask)}`).toBe(effects.length)
       }
+    }),
+  )
+})
+
+describe('composer render target', () => {
+  it.effect('uses HDR for the presets that enable HDR post effects', () =>
+    Effect.sync(() => {
+      expect(qualityUsesHdrRenderTarget(QUALITY_PRESETS.low)).toBe(false)
+      expect(qualityUsesHdrRenderTarget(QUALITY_PRESETS.medium)).toBe(false)
+      expect(qualityUsesHdrRenderTarget(QUALITY_PRESETS.high)).toBe(true)
+      expect(qualityUsesHdrRenderTarget(QUALITY_PRESETS.ultra)).toBe(true)
     }),
   )
 })

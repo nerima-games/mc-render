@@ -1,6 +1,6 @@
 /**
- * The water material, as data — and the one material the `forceSinglePass` rule
- * does not classify.
+ * The water material, as data, including the geometry fact that drives its
+ * `forceSinglePass` decision.
  *
  * ---------------------------------------------------------------------------
  * What is here and what belongs to the mesher
@@ -30,73 +30,27 @@
  * of the `three` seam.
  *
  * ---------------------------------------------------------------------------
- * THE `forceSinglePass` QUESTION, WHICH WATER DOES NOT ANSWER CLEANLY
+ * THE `forceSinglePass` POLICY FOR A FLAT SURFACE
  * ---------------------------------------------------------------------------
  *
- * `domain/material-policy.ts` states a three-condition rule and this file's job
- * is to APPLY it rather than to re-derive it. Applying it is what turned up the
- * following, so it is written out in full.
+ * `domain/material-policy.ts` owns the material rule. This file supplies the
+ * truthful geometry fact that water is a flat surface and applies the same
+ * rule as every other material.
  *
- * The rule (material-policy.ts:140-141):
+ * The rule is:
  *
- *     requiresForceSinglePass = shared && takesTwoPassPath && isCutout
+ *     requiresForceSinglePass = shared && takesTwoPassPath && (isCutout || flatSurface)
  *
  * The reference's water material (water-material.ts:127-138) is
  * `transparent: true`, `side: DoubleSide`, shared by every water mesh, and has
- * NO `alphaTest` — so `alphaTest` is 0 and `isCutout` is false. Feed it to
- * `describeMaterialPolicy` and the verdict is `review-sharing`, whose remedy
- * text is 「Un-share the material instead, or accept the program-cache cost
- * deliberately.」
+ * `alphaTest: 0`, truthfully preserving THREE's default. `flatSurface: true`
+ * records that the greedy-meshed water geometry is a surface quad, not a
+ * closed volume.
  *
- * THE REFERENCE DID NEITHER. It set `forceSinglePass: true`
- * (water-material.ts:137), and material-policy.ts's own header lists that line
- * at :67-68 as one of the four correct applications of the rule.
- *
- * So the predicate and the prose around it disagree, about a material the prose
- * names. Which is right? The prose, and here is the argument, which is why this
- * file layers rather than edits:
- *
- *   material-policy.ts:62-63 states the criterion as 「each one is a cutout OR A
- *   FLAT SURFACE where the ordering buys nothing」, and then :92-96 encodes only
- *   the cutout half, on the grounds that `alphaTest > 0` is 「the rule rather
- *   than listing the materials by name」. The flat-surface half has no
- *   expression in `MaterialSpec` at all, so the predicate cannot see it.
- *
- *   Water is the witness. THREE's two-pass transparent path draws a material's
- *   back faces and then its front faces, and it exists so a closed translucent
- *   volume shows its far wall before its near one. A water surface is not a
- *   volume — it is a single plane, greedy-meshed, and exactly one of its two
- *   faces is toward the camera at any moment. There is no far wall. The ordering
- *   the second pass buys is between two faces that are never both visible, so it
- *   buys nothing, and that holds whether the camera is above the surface or
- *   under it.
- *
- *   The ordering that DOES matter for water — one water quad behind another at a
- *   different depth — is inter-object sorting, which `forceSinglePass` does not
- *   touch. It splits one material's draw into two passes; it has no opinion
- *   about the order of objects within a pass.
- *
- * Hence: the flag is correct on water, and the predicate is UNDER-INCLUSIVE.
- *
- * WHAT THIS FILE DOES ABOUT IT, and what it deliberately does not:
- *
- *   It does NOT edit `requiresForceSinglePass`. Widening a shipped predicate
- *   from `cutout` to `cutout || flat` needs a `flat` field on `MaterialSpec`
- *   that nothing currently produces, changes the verdict of a rule four other
- *   materials are already judged by, and is a decision about a shared file
- *   rather than about water.
- *
- *   It does NOT fudge water's `alphaTest` to a non-zero number so the predicate
- *   returns the desired answer. That would be editing the data to satisfy the
- *   rule, and the resulting `MaterialSpec` would be a lie about a real material.
- *
- *   It states the missing clause as its own value — `WATER_SURFACE_IS_FLAT` —
- *   and composes it with the shared rule in `waterForceSinglePassVerdict`. The
- *   adapter gets a correct answer, `material-policy.ts` keeps its own, and the
- *   disagreement stays visible instead of being absorbed. `test/water-surface.test.ts`
- *   pins BOTH: that the shared rule says `review-sharing`, and that the composed
- *   verdict says force it. If someone later widens the predicate, the first of
- *   those tests fails and leads them here.
+ * THREE's two-pass transparent path is useful for a closed translucent volume:
+ * it draws back faces before front faces. A water surface has no far wall, so
+ * that intra-material ordering buys nothing. Inter-object sorting between
+ * separate water quads is unaffected by `forceSinglePass`.
  *
  * ---------------------------------------------------------------------------
  * The refraction index, which the reference never writes down
@@ -175,7 +129,7 @@
  * belong.
  */
 
-import { type MaterialPolicyVerdict, type MaterialSpec, describeMaterialPolicy } from './material-policy'
+import { type MaterialSpec } from './material-policy'
 
 // --- The uniform vocabulary -------------------------------------------------
 
@@ -610,26 +564,18 @@ export const WATER_SUN_RANGE = 0.7
 export const waterSunAttenuation = (sunIntensity: number): number =>
   WATER_SUN_FLOOR + WATER_SUN_RANGE * clampSunIntensity(sunIntensity)
 
-// --- Material flags, and the policy gap -------------------------------------
+// --- Material flags ----------------------------------------------------------
 
 /**
  * The water material's properties, as `domain/material-policy.ts` sees them.
- *
- * Transcribed field by field from water-material.ts:127-138:
- *
- *   transparent: true        :131
- *   side: DoubleSide         :133
- *   alphaTest: (absent)      -> 0, the THREE default. NOT a value picked here;
- *                               a `ShaderMaterial` with no `alphaTest` has 0.
- *   shared: true             one material instance is handed to every water
- *                            mesh (world-renderer.ts:110 constructs exactly one)
- *
- * `alphaTest: 0` is the field that makes the shared rule return `review-sharing`
- * for this material. It is recorded truthfully, and the disagreement is handled
- * in `waterForceSinglePassVerdict` rather than by adjusting it. See the header.
+ * `alphaTest: 0` is THREE's default for the reference ShaderMaterial. The
+ * truthful flat-surface flag supplies the geometry half of the policy.
  */
+export const WATER_SURFACE_IS_FLAT = true
+
 export const WATER_MATERIAL_SPEC: MaterialSpec = {
   alphaTest: 0,
+  flatSurface: WATER_SURFACE_IS_FLAT,
   name: 'waterSurfaceMaterial',
   shared: true,
   side: 'double',
@@ -646,55 +592,3 @@ export const WATER_MATERIAL_SPEC: MaterialSpec = {
  * underwater disappears.
  */
 export const WATER_WRITES_DEPTH = false
-
-/**
- * Whether a water surface is a single plane rather than a closed volume.
- *
- * THE CLAUSE `MaterialSpec` CANNOT EXPRESS, stated as a value so the composed
- * verdict below has something to stand on and so a test can assert on it. It is
- * `true` because water is greedy-meshed as quads at the fluid surface; if water
- * ever becomes a closed shell with a distinct underside, this becomes false and
- * `waterForceSinglePassVerdict` correctly stops recommending the flag.
- *
- * See material-policy.ts:62-63, which states the criterion as 「a cutout OR A
- * FLAT SURFACE」 and then encodes only the first half.
- */
-export const WATER_SURFACE_IS_FLAT = true
-
-/**
- * What to do about `forceSinglePass` on the water material.
- *
- * The shared rule, plus the flat-surface clause the shared rule cannot see.
- *
- * Returns `material-policy.ts`'s own verdict type so a caller can treat this
- * exactly like `describeMaterialPolicy` — including the startup audit
- * `auditMaterials` is documented for. The ONLY case it overrides is
- * `review-sharing` on a flat surface, and it says so in the reason string rather
- * than silently returning a different kind, so anyone reading a log gets the
- * argument instead of a verdict they cannot reconstruct.
- *
- * If `WATER_SURFACE_IS_FLAT` were false — water as a closed volume — this
- * returns the shared rule's `review-sharing` untouched, which is the correct
- * answer for genuine translucency and the case material-policy.ts:57-60 warns
- * about by name (「deep water seen from within」).
- */
-export const waterForceSinglePassVerdict = (): MaterialPolicyVerdict => {
-  const shared = describeMaterialPolicy(WATER_MATERIAL_SPEC)
-
-  if (shared.kind !== 'review-sharing' || !WATER_SURFACE_IS_FLAT) {
-    return shared
-  }
-
-  return {
-    kind: 'must-force-single-pass',
-    reason:
-      `${WATER_MATERIAL_SPEC.name} is shared, transparent and DoubleSide with alphaTest 0, so ` +
-      "material-policy's cutout test returns review-sharing. It is nonetheless a FLAT surface: a " +
-      'greedy-meshed water plane is not a closed volume, exactly one of its two faces is toward ' +
-      'the camera at any moment, and the two-pass back-then-front ordering therefore resolves ' +
-      'nothing. Sorting between separate water quads is inter-object sorting, which ' +
-      'forceSinglePass does not affect. Set forceSinglePass: true, as the reference does at ' +
-      'water-material.ts:137. material-policy.ts:62-63 states this clause; its predicate encodes ' +
-      'only the cutout half of it.',
-  }
-}

@@ -31,6 +31,11 @@
  */
 import { Effect, Ref } from 'effect'
 import {
+  PARTICLE_ALPHA_TEST,
+  PARTICLE_WRITES_DEPTH,
+  type ParticlePool,
+} from '../domain/particle-pool'
+import {
   PARTICLE_INSTANCE_ATTRIBUTES,
   PARTICLE_QUAD_INDICES,
   PARTICLE_QUAD_POSITIONS,
@@ -38,21 +43,21 @@ import {
   PARTICLE_SHADER_UNIFORMS,
   particleShaderSource,
 } from '../domain/particle-shader'
-import { PARTICLE_WRITES_DEPTH, type ParticlePool } from '../domain/particle-pool'
 import {
   POSITION_COMPONENTS,
   UV_COMPONENTS,
 } from '../domain/chunk-geometry'
-import type {
-  ThreeBufferAttribute,
-  ThreeBufferGeometry,
-  ThreeInstancedBufferAttribute,
-  ThreeInstancedBufferGeometry,
-  ThreeInstancedSurface,
-  ThreeMaterial,
-  ThreeMesh,
-  ThreeShaderMaterialParameters,
-  ThreeUniform,
+import {
+  THREE_DOUBLE_SIDE,
+  type ThreeBufferAttribute,
+  type ThreeBufferGeometry,
+  type ThreeInstancedBufferAttribute,
+  type ThreeInstancedBufferGeometry,
+  type ThreeInstancedSurface,
+  type ThreeMaterial,
+  type ThreeMesh,
+  type ThreeShaderMaterialParameters,
+  type ThreeUniform,
 } from './three-surface'
 
 /**
@@ -74,7 +79,7 @@ const INDEX_COMPONENTS = 1
 const INITIAL_DRAWN_INSTANCES = 0
 
 /** The live particle system, as its owner holds it. */
-export type ParticleSystem = {
+export type ParticleSystem<TShaderMaterial extends ThreeMaterial = ThreeMaterial> = {
   /**
    * Tell the GPU the pool's bytes changed, and how many slots are live.
    *
@@ -86,6 +91,8 @@ export type ParticleSystem = {
   readonly drawnInstances: Effect.Effect<number>
   /** The mesh, for a host to add to its scene. */
   readonly mesh: ThreeMesh
+  /** The shared material, for renderer-level policy checks. */
+  readonly material: TShaderMaterial
   /** Release the geometry and the material. */
   readonly dispose: Effect.Effect<void>
 }
@@ -192,7 +199,7 @@ export const makeParticleSystem = <
   },
   pool: ParticlePool,
   atlasTexture: unknown,
-): Effect.Effect<ParticleSystem> =>
+): Effect.Effect<ParticleSystem<TShaderMaterial>> =>
   Effect.gen(function* () {
     const geometry = new three.InstancedBufferGeometry()
     attachParticleQuadGeometry(three, geometry)
@@ -203,8 +210,11 @@ export const makeParticleSystem = <
       [PARTICLE_SHADER_UNIFORMS.atlas]: { value: atlasTexture },
     }
     const material = new three.ShaderMaterial({
+      alphaTest: PARTICLE_ALPHA_TEST,
       depthWrite: PARTICLE_DEPTH_WRITE,
+      forceSinglePass: true,
       fragmentShader: source.fragmentShader,
+      side: THREE_DOUBLE_SIDE,
       transparent: true,
       uniforms,
       vertexColors: true,
@@ -221,6 +231,8 @@ export const makeParticleSystem = <
       }),
 
       drawnInstances: Ref.get(drawn),
+
+      material,
 
       mesh,
 

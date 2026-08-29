@@ -16,13 +16,15 @@ $ pnpm preview --scenario stranded-request --at 10 --once --ascii
 ```
 
 `pnpm verify` はこれを実行しない。ただし `pnpm typecheck`（`tsconfig.preview.json`）と
-`pnpm lint` と `pnpm check:deps` の対象には**入っている**。
+`pnpm lint` の対象には**入っている**。
 
 ## なぜ「固定チャンクのビューア」ではないのか
 
 [docs/testing.md](../../docs/testing.md) はこのリポジトリのプレビューを
 **「固定チャンクを読み込んでマテリアルとポストFXを目視」**と定めている。
-それには THREE.js アダプタと canvas と GPU が要る。**mc-render にはどれも無い。**
+それには THREE.js アダプタと canvas と GPU が要る。mc-render の THREE.js アダプタは
+`src/application/three-surface.ts` に着地しているが、preview-render は意図的に terminal-only
+であり、ブラウザ描画と固定チャンクの fixture は別の検証タスクとして残っている。
 
 `tsconfig.base.json` の `lib` に `"DOM"` が無い。これが偶然ではないのは、
 ポストFXの順序も、ホイールのモデルも、ポインタロックの 4 値状態機械も、
@@ -87,10 +89,10 @@ plan.md §3.10 は **Playwright が SwiftShader 上で動き、ポインタロ�
 | RND-1 | **`requested` は吸収状態だった。** `blur` が保存し、`requestPointerLock` は再送しない。セッション中もう二度とマウスルックに入れない | **修正** |
 | RND-2 | **`endFrame` が、どのフレームにも報告していないホイール段を消費していた。** `Math.trunc` を 2 回別々の瞬間に取っていた | **修正** |
 | RND-3 | **`blur` が `pointerLocked` を残していた。** タブに戻るためのクリックが `attack` になる | **修正** |
-| RND-4 | ミラーの初期状態が自己矛盾。`UNSET_CAMERA_POSE`（`capturedAtSecs` 0）に対し `mirrorLagSecs` はリテラル `0`（＝新鮮） | **保留（ピン）** |
+| RND-4 | ミラーの初期状態が自己矛盾。最初の pose が届く前を `undefined` で表さず、`UNSET_CAMERA_POSE`（`capturedAtSecs` 0）を新鮮と表示していた | **修正** |
 | RND-5 | `MIRROR_LAG_WARNING_SECS` の doc が「Milliseconds」と書いていた。名前は `_SECS`、値は `0.1`、比較対象は秒 | **修正** |
 | RND-6 | **`RenderRegistrationLayer` が `renderModule` の引数を捨てていた。** ステージが別インスタンスに結び付く | **修正（削除）** |
-| RND-7 | `withScratch` が捕まえるのは同一性エスケープだけ。包んで返す / クロージャ / 遅延コールバック / 直接読みはすべて素通り | **保留（ピン）** |
+| RND-7 | `withScratch` が捕まえるのは同一性エスケープだけ。包んで返す / クロージャ / 遅延コールバック / 直接読みはすべて素通り | **修正** |
 | RND-8 | **`buildPostProcessingChain` が `high` と `ultra` に同一の配列を返していた。** composite の入力が型に無い | **修正** |
 
 各行がどのテストに固定されたかは [`docs/testing.md`](../../docs/testing.md) §2.2 にある。
@@ -184,25 +186,14 @@ $ pnpm preview --stats | sed -n '/WHEEL-LEDGER/,/^$/p'
 `GameModule` は、その間違いを書けなくする形だった: `module.layers` を **1 回**
 provide し、`frameStages` はその中から取る。
 
-### RND-4 / RND-7 —— ピンであって修正ではない
+### RND-4 / RND-7 —— lease と未初期化状態を機構化した
 
-- **RND-4**: ゲージに入れる正直な値が無い。`makeRenderFrameState` は時計を持たない
-  （ステージではなくコンストラクタで、plan.md §5.1-3 がグローバル時計の読み取りを禁じている）し、
-  `Infinity` を入れても矛盾が `mirroredCamera.sourceCapturedAtSecs` に移るだけである
-  —— 消費側が実際に読むのはそちらだ。両者を一致させるには `MirroredCameraState` 自身で
-  「未設定」と「陳腐化」を区別する必要があり、それは mc-sim を pin して
-  `authoritativePose` が `PlayerService.cameraPose` になるときの仕事である。
-  そのとき窓は構造的に閉じる。
-- **RND-7**: 検出するには生の `Map` を渡すのをやめるしかない（lease 付き facade、または
-  `buffer` の非公開化）。どちらも公開型を変え、facade はこのモジュールが
-  無アロケーションに保つためのホットパスに分岐とラッパーを載せる —— それは
-  plan.md §5.2 が**名指しで**認めている逸脱であり、局所的に決めてよい話ではない。
-  「他所で作った `ScratchMap` が `TypeError` で死ぬ」行だけは単体では安いが、
-  `makeScratchMap` が唯一のコンストラクタで export もされている以上、
-  そこに到達するには「`withScratch` だけが駆動する」と書かれた型に対して
-  手書きのオブジェクトリテラルを当てるしかない。到達不能な経路のために公開
-  `ScratchViolation` を 1 つ増やしても、隣のエスケープが開いたままなら
-  モジュールの中心的な主張は同じだけ嘘のままである。**両方まとめてか、どちらもか。**
+- **RND-4**: `MirroredCameraState.sourceCapturedAtSecs`、`mirrorLagSecs`、
+  `RenderFrameState.authoritativePose` を optional にし、mc-sim の最初の pose が届くまでを
+  「未初期化」として表現する。時計を読むステージの責務は変わらない。
+- **RND-7**: `withScratch` は native `Map` を公開せず、scratch ごとに一度だけ作る
+  lease-checked view を渡す。view / wrapper / closure / iterator / deferred Effect の
+  lease 後アクセスを `ScratchMisuseError` にし、持ち出しは `snapshotScratch` に限定する。
 
 ## クロックを読んでいない
 
@@ -227,7 +218,8 @@ GPU 無しで確かめられる半分であり、入力状態機械にいたっ�
 
 **このリポジトリ自身のモジュールと `effect` だけ。**
 `effect` は既に `dependencies` にある。org パッケージも新規 npm 依存も THREE も無い。
-`apps` は `SCAN_ROOTS` に入っているので、import は `domain/` と同じゲートを通る。
+`tsconfig.preview.json` と `pnpm lint` がアプリの import / 型境界を検証し、package の公開面は
+`src/index.ts` からのみ構成する。
 
 ## ファイル
 

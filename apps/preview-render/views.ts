@@ -379,21 +379,19 @@ export const postFxView = (style: Style, width: number): ReadonlyArray<string> =
 // ---------------------------------------------------------------------------
 
 /**
- * The four materials the policy exists for, plus two the policy does not name.
+ * The reference materials the policy exists for, plus control cases.
  *
- * The two extras are the point of showing this as a table rather than a list of
- * verdicts: `alphaTest: -1` and `alphaTest: NaN` are not cutouts by
- * `isCutout`'s `> 0` test, so they take the two-pass path — and the diagnostic
- * `describeMaterialPolicy` produces for them says "alphaTest is 0", which is
- * false.
+ * The negative-alpha control is the point of showing this as a table rather
+ * than a list of verdicts: it is not a cutout by `isCutout`'s `> 0` test, so it
+ * takes the two-pass path and remains a genuine-translucency review case.
  */
 export const MATERIAL_FIXTURES: ReadonlyArray<MaterialSpec> = [
-  { name: 'opaque-block', transparent: false, side: 'front', alphaTest: 0, shared: true },
-  { name: 'leaves-cutout', transparent: true, side: 'double', alphaTest: 0.5, shared: true },
-  { name: 'water-translucent', transparent: true, side: 'double', alphaTest: 0, shared: true },
-  { name: 'held-item', transparent: true, side: 'double', alphaTest: 0.5, shared: false },
-  { name: 'glass-per-mesh', transparent: true, side: 'double', alphaTest: 0, shared: false },
-  { name: 'negative-alphaTest', transparent: true, side: 'double', alphaTest: -1, shared: true },
+  { name: 'opaque-block', transparent: false, side: 'front', alphaTest: 0, flatSurface: false, shared: true },
+  { name: 'leaves-cutout', transparent: true, side: 'double', alphaTest: 0.5, flatSurface: false, shared: true },
+  { name: 'water-translucent', transparent: true, side: 'double', alphaTest: 0, flatSurface: true, shared: true },
+  { name: 'held-item', transparent: true, side: 'double', alphaTest: 0.5, flatSurface: true, shared: false },
+  { name: 'glass-per-mesh', transparent: true, side: 'double', alphaTest: 0, flatSurface: false, shared: false },
+  { name: 'negative-alphaTest', transparent: true, side: 'double', alphaTest: -1, flatSurface: false, shared: true },
 ]
 
 export const materialView = (style: Style, width: number): ReadonlyArray<string> => {
@@ -403,7 +401,7 @@ export const materialView = (style: Style, width: number): ReadonlyArray<string>
       style,
       '',
       style.dim(
-        `${pad('material', 20)}${pad('transp', 8)}${pad('side', 8)}${pad('alphaT', 8)}${pad('shared', 8)}${pad('2-pass', 8)}${pad('cutout', 8)}${pad('force', 7)}verdict`,
+        `${pad('material', 20)}${pad('transp', 8)}${pad('side', 8)}${pad('alphaT', 8)}${pad('flat', 8)}${pad('shared', 8)}${pad('2-pass', 8)}${pad('cutout', 8)}${pad('force', 7)}verdict`,
       ),
     ),
   ]
@@ -415,7 +413,7 @@ export const materialView = (style: Style, width: number): ReadonlyArray<string>
       row(
         style,
         '',
-        `${style.paint(pad(material.name, 20), colour)}${style.dim(pad(yesNo(material.transparent), 8))}${style.dim(pad(material.side, 8))}${style.dim(pad(String(material.alphaTest), 8))}${style.dim(pad(yesNo(material.shared), 8))}${style.dim(pad(yesNo(takesTwoPassPath(material)), 8))}${style.dim(pad(yesNo(isCutout(material)), 8))}${style.dim(pad(yesNo(requiresForceSinglePass(material)), 7))}${style.paint(verdict.kind, colour)}`,
+        `${style.paint(pad(material.name, 20), colour)}${style.dim(pad(yesNo(material.transparent), 8))}${style.dim(pad(material.side, 8))}${style.dim(pad(String(material.alphaTest), 8))}${style.dim(pad(yesNo(material.flatSurface), 8))}${style.dim(pad(yesNo(material.shared), 8))}${style.dim(pad(yesNo(takesTwoPassPath(material)), 8))}${style.dim(pad(yesNo(isCutout(material)), 8))}${style.dim(pad(yesNo(requiresForceSinglePass(material)), 7))}${style.paint(verdict.kind, colour)}`,
       ),
     )
   }
@@ -446,69 +444,61 @@ export const materialView = (style: Style, width: number): ReadonlyArray<string>
 const xyz = (point: { readonly x: number; readonly y: number; readonly z: number }): string =>
   `${padStart(fixed(point.x, 3), 9)} ${padStart(fixed(point.y, 3), 9)} ${padStart(fixed(point.z, 3), 9)}`
 
-export const mirrorView = (view: MachineView, style: Style, width: number): ReadonlyArray<string> => [
-  heading(style, 'camera mirror  (mc-sim is the AUTHORITY; this is a copy that never writes back)', width),
-  row(
-    style,
-    'clock',
-    `${style.paint(`${fixed(view.clockSecs, 3)} s`, VALUE)}   ${ 
-      style.dim('injected MonotonicTimeSecs — this app moves it, nothing reads a wall clock')}`,
-  ),
-  row(
-    style,
-    'authoritative',
-    `${style.paint(xyz(view.authoritativePose.position), view.poseNeverPublished ? LABEL : VALUE)}   ` +
-      `stamped ${style.paint(`${fixed(view.authoritativePose.capturedAtSecs, 3)} s`, VALUE)}${ 
-      view.poseNeverPublished ? style.paint('   UNSET_CAMERA_POSE — nothing has published', WARN) : ''}`,
-  ),
-  row(style, 'mirrored', style.paint(xyz(view.mirrored.position), VALUE)),
-  row(
-    style,
-    'rotation',
-    `${style.paint(`${fixed(view.mirrored.rotation.x, 4)} ${fixed(view.mirrored.rotation.y, 4)} ${fixed(view.mirrored.rotation.z, 4)}`, VALUE)} ${ 
-      style.dim(`order ${view.mirrored.rotation.order} — pitch on X, yaw on Y, exactly as the reference sets it`)}`,
-  ),
-  row(
-    style,
-    'lag',
-    `${style.paint(`${fixed(view.mirrorLag, 3)} s`, view.mirrorStale ? BAD : GOOD)} ${style.dim(bar(Math.min(view.mirrorLag, MIRROR_LAG_WARNING_SECS * 3), MIRROR_LAG_WARNING_SECS * 3, 20))}   threshold ${style.paint(`${String(MIRROR_LAG_WARNING_SECS)} s`, VALUE)}   ${ 
-      style.paint(view.mirrorStale ? 'STALE' : 'fresh', view.mirrorStale ? BAD : GOOD)}`,
-  ),
-  row(
-    style,
-    'view offset',
-    `right ${style.paint(fixed(view.viewOffset.right, 3), VALUE)}  up ${style.paint(fixed(view.viewOffset.up, 3), VALUE)}  roll ${style.paint(fixed(view.viewOffset.rollRadians, 3), VALUE)}   ${ 
-      style.dim('the attack-swing bob lives HERE and is never folded back into the pose')}`,
-  ),
-  ...(view.poseNeverPublished
-    ? [
-        '',
-        row(
-          style,
+export const mirrorView = (view: MachineView, style: Style, width: number): ReadonlyArray<string> => {
+  const authoritative =
+    view.authoritativePose === undefined
+      ? style.paint('pending — mc-sim has not published a pose', WARN)
+      : `${style.paint(xyz(view.authoritativePose.position), VALUE)}   stamped ${style.paint(`${fixed(view.authoritativePose.capturedAtSecs, 3)} s`, VALUE)}`
+  const lag =
+    view.mirrorLag === undefined
+      ? `${style.paint('pending', WARN)} ${style.dim('no captured pose yet')}   threshold ${style.paint(`${String(MIRROR_LAG_WARNING_SECS)} s`, VALUE)}   ${style.paint('not stale', GOOD)}`
+      : `${style.paint(`${fixed(view.mirrorLag, 3)} s`, view.mirrorStale ? BAD : GOOD)} ${style.dim(bar(Math.min(view.mirrorLag, MIRROR_LAG_WARNING_SECS * 3), MIRROR_LAG_WARNING_SECS * 3, 20))}   threshold ${style.paint(`${String(MIRROR_LAG_WARNING_SECS)} s`, VALUE)}   ${style.paint(view.mirrorStale ? 'STALE' : 'fresh', view.mirrorStale ? BAD : GOOD)}`
+
+  return [
+    heading(style, 'camera mirror  (mc-sim is the AUTHORITY; this is a copy that never writes back)', width),
+    row(
+      style,
+      'clock',
+      `${style.paint(`${fixed(view.clockSecs, 3)} s`, VALUE)}   ${
+        style.dim('injected MonotonicTimeSecs — this app moves it, nothing reads a wall clock')}`,
+    ),
+    row(style, 'authoritative', authoritative),
+    row(style, 'mirrored', style.paint(xyz(view.mirrored.position), VALUE)),
+    row(
+      style,
+      'rotation',
+      `${style.paint(`${fixed(view.mirrored.rotation.x, 4)} ${fixed(view.mirrored.rotation.y, 4)} ${fixed(view.mirrored.rotation.z, 4)}`, VALUE)} ${
+        style.dim(`order ${view.mirrored.rotation.order} — pitch on X, yaw on Y, exactly as the reference sets it`)}`,
+    ),
+    row(style, 'lag', lag),
+    row(
+      style,
+      'view offset',
+      `right ${style.paint(fixed(view.viewOffset.right, 3), VALUE)}  up ${style.paint(fixed(view.viewOffset.up, 3), VALUE)}  roll ${style.paint(fixed(view.viewOffset.rollRadians, 3), VALUE)}   ${
+        style.dim('the attack-swing bob lives HERE and is never folded back into the pose')}`,
+    ),
+    ...(view.poseNeverPublished
+      ? [
           '',
-          style.paint(
-            'makeRenderFrameState seeds mirroredCamera from UNSET_CAMERA_POSE (capturedAtSecs 0) and',
-            WARN,
+          row(
+            style,
+            '',
+            style.paint(
+              'Before the first authoritative pose, mirroredCamera has no source timestamp; lag is pending and cannot be stale.',
+              WARN,
+            ),
           ),
-        ),
-        row(
-          style,
-          '',
-          style.paint(
-            'mirrorLagSecs from the literal 0 — "perfectly fresh". Move the clock and watch them part.',
-            WARN,
-          ),
-        ),
-      ]
-    : []),
-]
+        ]
+      : []),
+  ]
+}
 
 // ---------------------------------------------------------------------------
 // scratch
 // ---------------------------------------------------------------------------
 
 export const scratchView = (style: Style, width: number): ReadonlyArray<string> => [
-  heading(style, 'per-frame scratch buffers  (borrow / return, and what is not enforced)', width),
+  heading(style, 'per-frame scratch buffers  (borrow / return, lease checked)', width),
   row(
     style,
     'why',
@@ -526,29 +516,34 @@ export const scratchView = (style: Style, width: number): ReadonlyArray<string> 
   ),
   row(
     style,
-    'NOT enforced',
-    `${style.paint('wrapped escape', BAD)}     ${style.dim('return { buffer } — a different object holding the same live Map')}`,
+    'enforced',
+    `${style.paint('wrapped escape', GOOD)}     ${style.dim('a retained view throws when used after its lease ends')}`,
   ),
   row(
     style,
-    'NOT enforced',
-    `${style.paint('closure escape', BAD)}     ${style.dim('return () => buffer.size — read after the lease was released')}`,
+    'enforced',
+    `${style.paint('closure escape', GOOD)}     ${style.dim('a closure over the view cannot read it after return')}`,
   ),
   row(
     style,
-    'NOT enforced',
-    `${style.paint('deferred callback', BAD)}  ${style.dim('the lease is released in `finally`, so an Effect- or Promise-returning callback outlives it')}`,
+    'enforced',
+    `${style.paint('deferred callback', GOOD)}  ${style.dim('an Effect- or Promise-returning callback fails on its later read')}`,
   ),
   row(
     style,
-    'NOT enforced',
-    `${style.paint('direct field read', BAD)}  ${style.dim('scratch.buffer is a public field; the repo\'s own tests read it outside a borrow')}`,
+    'enforced',
+    `${style.paint('raw backing Map', GOOD)}     ${style.dim('not exposed on ScratchMap; use snapshotScratch for an explicit copy')}`,
+  ),
+  row(
+    style,
+    'enforced',
+    `${style.paint('foreign handle', GOOD)}     ${style.dim('a hand-built ScratchMap is rejected by the private ownership registry')}`,
   ),
   '',
   row(
     style,
     'usageCount',
-    style.dim('documented as "Frames this buffer has served"; it increments on every BORROW, and a borrow that dies on the escape check still counts'),
+    style.dim('documented as "Frames this buffer has served"; it increments on every BORROW'),
   ),
 ]
 
@@ -680,8 +675,8 @@ export const findingsView = (view: MachineView, style: Style, width: number): Re
     },
     {
       id: 'mirror',
-      hit: view.poseNeverPublished && view.clockSecs > MIRROR_LAG_WARNING_SECS,
-      text: 'KNOWN GAP (RND-4, pinned not fixed): the mirrored pose is still UNSET_CAMERA_POSE while the clock has moved, and makeRenderFrameState seeds mirrorLagSecs to 0, which claims it is fresh',
+      hit: view.poseNeverPublished && view.mirrorStale,
+      text: 'RND-4: before the first authoritative pose, the mirror must remain pending rather than stale',
     },
   ]
 
@@ -748,6 +743,7 @@ const SCENARIO_LIST = [
   'stranded-request',
   'lost-notch',
   'blur-while-locked',
+  'hud-click',
   'mirror-staleness',
   'rebinding',
 ] as const

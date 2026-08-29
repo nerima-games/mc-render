@@ -353,7 +353,9 @@ packages/rendering/infrastructure/renderer/world-renderer-refraction-ratio.ts:4
 
 - 借用時にクリア（退出時ではない。デバッグ時に中身を見られるようにするため、かつ
   本当に重要な不変条件は「コールバックが古いデータを見ない」ほう）
-- コールバックがバッファ**そのもの**を返したら `ScratchMisuseError`
+- コールバックがバッファ view **そのもの**を返したら `ScratchMisuseError`。
+  view を包んで返す、クロージャや iterator、遅延 Effect に保持する場合も、lease 後の
+  操作で `ScratchMisuseError` になる。native の backing `Map` は公開しない
 - 二重借用（再入）も `ScratchMisuseError`
 - 持ち出したいときは `snapshotScratch` でコピー。**アロケートするのが目的**——
   タダに見えて実はタダでない参照より、明示的で帰属可能なアロケーションのほうがよい
@@ -365,7 +367,7 @@ packages/rendering/infrastructure/renderer/world-renderer-refraction-ratio.ts:4
 
 ### 書くべき回帰テスト
 
-`test/frame-scratch.test.ts`（12 テスト）。
+`test/frame-scratch.test.ts`（18 テスト）。
 
 | テスト名 | 内容 |
 | --- | --- |
@@ -573,7 +575,8 @@ packages/app/application/frame/stages/render-stage.ts:98-100
 
 **姿勢は値として mc-sim から届き、演出は別の値としてミラー時に合成し、合成結果はどこにも戻さない。**
 
-- `mirroredCameraState(snapshot, offset)` は純粋関数。入力スナップショットは出力ではなく、
+- `mirroredCameraState(snapshot, offset)` は純粋関数。未到着時は `snapshot` が `undefined` でも
+  保留状態を返し、入力スナップショットは出力ではなく、
   出力から入力への経路が存在しない
 - 演出（攻撃スイング・歩行の揺れ・被弾シェイク・反動）はすべて `ViewOffset` に入る
 - `forwardVector` は**スナップショット**を取る。ミラー結果ではない。
@@ -584,7 +587,7 @@ packages/app/application/frame/stages/render-stage.ts:98-100
 
 ### 書くべき回帰テスト
 
-`test/camera-mirror.test.ts`（13 テスト）。
+`test/camera-mirror.test.ts`（15 テスト）。
 
 | テスト名 | 内容 |
 | --- | --- |
@@ -596,7 +599,7 @@ packages/app/application/frame/stages/render-stage.ts:98-100
 | `a vertical bob stays vertical whatever the pitch` | pitch を掛けない理由 |
 | `is a unit vector at every pitch, so a raycast needs no renormalisation` | |
 | `a pose more than 100 ms old is reported as stale rather than silently drawn` | |
-| **（要追加）** `no source file in this repository reads camera.position` | アダプタ実装時。走査テストで |
+| `an unpublished pose is pending rather than fresh` | source timestamp が無い状態を stale と混同しない |
 
 ---
 
@@ -717,27 +720,12 @@ plan.md §3.7 は mc-worldgen に「ワーカープールPort（実装は利用�
 
 plan.md §4.3 / §5.1-3。時刻はすべて注入された Clock Port から取る。
 
-強制は `scripts/check-dependency-whitelist.ts` の `findBannedTimeSources`
-（`Date.now()` / `new Date()` / `performance.now()`）。**`.oxlintrc.json` ではない**——
-oxlint 0.12 は `no-restricted-syntax` も `no-restricted-properties` も実装しておらず、
-`no-restricted-globals` は一覧に出るが実装されていない（mc-kernel で 0.12.0 に対し実測確認済み）。
+現在の runtime code はグローバルな時計を直接読まず、Clock Port または
+`MonotonicTimeSecs` を受け取る。`pnpm lint` は `src`、`apps`、`scripts`、`test` を
+走査するが、専用の dependency-whitelist スクリプトは持たない。
 
-**mc-render はこの禁止が最も効くリポジトリである。** `performance.now()` は FPS 計測・
-フレーム時間計測・アニメーション補間で自然に手が伸びる。参照実装にも
-`packages/rendering/presentation/perf-hud-counters.ts` のような計測コードがある。
-
-そして**ブラウザプラットフォームを所有するのがここである以上、Clock Port の実装アダプタは
-おそらくここに置かれる**。だからエスケープハッチは**ファイト単位ではなく行単位**である
-（`mc-kernel-allow-time-source` コメント）。アダプタの 1 行だけが例外になり、
-同じファイルの他の行は例外にならない。
-
-### 書くべき回帰テスト
-
-| テスト名 | 場所 |
-| --- | --- |
-| `catches all three raw clock reads, with line numbers` | `test/check-dependency-whitelist.test.ts` |
-| `ignores the same text inside a comment or a string` | 同上 |
-| `the escape hatch exempts exactly the line that carries it` | 同上 |
+この制約を変更する場合は、時間の供給元をブラウザアダプタの境界に閉じ込め、
+domain/application の純粋な処理には注入可能な値だけを渡すこと。
 
 ---
 
@@ -930,10 +918,10 @@ JavaScript の `%` は被除数の符号を保つ。`+ HOTBAR_SIZE` 1 回で足�
 
 ## DN-14 ポインタロックは**要求**であり、拒否されうる
 
-plan.md には無い。[public-api.md](./public-api.md) §2.2 が
-「要求側（`requestPointerLock`）は未実装」と自分で記録していた穴である。
+plan.md には無い。[public-api.md](./public-api.md) §2.2 が過去の監査で
+「要求側（`requestPointerLock`）は未実装」と記録していた穴であり、現行実装では閉じている。
 DN-12 が `uiClicks`（ロックを取り直すクリック）をモデル化したが、
-**それを受ける側が無かったので、プレビューはマウスルックに入れなかった。**
+**当時はそれを受ける側が無かったので、プレビューはマウスルックに入れなかった。**
 
 決定（4 状態、`PointerLockPort`、誰がいつ要求するか）は
 [public-api.md](./public-api.md) §2.8。ここに書くのは踏む側の 3 つ。
@@ -1029,7 +1017,7 @@ Playwright は SwiftShader でポインタロックを扱えないので、
 | 案 | 結果 |
 | --- | --- |
 | `lib` に `"DOM"` を足す | 純粋なファイル全部から同時に歯止めが消える。しかも**数ヶ月誰も気づかない** |
-| アダプタ専用の 2 つ目の tsconfig プロジェクト（`lib.DOM` 付き） | **機械的に詰む**。`scripts/api-lock.ts` は `tsconfig.build.json` から公開面を作り、`scripts/check-dependency-whitelist.ts` は `index.ts` / `domain/` / `application/` / `stages/` で出荷ソースを分類する。どちらも 16 リポジトリに byte-identical で vendor される領域で、リポジトリ毎に編集してはならない。build プロジェクト外のアダプタは `index.ts` から re-export できず、**それが存在する理由であるプレビューから使えない** |
+| アダプタ専用の 2 つ目の tsconfig プロジェクト（`lib.DOM` 付き） | 採用しない。`tsconfig.build.json` を package の唯一の declaration 出力プロジェクトとし、`tsconfig.test.json` / `tsconfig.preview.json` は検証専用にする。DOM アダプタの実物代入可能性は `test/typescript-project.ts` の fixture 検査で証明する |
 | **実際に使う DOM メンバだけを構造的に書く** | 採用 |
 
 ### 採ったかたち
