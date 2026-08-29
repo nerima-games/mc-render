@@ -1,42 +1,34 @@
-/**
- * Converts `@nerima-games/mc-meshing` output into renderer-owned typed-array buffers.
- *
- * Geometry stays independent of Three.js and DOM state. The dependency owns
- * voxel identities and meshing output; this module owns GPU-buffer layout.
- */
+/** Converts portable mesh quads into renderer-owned interleaved buffers. */
+
 import {
-  AO_LEVELS,
-  AO_MAX,
-  AO_NONE,
-  type CrossPlantQuad as MeshingCrossPlantQuad,
-  type FaceDirection as MeshingFaceDirection,
-  type FaceRole as MeshingFaceRole,
-  type FluidQuad as MeshingFluidQuad,
-  type Quad as MeshingQuad,
-  type QuadAxis as MeshingQuadAxis,
-  faceOf,
+  type BlockShapeQuad,
+  type CrossPlantQuad,
+  type FaceDirection,
+  type FaceRole,
+  type FluidQuad,
+  type GeometryQuad,
+  INDICES_PER_QUAD,
+  type MeshQuad,
+  type QuadAxis,
+  type QuadCorners,
+  type QuadVertex,
+  VERTICES_PER_QUAD,
   tangentAxes,
-} from '@nerima-games/mc-meshing'
+} from './meshing-vocabulary'
 
-/** Shared face vocabulary, consumed directly from mc-meshing. */
-export type FaceDirection = MeshingFaceDirection
-export type FaceRole = MeshingFaceRole
-
-/** One of the three chunk-local axes used by quad extents. */
-export type QuadAxis = MeshingQuadAxis
-
-/** Direct aliases keep geometry aligned with the published meshing output. */
-export type MeshQuad = MeshingQuad
-export type FluidQuad = MeshingFluidQuad
-export type CrossPlantQuad = MeshingCrossPlantQuad
-export type RenderableQuad = MeshQuad | CrossPlantQuad | FluidQuad
-
-/** Use mc-meshing's canonical width/height axis convention directly. */
-export { tangentAxes }
-
-/** Vertices and indices per quad. Two triangles, four shared corners. */
-export const VERTICES_PER_QUAD = 4
-export const INDICES_PER_QUAD = 6
+export { INDICES_PER_QUAD, VERTICES_PER_QUAD, tangentAxes }
+export type {
+  BlockShapeQuad,
+  CrossPlantQuad,
+  FaceDirection,
+  FaceRole,
+  FluidQuad,
+  GeometryQuad,
+  MeshQuad,
+  QuadAxis,
+  QuadCorners,
+  QuadVertex,
+}
 
 /** Components per vertex, per attribute. */
 export const POSITION_COMPONENTS = 3
@@ -57,7 +49,6 @@ export const TILE_INDEX_COMPONENTS = 1
 export const FLUID_DIRECTION_COMPONENTS = 2
 export const FLUID_FALLING_COMPONENTS = 1
 
-
 /**
  * How dark each AO level draws, as an 8-bit vertex-colour channel.
  *
@@ -70,12 +61,12 @@ export const FLUID_FALLING_COMPONENTS = 1
  * difference is stated here rather than discovered later. The reference feeds
  * this into a custom fragment shader that combines it as
  * `diffuse *= (0.45 + 0.55*light) * (0.8 + 0.2*R)` (:135), so its AO spans a
- * 20% range. The production chunk path now applies that curve in
- * `./chunk-shader.ts`, while the base renderer still accepts `MeshBasicMaterial`
- * as an intentionally unlit fallback. In that fallback,
+ * 20% range. This repository has no shader yet: `MeshBasicMaterial` with
  * `vertexColors` multiplies the base colour by the vertex colour directly, so
- * the same table spans 100% down to 40%. Geometry does not rewrite the table to
- * compensate for a material; the material owns the final interpretation.
+ * the same table spans 100% down to 40%. The shading is therefore STRONGER than
+ * the reference's, by a factor this file does not attempt to correct — dividing
+ * the range here would put a shader's job in a geometry builder, and the number
+ * to divide by is a property of a shader that has not been written.
  */
 /** 8-bit shade for AO level 0: fully unoccluded. */
 const AO_LEVEL_0_SHADE = 255
@@ -93,11 +84,17 @@ export const AO_SHADE_BY_LEVEL: ReadonlyArray<number> = [
   AO_LEVEL_3_SHADE,
 ]
 
-/** Keep the renderer's public AO vocabulary sourced from mc-meshing. */
-export { AO_LEVELS, AO_MAX }
+/** Levels `AO_SHADE_BY_LEVEL` covers. Mirrors mc-meshing's `AO_LEVELS`. */
+export const AO_LEVELS = AO_SHADE_BY_LEVEL.length
+
+/** Converts a count (here, `AO_LEVELS`) to its highest valid index. */
+const INDEX_FROM_COUNT = 1
+
+/** Highest (darkest) level. Mirrors mc-meshing's `AO_MAX`. */
+export const AO_MAX = AO_LEVELS - INDEX_FROM_COUNT
 
 /** The lowest AO level: fully unoccluded. The floor `aoShade` clamps to. */
-const AO_MIN_LEVEL = AO_NONE
+const AO_MIN_LEVEL = 0
 
 /** The shade of the most occluded level. See `aoShade` on why it is a fallback. */
 const AO_DARKEST = AO_LEVEL_3_SHADE
@@ -123,16 +120,29 @@ export const aoShade = (level: number): number => {
   return AO_SHADE_BY_LEVEL[clamped] ?? AO_DARKEST
 }
 
-/** One corner of a quad, in world coordinates. */
-export type QuadVertex = readonly [number, number, number]
-
-/** The four corners of a quad, in winding order. */
-export type QuadCorners = readonly [QuadVertex, QuadVertex, QuadVertex, QuadVertex]
+/** A unit normal's component along its own axis, pointing toward positive infinity. */
+const AXIS_POSITIVE = 1
+/** A unit normal's component along its own axis, pointing toward negative infinity. */
+const AXIS_NEGATIVE = -1
+/** A unit normal's component along an axis it does not point along. */
+const AXIS_NONE = 0
 
 /** The unit normal of a face direction. */
 export const faceNormal = (direction: FaceDirection): QuadVertex => {
-  const { nx, ny, nz } = faceOf(direction)
-  return [nx, ny, nz]
+  switch (direction) {
+    case 'xPos':
+      return [AXIS_POSITIVE, AXIS_NONE, AXIS_NONE]
+    case 'xNeg':
+      return [AXIS_NEGATIVE, AXIS_NONE, AXIS_NONE]
+    case 'yPos':
+      return [AXIS_NONE, AXIS_POSITIVE, AXIS_NONE]
+    case 'yNeg':
+      return [AXIS_NONE, AXIS_NEGATIVE, AXIS_NONE]
+    case 'zPos':
+      return [AXIS_NONE, AXIS_NONE, AXIS_POSITIVE]
+    default:
+      return [AXIS_NONE, AXIS_NONE, AXIS_NEGATIVE]
+  }
 }
 
 /**
@@ -256,7 +266,9 @@ export const quadCorners = (quad: MeshQuad, originX: number, originZ: number): Q
  * directions the wrong way round — visible only once a texture is bound, which
  * is precisely the kind of defect that lands months after the change.
  */
-export const quadUvExtent = (quad: MeshQuad): readonly [number, number] => {
+export const quadUvExtent = (
+  quad: Pick<MeshQuad, 'direction' | 'width' | 'height'>,
+): readonly [number, number] => {
   switch (quad.direction) {
     case 'xPos':
     case 'xNeg':
@@ -365,7 +377,7 @@ const EMPTY_BUFFERS: ChunkGeometryBuffers = {
  * keeps the decision outside — `./voxel-lighting.ts` holds the curve, a host
  * supplies the light readings, and this file multiplies nothing.
  */
-export type QuadShade = (quad: RenderableQuad) => number
+export type QuadShade = (quad: GeometryQuad) => number
 
 /**
  * The three colour channels of a quad's vertices, 0-255 each.
@@ -373,9 +385,9 @@ export type QuadShade = (quad: RenderableQuad) => number
  * THREE CHANNELS AND NOT ONE, because the two paths this repository has to
  * support disagree about what a channel means and agree about the layout:
  *
- *   FALLBACK MATERIAL — `MeshBasicMaterial` multiplies the vertex colour
- *   directly, so the only honest output is a GREY: one number, written three
- *   times. The base renderer keeps this path for unlit callers.
+ *   NO SHADER — `MeshBasicMaterial` multiplies the vertex colour directly, so
+ *   the only honest output is a GREY: one number, written three times. See
+ *   `./voxel-lighting.ts`'s header.
  *
  *   WITH A SHADER — the reference packs `R = AO, G = sky, B = block` and lets
  *   the fragment stage combine them, so the three channels carry three
@@ -386,7 +398,7 @@ export type QuadShade = (quad: RenderableQuad) => number
  * serve both without a `packed: boolean` that would have to be threaded
  * through every caller. `greyChannels` below is the adapter for the first.
  */
-export type QuadColor = (quad: RenderableQuad) => readonly [number, number, number]
+export type QuadColor = (quad: GeometryQuad) => readonly [number, number, number]
 
 /** One value in all three channels: the grey an unlit material can show. */
 export const greyChannels = (shade: number): readonly [number, number, number] => [shade, shade, shade]
@@ -430,7 +442,7 @@ export const AO_ONLY_COLOR: QuadColor = greyQuadColor(AO_ONLY_SHADE)
  * (`block-texture-map.ts` imports `FaceRole` from here) and the reverse would
  * close a cycle.
  */
-export type QuadTile = (quad: RenderableQuad) => number
+export type QuadTile = (quad: GeometryQuad) => number
 
 /** The tile index every quad draws when no atlas is bound. See `UNTEXTURED_TILE`. */
 const UNTEXTURED_TILE_INDEX = 0
@@ -456,6 +468,13 @@ const DEFAULT_CHUNK_ORIGIN = 0
 
 /** The quad, vertex or index count of an empty input. */
 const EMPTY_QUAD_COUNT = 0
+
+/** A cross plant is two plates, so it needs both windings for a front-sided material. */
+const CROSS_PLANT_WINDING_COUNT = 2
+const CROSS_PLANT_INDEX_COUNT = INDICES_PER_QUAD * CROSS_PLANT_WINDING_COUNT
+
+/** Plant vertices cover one complete atlas tile. */
+const PLANT_UV_EXTENT = 1
 
 /** Offsets of the y and z components within a 3-component position or normal write; x is the base offset. */
 const Y_COMPONENT_OFFSET = 1
@@ -617,6 +636,16 @@ const writeQuadIndices = (indices: Uint32Array, indexOffset: number, base: numbe
   indices[indexOffset + INDEX_SLOT_5] = base + VERTEX_3
 }
 
+/** Write the reverse winding for the back side of a cross-plant plate. */
+const writeReverseQuadIndices = (indices: Uint32Array, indexOffset: number, base: number): void => {
+  indices[indexOffset] = base
+  indices[indexOffset + INDEX_SLOT_1] = base + VERTEX_2
+  indices[indexOffset + INDEX_SLOT_2] = base + VERTEX_1
+  indices[indexOffset + INDEX_SLOT_3] = base
+  indices[indexOffset + INDEX_SLOT_4] = base + VERTEX_3
+  indices[indexOffset + INDEX_SLOT_5] = base + VERTEX_2
+}
+
 /**
  * Everything one quad contributes to the buffers: corners, colour, UVs, tile
  * and the index triangles.
@@ -628,53 +657,16 @@ const writeQuadIndices = (indices: Uint32Array, indexOffset: number, base: numbe
  * four times and quietly quadruples the cost of a re-mesh. Once per quad for
  * the same reason `tile` is: the tile joins the merge key upstream too.
  */
-type ProjectedQuad = MeshQuad | FluidQuad
-
-const processQuad = (
-  context: ChunkBuildContext,
-  source: ProjectedQuad,
-  quad: MeshQuad,
-  quadIndex: number,
-): void => {
+const processQuad = (context: ChunkBuildContext, quad: MeshQuad, quadIndex: number): void => {
   const corners = quadCorners(quad, context.originX, context.originZ)
   const normal = faceNormal(quad.direction)
-  const color = context.color(source)
+  const color = context.color(quad)
   const [uExtent, vExtent] = quadUvExtent(quad)
-  const tileIndex = context.tile(source)
+  const tileIndex = context.tile(quad)
   const base = quadIndex * VERTICES_PER_QUAD
   writeQuadCorners(context.buffers, base, { color, corners, normal, tileIndex })
   writeQuadUVs(context.buffers.uvs, base * UV_COMPONENTS, [uExtent, vExtent])
   writeQuadIndices(context.buffers.indices, quadIndex * INDICES_PER_QUAD, base)
-}
-
-const buildProjectedGeometry = <TQuad extends ProjectedQuad>(
-  quads: ReadonlyArray<TQuad>,
-  project: (quad: TQuad) => MeshQuad,
-  originX: number,
-  originZ: number,
-  color: QuadColor,
-  tile: QuadTile,
-): ChunkGeometryBuffers => {
-  const quadCount = quads.length
-  if (quadCount === EMPTY_QUAD_COUNT) {
-    return EMPTY_BUFFERS
-  }
-
-  const buffers = allocateChunkWriteBuffers(quadCount * VERTICES_PER_QUAD, quadCount * INDICES_PER_QUAD)
-  const context: ChunkBuildContext = { buffers, color, originX, originZ, tile }
-  for (let quadIndex = 0; quadIndex < quadCount; quadIndex += LOOP_STEP) {
-    const quad = quads[quadIndex]
-    if (quad) {
-      processQuad(context, quad, project(quad), quadIndex)
-    }
-  }
-
-  return {
-    ...buffers,
-    indexCount: quadCount * INDICES_PER_QUAD,
-    quadCount,
-    vertexCount: quadCount * VERTICES_PER_QUAD,
-  }
 }
 
 /**
@@ -711,40 +703,76 @@ export const buildChunkGeometry = (
   originZ = DEFAULT_CHUNK_ORIGIN,
   color: QuadColor = AO_ONLY_COLOR,
   tile: QuadTile = UNTEXTURED_TILE,
-): ChunkGeometryBuffers => buildProjectedGeometry(quads, (quad) => quad, originX, originZ, color, tile)
+): ChunkGeometryBuffers => {
+  const quadCount = quads.length
+  if (quadCount === EMPTY_QUAD_COUNT) {
+    return EMPTY_BUFFERS
+  }
 
-const UNIT_UV_EXTENT = 1
-const CROSS_PLANT_UV_EXTENT: readonly [number, number] = [UNIT_UV_EXTENT, UNIT_UV_EXTENT]
-const X_COMPONENT_INDEX = 0
-const Y_COMPONENT_INDEX = 1
-const Z_COMPONENT_INDEX = 2
+  const buffers = allocateChunkWriteBuffers(quadCount * VERTICES_PER_QUAD, quadCount * INDICES_PER_QUAD)
+  const context: ChunkBuildContext = { buffers, color, originX, originZ, tile }
+  for (let quadIndex = 0; quadIndex < quadCount; quadIndex += LOOP_STEP) {
+    const quad = quads[quadIndex]
+    if (quad) {
+      processQuad(context, quad, quadIndex)
+    }
+  }
 
-const crossPlantCorners = (quad: CrossPlantQuad, originX: number, originZ: number): QuadCorners => {
-  const [first, second, third, fourth] = quad.vertices
+  return {
+    ...buffers,
+    indexCount: quadCount * INDICES_PER_QUAD,
+    quadCount,
+    vertexCount: quadCount * VERTICES_PER_QUAD,
+  }
+}
+
+const translateQuadVertex = (vertex: QuadVertex, originX: number, originZ: number): QuadVertex => {
+  const [x, y, z] = vertex
+  return [x + originX, y, z + originZ]
+}
+
+const translateQuadCorners = (vertices: QuadCorners, originX: number, originZ: number): QuadCorners => {
+  const [first, second, third, fourth] = vertices
   return [
-    [first[X_COMPONENT_INDEX] + originX, first[Y_COMPONENT_INDEX], first[Z_COMPONENT_INDEX] + originZ],
-    [second[X_COMPONENT_INDEX] + originX, second[Y_COMPONENT_INDEX], second[Z_COMPONENT_INDEX] + originZ],
-    [third[X_COMPONENT_INDEX] + originX, third[Y_COMPONENT_INDEX], third[Z_COMPONENT_INDEX] + originZ],
-    [fourth[X_COMPONENT_INDEX] + originX, fourth[Y_COMPONENT_INDEX], fourth[Z_COMPONENT_INDEX] + originZ],
+    translateQuadVertex(first, originX, originZ),
+    translateQuadVertex(second, originX, originZ),
+    translateQuadVertex(third, originX, originZ),
+    translateQuadVertex(fourth, originX, originZ),
   ]
 }
 
 const processCrossPlantQuad = (context: ChunkBuildContext, quad: CrossPlantQuad, quadIndex: number): void => {
+  const corners = translateQuadCorners(quad.vertices, context.originX, context.originZ)
+  const normal: QuadVertex = [quad.nx, quad.ny, quad.nz]
   const base = quadIndex * VERTICES_PER_QUAD
-  const color = context.color(quad)
-  const tileIndex = context.tile(quad)
   writeQuadCorners(context.buffers, base, {
-    color,
-    corners: crossPlantCorners(quad, context.originX, context.originZ),
-    normal: [quad.nx, quad.ny, quad.nz],
-    tileIndex,
+    color: context.color(quad),
+    corners,
+    normal,
+    tileIndex: context.tile(quad),
   })
-  writeQuadUVs(context.buffers.uvs, base * UV_COMPONENTS, CROSS_PLANT_UV_EXTENT)
+  writeQuadUVs(context.buffers.uvs, base * UV_COMPONENTS, [PLANT_UV_EXTENT, PLANT_UV_EXTENT])
+  const indexOffset = quadIndex * CROSS_PLANT_INDEX_COUNT
+  writeQuadIndices(context.buffers.indices, indexOffset, base)
+  writeReverseQuadIndices(context.buffers.indices, indexOffset + INDICES_PER_QUAD, base)
+}
+
+const processBlockShapeQuad = (context: ChunkBuildContext, quad: BlockShapeQuad, quadIndex: number): void => {
+  const corners = translateQuadCorners(quad.vertices, context.originX, context.originZ)
+  const base = quadIndex * VERTICES_PER_QUAD
+  writeQuadCorners(context.buffers, base, {
+    color: context.color(quad),
+    corners,
+    normal: faceNormal(quad.direction),
+    tileIndex: context.tile(quad),
+  })
+  writeQuadUVs(context.buffers.uvs, base * UV_COMPONENTS, quadUvExtent(quad))
   writeQuadIndices(context.buffers.indices, quadIndex * INDICES_PER_QUAD, base)
 }
 
-export const buildCrossPlantGeometry = (
-  quads: ReadonlyArray<CrossPlantQuad>,
+/** Build the single-sided face geometry emitted for slabs, rails and other block shapes. */
+export const buildBlockShapeGeometry = (
+  quads: ReadonlyArray<BlockShapeQuad>,
   originX = DEFAULT_CHUNK_ORIGIN,
   originZ = DEFAULT_CHUNK_ORIGIN,
   color: QuadColor = AO_ONLY_COLOR,
@@ -757,16 +785,45 @@ export const buildCrossPlantGeometry = (
 
   const buffers = allocateChunkWriteBuffers(quadCount * VERTICES_PER_QUAD, quadCount * INDICES_PER_QUAD)
   const context: ChunkBuildContext = { buffers, color, originX, originZ, tile }
-  for (let quadIndex = 0; quadIndex < quadCount; quadIndex += LOOP_STEP) {
-    const quad = quads[quadIndex]
-    if (quad) {
-      processCrossPlantQuad(context, quad, quadIndex)
-    }
+  let quadIndex = 0
+  for (const quad of quads) {
+    processBlockShapeQuad(context, quad, quadIndex)
+    quadIndex += LOOP_STEP
   }
-
   return {
     ...buffers,
     indexCount: quadCount * INDICES_PER_QUAD,
+    quadCount,
+    vertexCount: quadCount * VERTICES_PER_QUAD,
+  }
+}
+
+/** Build the double-sided diagonal plates used by cross-rendered plants. */
+export const buildCrossPlantGeometry = (
+  quads: ReadonlyArray<CrossPlantQuad>,
+  originX = DEFAULT_CHUNK_ORIGIN,
+  originZ = DEFAULT_CHUNK_ORIGIN,
+  color: QuadColor = AO_ONLY_COLOR,
+  tile: QuadTile = UNTEXTURED_TILE,
+): ChunkGeometryBuffers => {
+  const quadCount = quads.length
+  if (quadCount === EMPTY_QUAD_COUNT) {
+    return EMPTY_BUFFERS
+  }
+
+  const buffers = allocateChunkWriteBuffers(
+    quadCount * VERTICES_PER_QUAD,
+    quadCount * CROSS_PLANT_INDEX_COUNT,
+  )
+  const context: ChunkBuildContext = { buffers, color, originX, originZ, tile }
+  let quadIndex = 0
+  for (const quad of quads) {
+    processCrossPlantQuad(context, quad, quadIndex)
+    quadIndex += LOOP_STEP
+  }
+  return {
+    ...buffers,
+    indexCount: quadCount * CROSS_PLANT_INDEX_COUNT,
     quadCount,
     vertexCount: quadCount * VERTICES_PER_QUAD,
   }
@@ -910,13 +967,11 @@ type FluidQuadWrite = {
 const writeFluidQuadVertices = (write: FluidQuadWrite): void => {
   const { built, quad, base, origin, direction, falling } = write
   for (let cornerIndex = 0; cornerIndex < VERTICES_PER_QUAD; cornerIndex += LOOP_STEP) {
-    const vertex = quad.vertices[cornerIndex]
-    if (vertex) {
-      const positionAt = (base + cornerIndex) * POSITION_COMPONENTS
-      const flowAt = (base + cornerIndex) * FLUID_DIRECTION_COMPONENTS
-      writeFluidPositionAndFlow({ built, direction, flowAt, origin, positionAt, vertex })
-      writeFluidFalling(built, base + cornerIndex, falling)
-    }
+    const vertex = quad.vertices[cornerIndex]!
+    const positionAt = (base + cornerIndex) * POSITION_COMPONENTS
+    const flowAt = (base + cornerIndex) * FLUID_DIRECTION_COMPONENTS
+    writeFluidPositionAndFlow({ built, direction, flowAt, origin, positionAt, vertex })
+    writeFluidFalling(built, base + cornerIndex, falling)
   }
 }
 
@@ -956,11 +1011,9 @@ type FluidFlowUVWrite = {
 const writeFluidFlowUV = (write: FluidFlowUVWrite): void => {
   const { built, quad, base, cell, topFlow } = write
   for (let cornerIndex = 0; cornerIndex < VERTICES_PER_QUAD; cornerIndex += LOOP_STEP) {
-    const vertex = quad.vertices[cornerIndex]
-    if (vertex) {
-      const at = (base + cornerIndex) * UV_COMPONENTS
-      writeFlowUVVertex({ at, built, cell, topFlow, vertex })
-    }
+    const vertex = quad.vertices[cornerIndex]!
+    const at = (base + cornerIndex) * UV_COMPONENTS
+    writeFlowUVVertex({ at, built, cell, topFlow, vertex })
   }
 }
 
@@ -1006,14 +1059,7 @@ export const buildFluidGeometry = (
   const fallingCells = new Set(
     quads.filter((quad) => quad.direction === 'yPos' && quad.flow?.falling === true).map(fluidCellKey),
   )
-  const built = buildProjectedGeometry(
-    quads,
-    fluidProxyQuad,
-    DEFAULT_CHUNK_ORIGIN,
-    DEFAULT_CHUNK_ORIGIN,
-    color,
-    tile,
-  )
+  const built = buildChunkGeometry(quads.map(fluidProxyQuad), DEFAULT_CHUNK_ORIGIN, DEFAULT_CHUNK_ORIGIN, color, tile)
   const context: FluidQuadContext = { built, fallingCells, origin: [originX, originZ] }
 
   for (let quadIndex = 0; quadIndex < quads.length; quadIndex += LOOP_STEP) {

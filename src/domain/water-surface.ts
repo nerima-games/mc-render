@@ -1,5 +1,6 @@
 /**
- * The water material, as data.
+ * The water material, as data, including the geometry fact that drives its
+ * `forceSinglePass` decision.
  *
  * ---------------------------------------------------------------------------
  * What is here and what belongs to the mesher
@@ -29,43 +30,27 @@
  * of the `three` seam.
  *
  * ---------------------------------------------------------------------------
- * THE `forceSinglePass` QUESTION
+ * THE `forceSinglePass` POLICY FOR A FLAT SURFACE
  * ---------------------------------------------------------------------------
  *
- * `domain/material-policy.ts` owns the shared `forceSinglePass` rule. This file
- * supplies the water material's semantic facts to that rule rather than
- * re-deriving a water-specific verdict.
+ * `domain/material-policy.ts` owns the material rule. This file supplies the
+ * truthful geometry fact that water is a flat surface and applies the same
+ * rule as every other material.
  *
- * The rule (material-policy.ts):
+ * The rule is:
  *
  *     requiresForceSinglePass = shared && takesTwoPassPath && (isCutout || flatSurface)
  *
  * The reference's water material (water-material.ts:127-138) is
  * `transparent: true`, `side: DoubleSide`, shared by every water mesh, and has
- * NO `alphaTest` — so `alphaTest` is 0 and `isCutout` is false. Its
- * `flatSurface: true` records that greedy meshing produces one plane rather
- * than a closed translucent volume. `describeMaterialPolicy` can therefore
- * classify water directly without falsifying the alpha test or adding an
- * adapter.
+ * `alphaTest: 0`, truthfully preserving THREE's default. `flatSurface: true`
+ * records that the greedy-meshed water geometry is a surface quad, not a
+ * closed volume.
  *
- *   Water is the witness. THREE's two-pass transparent path draws a material's
- *   back faces and then its front faces, and it exists so a closed translucent
- *   volume shows its far wall before its near one. A water surface is not a
- *   volume — it is a single plane, greedy-meshed, and exactly one of its two
- *   faces is toward the camera at any moment. There is no far wall. The ordering
- *   the second pass buys is between two faces that are never both visible, so it
- *   buys nothing, and that holds whether the camera is above the surface or
- *   under it.
- *
- *   The ordering that DOES matter for water — one water quad behind another at a
- *   different depth — is inter-object sorting, which `forceSinglePass` does not
- *   touch. It splits one material's draw into two passes; it has no opinion
- *   about the order of objects within a pass.
- *
- * Hence: water sets `forceSinglePass: true` because its flat surface has no far
- * wall for the back-then-front ordering to resolve. Sorting separate water
- * quads at different depths remains inter-object sorting and is outside this
- * flag's responsibility.
+ * THREE's two-pass transparent path is useful for a closed translucent volume:
+ * it draws back faces before front faces. A water surface has no far wall, so
+ * that intra-material ordering buys nothing. Inter-object sorting between
+ * separate water quads is unaffected by `forceSinglePass`.
  *
  * ---------------------------------------------------------------------------
  * The refraction index, which the reference never writes down
@@ -583,17 +568,8 @@ export const waterSunAttenuation = (sunIntensity: number): number =>
 
 /**
  * The water material's properties, as `domain/material-policy.ts` sees them.
- *
- * Transcribed field by field from water-material.ts:127-138:
- *
- *   transparent: true        :131
- *   side: DoubleSide         :133
- *   alphaTest: (absent)      -> 0, the THREE default. NOT a value picked here;
- *                               a `ShaderMaterial` with no `alphaTest` has 0.
- *   flatSurface: true        water is greedy-meshed as a single plane, not a
- *                            closed translucent volume
- *   shared: true             one material instance is handed to every water
- *                            mesh (world-renderer.ts:110 constructs exactly one)
+ * `alphaTest: 0` is THREE's default for the reference ShaderMaterial. The
+ * truthful flat-surface flag supplies the geometry half of the policy.
  */
 export const WATER_SURFACE_IS_FLAT = true
 

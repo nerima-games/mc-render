@@ -3,17 +3,24 @@
  * is multiplied by. THE SHADING POLICY, as data and arithmetic.
  *
  * ---------------------------------------------------------------------------
- * THIS FILE DEFINES THE CPU SIDE OF A QUESTION `./chunk-geometry.ts` KEEPS
- * MATERIAL-AGNOSTIC
+ * THIS FILE ANSWERS A QUESTION `./chunk-geometry.ts` EXPLICITLY DECLINED
  * ---------------------------------------------------------------------------
  *
- * The geometry builder still does not decide shading — it applies a function it
- * is HANDED (`./chunk-geometry.ts`'s `QuadShade`), and the default remains
- * material-agnostic. The CPU combination rule is written HERE as a pure
- * function at the coefficients the reference's shader uses. The production
- * shader (`./chunk-shader.ts`) transcribes those same constants, while the CPU
- * path remains available for callers that deliberately pre-combine light and
- * AO.
+ * That file's `AO_SHADE_BY_LEVEL` comment says, of the reference's shader
+ * combination:
+ *
+ *     The shading is therefore STRONGER than the reference's, by a factor this
+ *     file does not attempt to correct — dividing the range here would put a
+ *     shader's job in a geometry builder, and the number to divide by is a
+ *     property of a shader that has not been written.
+ *
+ * BOTH HALVES OF THAT ARE STILL TRUE AND THIS FILE CONTRADICTS NEITHER. The
+ * geometry builder still does not decide shading — it applies a function it is
+ * HANDED (`./chunk-geometry.ts`'s `QuadShade`), and the default is unchanged.
+ * What has changed is the second half: the number is no longer "a property of a
+ * shader that has not been written", because the combination rule is written
+ * HERE, as a pure function, at the coefficients the reference's shader uses.
+ * A shader, when it arrives, transcribes this file rather than defining it.
  *
  * ---------------------------------------------------------------------------
  * THE REFERENCE'S CURVE, AND WHY BOTH TERMS HAVE A FLOOR
@@ -43,32 +50,32 @@
  * which is what keeps the darkest legal surface visible.
  *
  * ---------------------------------------------------------------------------
- * WHY THE CPU FALLBACK DOES NOT PACK R = AO, G = SKY, B = BLOCK — WHICH THE
- * PRODUCTION SHADER DOES
+ * WHY THIS DOES NOT PACK R = AO, G = SKY, B = BLOCK — WHICH THE REFERENCE DOES
  * ---------------------------------------------------------------------------
  *
  * `./chunk-geometry.ts`'s `ChunkGeometryBuffers.colors` documents the reference's
  * layout and says "the two other channels become sky and block light unchanged
- * when a grid arrives". A grid has arrived, and the production path now uses
- * the packed channels:
+ * when a grid arrives". A grid has arrived. THE CHANNELS ARE STILL NOT PACKED,
+ * and the reason is a prerequisite that was not written down anywhere:
  *
- *   PACKING REQUIRES A SHADER TO UNPACK. The base
- *   `application/world-renderer.ts` builder still supports a
- *   `MeshBasicMaterial` with `vertexColors: true`, which multiplies the base
+ *   PACKING REQUIRES A SHADER TO UNPACK. `application/world-renderer.ts` builds
+ *   a `MeshBasicMaterial` with `vertexColors: true`, which multiplies the base
  *   colour by the vertex colour DIRECTLY. Feed it R = AO, G = sky, B = block
  *   and it does not compute the formula above — it renders those three numbers
- *   as a colour. A sunlit surface becomes green, a torch-lit one blue. That is
- *   why the packed path is bound only by the production composition.
+ *   as a colour. A sunlit surface becomes green, a torch-lit one blue. The
+ *   world would look like a fault, and the fault would be in the material.
  *
- *   `application/world-renderer-materials.ts` creates the standalone
- *   `ShaderMaterial`, and `application/world-renderer-production.ts` supplies it
- *   to the base renderer together with the atlas texture.
+ *   `application/three-surface.ts` has no `ShaderMaterial`. Its own header says
+ *   `MeshBasicMaterial` is "the only one this repository can construct today
+ *   because it is the only one that needs no light in the scene", and that
+ *   "when a lit material and a light arrive, they arrive together".
  *
- * The honest output for the unlit fallback is still a GREY MULTIPLIER — one
- * number written to all three channels — which is what `./chunk-geometry.ts`
- * produces for AO alone, and what `combinedShadeByte` below produces for AO and
- * light together. The production shader instead consumes `packedLightColor`
- * directly so changing the sun uniform does not require re-meshing.
+ * So the missing thing is a NOUN and it can be named: `ShaderMaterial` in
+ * `application/three-surface.ts`, plus the GLSL pair that decodes the channels.
+ * Until it exists, the honest output for an unlit material is a GREY MULTIPLIER
+ * — one number written to all three channels — which is what `./chunk-geometry.ts`
+ * already produces for AO alone, and what `combinedShadeByte` below produces for
+ * AO and light together.
  *
  * THE FORMULA IS THE SAME EITHER WAY. Pre-combining on the CPU and decoding in a
  * shader compute the identical value; they differ in WHEN, and therefore in
@@ -80,17 +87,20 @@
  * reasons to insist on.
  */
 import {
-  type CrossPlantQuad,
   type FaceDirection,
-  type FluidQuad,
+  type QuadCorners,
+  isBlockShapeQuad,
+  isCrossPlantQuad,
+} from './meshing-vocabulary'
+import {
+  type GeometryQuad,
   type QuadColor,
   type QuadShade,
-  type RenderableQuad,
   aoShade,
   faceNormal,
   greyQuadColor,
 } from './chunk-geometry'
-import { LIGHT_LEVEL_MAX, LIGHT_LEVEL_MIN, clampLightLevel } from '@nerima-games/mc-kernel'
+import { LIGHT_LEVEL_MAX, clampLightLevel } from '@nerima-games/mc-kernel'
 
 /**
  * The two light values at a point: how much of it is daylight and how much is
@@ -185,6 +195,9 @@ export const effectiveLightLevel = (light: SkyBlockLight, skyIntensity: number):
  * is a division, and a division written twice is a denominator that can be
  * updated once.
  */
+/** The floor a light level is clamped to before it is normalised. */
+const LIGHT_LEVEL_MIN = 0
+
 export const lightShadeFactor = (level: number): number =>
   LIGHT_SHADE_FLOOR + LIGHT_SHADE_RANGE * (Math.min(Math.max(level, LIGHT_LEVEL_MIN), LIGHT_LEVEL_MAX) / LIGHT_LEVEL_MAX)
 
@@ -345,84 +358,42 @@ export const lightSamplePoint = (
   ]
 }
 
-const renderableNormal = (quad: RenderableQuad): readonly [number, number, number] => {
-  if ('direction' in quad) {
-    return faceNormal(quad.direction)
-  }
-  return [quad.nx, quad.ny, quad.nz]
+/** The light lookup and face direction needed to shade one geometry quad. */
+export type GeometryLightSample = {
+  readonly point: readonly [number, number, number]
+  readonly direction: FaceDirection
 }
 
-const directionFromVerticalNormal = (normalY: number): FaceDirection | undefined => {
-  if (normalY > NORMAL_AXIS_ZERO) {
-    return 'yPos'
-  }
-  if (normalY < NORMAL_AXIS_ZERO) {
-    return 'yNeg'
-  }
-  return undefined
-}
+const QUAD_CORNER_COUNT = 4
 
-const directionFromHorizontalNormal = (normalX: number, normalZ: number): FaceDirection => {
-  if (normalX > NORMAL_AXIS_ZERO) {
-    return 'xPos'
-  }
-  if (normalX < NORMAL_AXIS_ZERO) {
-    return 'xNeg'
-  }
-  if (normalZ > NORMAL_AXIS_ZERO) {
-    return 'zPos'
-  }
-  return 'zNeg'
-}
-
-const directionFromNormal = (
-  normal: readonly [number, number, number],
-): FaceDirection => {
-  const [normalX, normalY, normalZ] = normal
-  const verticalDirection = directionFromVerticalNormal(normalY)
-  if (verticalDirection !== undefined) {
-    return verticalDirection
-  }
-  return directionFromHorizontalNormal(normalX, normalZ)
-}
-
-const renderableDirection = (quad: RenderableQuad): FaceDirection => {
-  if ('direction' in quad) {
-    return quad.direction
-  }
-  return directionFromNormal(renderableNormal(quad))
-}
-
-const centerOfRenderableQuad = (
-  quad: CrossPlantQuad | FluidQuad,
-): readonly [number, number, number] => {
-  let centerX = 0
-  let centerY = 0
-  let centerZ = 0
-  for (const [x, y, z] of quad.vertices) {
-    centerX += x
-    centerY += y
-    centerZ += z
-  }
-  const vertexCount = quad.vertices.length
-  return [centerX / vertexCount, centerY / vertexCount, centerZ / vertexCount]
-}
-
-export const lightSamplePointForRenderableQuad = (
-  quad: RenderableQuad,
-): readonly [number, number, number] => {
-  const normal = renderableNormal(quad)
-  if ('lx' in quad) {
-    return lightSamplePoint(quad, normal)
-  }
-
-  const [centerX, centerY, centerZ] = centerOfRenderableQuad(quad)
-  const [normalX, normalY, normalZ] = normal
+const explicitQuadCenter = (vertices: QuadCorners): readonly [number, number, number] => {
+  const [first, second, third, fourth] = vertices
+  const [firstX, firstY, firstZ] = first
+  const [secondX, secondY, secondZ] = second
+  const [thirdX, thirdY, thirdZ] = third
+  const [fourthX, fourthY, fourthZ] = fourth
   return [
-    centerX + normalX + tangentHalfStep(normalX),
-    centerY + normalY + tangentHalfStep(normalY),
-    centerZ + normalZ + tangentHalfStep(normalZ),
+    (firstX + secondX + thirdX + fourthX) / QUAD_CORNER_COUNT,
+    (firstY + secondY + thirdY + fourthY) / QUAD_CORNER_COUNT,
+    (firstZ + secondZ + thirdZ + fourthZ) / QUAD_CORNER_COUNT,
   ]
+}
+
+/** Explicit-vertex shapes and plants have no cube-face origin, so sample their centre. */
+export const lightSampleForGeometryQuad = (quad: GeometryQuad): GeometryLightSample => {
+  if (isBlockShapeQuad(quad)) {
+    return { direction: quad.direction, point: explicitQuadCenter(quad.vertices) }
+  }
+  if (isCrossPlantQuad(quad)) {
+    return {
+      direction: 'yPos',
+      point: explicitQuadCenter(quad.vertices),
+    }
+  }
+  return {
+    direction: quad.direction,
+    point: lightSamplePoint(quad, faceNormal(quad.direction)),
+  }
 }
 
 /**
@@ -478,11 +449,8 @@ export const litShade = (
 ): QuadShade => {
   const skyIntensity = options.skyIntensity ?? SKY_INTENSITY_MAX
   return (quad) => {
-    const [sampleX, sampleY, sampleZ] = lightSamplePointForRenderableQuad(quad)
-    return combinedShadeByte(sampler(sampleX, sampleY, sampleZ), quad.ao, {
-      direction: renderableDirection(quad),
-      skyIntensity,
-    })
+    const sample = lightSampleForGeometryQuad(quad)
+    return combinedShadeByte(sampler(...sample.point), quad.ao, { direction: sample.direction, skyIntensity })
   }
 }
 
@@ -503,8 +471,8 @@ export const litColor = (sampler: LightSampler, options: ShadingOptions = {}): Q
  * ---------------------------------------------------------------------------
  *
  * These bytes are three unrelated quantities that happen to be stored in
- * channels named red, green and blue. A `MeshBasicMaterial` — the base
- * renderer's unlit fallback — multiplies them as a COLOUR:
+ * channels named red, green and blue. A `MeshBasicMaterial` — which is what
+ * `application/world-renderer.ts` builds today — multiplies them as a COLOUR:
  * a sunlit unoccluded face has `G = 255, B = 0` and renders bright green, a
  * torchlit one renders blue. The failure is loud, which is the one good thing
  * about it.
@@ -538,8 +506,8 @@ export const litColor = (sampler: LightSampler, options: ShadingOptions = {}): Q
 export const packedLightColor =
   (sampler: LightSampler): QuadColor =>
   (quad) => {
-    const [sampleX, sampleY, sampleZ] = lightSamplePointForRenderableQuad(quad)
-    const light = sampler(sampleX, sampleY, sampleZ)
+    const sample = lightSampleForGeometryQuad(quad)
+    const light = sampler(...sample.point)
     return [
       /* R: the AO table's own byte, NOT the level. The shader's `0.8 + 0.2 * R`
          expects a 0..1 fraction, and `normalized: true` on the attribute divides

@@ -49,9 +49,8 @@
  * test that needs no GPU: the input snapshot is not the output, and there is no
  * path from output to input.
  *
- * The package dependency direction and one-way import convention enforce it
- * independently: mc-render depends on mc-sim, so a write-back edge would be a
- * cycle. TypeScript then checks the reachable source surface.
+ * The package dependency policy enforces the one-way relationship independently:
+ * mc-render depends on mc-sim, so a write-back edge is outside the boundary.
  */
 import {
   type CameraPoseSnapshot,
@@ -101,7 +100,7 @@ type EulerAngleAxis = 'x' | 'y' | 'z'
 export type MirroredCameraState = {
   readonly position: Position
   readonly rotation: Readonly<Record<EulerAngleAxis, number>> & { readonly order: 'YXZ' }
-  /** The instant mc-sim produced the pose this was mirrored from, if any. */
+  /** The instant mc-sim produced the pose, or `undefined` before first publish. */
   readonly sourceCapturedAtSecs: MonotonicTimeSecs | undefined
 }
 
@@ -123,6 +122,8 @@ export type MirroredCameraState = {
 const EULER_X_AXIS: EulerAngleAxis = 'x'
 const EULER_Y_AXIS: EulerAngleAxis = 'y'
 const EULER_Z_AXIS: EulerAngleAxis = 'z'
+const UNPUBLISHED_COORDINATE = 0
+const UNPUBLISHED_ANGLE_RADIANS = 0
 
 const eulerRotation = (
   pitchRadians: number,
@@ -136,35 +137,27 @@ const eulerRotation = (
 })
 
 export const mirroredCameraState = (
-  snapshot: CameraPoseSnapshot,
+  snapshot: CameraPoseSnapshot | undefined,
   offset: ViewOffset = NO_VIEW_OFFSET,
 ): MirroredCameraState => {
-  const cosYaw = Math.cos(snapshot.yawRadians)
-  const sinYaw = Math.sin(snapshot.yawRadians)
+  const cameraPosition =
+    snapshot?.position ??
+    position(UNPUBLISHED_COORDINATE, UNPUBLISHED_COORDINATE, UNPUBLISHED_COORDINATE)
+  const pitchRadians = snapshot?.pitchRadians ?? UNPUBLISHED_ANGLE_RADIANS
+  const yawRadians = snapshot?.yawRadians ?? UNPUBLISHED_ANGLE_RADIANS
+  const cosYaw = Math.cos(yawRadians)
+  const sinYaw = Math.sin(yawRadians)
 
   return {
     position: position(
-      snapshot.position.x + offset.right * cosYaw,
-      snapshot.position.y + offset.up,
-      snapshot.position.z - offset.right * sinYaw,
+      cameraPosition.x + offset.right * cosYaw,
+      cameraPosition.y + offset.up,
+      cameraPosition.z - offset.right * sinYaw,
     ),
-    rotation: eulerRotation(snapshot.pitchRadians, snapshot.yawRadians, offset.rollRadians),
-    sourceCapturedAtSecs: snapshot.capturedAtSecs,
+    rotation: eulerRotation(pitchRadians, yawRadians, offset.rollRadians),
+    sourceCapturedAtSecs: snapshot?.capturedAtSecs,
   }
 }
-
-/**
- * Compose the startup placeholder without pretending that mc-sim published it.
- * The placeholder still carries the same visible pose, but its missing source
- * timestamp makes the pre-publication state explicit to every consumer.
- */
-export const uninitializedMirroredCameraState = (
-  snapshot: CameraPoseSnapshot,
-  offset: ViewOffset = NO_VIEW_OFFSET,
-): MirroredCameraState => ({
-  ...mirroredCameraState(snapshot, offset),
-  sourceCapturedAtSecs: undefined,
-})
 
 /**
  * Unit forward vector of an authoritative snapshot.
@@ -193,12 +186,15 @@ export const forwardVector = (snapshot: CameraPoseSnapshot): Position => {
  * The renderer uses this to decide whether to interpolate or to stall, rather
  * than drawing a stale pose and finding out from a bug report.
  */
-export const mirrorLagSecs = (state: MirroredCameraState, now: MonotonicTimeSecs): number => {
-  if (state.sourceCapturedAtSecs === undefined) {
-    return Number.POSITIVE_INFINITY
+export const mirrorLagSecs = (
+  state: MirroredCameraState,
+  now: MonotonicTimeSecs,
+): number | undefined => {
+  const capturedAtSecs = state.sourceCapturedAtSecs
+  if (capturedAtSecs === undefined) {
+    return undefined
   }
-
-  return now - state.sourceCapturedAtSecs
+  return now - capturedAtSecs
 }
 
 /**
@@ -217,8 +213,10 @@ export const mirrorLagSecs = (state: MirroredCameraState, now: MonotonicTimeSecs
  */
 export const MIRROR_LAG_WARNING_SECS = 0.1
 
-export const isMirrorStale = (state: MirroredCameraState, now: MonotonicTimeSecs): boolean =>
-  mirrorLagSecs(state, now) > MIRROR_LAG_WARNING_SECS
+export const isMirrorStale = (state: MirroredCameraState, now: MonotonicTimeSecs): boolean => {
+  const lag = mirrorLagSecs(state, now)
+  return lag !== undefined && lag > MIRROR_LAG_WARNING_SECS
+}
 
 /** Re-exported so consumers measure staleness from the snapshot too. */
 export { snapshotAgeSecs }

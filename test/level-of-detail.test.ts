@@ -14,7 +14,7 @@
  *   4. the dead-tier defect at `renderDistance = 4`, pinned as arithmetic
  *   5. the ratio rule, shown to fix (4) without touching (3)
  *   6. forward and inverse are actually inverses
- *   7. the shared mc-meshing vocabulary agrees with the renderer's policy
+ *   7. the canonical vocabulary agrees with `world-renderer.ts`
  */
 import { describe, expect, it } from '@effect/vitest'
 import { Effect, FastCheck } from 'effect'
@@ -32,7 +32,7 @@ import {
   unreachableLodTiers,
   type LodThresholds,
 } from '../src/domain/level-of-detail'
-import { CHUNK_SIZE, LOD_LEVELS, STEP_FOR_LOD, type LodLevel } from '@nerima-games/mc-meshing'
+import { CHUNK_SIZE, LOD_LEVELS, STEP_FOR_LOD, type LodLevel } from '../src/domain/lod-vocabulary'
 import { CAMERA_FOV_DEGREES } from '../src/application/world-renderer'
 
 const arbitraryLevel: FastCheck.Arbitrary<LodLevel> = FastCheck.constantFrom(...LOD_LEVELS)
@@ -390,21 +390,19 @@ describe('lodThresholdsForRenderDistance', () => {
   )
 })
 
-describe('the shared mc-meshing vocabulary and its renderer invariants', () => {
-  it.effect('REGRESSION: the step table matches mc-meshing`s, value for value', () =>
+describe('the canonical vocabulary, and the constants it owns', () => {
+  it.effect('the canonical step table has the expected values', () =>
     Effect.sync(() => {
-      // These values are imported directly from mc-meshing, so this test
-      // protects the renderer's projection math against an upstream vocabulary
-      // change that would otherwise alter its pixel-error calculation.
+      // A stale step here does not produce a compile error or an obviously wrong
+      // picture — it makes `lodScreenErrorPixels` report a plausible pixel count
+      // that is wrong by the ratio of the two steps.
       expect(STEP_FOR_LOD).toStrictEqual({ 0: 1, 1: 2, 2: 4 })
       expect(CHUNK_SIZE).toBe(16)
     }),
   )
 
-  it.effect('REGRESSION: uses every published level, not a prefix of it', () =>
+  it.effect('contains the complete canonical level union', () =>
     Effect.sync(() => {
-      // Importing the published closed union directly keeps this test aligned
-      // with upstream additions; a local copy could silently narrow it.
       expect([...LOD_LEVELS]).toStrictEqual([0, 1, 2])
       expect(Object.keys(STEP_FOR_LOD).length).toBe(LOD_LEVELS.length)
     }),
@@ -422,23 +420,18 @@ describe('the shared mc-meshing vocabulary and its renderer invariants', () => {
     }),
   )
 
-  it.effect('REGRESSION: mc-meshing vocabulary is NOT re-exported from the barrel', () =>
+  it.effect('the barrel exposes the canonical LOD vocabulary', () =>
     Effect.gen(function* () {
-      // The shared package is an implementation dependency, not part of this
-      // package's public barrel. Keeping that boundary prevents its broad
-      // surface from colliding with renderer-owned geometry vocabulary.
       const barrel = yield* Effect.promise(() => import('../src/index'))
       const names = Object.keys(barrel)
 
-      for (const mirrored of ['LOD_LEVELS', 'LodLevelSchema', 'STEP_FOR_LOD', 'CHUNK_SIZE']) {
-        expect(names).not.toContain(mirrored)
+      for (const canonical of ['LOD_LEVELS', 'LodLevelSchema', 'STEP_FOR_LOD', 'CHUNK_SIZE']) {
+        expect(names).toContain(canonical)
       }
-      // The names `chunk-geometry.ts` owns must still be THIS repository's, and
-      // must be reachable — they are what would have been shadowed.
+      // The names `chunk-geometry.ts` owns must remain reachable from this barrel.
       for (const owned of ['tangentAxes', 'totalQuadArea', 'AO_MAX', 'VERTICES_PER_QUAD']) {
         expect(names).toContain(owned)
       }
-      // And what the barrel DOES publish from this feature is mc-render's own.
       expect(names).toContain('lodForDistance')
       expect(names).toContain('lodScreenErrorPixels')
       expect(names).toContain('lodTierCensus')

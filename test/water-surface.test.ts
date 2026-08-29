@@ -3,10 +3,9 @@
  *
  * Two groups carry the weight:
  *
- *   - THE `forceSinglePass` RULE. The shared rule in domain/material-policy.ts
- *     classifies a flat water plane directly, while a closed translucent
- *     volume remains review-sharing. Both sides are pinned so the semantic
- *     boundary cannot silently widen to every transparent material.
+ *   - THE `forceSinglePass` POLICY. Water is a shared, transparent, double-sided
+ *     flat surface, so the same geometry-aware rule used by every material must
+ *     classify it as single-pass.
  *   - THE SINE APPROXIMATION. Its error bound is MEASURED rather than quoted,
  *     which is how the reference's `~0.056` turns out to be a true statement
  *     about a function one sign away from the one it labels.
@@ -344,8 +343,11 @@ describe('the sun response', () => {
   )
 })
 
+// ---------------------------------------------------------------------------
+// LOAD-BEARING. See the header of domain/water-surface.ts.
+// ---------------------------------------------------------------------------
 describe('forceSinglePass on the water material', () => {
-  it.effect('the material is transcribed truthfully, including flatSurface', () =>
+  it.effect('the material is transcribed truthfully, alphaTest 0 and flat', () =>
     Effect.sync(() => {
       expect(WATER_MATERIAL_SPEC).toStrictEqual({
         name: 'waterSurfaceMaterial',
@@ -360,30 +362,24 @@ describe('forceSinglePass on the water material', () => {
     }),
   )
 
-  it.effect('the shared rule classifies a flat water plane without falsifying alphaTest', () =>
+  it.effect('the shared rule classifies a flat water surface as needing the flag', () =>
     Effect.sync(() => {
       expect(requiresForceSinglePass(WATER_MATERIAL_SPEC)).toBe(true)
       const verdict = describeMaterialPolicy(WATER_MATERIAL_SPEC)
       expect(verdict.kind).toBe('must-force-single-pass')
-      expect(verdict.reason).toContain('flatSurface')
-      expect(verdict.reason).toContain('waterSurfaceMaterial')
+      expect(verdict.reason).toContain('flatSurface is true')
+      expect(verdict.reason).toContain('not a closed volume')
     }),
   )
 
-  it.effect('a closed translucent volume remains review-sharing', () =>
+  it.effect('keeps genuine translucent closed materials on the two-pass path', () =>
     Effect.sync(() => {
-      const closedVolume = { ...WATER_MATERIAL_SPEC, flatSurface: false }
-      const verdict = describeMaterialPolicy(closedVolume)
-      expect(requiresForceSinglePass(closedVolume)).toBe(false)
-      expect(verdict.kind).toBe('review-sharing')
-      expect(verdict.reason).toContain('genuinely translucent')
-    }),
-  )
+      const closed = { ...WATER_MATERIAL_SPEC, flatSurface: false }
 
-  it.effect('sharing and face-side policy still control the urgency', () =>
-    Effect.sync(() => {
-      expect(describeMaterialPolicy({ ...WATER_MATERIAL_SPEC, shared: false }).kind).toBe('ok')
-      expect(describeMaterialPolicy({ ...WATER_MATERIAL_SPEC, side: 'front' }).kind).toBe('ok')
+      expect(requiresForceSinglePass(closed)).toBe(false)
+      expect(describeMaterialPolicy(closed).kind).toBe('review-sharing')
+      expect(describeMaterialPolicy({ ...closed, shared: false }).kind).toBe('ok')
+      expect(describeMaterialPolicy({ ...closed, side: 'front' }).kind).toBe('ok')
     }),
   )
 })

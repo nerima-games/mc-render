@@ -70,6 +70,18 @@ describe('buildFluidGeometry', () => {
 
     expect([...geometry.fluidDirections]).toStrictEqual([0, 0, 0, 0, 0, 0, 0, 0])
   })
+
+  it('leaves an empty slot untouched in a sparse quad list', () => {
+    const sparse: FluidQuad[] = []
+    sparse.length = 2
+    sparse[1] = top()
+
+    const geometry = buildFluidGeometry(sparse)
+
+    expect(geometry.quadCount).toBe(2)
+    expect(geometry.positions.slice(0, 12).every((value) => value === 0)).toBe(true)
+    expect(geometry.positions[13]).toBeCloseTo(0.8)
+  })
 })
 
 describe('combineChunkGeometry', () => {

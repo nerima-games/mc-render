@@ -5,10 +5,10 @@
 | 項目 | 値 |
 | --- | --- |
 | `version` | `0.2.14` |
-| 公開状態 | **未公開**。GitHub Packages にも上げていない |
-| `main` / `types` / `exports` | `./dist/index.js` / `./dist/index.d.ts` を指す。`exports` はコアの `.` と Three/DOM 境界の `./browser` を ESM と型宣言で公開 |
-| ビルド / package 検査 | `pnpm build` + `pnpm pack:check`（`tsdown`、`scripts/check-package.mjs`） |
-| `dependencies` | `@nerima-games/mc-kernel` / `mc-meshing` / `mc-sim` / `mc-worldgen` / `effect` / `three` |
+| 公開状態 | **未公開**。GitHub Packages にはまだ上げていない |
+| `main` / `types` / `exports` | `./dist/index.js` / `./dist/index.d.ts`。`exports` は ESM のビルド成果物を指す |
+| ビルドパイプライン | `pnpm build` が `dist/` を掃除し、宣言ファイルを出力して esbuild で ESM を生成する |
+| `dependencies` | `mc-kernel@0.4.0` / `mc-meshing@0.1.4` / `mc-sim@0.1.42` / `mc-worldgen@0.1.14` / `effect@^3.22.1` |
 
 ## 2. なぜ `0.x` に留めるのか
 
@@ -20,15 +20,13 @@ plan.md §6 Step 3 / §8:
 > **新規構築初期は全界面が高churn** → npm公開を遅らせ dev-meta workspace で開発（§6 Step 0）。
 > bump連鎖を構造的に回避
 
-mc-render は `mc-playground-kit` の実行時依存ではなく、`mc-kernel` / `mc-meshing` /
-`mc-sim` / `mc-worldgen` / `effect` を直接依存として宣言する。メッシング、シミュレーション、
-ワールドデータの正をこのリポジトリへ複製せず、各パッケージの公開 API を直接利用する。
+mc-render の実行時依存元は mc-playground-kit だけだが、**mc-render 自身も複数の
+`@nerima-games/*` パッケージに依存する**。したがって publish 時には、それらの公開版と
+互換性を確認する必要がある（plan.md §6 Step 3 の bottom-up）。
 
-レンダラ本体には `WorldRenderer`、ダーティ通知とライトの同期、構造的な Three surface、
-チャンクの shader/material 構築がある。`./browser` には実 Three namespace、canvas、
-EffectComposer、アトラス転送を接続する実行入口もある。残る公開判断は、固定ワールドを使った
-ブラウザ/GPU のスクリーンショット fixture、ゲーム固有のアセット配布・キャッシュ、実際の
-レジストリ publish 手順の検証であり、これらを Node 専用のプレビューで済ませない。
+Three.js の実行時依存は出荷ソースから分離されており、構造的な `ThreeSurface` 境界として
+実装済みである。残る検証上の課題は、固定ワールドデータを読み込むブラウザ fixture と
+スクリーンショット比較である。
 
 開発中は `mc-dev-meta` workspace が 16 リポジトリの clone を `repos/` に並べ、
 `workspace:*` 解決でモノレポ同等の DX を提供する（plan.md §6 Step 0-2）。
@@ -40,8 +38,8 @@ EffectComposer、アトラス転送を接続する実行入口もある。残る
 mc-sim が `1.0.0` を出せるのは、以下がすべて満たされたとき。
 
 1. **[testing.md](./testing.md) §2 の完了条件を満たしている。**
-   テストと Node プレビューが green であることに加え、公開 `./browser` 入口またはホスト側の
-   ブラウザ/GPU fixture が実 Three namespace、canvas、テクスチャ転送を接続して操作できる。
+   テスト green **かつ**内蔵 fixture ビューアが操作可能。
+   ビューアには THREE.js アダプタが要るので、これが最大の関門である。
 2. **maintainer(take)が昇格させてよいと裁量判断する**（[RELEASE_STANDARD.md §4.2](https://github.com/nerima-games/.github/blob/main/RELEASE_STANDARD.md#42-新しい昇格ポリシー人間による裁量判断)）。
    旧・日数計測ベースの自動ゲート（「APIロックファイルが4週間変更されていない」）は org 全体で
    廃止された（[API_STANDARD.md §4](https://github.com/nerima-games/.github/blob/main/API_STANDARD.md)）。
@@ -49,26 +47,50 @@ mc-sim が `1.0.0` を出せるのは、以下がすべて満たされたとき�
    実際に消費し動作確認したかどうかなど、都度異なってよい。
 3. **mc-playground-kit が実際に消費して契約を確認している。**
    使われていない界面に「壊さない」と約束しても意味がない。
-4. **[public-api.md](./public-api.md) §7 の未実装範囲を確認し、ホスト境界を検証している。**
-   `WorldRenderer`、`ChunkStore.subscribeDirty`、`./browser` の実行入口と品質プリセットの接続は
-   実装済みである。残るのは固定ワールドを用いたブラウザ/GPU スクリーンショット、ゲーム固有の
-   PNG/DataTexture 配布・キャッシュ、ホストまたは別パッケージとの接続を実証することだ。
-5. ローカルの kernel vocabulary mirror が削除され、`@nerima-games/mc-kernel` を
-   `dependencies` から直接参照している（§6 参照）。
+4. **[public-api.md](./public-api.md) §7 の未設計 API が埋まっている。**
+   `WorldRenderer` と dirty chunk の同期は実装済みである。残る完了条件は、固定チャンクを
+   ブラウザで描画して目視できる fixture とスクリーンショット比較である。
+5. `@nerima-games/mc-kernel` を `dependencies` から直接参照し、kernel の語彙を
+   再定義しない。render 固有の LOD / meshing 語彙は `src/domain/` の portable definitions
+   として管理する（§6 参照）。
 
-### 3.1 現在の実装状態
+### 3.1 ブロッカーの連鎖 —— **2026-07-28 に前半が反証された**
 
-- `package.json` の直接依存と source import は一致しており、mc-kernel の共有語彙や
-  mc-meshing の quad をローカルにミラーしていない。
-- `WorldRenderer` は chunk の opaque / water / transparent / cross / fluid geometry と
-  packed lighting を受け取り、`ChunkStore.subscribeDirty` の changed / removed を同期する。
-- `application/three-surface.ts` は実 Three namespace を受け取る構造的な surface で、Node の型検査と
-  fake fixture で契約を検査する。`src/browser.ts` はその surface に実 Three/canvas と
-  EffectComposer を接続する既定入口であり、固定ワールドの canvas/GPU fixture は別途必要である。
-- `pnpm typecheck`、`pnpm lint`、`pnpm test`、coverage 100% gate、`pnpm build`、
-  `pnpm pack:check` はこの tree で検証する。`./browser` の import/build は package gate に含めるが、
-  固定ワールドを使ったブラウザ/GPU 描画結果、ゲーム固有の PNG 配布、実際のレジストリ publish は
-  まだこの repository の検証対象にない。
+かつてここには次の連鎖が書いてあった。
+
+```
+mc-worldgen の ChunkStore.subscribeDirty（決定済み）
+  → mc-render の WorldRenderer が書ける
+    → THREE.js アダプタが完成する
+      → 内蔵 fixture ビューアが動く
+        → 完了条件を満たす
+          → maintainer の裁量判断
+            → 1.0.0
+```
+
+**最初の 2 本の矢印は成立していなかった。** `WorldRenderer` も THREE シームも、
+`subscribeDirty` が 1 行も無いまま着地している。理由は後から見ると単純で、
+`setChunk(key, buffers)` は**誰が呼ぶかを知らなくても定義できる** ——
+購読はレンダラの**引数の出どころ**であって、レンダラの設計への入力ではなかった。
+
+依存を上流に描きすぎると、**実際には並行して進められる作業が直列に見える**。
+このリポジトリはそれを 1 回やり、その間ずっと「1 行も無い」と書き続けていた。
+
+現在の連鎖:
+
+```
+mc-worldgen / mc-meshing が publish される（または vite alias に入る）
+  → ワールドデータが mc-render に届く
+    → 内蔵 fixture ビューアが動く / ライトグリッドの適用が書ける
+      → 完了条件を満たす
+        → maintainer の裁量判断
+          → 1.0.0
+```
+
+**最上流は「未設計」ではなく「未 publish」である。** これは設計待ちではなく順序待ちで、
+plan.md §6 Step 3 のボトムアップ publish がそのまま解く。
+それとは独立に進む作業がシーム側に残っている（[responsibility.md](./responsibility.md) §2.3 の
+`InstancedMesh` / `ShaderMaterial` / `EffectComposer` / `TextureLoader`）。
 
 ### 3.1 `0.x` の間の運用
 
@@ -97,59 +119,41 @@ mc-dev-meta workspace で開発している間は問題にならないが、publ
   `//npm.pkg.github.com/:_authToken=...` が要る。**現在の `.npmrc` にはまだ書いていない**
   （公開物が無いため）。最初の publish と同時に 16 リポジトリ分を揃える。
 
-## 5. `three` / `@types/three` の入れ方 —— runtime dependency と `"DOM"` 境界
+## 5. `three` / `@types/three` —— `devDependencies`、`"DOM"` 無し
 
-参照実装は `three@^0.170.0` / `@types/three@^0.170.0` を使っていた（旧 `package.json:57,59`）。
-plan.md §3.9 も THREE.js 描画一式を mc-render の責務としている。
-現行の `three` は公開 `./browser` の実行時依存として `dependencies` にあり、型だけを
-`@types/three` の `devDependencies` で補う。コアの出荷入口は構造的な surface を保ち、
-ブラウザ入口だけが Three namespace と DOM を import する。
+現行 package は `three@^0.185.1` / `@types/three@^0.185.4` を開発時だけ使用する。
+出荷ソースは THREE.js を直接 import せず、`src/application/three-surface.ts` が
+構造的な型でホストの実装を受け取る。`test/three-surface.test.ts` は本物の THREE の
+declaration に対して fixture をコンパイルし、この境界を検証する。
 
-### 5.1 現在の境界
+`tsconfig.base.json` の `lib` に `"DOM"` は入っていない。公開 declaration は
+`tsconfig.build.json` で生成し、GPU に依存する surface の型シームは Vitest のコードカバレッジ
+から除外する代わりに、fixture の診断と解決済みソースを検査する。
 
-1. **`three` は `dependencies`、`@types/three` は `devDependencies`。**
-   `src/index.ts` とコアの application/domain は実行時 Three.js を import しない。一方で
-   公開 `src/browser.ts` は実際の Three renderer、scene、camera、EffectComposer を生成するため
-   `three` を直接 import する。`application/three-surface.ts` は必要なコンストラクタとメンバを
-   構造的な型として表し、`test/fixtures/three-surface.ts` は本物の `.d.ts` への適合を検査する。
-   `test/three-surface.test.ts` はコアの非依存性と、意図した browser 境界を検査する。
-
-2. **`tsconfig.base.json` の `lib` に `"DOM"` は入っていない。**
-   `application/three-surface.ts` は必要なコンストラクタとメンバだけを構造的に表現し、
-   `test/fixtures/three-surface.ts` が実際の Three namespace との適合を確認する。
-   `src/browser.ts` と専用の package tsconfig は必要な DOM 型を境界内で使う。外部ホストが
-   別の canvas/WebGL を供給する場合も、コアの構造的 surface を利用できる。
-
-3. グローバル `types` に `"three"` は不要である。ブラウザ入口はモジュールとして Three の型を
-   import し、コアと Node プレビューは `types: []` のまま保つ。
-
-4. Node coverage は純粋な domain/application 契約を対象にし、`./browser` の import/build と
-   実行境界は専用の型・package gate で検査する。固定ワールドのブラウザ/GPU 実描画、PNG の
-   ゲーム固有配布、canvas capture はホスト fixture で検査し、`pnpm test:coverage` の代替にはしない。
+`types` に `"three"` は追加しない。package の公開面に THREE の型を漏らさず、ホスト側の
+実装を構造的に受け取るためである。
 
 ### 5.2 バージョンを一致させること
 
-`three` と `@types/three` は**同じ major/minor 系列**でなければならない。
-THREE は minor でも破壊的変更を入れるので、`@types/three` が minor 1 つ先だと
-「入っていないライブラリを記述した型」になる。`test/three-surface.test.ts` が
-この系列一致を固定している。patch 番号は runtime と型定義で異なってもよい。
+`three` と `@types/three` は**メジャー・マイナーを揃える**。Three.js は minor でも
+破壊的変更を入れるためである。patch は npm の型定義側の追従差を許容し、
+`test/three-surface.test.ts` が両方の minor version を検査している。
 
-現行のバージョンは `three@0.185.1` / `@types/three@0.185.4` である。THREE は minor でも
-破壊的変更を入れるため、依存更新時に再確認する。
-参照実装は `three/addons/postprocessing/*` の
+現在は `three@^0.185.1` / `@types/three@^0.185.4` である。
+THREE は minor でも破壊的変更を入れる。参照実装は `three/addons/postprocessing/*` の
 `EffectComposer` / `RenderPass` / `GTAOPass` / `UnrealBloomPass` / `BokehPass` / `SMAAPass` /
 `OutputPass` を直接使っており（`session-post-processing.ts:3-9`）、
 addons のパス構成は THREE のバージョンで変わったことがある。
 
 `GodRaysPass` と `CompositePass` は参照実装の**自作**で、別ライブラリではない。
 
-## 6. mc-kernel 直接依存
+## 6. mc-kernel 直接依存への移行
 
-mc-render は共有語彙をローカルミラーせず、`@nerima-games/mc-kernel` から直接 import する。
-現行 tree では次を満たしている:
+mc-kernel は公開済みなので、mc-render は共有語彙をローカルミラーせず
+`@nerima-games/mc-kernel` から直接 import する。移行時には次を確認する:
 
 1. `@nerima-games/mc-kernel` が `package.json#dependencies` に厳密な version である
-2. ローカルの kernel vocabulary mirror と、それを固定する mirror test が存在しない
+2. `domain/kernel-vocabulary.ts` と `test/kernel-mirror.test.ts` が存在しない
 3. source にローカルミラーへの import が残っていない
 4. `pnpm typecheck` と `pnpm test` が成功する
 
@@ -157,47 +161,37 @@ mc-render は共有語彙をローカルミラーせず、`@nerima-games/mc-kern
 kernel の語彙を取得すると真実の出所が二重になるためである。公開型の変更は
 mc-kernel の API 差分としてレビューする。
 
-## 7. ビルド / publish
+## 7. ビルド / publish パイプライン
 
-各 source 用 tsconfig は型検査のため `noEmit: true` を維持し、配布用の出力は
-`tsdown.config.ts` で一元的に生成する。`package.json` の `main` / `types` / `exports` は
-`dist/` を指し、`files` は配布に必要な成果物、README、LICENSE、CHANGELOG に限定する。
-runtime export が TS source の upstream (`mc-kernel` / `mc-meshing`) は JavaScript bundle に同梱し、
-型宣言側では依存元の型を参照する。これにより Node 24 の package import が `node_modules` 配下の
-TS source の型消去機能に依存しない。
-
-現在の検証経路:
+ビルドと package 境界は実装済みである。`pnpm build` は `dist/` を先に削除し、
+`tsconfig.build.json` で宣言ファイルを生成した後、esbuild で `src/index.ts` を ESM に
+バンドルする。`package.json` の `main` / `types` / `exports` / `files` は `dist/` を
+指し、`prepublishOnly` からこの build を呼ぶ。
 
 | 項目 | 内容 |
 | --- | --- |
-| ビルド | `pnpm build` が ESM、型宣言、source map を `dist/` に生成 |
-| package 検査 | `pnpm pack:check` が一時 tarball の必須ファイルと `src/` 非同梱を検査 |
-| changesets | plan.md §6 Step 3。bump とチェンジログの運用 |
-| publish ワークフロー | **未導入**。レジストリ、タグ／changeset 起点、認証を決めてから追加する |
-| カバレッジ 100% ゲート | `vitest.config.ts` と CI で維持（[testing.md](./testing.md) §5） |
+| ビルド | `pnpm build`: clean dist + declaration emit + esbuild ESM |
+| `exports` | `{ ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" } }` |
+| `files` | `dist` / `LICENSE` / `README.md`（npm が常に含める `package.json` を除く） |
+| changesets | CLI と CI の status 検査は導入済み。release/publish 操作は未実施 |
+| カバレッジ 100% ゲート | `vitest.config.ts` と CI の `pnpm test:coverage` |
 
-`.gitignore` は既に `dist/` `build/` `out/` を無視するようにしてある。
+`.gitignore` は `dist/` `build/` `out/` を無視する。
 
-**APIロック機構（`api-lock.md` / `scripts/api-lock.ts` / `pnpm api:check`）は org 全体で
-廃止された**（[API_STANDARD.md §4](https://github.com/nerima-games/.github/blob/main/API_STANDARD.md)）。
-公開面のレビューは PR 差分そのもので行い、日数計測ベースの自動ゲートには戻さない。
-
-**mc-render 固有の追加項目**: アトラスの RGBA レイアウト生成と Three `DataTexture` / URL texture
-の転送は `src/browser.ts` が提供する。ゲーム固有の PNG 配布、キャッシュ、アセット URL の解決は
-ホスト境界に残し、`files` に隠して所有しない。固定ワールドのブラウザ fixture がこの境界を実証する。
+このリポジトリには API lock の生成物・スクリプト・コマンドは置かない。公開面は
+`src/index.ts`、生成された declaration、PR 差分をレビューし、日数計測ベースの自動ゲートには戻さない。
 
 ## 8. 依存の固定
 
 | 依存 | 現在 | 方針 |
 | --- | --- | --- |
-| `effect` | `^3.22.1` | 既存の Effect 3 系に揃える。Context / Layer の型が跨るため、メジャーを混ぜない |
-| `@nerima-games/mc-kernel` | `0.2.18` | 直接依存を厳密ピン。共有語彙は kernel から直接読む |
-| `@nerima-games/mc-meshing` | `0.1.4` | 直接依存を厳密ピン。公開 quad と `meshChunk` を直接利用する |
-| `@nerima-games/mc-sim` | `0.1.42` | 直接依存を厳密ピン。カメラ姿勢と描画状態を読む |
-| `@nerima-games/mc-worldgen` | `0.1.14` | 直接依存を厳密ピン。ChunkStore、dirty、light grid を読む |
-| `three` / `@types/three` | `^0.185.1` / `^0.185.4`（runtime / **devDependencies**） | §5。コアは import せず、`./browser` が runtime import する。**major/minor を一致させる**（`test/three-surface.test.ts` が固定） |
-| `typescript` / `vitest` | `^` 付き | ツールチェーンは揃えるが厳密ピンはしない |
+| `effect` | `^3.22.1` | Effect の major を揃え、Context / Layer の型を同じ系統で合成する |
+| `@nerima-games/*` | `mc-kernel 0.4.0` / `mc-meshing 0.1.4` / `mc-sim 0.1.42` / `mc-worldgen 0.1.14` | 公開後も互換性を確認し、下流 publish の順序を守る |
+| `three` / `@types/three` | `^0.185.1` / `^0.185.4`（**devDependencies**） | §5。出荷ソースは import せず、メジャー・マイナーをテストで揃える |
+| `typescript` / `vitest` | `^7.0.2` / `^3.2.7` | 開発ツールとして更新し、lockfile で実解決を固定する |
 | `oxlint` | **package.json devDependency ではない** | `flake.nix` の devShell が `pkgs.oxlint`（nixpkgs 追従）を入れる。16 リポジトリが各自 npm 解決で drift するのを防ぐため、Nix 側で一本化した単一ソース |
-| `packageManager` | `pnpm@11.22.0` | Node 24 と組み合わせて利用 |
+| `packageManager` | `pnpm@11.21.0` | lockfile と package manager の解決を揃える |
 
 `engines.node` は `>=24.0.0`。`flake.nix` の devShell が `nodejs_24` を入れる。
+
+Vitest は `@effect/vitest@0.30.0` の peer dependency が `vitest ^3.2.0` を要求するため、Vitest 4 対応が公開されるまで 3.2 系に固定する。

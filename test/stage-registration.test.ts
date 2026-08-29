@@ -1,11 +1,6 @@
 import { describe, expect, it } from '@effect/vitest'
 import { Effect, Ref } from 'effect'
-import {
-  isMirrorStale,
-  mirrorLagSecs,
-  mirroredCameraState,
-  type MirroredCameraState,
-} from '../src/domain/camera-mirror'
+import { isMirrorStale, type MirroredCameraState } from '../src/domain/camera-mirror'
 import { type ChunkSyncPort } from '../src/application/world-sync'
 import { NO_DRAW_TARGET, type DrawPort } from '../src/application/world-renderer'
 import {
@@ -31,7 +26,6 @@ import {
   type PointerLockRequestOutcome,
 } from '../src/application/input-service'
 import {
-  makeRenderFrameState,
   makeRenderStagesForPreview,
   renderModule,
   UNSET_CAMERA_POSE,
@@ -145,8 +139,8 @@ describe('what mc-render registers', () => {
 
   // REGRESSION: plan.md §2.3-1 — no edge to a sibling experience module, at the
   // ORDERING level as well as the import level. An `after: ['ui:hud-sync']`
-  // is only a string at runtime while still coupling mc-render's frame position
-  // to mx-ui's existence.
+  // would pass static import analysis (it is a string) while still coupling
+  // mc-render's frame position to mx-ui's existence.
   it.effect('orders itself against no experience module', () =>
     withStages((stages) =>
       Effect.sync(() => {
@@ -502,36 +496,23 @@ describe('render:camera-mirror', () => {
     }),
   )
 
-  it.effect('can seed the mirror from an authoritative initial pose', () =>
-    Effect.gen(function* () {
-      const state = yield* makeRenderFrameState(QUALITY_PRESETS.high, pose)
-
-      expect(yield* Ref.get(state.authoritativePose)).toStrictEqual(pose)
-      expect(yield* Ref.get(state.mirroredCamera)).toStrictEqual(mirroredCameraState(pose))
-      expect(yield* Ref.get(state.mirrorLagSecs)).toBe(0)
-    }),
-  )
-
-  it.effect('before a pose arrives, startup mirror and gauge agree on unpublished state', () =>
+  it.effect('represents an unpublished pose as pending rather than fresh', () =>
     withStages((stages, state) =>
       Effect.gen(function* () {
-        const before = yield* Ref.get(state.mirrorLagSecs)
-        const mirrored = yield* Ref.get(state.mirroredCamera)
-
-        expect(before).toBe(Number.POSITIVE_INFINITY)
-        expect(mirrored.sourceCapturedAtSecs).toBeUndefined()
-        expect(isMirrorStale(mirrored, MonotonicTimeSecs(100))).toBe(true)
-        expect(mirrorLagSecs(mirrored, MonotonicTimeSecs(100))).toBe(
-          Number.POSITIVE_INFINITY,
-        )
+        expect(yield* Ref.get(state.authoritativePose)).toBeUndefined()
+        const initialMirror = yield* Ref.get(state.mirroredCamera)
+        expect(initialMirror.sourceCapturedAtSecs).toBeUndefined()
+        expect(yield* Ref.get(state.mirrorLagSecs)).toBeUndefined()
+        expect(isMirrorStale(initialMirror, MonotonicTimeSecs(100))).toBe(false)
 
         yield* stageById(stages, RENDER_STAGE_IDS.cameraMirror)
           .run(dt)
           .pipe(Effect.provide(FRAME_SERVICES))
 
-        expect(yield* Ref.get(state.mirrorLagSecs)).toBe(
-          mirrorLagSecs(yield* Ref.get(state.mirroredCamera), MonotonicTimeSecs(100)),
-        )
+        const mirrored = yield* Ref.get(state.mirroredCamera)
+        expect(mirrored.sourceCapturedAtSecs).toBeUndefined()
+        expect(yield* Ref.get(state.mirrorLagSecs)).toBeUndefined()
+        expect(isMirrorStale(mirrored, MonotonicTimeSecs(100))).toBe(false)
       }),
     ),
   )
@@ -736,29 +717,6 @@ describe('renderModule is a real GameModule', () => {
 
       expect(stages.map((stage) => stage.id)).toContain(RENDER_STAGE_IDS.input)
       expect(stages).toHaveLength(5)
-    }),
-  )
-
-  it.effect('defaults the public module to an unpublished startup mirror', () =>
-    Effect.gen(function* () {
-      const drawn = yield* Ref.make<ReadonlyArray<MirroredCameraState>>([])
-      const draw: DrawPort = {
-        draw: (camera) => Ref.update(drawn, (seen) => [...seen, camera]),
-        resize: () => Effect.void,
-        setPostProcessingChain: () => Effect.void,
-      }
-      const module = renderModule(QUALITY_PRESETS.high, undefined, draw)
-      const stages = yield* module.frameStages.pipe(Effect.provide(module.layers))
-
-      yield* stageById(stages, RENDER_STAGE_IDS.cameraMirror)
-        .run(dt)
-        .pipe(Effect.provide(FRAME_SERVICES))
-      yield* stageById(stages, RENDER_STAGE_IDS.draw)
-        .run(dt)
-        .pipe(Effect.provide(FRAME_SERVICES))
-
-      const [camera] = yield* Ref.get(drawn)
-      expect(camera?.sourceCapturedAtSecs).toBeUndefined()
     }),
   )
 

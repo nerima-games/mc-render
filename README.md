@@ -4,10 +4,10 @@
 
 THREE.js 描画一式（マテリアル / カメラ / ポストFX / パーティクル / 水面）+ ワーカープール実装 +
 **実行時入力サービス**（キーボード / マウス / ポインタロック / タッチ / キーリマッピング）。
-テクスチャアトラスの生成とレイアウト契約を提供し、画像の転送・同梱はホスト境界で行う。
+テクスチャ同梱。
 
-一見無関係な 2 つが同居しているのには理由がある。ホスト側の `mc-playground-kit` は
-開発・プレビュー層に置くため、出荷ランタイムへ入力を置けない。
+一見無関係な 2 つが同居しているのには理由がある。plan.md §2.3-2 のとおり、
+mc-playground-kit は devDependency 専用で出荷ビルドに入らないため、
 **入力を kit に置くと本番ゲームから入力処理が丸ごと消える**。
 入力もブラウザプラットフォームの関心事であり、それを所有しているのがこのリポジトリである。
 
@@ -21,25 +21,26 @@ THREE.js 描画一式（マテリアル / カメラ / ポストFX / パーティ
 | 依存先 | 何をもらうか |
 | --- | --- |
 | `mc-kernel` | 共有語彙。どのリポジトリからも import 可（許可リストに書かずに import できる） |
-| `mc-meshing` | `meshChunk(...)` の `opaque` / `water` / `transparentSolid` / `crossPlants` / `fluids` |
+| `mc-meshing` | `mesh(chunk, neighbors, config) → {opaque, water, transparentSolid}` |
 | `mc-sim` | `CameraPoseSnapshot`、描画すべき状態 |
-| `mc-worldgen` | チャンクデータ、**チャンクダーティ購読**（`ChunkStore.subscribeDirty`）、隣接チャンク、ライトグリッド（計算は worldgen、**適用**がこちら） |
+| `mc-worldgen` | チャンクデータ、**チャンクダーティ購読**（`ChunkStore.subscribeDirty`）、隣接チャンク |
+| `mc-worldgen` | `Chunk` データ、ライトグリッド（計算は worldgen、**適用**がこちら） |
 
 `mc-physics` と `mc-save` は **import できない**（`mc-sim` 経由の推移依存に過ぎない）。
 レンダラは衝突判定をやり直さないし、セーブファイルも読まない。
-`mc-playground-kit` には**依存しない**（プレビューを提供するホスト層。§2.3-2）。
+`mc-playground-kit` には**依存しない**（devDependency 専用。§2.3-2）。
 
 `@nerima-games/mc-kernel` は公開済みの直接依存で、共有語彙を同パッケージから直接 import している。
-`@nerima-games/mc-meshing` / `@nerima-games/mc-sim` / `@nerima-games/mc-worldgen` も
-現在は公開 API を使う直接依存である。メッシング、シミュレーション、ワールドデータの正を
-このリポジトリに複製せず、各パッケージの型と実装をそのまま利用する。
+`mc-meshing` はチャンクメッシュ生成を担う application adapter から直接利用し、
+`mc-sim` / `mc-worldgen` との境界は Port と構造ミラーで保つ。
 
-**`three` は `dependencies`、`@types/three` は `devDependencies` に入っている**
-（それぞれ `^0.185.1` / `^0.185.4`）。コア入口は
-`application/three-surface.ts` の構造的な型境界を使い、明示的な `./browser` 入口だけが
-本物の名前空間、WebGL、テクスチャローダー、`EffectComposer` を import する。
-`@types/three` が要るのは `test/fixtures/three-surface.ts` を**本物の `three` の `.d.ts` に
-対してコンパイルする**テストのためであり、ブラウザ入口の型検査にも使われる。
+**`three` / `@types/three` は `devDependencies` に入った**（現在はそれぞれ `^0.185.1` / `^0.185.4`）。
+メジャー・マイナーを揃え、patch 差だけを許すことをテストで検査する。
+`dependencies` ではない。**出荷ソースは THREE.js を 1 行も import していない** ——
+`application/three-surface.ts` が使う 7 個のコンストラクタを構造的な型として書き、
+ホストが本物の名前空間を渡す。`three` が要るのは
+`test/fixtures/three-surface.ts` を**本物の `three` の `.d.ts` に対してコンパイルする**
+テスト（`test/three-surface.test.ts`）のためであり、それがこの型が正しいことの唯一の証拠である。
 `tsconfig.base.json` の `lib` は `["ES2024"]` のまま、`types` は `[]` のまま
 （[`docs/versioning.md`](./docs/versioning.md) §5）。
 
@@ -50,35 +51,26 @@ THREE.js 描画一式（マテリアル / カメラ / ポストFX / パーティ
 「実行時入力（キーボード/マウス/ポインタロック/タッチ/リマッピング）」の
 **両方**を割り当てられている唯一のリポジトリである。
 
-このパッケージの実行時直接依存は `mc-kernel` / `mc-meshing` / `mc-sim` /
-`mc-worldgen` / `effect` である。`mc-playground-kit` と `mc-compose` は依存先ではなく、
-レンダラを利用するホスト側にある。
-**ただしそれは界面が揺れてよいという意味ではない。** kit は全プレビューの土台であり、
-kit が壊れると 15 リポジトリの完了条件「内蔵プレビューが操作可能」が全部止まる。
+この package は `mc-kernel`、`mc-meshing`、`mc-sim`、`mc-worldgen` を直接依存として宣言する。
+`mc-meshing` はメッシュアルゴリズムのアダプタ、その他は共有データとシミュレーション結果の
+入力として使う。`mc-playground-kit` は統合側の開発依存であり、この package の出荷依存ではない。
 
 依存グラフ全体・4 階層・名詞/動詞ルール・kit の devDependency 専用規則・stage 全順序の所有者は
 [`docs/architecture.md`](./docs/architecture.md) を参照。
 
-### 依存ルール（16 リポジトリ共通）
+### 依存ルール（この package の境界）
 
 | ルール | 内容 |
 | --- | --- |
-| ハード失敗 | 違反があれば CI は必ず非ゼロ終了する。警告で済ませない |
-| 循環禁止 | 循環依存は一切許可しない。「co-evolution ペア」のような例外リストは設けない |
-| 推移閉包の禁止 | A→B、B→C のとき A は C を import できない |
-| kernel は例外 | mc-kernel はどこからでも import 可（`dependencies` への記載は必要） |
-| 宣言と実体の一致 | import する `@nerima-games/*` は `package.json` に記載必須 |
-| mc-playground-kit はホスト層 | `dependencies` に入れず、実行時入力はこの package の API を使う |
-| `Date.now()` 禁止 | 時刻はすべて注入された Clock Port から取得する |
+| 直接依存の宣言 | import する `@nerima-games/*` は `package.json` の直接依存に記載する |
+| kernel | `mc-kernel` は共有語彙として利用する。出荷依存への記載は必要 |
+| 可搬な定義 | チャンク寸法、LOD、メッシュの基本表現は `src/domain/` が所有する |
+| アルゴリズム境界 | `mc-meshing` の import は `src/application/chunk-store-mesher.ts` のアダプタに限定する |
+| 時刻 | ドメイン処理は注入された時刻値を使い、グローバル時計を読まない |
 
-依存の実体は `package.json` の直接依存宣言と TypeScript / oxlint の検査対象で管理する。
-このリポジトリには `check-dependency-whitelist.ts`、`check:deps`、`api:check`、`api:update` の
-スクリプトは存在しない。公開 API の変更は `pnpm typecheck` とテストで検証する。
-
-### `Date.now()` 禁止の実装方法
-
-時刻を読むドメインコードは `Clock` Port などの注入された値を受け取る。
-ブラウザやホストの単調時計を使うアダプタは、その境界でだけ実装する。
+依存境界は `.oxlintrc.json` の `no-restricted-imports` で検査する。
+`pnpm lint` はソース、アプリ、スクリプト、テストを対象にし、警告も失敗として扱う。
+循環検査や API lock の生成スクリプトはこのリポジトリの現行ツールチェーンには含めない。
 
 ## 開発
 
@@ -89,7 +81,8 @@ $ direnv allow          # flake.nix の devShell で nodejs_24 + corepack が入
 $ pnpm install
 ```
 
-Nix を使わない場合は Node.js 24 以上と pnpm 11 以上（`corepack` 推奨）を用意する。
+Nix を使わない場合は Node.js 24 以上と pnpm 11.21.0（`corepack` 推奨）を用意する。
+asdf を使う場合は、リポジトリ直下の `.tool-versions` をそのまま読み込む。
 
 > **注意**: ツールチェーンは `devenv.nix` から `flake.nix` + `flake.lock` に移行済みである。
 > `flake.lock` はコミットされているので、`nix develop`（`.envrc` は `use flake`）は
@@ -99,27 +92,24 @@ Nix を使わない場合は Node.js 24 以上と pnpm 11 以上（`corepack` �
 
 | コマンド | 内容 |
 | --- | --- |
-| `pnpm typecheck` | コア・テスト・Node プレビュー・ブラウザ入口の 4 プロジェクトを型検査 |
+| `pnpm typecheck` | `tsconfig.build.json` / `tsconfig.test.json` / `tsconfig.preview.json` の 3 プロジェクトを型検査 |
 | `pnpm lint` | oxlint（このリポジトリ唯一の lint / format 設定。prettier も biome も .editorconfig も置かない）。**`--deny-warnings` 付きで走る**ため、`warn` のルールもビルドを落とす（`.oxlintrc.json` は 5 カテゴリすべてと個別 67 ルールが `warn`、`error` は 4 つだけ。このフラグが無かった頃は実質その 4 つしかゲートになっていなかった） |
 | `pnpm lint:fix` | oxlint の自動修正 |
 | `pnpm test` | vitest（`@effect/vitest` の `it.effect` が主 API、`environment: 'node'`） |
 | `pnpm test:watch` | vitest watch |
-| `pnpm test:coverage` | カバレッジ計測。`vitest.config.ts` の branches / functions / lines / statements 100% 閾値を適用 |
+| `pnpm test:coverage` | 全指標 100% の閾値付きカバレッジ計測 |
+| `pnpm build` | `dist/` を掃除し、宣言ファイルと ESM bundle を生成 |
+| `pnpm pack --dry-run` | package に含まれる生成物が `dist` / `LICENSE` / `README.md`（および npm 必須の `package.json`）だけであることを確認 |
 | `pnpm preview` | 内蔵プレビュー（入力状態機械とポリシー表のステッパ）。**`pnpm verify` には入らない**。[`apps/preview-render/README.md`](./apps/preview-render/README.md) |
-| `pnpm build` | `tsdown` で ESM、型宣言、source map を `dist/` に出力 |
-| `pnpm pack:check` | 一時 tarball を作成し、公開物の必須ファイル、`src/` 非同梱、manifest の `main` / `types` / `exports`、ビルド済み core / browser の import と browser runtime entry を検査 |
-| `pnpm verify` | `typecheck && lint && test && build` |
+| `pnpm benchmark` | チャンク更新の逐次処理とバッチ処理を同一条件で測定し、JSON の中央値と速度比を出力 |
+| `pnpm verify` | `typecheck && lint && test`。package build と coverage は別途実行 |
 
 ## 現状
 
-**現在は、純粋なドメイン層、コアの構造的 surface、実行可能なブラウザ入口を持つ実装段階である。**
+**このリポジトリは純粋な domain と注入可能な browser / THREE 境界を中心に実装されている。**
 
-ポストFXチェーン、マテリアル方針、入力バインディング、スクラッチ、チャンク形状、
-ボクセル照明、環境表現は決定的な値としてテストできる。`WorldRenderer` は Three surface を
-受け取り、mc-meshing の cube / cross-plant / fluid レイヤーを同期して描画する。
-実際の WebGL コンテキスト、URL からの `Texture` 読み込み、`ShaderMaterial`、屈折用
-render target、`EffectComposer` の既定構成は `@nerima-games/mc-render/browser` が担う。
-独自の Three ホストは、コアの `postProcessing` / `beforeRender` フックを注入して差し替えられる。
+ドメインはすべて**純粋**である。ポストFXチェーンは配列、マテリアル方針は述語、
+入力バインディングは表、スクラッチバッファはただの `Map`。WebGL は無い。
 
 DOM に触るのは `window` 入力アダプタ 1 つだけで、**`tsconfig` の `lib` に `"DOM"` は入っていない**。
 アダプタが実際に使う DOM メンバは 8 個しかないので、`application/dom-surface.ts` に
@@ -148,7 +138,7 @@ DOM に触るのは `window` 入力アダプタ 1 つだけで、**`tsconfig` �
 
 | 領域 | 実装 | 設計注意 |
 | --- | --- | --- |
-| フレーム stage 登録 | `stages/registration.ts` / `stages/stage-ids.ts` | 順序と依存境界を固定し、各 stage を実装済み |
+| フレーム stage 登録 | `stages/registration.ts` / `stages/stage-ids.ts` | 位置は確定、本体は FIRST CUT |
 | ポストFXの確定順序 | `domain/post-processing.ts` | DN-01 |
 | `forceSinglePass` 規則 | `domain/material-policy.ts` | DN-02 |
 | フレーム毎スクラッチの再利用 | `domain/frame-scratch.ts` | DN-03 |
@@ -159,19 +149,18 @@ DOM に触るのは `window` 入力アダプタ 1 つだけで、**`tsconfig` �
 | ポインタロックの要求と拒否（`PointerLockPort`） | 同上 | DN-14 |
 | `window` 入力アダプタ（登録 / 正確な解除 / イベント変換 / ロック要求の実行） | `application/browser-input-adapter.ts` | DN-04 / DN-12 / DN-13 / DN-14 |
 | DOM を `lib` ではなく狭い構造的インターフェースで受ける | `application/dom-surface.ts` | DN-15 |
-| キーボードフォーカスの**観測と矢印キー委譲**（`focusin` / `focusout`、ロック中のマスク、Tab を奪わない、消費時だけ host へ委譲） | 同上 + `domain/input-bindings.ts` / `domain/focus-navigation.ts` / `application/input-service.ts` | DN-16 |
+| キーボードフォーカスの**観測**（`focusin` / `focusout`、ロック中のマスク、Tab を奪わない） | 同上 + `domain/input-bindings.ts` / `application/input-service.ts` | DN-16 |
 | カメラのミラー（書き戻し無し） | `domain/camera-mirror.ts` | DN-06 |
 
 各 DN の参照実装証跡（file:line）と書くべき回帰テスト一覧は
 [`docs/design-notes.md`](./docs/design-notes.md)。
 
-### 現在の境界と残る範囲
+### まだ無いもの
 
-- **mc-render 単体のブラウザ/GPU fixture ビューアとスクリーンショット検証。**
-  実行可能な `./browser` 入口と `captureScreenshot` はあるが、実 GPU 上での見た目の受入れ、
-  fixture のワールドデータ接続、スクリーンショット比較は別途必要である。
-- **テクスチャ資産の配布。** `./browser` は生成済み RGBA アトラス、外部 `Texture`、URL の
-  読み込みを扱うが、ゲーム固有の PNG 同梱・キャッシュ・アセット選択は利用側の責務である。
+- **内蔵 fixture ビューア。** THREE.js のホストアダプタ、シーンとチャンク描画、
+  `ShaderMaterial` によるチャンク/水面、InstancedBuffer によるパーティクル、
+  `EffectComposer` によるポストFX実行は mc-compose 側に入った。アトラス転送は
+  注入可能なテクスチャ資産としてホストが担当する。
 - **`WorldRenderer` のダーティ購読と照明同期は入った。**
   `attachChunkStoreRenderer` が mc-worldgen の `ChunkStore.subscribeDirty` を購読し、
   ダーティチャンクを再メッシュする。各面の外側セルをワールド座標で `getLight` し、
@@ -182,14 +171,13 @@ DOM に触るのは `window` 入力アダプタ 1 つだけで、**`tsconfig` �
   `planRenderEnvironment(daylight, farPlane)` は純粋関数として空色、日照強度、
   フォグ色と距離を返す。`WorldRenderer.setEnvironment` は clear color と既存の
   chunk shader uniform を更新し、material や GPU resource を再生成しない。
-- **キーボードフォーカスの移動境界。** 観測（`focusin` / `focusout` →
-  `InputSnapshot.keyboardFocus`）と、矢印キーを host の `focusNavigation` へ委譲する境界は
-  **入った**。host callback が次の要素を決めて実際の `focus()` を呼び、mx-ui の inventory /
-  hotbar 規則へ接続する部分は host の責務である。Tab は引き続きユーザーエージェントの所有で、
-  callback は矢印が移動を消費したときだけ既定動作を抑止する
-  （[`docs/design-notes.md`](./docs/design-notes.md) DN-16、配線手順は
+- **キーボードフォーカスの「移動」側。** 観測（`focusin` / `focusout` → `InputSnapshot.keyboardFocus`）は
+  **入った**が、グループ**内**を矢印キーで動かす手段は無い。ホットバーはタブストップが 1 つなので、
+  Tab で入れるのはスロット 0 だけである。閉じるには `dom-surface.ts` に `focus()` が要り、
+  どのキーが移動するかとロック中の扱いを mx-ui と一緒に決める必要がある
+  （[`docs/design-notes.md`](./docs/design-notes.md) DN-16 §5(a)、配線手順は
   [`docs/public-api.md`](./docs/public-api.md) §2.10.6）。
-- **HUD の上のクリックがポインタロック要求になる境界は閉じた。**
+  **同 §5(b)（HUD の上のクリックがポインタロック要求になる）は閉じた**——
   `acquiresPointerLock` がクリックの落ちた先を受け取るようになり、
   mx-ui もホストも変わっていない（[`docs/public-api.md`](./docs/public-api.md) §2.11）。
 - **ゲームパッドとタッチ入力。** `domain/gamepad-input.ts` と
@@ -197,21 +185,13 @@ DOM に触るのは `window` 入力アダプタ 1 つだけで、**`tsconfig` �
   解放を実装する。タッチ入力も `browser-input-adapter.ts` と
   `test/touch-controls.test.ts` に実装済み。ブラウザの `GamepadList` 取得と毎フレームの
   `poll` 呼び出しはホストの責務で、DOM API は mc-render の型境界に入れない。
-- **グラフィックス品質プリセットのうち renderer が所有する範囲。**
-  `GraphicsQuality.composerRenderTarget` は low/medium の LDR と high/ultra の HDR として
-  既定ブラウザの EffectComposer／水面屈折へ反映される。`pixelRatioCap` は DPR 上限、
-  `bloomStrength` / `godRaysSamples` は bloom / god-rays の強度とサンプル数、
-  `refractionThrottleFrames` / `refractionMinScreenRatio` は水面屈折の実行条件を制御する。
-  `WorldRendererOptions.renderDistance` は mc-meshing のチャンク寸法からカメラの描画距離へ反映する。
-  影解像度と実 Three のライトは、現行の renderer の責務外である（基底 renderer の
-  `MeshBasicMaterial` はフォールバックであり、本番チャンク描画は専用シェーダーを使う）。
-- **ビルド／package 検査は導入済み。** `tsdown` が `dist/` を生成し、`pnpm pack:check` が
-  公開 tarball の内容を検査する。レジストリへの publish workflow はまだこの repository に置いていない。
-  `version` は `0.x` に留める（[`docs/versioning.md`](./docs/versioning.md)）。
-- **カバレッジ閾値は 100%。** branches / functions / lines / statements の 4 指標を
-  `vitest.config.ts` でゲートしている。
-- **mc-kernel の語彙は公開 package から直接 import。** ローカルミラーと専用テストは削除済み。
-  `index.ts` から re-export していないのは、真実の出所を 2 つにしないため。
+- **グラフィックス品質プリセットの残り半分。** レンダースケール・影解像度・視界距離・
+  `bloomStrength` / `godRaysSamples`・`composerRtType`。
+- **ビルドは実装済みだが、publish はまだ運用していない。** `pnpm build` が `dist/index.js` と宣言ファイルを生成し、
+  `package.json` の `exports` はその生成物を指す。`version` は `0.x` に留める（[`docs/versioning.md`](./docs/versioning.md)）。
+- **カバレッジ閾値は全指標 100% に設定済み。** 未達時は `pnpm test:coverage` が失敗する。
+- **共有語彙は出所を分離している。** `mc-kernel` の定数は公開 package から直接 import し、
+  mc-meshing と共有する可搬なメッシュ表現・LOD 定義はこのリポジトリの domain vocabulary として所有する。
   公開型との assignability は `pnpm typecheck` と各 domain test が検査する。
 
 ## ドキュメント

@@ -28,18 +28,17 @@
  * rejected applies here unchanged, and is not repeated.
  *
  * ---------------------------------------------------------------------------
- * `three` IS a real dependency of this repository — for the browser entry
+ * `three` IS a real dependency of this repository — as a devDependency
  * ---------------------------------------------------------------------------
  *
- * `package.json` declares runtime `three` in `dependencies` and `@types/three`
- * in `devDependencies`. The placement is intentional:
+ * `package.json` declares `three` and `@types/three` in `devDependencies`, and
+ * that placement is the whole design rather than a technicality:
  *
- *   - the core entry does not import `three`; `src/browser.ts` is the explicit
- *     browser entry that imports the runtime package and concrete addons.
- *     `tsconfig.build.json` still compiles the core with `lib: ["ES2024"]`,
- *     `types: []` and no DOM dependency, which is the property every pure
- *     module in `domain/` depends on.
- *   - `@types/three` exists so that `test/fixtures/three-surface.ts` can be
+ *   - NO SHIPPED FILE IMPORTS `three`. `pnpm typecheck` over
+ *     `tsconfig.build.json` still compiles the published surface with
+ *     `lib: ["ES2024"]`, `types: []` and no `three` in sight, which is the
+ *     property every pure module in `domain/` depends on.
+ *   - the dependency exists so that `test/fixtures/three-surface.ts` can be
  *     compiled AGAINST THE REAL `three/index.d.ts` and asserted to produce zero
  *     diagnostics. Without the package there is no oracle, and the types below
  *     would be a claim nobody checks.
@@ -47,10 +46,10 @@
  *     `window`, `document` and the canvas to `browserInputLayer`. A host is
  *     already the thing that owns the platform; `three` is platform.
  *
- * The structural contract is checked by `pnpm typecheck` and
- * `test/three-surface.test.ts`: the core source has no `three` import, while the
- * fixture compiles against the real package. The browser entry uses the same
- * surface to connect the real namespace to the renderer.
+ * Package boundaries are enforced by `pnpm lint` for the `@nerima-games/*`
+ * imports. This adapter is a structural seam: the package build stays free of
+ * a direct `three` import, while `pnpm typecheck` and the fixture test compile
+ * the surface against the real Three.js declarations.
  *
  * ---------------------------------------------------------------------------
  * Why the surface has THREE type parameters, which looks like over-engineering
@@ -163,25 +162,10 @@ export type ThreeBufferAttribute = Record<never, never>
  * the material are type parameters. Nothing here reads a material; the renderer
  * creates one, hands it to every mesh, and disposes it at teardown.
  */
-/** The numeric values used by Three for front-, back- and double-sided draws. */
-const THREE_FRONT_SIDE = 0
-const THREE_BACK_SIDE = 1
-const THREE_DOUBLE_SIDE_VALUE = 2
-
-export type ThreeMaterialSide =
-  | typeof THREE_BACK_SIDE
-  | typeof THREE_DOUBLE_SIDE_VALUE
-  | typeof THREE_FRONT_SIDE
-
-/** The value used by transparent flat surfaces that must render both sides. */
-export const THREE_DOUBLE_SIDE: ThreeMaterialSide = THREE_DOUBLE_SIDE_VALUE
-
 export type ThreeMaterial = {
   readonly dispose: () => void
-  readonly alphaTest?: number
   /** Avoids the redundant back/front draw for flat transparent surfaces. */
   readonly forceSinglePass?: boolean
-  readonly side?: ThreeMaterialSide
 }
 
 /**
@@ -305,7 +289,6 @@ export type ThreeRendererParameters<TCanvas> = {
   readonly stencil: boolean
   readonly powerPreference: 'high-performance'
   readonly failIfMajorPerformanceCaveat: boolean
-  readonly preserveDrawingBuffer?: boolean
 }
 
 /**
@@ -384,11 +367,9 @@ export type ThreeShaderMaterialParameters = {
   readonly fragmentShader: string
   readonly uniforms: Record<string, ThreeUniform>
   readonly vertexColors: true
-  readonly alphaTest?: number
   readonly transparent?: boolean
   readonly depthWrite?: boolean
   readonly forceSinglePass?: boolean
-  readonly side?: ThreeMaterialSide
 }
 
 /**
@@ -430,11 +411,12 @@ export type ThreeShaderMaterialParameters = {
  * one constructor exists, which is exactly why adding the second one is when it
  * had to be made.
  *
- * `makeWorldRenderer` accepts a material factory, and the production renderer
- * uses this fourth type parameter for the atlas and water shader materials.
- * The browser entry resolves a `Texture` before passing it across this seam;
- * the structural core does not need to know how a URL or image became a
- * texture.
+ * NOTE what this does NOT yet do: `makeWorldRenderer` still constructs a
+ * `MeshBasicMaterial` unconditionally. Handing it a `ShaderMaterial` means the
+ * renderer taking a material FACTORY rather than building one, and it means an
+ * atlas texture — which needs `TextureLoader`, which needs the DOM, which is a
+ * separate seam from this one. This type is the half that can land without
+ * either.
  */
 export type ThreeShaderSurface<
   TCanvas,

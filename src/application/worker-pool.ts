@@ -378,11 +378,9 @@ const discardRunningOnShutdown = <TPayload, TResult>(current: PoolState<TPayload
 /** Drop the OLDEST waiting job, not the one just enqueued. See `maxQueued`. */
 const evictOverflow = <TPayload, TResult>(current: PoolState<TPayload, TResult>, maxQueued: number): void => {
   while (current.queue.length > maxQueued) {
-    const dropped = current.queue.shift()
-    if (dropped !== undefined) {
-      current.droppedForBackpressure += ONE_AFFECTED_JOB
-      dropped.resume({ _tag: 'cancelled' })
-    }
+    const dropped = current.queue.shift()!
+    current.droppedForBackpressure += ONE_AFFECTED_JOB
+    dropped.resume({ _tag: 'cancelled' })
   }
 }
 

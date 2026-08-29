@@ -10,10 +10,10 @@
  *
  * **Nothing here asserts.** These probes print. Anything in here that turns out
  * to be a real invariant belongs in `test/`, where it can fail CI; each note
- * says which test holds the claim, and each host-owned gap says why it remains
- * a boundary rather than a fix.
+ * says which test holds the claim, and each KNOWN GAP says why it is a pin
+ * rather than a fix.
  */
-import { Effect, Ref } from 'effect'
+import { Effect } from 'effect'
 import {
   InputService,
   InputServiceLayer,
@@ -41,7 +41,7 @@ import {
 } from '../../src/domain/input-bindings'
 import { MonotonicTimeSecs } from '@nerima-games/mc-kernel'
 import { buildPostProcessingChain, QUALITY_PRESETS } from '../../src/domain/post-processing'
-import { makeRenderFrameState, renderModule, UNSET_CAMERA_POSE } from '../../src/stages/registration'
+import { makeRenderFrameState, renderModule } from '../../src/stages/registration'
 import { RENDER_STAGE_IDS } from '../../src/stages/stage-ids'
 import { fixed, pad, padStart } from './style'
 
@@ -279,13 +279,12 @@ const blurProbe = Effect.gen(function* () {
 
 const mirrorProbe = Effect.gen(function* () {
   const state = yield* makeRenderFrameState()
-  const initialMirror = yield* Ref.get(state.mirroredCamera)
-  const initialLag = yield* Ref.get(state.mirrorLagSecs)
-  const publishedMirror = mirroredCameraState(UNSET_CAMERA_POSE)
+  const pendingMirror = mirroredCameraState(undefined)
 
   const rows = [0, 0.05, 0.1, 0.100001, 1, 30].map((now) => {
     const at = MonotonicTimeSecs(now)
-    return `   ${padStart(fixed(now, 6), 12)}${padStart(fixed(mirrorLagSecs(publishedMirror, at), 6), 16)}${padStart(String(isMirrorStale(publishedMirror, at)), 16)}`
+    const lag = mirrorLagSecs(pendingMirror, at)
+    return `   ${padStart(fixed(now, 6), 12)}${padStart(lag === undefined ? 'pending' : fixed(lag, 6), 16)}${padStart(String(isMirrorStale(pendingMirror, at)), 16)}`
   })
 
   return [
@@ -293,22 +292,22 @@ const mirrorProbe = Effect.gen(function* () {
       'MIRROR-INITIAL',
       'What does the mirror say before mc-sim has published anything?',
     ),
-    `   makeRenderFrameState() seeds:`,
-    `   ${cell('authoritativePose', 26)}UNSET_CAMERA_POSE, capturedAtSecs ${String(UNSET_CAMERA_POSE.capturedAtSecs)}`,
-    `   ${cell('mirroredCamera', 26)}uninitializedMirroredCameraState(...), sourceCapturedAtSecs ${String(initialMirror.sourceCapturedAtSecs)}`,
-    `   ${cell('mirrorLagSecs', 26)}${String(initialLag)}   <-- "never published"`,
+    `   makeRenderFrameState() starts:`,
+    `   ${cell('authoritativePose', 26)}undefined — no mc-sim pose published`,
+    `   ${cell('mirroredCamera', 26)}sourceCapturedAtSecs ${String(pendingMirror.sourceCapturedAtSecs)}`,
+    `   ${cell('mirrorLagSecs', 26)}pending`,
     '',
     `   ${padStart('now (s)', 12)}${padStart('mirrorLagSecs', 16)}${padStart('isMirrorStale', 16)}`,
     ...rows,
     '',
     `   MIRROR_LAG_WARNING_SECS = ${String(MIRROR_LAG_WARNING_SECS)}, compared with > (strict), so exactly 0.1 is NOT stale.`,
     '',
-    '   RND-4 is fixed. Startup is explicitly unpublished: the visible placeholder remains',
-    '   UNSET_CAMERA_POSE, sourceCapturedAtSecs is undefined, mirrorLagSecs is Infinity,',
-    '   and isMirrorStale is true. The diagnostic Ref and the derived state now agree.',
+    '   RND-4 is fixed. Before the first pose, the authoritative and mirrored state are',
+    '   explicitly pending: there is no source timestamp, mirrorLagSecs() returns undefined,',
+    '   and isMirrorStale() is false. A published pose supplies its simulation timestamp;',
+    '   only that published state can later become stale. `UNSET_CAMERA_POSE` remains an',
+    '   explicit display/test fixture and is not used as a runtime default.',
     '',
-    '   After mc-sim publishes a pose, the camera stage replaces the unpublished state',
-    '   with a timestamped mirror and the finite lag table above applies.',
     '   Watch it: pnpm preview --view mirror --scenario mirror-staleness --at 4 --once --ascii',
     '',
     '   RND-5 is fixed. domain/camera-mirror.ts documented the constant as "Milliseconds of lag',
@@ -397,7 +396,7 @@ const registrationLayerProbe = Effect.gen(function* () {
     `   \`frameStages\` from inside that same provide, which is what the ${String(asks)} above says happened.`,
     '',
     '   test/stage-registration.test.ts uses the single-provide form and is right to. Nothing',
-    '   referenced RenderRegistrationLayer outside src/index.ts — it was exported, and',
+    '   referenced RenderRegistrationLayer outside public-api.md — it was exported and',
     '   unused, which is why nothing had noticed.',
   ]
 })
@@ -434,16 +433,12 @@ const scratchProbe = (): ReadonlyArray<string> => {
     buffer.set('c', 3)
     return (): number => buffer.size
   })
-  const closureUse = attempt(() => closure())
+  const closureBeforeNextBorrow = attempt(closure)
+  withScratch(scratch, (buffer) => buffer.size)
+  const closureAfterNextBorrow = attempt(closure)
 
   const deferred = withScratch(scratch, (buffer) => Effect.sync(() => buffer.size))
-  const deferredUse = attempt(() => Effect.runSync(deferred))
-
-  const iterator = withScratch(scratch, (buffer) => {
-    buffer.set('iterator', 4)
-    return buffer.entries()
-  })
-  const iteratorUse = attempt(() => iterator.next())
+  const deferredResult = attempt(() => Effect.runSync(deferred))
 
   const foreign = attempt(() =>
     withScratch(
@@ -452,39 +447,47 @@ const scratchProbe = (): ReadonlyArray<string> => {
     ),
   )
 
-  const nativeField = Reflect.has(scratch, 'buffer') ? 'public' : 'private'
+  const directRead = 'buffer' in scratch ? 'exposed' : 'not exposed'
   const usage = scratch.usageCount()
 
   return [
     ...section(
       'SCRATCH-DISCIPLINE',
-      'withScratch guards a reusable lease. Which escapes does it catch?',
+      'withScratch guards the borrow. Which escapes does it actually catch?',
     ),
     `   ${cell('attempt', 44)}${cell('result', 22)}`,
     `   ${cell('re-entrant borrow', 44)}${cell(reentrant, 22)}   caught`,
-    `   ${cell('return the lease itself', 44)}${cell(identity, 22)}   caught`,
-    `   ${cell('use { escaped: lease } later', 44)}${cell(wrappedUse, 22)}   caught`,
-    `   ${cell('call a returned closure later', 44)}${cell(closureUse, 22)}   caught`,
-    `   ${cell('run a deferred Effect later', 44)}${cell(deferredUse, 22)}   caught`,
-    `   ${cell('advance an escaped iterator', 44)}${cell(iteratorUse, 22)}   caught`,
-    `   ${cell('native map field on ScratchMap', 44)}${cell(nativeField, 22)}   enforced`,
+    `   ${cell('return the buffer itself', 44)}${cell(identity, 22)}   caught`,
+    `   ${cell('return { escaped: buffer }', 44)}${cell(wrappedUse, 22)}   caught on use`,
+    `   ${cell('return () => buffer.size', 44)}${cell(`${closureBeforeNextBorrow}, then ${closureAfterNextBorrow}`, 22)}   caught on use`,
+    `   ${cell('a deferred callback (Effect / Promise)', 44)}${cell(deferredResult, 22)}   caught on use`,
+    `   ${cell('raw buffer field outside any borrow', 44)}${cell(directRead, 22)}   not exposed`,
     `   ${cell('a ScratchMap built elsewhere', 44)}${cell(foreign, 22)}   caught`,
     '',
     `   usageCount() after the borrows above: ${String(usage)}`,
     '',
-    '   RND-7 is fixed in domain/frame-scratch.ts. ScratchMap keeps its native Map private and',
-    '   gives each scratch set one reusable lease facade. Every operation checks that the lease',
-    '   is active, and iterators check again when they advance.',
+    '   RND-7 is enforced by a lease-checked Map view. A wrapper, closure, iterator, or',
+    '   deferred Effect may retain the view, but every operation checks that its borrow is still',
+    '   active and throws after the lease ends. The public ScratchMap has no raw buffer field.',
     '',
-    '   A wrapper, closure, deferred Effect, or iterator can still be returned as a JavaScript',
-    '   value, but using it after the callback fails with ScratchMisuseError instead of reading',
-    '   a cleared or next-frame map. `snapshotScratch` is the explicit copying boundary.',
+    '   The deferred-callback row is the sharpest one, because it is the shape Effect code',
+    '   naturally reaches for. `withScratch` releases the lease in a `finally`, so',
+    '   `withScratch(s, b => Effect.sync(() => b.size))` returns an unevaluated Effect, but its',
+    '   later read fails loudly instead of observing a cleared or refilled buffer.',
     '',
-    '   The facade is allocated once per scratch set, not once per borrow. Borrowing still clears',
-    '   the private map on entry, and returning a copy remains the only supported cross-frame use.',
+    '   The lease-checked facade is intentionally created once per scratch buffer, not once per',
+    '   borrow. The hot path still clears and reuses the native Map; the facade only adds the',
+    '   lifetime check required to make the ownership contract executable.',
     '',
-    '   Every row above is pinned by test/frame-scratch.test.ts (18 tests), including the foreign',
-    '   object diagnostic and the fact that the reusable lease has no public native-map field.',
+    '   A foreign ScratchMap is rejected through the same ownership check. `snapshotScratch` is',
+    '   the explicit copying API for values that must survive the lease; callers never receive',
+    '   the native backing Map itself.',
+    '',
+    '   usageCount is documented as "Frames this buffer has served". It increments in `enter()`,',
+    '   i.e. once per BORROW — and a borrow that dies on the escape check has already counted.',
+    '',
+    '   Every row above is pinned by test/frame-scratch.test.ts, including wrappers, closures,',
+    '   iterators, deferred Effects, foreign handles, and the absence of a public raw buffer.',
   ]
 }
 
@@ -563,11 +566,11 @@ const FOOTER: ReadonlyArray<string> = [
   '',
   '== what this report does NOT cover',
   '',
-  '   Anything that needs a GPU. This Node preview deliberately does not import runtime THREE.js or',
-  '   `lib.DOM`; `application/three-surface.ts` still defines the structural contract used by the',
-  '   renderer and its fake fixtures. The preview can show the post-FX chain and material policy,',
-  '   but not the picture produced by a host canvas. A fixed-chunk browser/GPU eyeball test',
-  '   (docs/testing.md) belongs in the consuming host and may use mc-playground-kit.',
+  '   Anything that needs a GPU. mc-render deliberately ships no THREE.js and no `lib.DOM`, and',
+  '   that is what makes everything above testable in Node — but it also means this preview can',
+  '   show you the post-FX chain and not the picture it produces, the material policy and not the',
+  '   material, the camera mirror and not the view. When a THREE adapter exists, an eyeball test',
+  '   of a fixed chunk (docs/testing.md) belongs beside it and will need mc-playground-kit.',
   '',
   '   Nothing here is a substitute for that. It is the half that can be checked without one, and',
   '   the input state machine in particular has no other home: Playwright cannot do pointer lock.',

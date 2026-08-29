@@ -14,8 +14,8 @@
  * input service lived there, the shipped game would have no input handling at
  * all — it would build, start, render, and ignore the keyboard. That failure is
  * silent at compile time and total at run time, which is the worst combination,
- * so placing runtime input in mc-playground-kit would violate the
- * direct-dependency and shipped-source boundary.
+ * so the package dependency policy keeps mc-playground-kit out of runtime
+ * dependencies.
  *
  * mc-render is the right owner because input is a browser-platform concern and
  * mc-render is already the repository that owns the browser platform (canvas,
@@ -62,7 +62,7 @@
  * ---------------------------------------------------------------------------
  *
  * Everything here is data and pure functions: no `window`, no `document`, no
- * DOM types. The browser adapter is `application/browser-input-adapter.ts`, which takes
+ * DOM types. The browser adapter is `application/input-service.ts`, which takes
  * an injected event source. That split is what lets key remapping, chord
  * resolution and the Escape rule be tested in Node under
  * `environment: 'node'` — no jsdom, no Playwright, no SwiftShader.
@@ -71,8 +71,8 @@
 /**
  * Every action the game can be told to perform by an input device.
  *
- * This is the renderer's current action vocabulary. Platform-specific sources
- * translate their controls into these actions at the application boundary.
+ * The action vocabulary is explicit so device adapters can map into it without
+ * exposing browser or gamepad details to the domain.
  */
 export const INPUT_ACTIONS = [
   'moveForward',
@@ -884,7 +884,7 @@ export const acquiresPointerLock = (
  * one must not be: the answer is no, at every lock state, forever.
  * `FOCUS_NAVIGATION_KEY_CODE` and `FOCUS_NAVIGATION_OWNER` record the ownership
  * as values instead, `remap` refuses to give the key a second owner, and
- * `FOCUS_NAVIGATION_POLICY` in `application/input-listener-plan.ts` states the whole
+ * `FOCUS_NAVIGATION_POLICY` in `application/input-service.ts` states the whole
  * rule where `ESCAPE_POLICY` states Escape's.
  */
 

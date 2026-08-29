@@ -14,8 +14,7 @@
 
 ## このリポジトリを一言でいうと
 
-**THREE.js 描画一式と、実行時入力サービス。** ブラウザの既定実装は `./browser`、
-コアの `.` は DOM-free の構造的 API である。
+**THREE.js 描画一式と、実行時入力サービス。**
 
 一見無関係な 2 つが同居しているのには理由がある。plan.md §2.3-2 が明示するとおり、
 mc-playground-kit は devDependency 専用で出荷ビルドに入らないため、**入力を kit に置くと
@@ -23,7 +22,8 @@ mc-playground-kit は devDependency 専用で出荷ビルドに入らないた�
 それを所有しているのがこのリポジトリである。
 
 そして**このリポジトリはカメラの正ではない**。`CameraPoseSnapshot` の正は mc-sim が持ち、
-ここはミラーするだけ。package の直接依存宣言と import graph もこの一方向の境界を保つ。
+ここはミラーするだけ。逆向きの依存は循環になる。依存境界は `package.json` と
+`.oxlintrc.json`、型検査で確認する。
 
 ## 読む順序
 
@@ -39,13 +39,10 @@ mc-playground-kit は devDependency 専用で出荷ビルドに入らないた�
 
 ## いま何が入っているか
 
-**監査後の実装段階。コアは構造 surface を保ち、`./browser` が Three/canvas/WebGL/
-post-processing の既定境界を提供する。**
+**監査後の実装段階。THREE.js はホスト注入する構造 surface 越しに利用する。**
 
 ドメインはすべて**純粋**である。ポストFXチェーンは配列、マテリアル方針は述語、
-入力、chunk/world 同期、キューブ・クロス植物・流体の形状変換、ボクセル照明、
-空と距離フォグまで実装済み。`WorldRenderer` は Three surface をホストから受け取り、
-この計画を実際のシーンへ同期する。
+入力、chunk/world 同期、WebGL 描画、atlas shader、照明同期、空と距離フォグまで実装済み。
 これは手抜きではなく設計判断で、理由は [testing.md](./testing.md) §3 にある——
 順序規則やイベント遮蔽規則を **`environment: 'node'` の単体テストで固定できる**ようにするため。
 
@@ -61,26 +58,13 @@ post-processing の既定境界を提供する。**
 | 入力の window/document 遮蔽と Escape 単一所有 | `domain/input-bindings.ts` / `application/input-service.ts` | DN-04 / DN-05 |
 | クリック・ホイール・ポインタロック要求 | 同上 | DN-12 / DN-13 / DN-14 |
 | `window` 入力アダプタ（登録 / 解除 / 変換 / ロック要求） | `application/browser-input-adapter.ts` / `application/dom-surface.ts` | DN-04 / DN-12 / DN-13 / DN-14 / DN-15 |
-| キーボードフォーカスの観測と矢印キー委譲（Tab は奪わない。ロック中はマスクし、消費時だけ host に委譲） | 同上 + `domain/input-bindings.ts` / `domain/focus-navigation.ts` | DN-16 |
+| キーボードフォーカスの**観測**（Tab は奪わない。ロック中はマスクし、忘れない） | 同上 + `domain/input-bindings.ts` | DN-16 |
 | カメラのミラー（書き戻し無し） | `domain/camera-mirror.ts` | DN-06 |
-| チャンク形状とクロス植物・流体の GPU データ | `domain/chunk-geometry.ts` / `application/world-sync.ts` | `mc-meshing` の公開レイヤーを使用 |
-| ボクセル照明のサンプル位置と packed color | `domain/voxel-lighting.ts` / `application/chunk-store-mesher.ts` | `mc-worldgen` の light grid を適用 |
-| Three の構造的な描画 surface | `application/three-surface.ts` / `application/world-renderer.ts` / `application/world-renderer-production.ts` | コアは実 Three namespace を注入可能 |
-| ブラウザの既定描画ランタイム | `src/browser.ts` / `@nerima-games/mc-render/browser` | Three、canvas、EffectComposer、アトラス転送、水面屈折 |
 
-まだ無いもの:
-
-- **mc-render 単体の固定ワールド browser/GPU fixture ビューアとスクリーンショット検証。**
-  既定の Three/canvas/WebGL 接続と `captureScreenshot` は `./browser` にあるが、固定ワールドと CI の GPU 受入れはホストが担当する。
-- **ゲーム固有のテクスチャ資産の同梱と配布。** `./browser` は `RgbaAtlas` / URL からの転送を提供するが、PNG の版管理、キャッシュ、配布はホストの責務である。
-- **キーボードフォーカスの移動境界。** 観測は実装済み。矢印キーは optional な
-  `focusNavigation` callback に渡し、host が次の要素を決めて `focus()` を呼ぶ。Tab は UA-owned、
-  実 DOM と mx-ui の wiring、および mx-ui がキーを所有する場合の二重処理回避は host fixture / host の責務である
-  （[public-api.md](./public-api.md) §2.10.6、[design-notes.md](./design-notes.md) DN-16）。
-- **mc-render の責務外に残る品質項目。** `GraphicsQuality.composerRenderTarget`、
-  `bloomStrength`、`godRaysSamples`、水面屈折の閾値・スロットリング、DPR 上限は
-  `domain/post-processing.ts` と既定ブラウザの EffectComposer／水面屈折へ反映する。
-  `WorldRendererOptions.renderDistance` によるカメラ描画距離は実装済みである。
-  影解像度と実 Three のライトは現行のマテリアル／環境境界の外に残る。
-- **レジストリへの publish。** `pnpm build` と `pnpm pack:check` による配布物検査はあるが、
-  publish workflow と実際の registry release は未導入（[versioning.md](./versioning.md)）。
+まだ無いもの: **mc-render 単体の fixture ビューア**、テクスチャ PNG の THREE 転送、
+テクスチャ PNG の同梱、**キーボードフォーカスの「移動」側**（観測は入った。矢印キーでグループ内を動かす
+手段は無く、閉じるには mx-ui と一緒に決める必要がある —— [design-notes.md](./design-notes.md) DN-16 §5(a)。
+なお §5(b) の「HUD の上のクリックがロック要求になる」は閉じた ——
+[public-api.md](./public-api.md) §2.11）、
+内蔵 fixture ビューア、
+グラフィックス品質プリセットの残り半分（レンダースケール・影解像度・視界距離）。

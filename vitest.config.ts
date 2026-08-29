@@ -5,14 +5,8 @@ export default defineConfig({
     environment: 'node',
     globals: false,
     pool: 'forks',
-    poolOptions: {
-      forks: {
-        maxForks: '50%',
-        minForks: 1,
-        isolate: true,
-        singleFork: false,
-      },
-    },
+    maxWorkers: '50%',
+    isolate: true,
     include: ['test/**/*.{test,spec}.ts'],
     exclude: ['**/node_modules/**', '**/dist/**', '**/coverage/**', '**/.git/**'],
     testTimeout: 10000,
@@ -46,10 +40,11 @@ export default defineConfig({
         // coverage.
         'src/application/three-surface.ts',
       ],
-      all: true,
       reporter: ['text', 'json', 'html', 'lcov'],
       reportsDirectory: './coverage',
-      // TEST_STANDARD.md §3: four-metric 100% gate.
+      // TEST_STANDARD.md §3: every executable source metric must remain at 100%.
+      // Type-only adapters use compile-time fixture tests instead of V8 coverage;
+      // all executable source remains subject to this threshold.
       thresholds: { branches: 100, functions: 100, lines: 100, statements: 100 },
     },
   },

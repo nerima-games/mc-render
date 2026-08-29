@@ -9,14 +9,16 @@
 
 | 検証 | 何を保証するか | 状態 |
 | --- | --- | --- |
-| fixture 描画 | 固定チャンクが描ける | 構造的な Three surface、Node プレビュー、公開 `./browser` runtime は実装済み。固定ワールドデータを結んだブラウザ/GPU fixture は未実装。§2.2 |
-| スクリーンショット比較 | 見た目が変わっていない | `./browser` の `captureScreenshot` は実装済み。参照画像との比較は未実装。ただし**決定性は実測で片付いた**（§2.5） |
+| fixture 描画 | 固定チャンクが描ける | **未実装。ただし塞いでいるものが変わった** —— THREE アダプタは**着地済み**（§12）。残っているのは**描く対象**、すなわちこのリポジトリが所有していないワールドデータと、それを載せるブラウザページ。§2.2 |
+| スクリーンショット比較 | 見た目が変わっていない | 未実装。ただし**決定性は実測で片付いた**（§2.5） |
 | **内蔵プレビュー** | **人間が操作して確かめられること** | 実装済（[`apps/preview-render/`](../apps/preview-render/README.md)）。ただしターミナル。§2.2 |
-| ── うち固定チャンクの目視 | マテリアル / ポストFX の**絵**を見る | GPU が要る。`./browser` runtime または外部ホストが Three namespace と canvas を接続し、固定ワールドデータを用意して実施する。 |
+| ── うち固定チャンクの目視 | マテリアル / ポストFX の**絵**を見る | **GPU が要る。§2.2 を見ること**。現状もっとも近いのは mc-compose の `pnpm e2e:browser`（空は出るがジオメトリは届かない） |
 
-> Node 上の構造・型・呼び出し契約と、GPU 上の見た目は別の検証面である。
-> 前者は本リポジトリのテストで検証し、後者は `./browser` runtime または Three namespace と
-> canvas を接続するブラウザ/QA ホストで検証する。
+> **この表は 1 度、実装より古くなったまま放置された。** 行は
+> 「未実装（THREE.js アダプタが要る。**まだ無い**）」と書いてあり、
+> 同じファイルの §2.2 と §12 は**同じ日付でアダプタの着地を詳述していた** ——
+> つまり矛盾は外部の情報ではなく、**このファイルの中で閉じていた**。
+> 表を直すときは §2.2 / §12 と突き合わせること。片方だけ直すのが、この状態の作り方である。
 
 GPU を必要としない部分の単体テストは、§3 で述べるとおり**意図的に厚くしてある**。
 内蔵プレビューはその厚みの上に立っており、同じ理由で端末に描く。
@@ -37,36 +39,49 @@ mc-render のプレビューは kit の**前**に作る必要がある——kit 
 kit を待っていると永遠に始まらない。つまり mc-render のプレビューだけは kit 無しで書く。
 これは重複ではなく、kit の設計に対する最初のフィードバックになる。**そうした。**
 
-### 2.2 「固定チャンクの目視」がまだ無い理由と、Node プレビューが見せるもの
+### 2.2 「固定チャンクの目視」がまだ無い理由と、代わりに何を見せているか
 
-コア入口は Three.js の実装に依存せず、構造的な surface に namespace を注入する。
-`./browser` は Three.js を使う明示的な実装入口であり、Node プレビューは GPU 描画ではなく、
-データと状態遷移を確認する。
+**この節の前提は 2026-07-28 に変わった。THREE シームは着地した。**
+以下、変わった部分と変わらなかった部分を分けて書く。
 
 #### 変わったこと
 
-`application/three-surface.ts`、`application/world-renderer.ts`、
-`application/world-renderer-production.ts` があり、
+`application/three-surface.ts` と `application/world-renderer.ts` があり、
 `render:draw` は `DrawPort` を呼ぶ。`domain/chunk-geometry.ts` は mc-meshing の
 quad を interleave した頂点バッファにする。**`tsconfig.base.json` の `lib` は
 `["ES2024"]` のまま、`types` は `[]` のままである** —— 予告では `"DOM"` が要ると
 書いてあったが、要らなかった（[versioning.md](./versioning.md) §5.1）。
 つまり上の段落が守りたかった機構的保証は**そのまま残っている**。
 
-`three` はブラウザ入口が使う runtime dependency で、`@types/three` は型検証用の
-`devDependency` である。コア入口と Node preview は直接 import せず、`src/browser.ts` が
-出荷物の明示的な Three 境界になる。
+`three` は `devDependencies` にある。出荷ソースは 1 行も import しない。
 
-#### この repo が所有しないこと ——「固定チャンクの目視」
+#### 変わっていないこと ——「固定チャンクの目視」は依然この repo に無い
 
-`apps/preview-render/` はターミナルプレビューである。`./browser` は実際の Three namespace、
-canvas、GPU コンテキストを接続できるが、固定ワールドデータとスクリーンショット受入れを
-含む fixture はホストアプリまたは CI が所有する。
+`apps/preview-render/` はターミナルプレビューのままである。ブラウザプレビューを
+足すには vite（もう 1 つの devDependency）と、このリポジトリが所有していない
+ワールドデータが要る。**代わりに、目視は mc-compose の `pnpm e2e:browser` にある** ——
+そこでは実際に WebGL2 コンテキストが取得され、フレームが回る
+（docs/e2e-triage.md #1、2026-07-28 に `fixme` を外した）。
+ただし**画面はスカイブルー 1 色である**。mc-worldgen も mc-meshing も
+mc-compose の vite alias で解決できる 3 つの兄弟に入っていないので、
+ジオメトリがページに到達しない。「コンテキストが無い」と「中身が無い」の区別が
+ついた、というのがこの変更の到達点である。
 
-判定はコミットメッセージではなくツリーとテストで行う。
-`application/three-surface.ts`、`application/world-renderer.ts`、
-`application/world-renderer-production.ts`、
-`test/three-surface.test.ts` が構造面の一次資料である。
+#### 判定方法についての注意は生きている
+
+一度「アダプタは着地済み」として扱われかけたことがある。
+`c99ac01` の**コミットメッセージ本文**は THREE シームを詳細に述べていた
+（narrow structural surface、mc-meshing の merged quads からのジオメトリ構築、`WorldRenderer`）。
+**その diff にシームは入っていなかった** —— 13 ファイルは
+`domain/particle-pool.ts` / `texture-atlas.ts` / `water-surface.ts` / `water-refraction.ts` と
+対応するテスト、および docs である。件名の「the **three** deferred mesh layers」の
+`three` は THREE.js ではなく**数の 3**（この 3 つのメッシュ層）を指す。
+
+したがって判定はコミットメッセージではなく**ツリー**で行うこと。
+現在なら `application/three-surface.ts` と `application/world-renderer.ts` が存在し、
+`test/three-surface.test.ts` が green であることが一次資料である。
+DN-02 §「数値の出所」は**コミットメッセージを見なかったことによる誤判定**を記録しているが、
+`c99ac01` は逆向きの失敗である。**どちらの方向にも、一次資料はツリーとテストであってメッセージではない。**
 
 そこで `apps/preview-render/` は、**実際にデータとしてモデル化されているもの**を出す。
 6 つのビューがある —— `input` / `postfx` / `material` / `mirror` / `scratch` / `stages`。
@@ -83,7 +98,7 @@ canvas、GPU コンテキストを接続できるが、固定ワールドデー�
 下の RND-1 / RND-2 はどちらも、テストがたまたま逆順で発行している 2 つのイベントを
 入れ替えただけで出てくる。
 
-`--stats` はかつて **8 件の発見**を出していた。**7 件は修正済み、1 件は「直さない」と決めて
+`--stats` はかつて **8 件の発見**を出していた。**6 件は修正済み、2 件は「直さない」と決めて
 テストで固定した。** どちらの場合も `test/` にテストがあり、そこでしか主張は CI で落ちない
 —— `--stats` の行はピンではない。
 
@@ -92,41 +107,47 @@ canvas、GPU コンテキストを接続できるが、固定ワールドデー�
 | RND-1 | `requested` は吸収状態。`blur` が保存し `requestPointerLock` は再送しない | **修正** | `test/input.test.ts` `REGRESSION: a blur ABANDONS a pending request rather than stranding the session` |
 | RND-2 | `endFrame` がどのフレームにも報告していないホイール段を消費する | **修正** | `REGRESSION: endFrame consumes what the FRAME was told, not what arrived after it` ほか 4 件 |
 | RND-3 | `blur` が `pointerLocked` を残すので、復帰クリックが `attack` になる | **修正** | `REGRESSION: blur ends the LOCKED SESSION, so the click that refocuses is not an attack` |
-| RND-4 | ミラーの初期状態が未発行を明示しない（`UNSET` のポーズに発行元 timestamp が無い） | **修正** | `test/stage-registration.test.ts` `before a pose arrives, startup mirror and gauge agree on unpublished state` |
+| RND-4 | ミラーの初期状態が自己矛盾（`UNSET` のポーズに `mirrorLagSecs = 0`） | **修正** | `test/stage-registration.test.ts`（未初期化は `undefined` として扱う） |
 | RND-5 | `MIRROR_LAG_WARNING_SECS` の doc が「Milliseconds」と書いている | **修正** | `test/camera-mirror.test.ts`（秒として比較していることは既に固定済み） |
 | RND-6 | `RenderRegistrationLayer` が `renderModule` の引数を捨てる | **修正（削除）** | `test/stage-registration.test.ts` `registers its stages against the InputService it itself provides` |
-| RND-7 | `withScratch` は非公開 native `Map` と lease facade で、返却後の wrapper / closure / 遅延 Effect / iterator の利用も捕まえる | **修正** | `test/frame-scratch.test.ts`（18 件） |
+| RND-7 | `withScratch` が捕まえるのは同一性エスケープだけ | **修正** | `test/frame-scratch.test.ts`（lease 外の view / wrapper / closure / iterator / Effect と foreign handle） |
 | RND-8 | `buildPostProcessingChain` が `high` と `ultra` に同一の配列を返す | **修正** | `test/post-processing.test.ts` `REGRESSION: \`high\` and \`ultra\` are DIFFERENT chains, and the composite step is why` |
 
-RND-7 は保留せず修正した。native `Map` は `ScratchMap` から非公開にし、scratch ごとに
-1 つだけ再利用する lease facade を `withScratch` の callback に渡す。借用中の map 操作と
-iterator の `next()` は有効期間を検査し、lease を直接返す場合だけでなく、wrapper / closure /
-遅延 Effect / iterator に閉じ込めて返却後に利用する場合も `ScratchMisuseError` になる。
-フレーム境界の外へ持ち出す値は `snapshotScratch` でコピーする。facade は borrow ごとに
-作らず、native `Map` は `clear()` して再利用する。
+保留分はない。RND-4 と RND-7 は実装と回帰テストで閉じた。
+
+ - **RND-4**: `MirroredCameraState.sourceCapturedAtSecs`、`mirrorLagSecs`、
+   `RenderFrameState.authoritativePose` を optional にし、mc-sim の最初の pose が届くまでを
+   「未初期化」として表現する。時計を読むステージの責務は変わらない。
+ - **RND-7**: `withScratch` は native `Map` を公開せず、scratch ごとに一度だけ作る
+   lease-checked view を渡す。view / wrapper / closure / iterator / deferred Effect の
+   lease 後アクセスを `ScratchMisuseError` にし、持ち出しは `snapshotScratch` に限定する。
 
 全件の詳細は [`apps/preview-render/README.md`](../apps/preview-render/README.md)。
 
-### 2.3 fixture の入手元
+### 2.3 fixture の入手元（THREE アダプタ着手時）
 
-固定チャンクの fixture は、ホストアプリが所有するワールドデータまたは
-mc-meshing のゴールデンデータから提供する。`apps/preview-render/` はその代わりではなく、
-GPU 無しで確かめられる入力・マテリアル・状態機械の確認場所である。
+参照実装の fixture を資産として移植する（plan.md §6 Step 2）。
+チャンク fixture は `packages/rendering/test/` および mc-meshing 側のゴールデンテスト用と共通化できる。
+そのときの目視テストは mc-playground-kit を要する。**現在のプレビューはその代わりではない。**
+GPU 無しで確かめられる半分であり、入力状態機械にいたっては他に置き場所が無い。
 
 ### 2.4 プレビューの依存
 
-`apps/preview-render/` は Node プレビューであり、実 Three namespace や DOM を直接 import しない。
-プレビューも `typecheck` と `lint` の対象で、ミラーの陳腐化は注入した
-`MonotonicTimeSecs` を操作者が動かして測る。依存境界は直接依存宣言と TypeScript の
-import graph で検証する。
+`apps/preview-render/` は**このリポジトリ自身のモジュールと `effect` しか import しない**。
+org パッケージも THREE も持たず、`tsconfig.preview.json` と `pnpm lint` で検証する。
+ミラーの陳腐化は注入した `MonotonicTimeSecs` を操作者が動かして測るため、
+ランタイムがグローバルな時計を直接読む設計にもしていない。
 
 ### 2.5 スクリーンショット比較の決定性 —— **実測して片付けた**
 
 アダプタが無くても、**比較側の未知**は先に潰せる。潰した。以下はすべて実測値である
-（Apple M4 Max / macOS、Playwright 1.59.1、640x480、`deviceScaleFactor: 1`、
-参照実装 `playwright.config.ts` と同じ launch フラグ、THREE 0.170.0 の
-`MeshLambertMaterial` + 平行光 + 環境光、16x16 チャンクを greedy merge した
-169 quad / 1690 三角形、カメラ固定）。
+（Apple macOS、Playwright、640x480、`deviceScaleFactor: 1`、参照実装と同じ
+launch フラグ、現行 `package.json` の THREE、`MeshLambertMaterial` + 平行光 + 環境光、
+16x16 チャンクを greedy merge した 169 quad / 1690 三角形、カメラ固定）。
+
+この節の画像測定値は参照実装条件での記録であり、現行依存関係でのブラウザ画像比較を
+完了したことを意味しない。現行の受け入れゲートは `pnpm test:coverage` と
+`pnpm build`、および将来追加する fixture / screenshot 検証である。
 
 #### 測定 1: SwiftShader は**ビット単位で決定的**である
 
@@ -220,8 +241,7 @@ SwiftShader と Metal（実 GPU、ANGLE Metal Renderer: Apple M4 Max）の同一
 
 ## 3. GPU を必要としないテストを厚くする方針
 
-**コア入口と Node preview のソースには THREE.js の runtime import が無い。**
-`src/browser.ts` は意図的なブラウザ境界として import する。これは設計判断で、根拠は 2 つある。
+**現在のソースには THREE.js が 1 行も無い。** これは設計判断で、根拠は 2 つある。
 
 ### 3.1 参照実装で「読むことでしか検査できなかった」知識をデータにする
 
@@ -267,23 +287,28 @@ E2E でも（ポインタロックが使えないので）単体でも（DOM が
 
 ## 4. 現在のテスト
 
-`vitest run` は `test/**/*.{test,spec}.ts` を Node 環境で実行する。テストは次の責務で分かれる。
+`pnpm test`（`vitest run`）が `test/**/*.test.ts` を実行する。すべて
+`environment: 'node'` であり、テスト数は固定値として文書化せず、実行時の Vitest 出力を
+一次資料とする。
 
-| 責務 | 主なテスト |
-| --- | --- |
-| 入力と DOM 境界 | `input`, `browser-input-adapter`, `touch-controls`, `gamepad-input`, `movement-keys` |
-| カメラ・描画ポリシー | `camera-mirror`, `post-processing`, `material-policy`, `chunk-shader`, `water-shader`, `water-surface`, `water-refraction`, `texture-atlas`, `block-texture-map` |
-| ジオメトリ・照明・同期 | `chunk-geometry`, `fluid-geometry`, `voxel-lighting`, `chunk-shader-geometry`, `chunk-store-lighting`, `chunk-store-mesher`, `world-sync`, `world-renderer`, `three-surface` |
-| シミュレーション由来の描画データ | `mob-visual`, `vehicle-visual`, `wither-visual`, `weather-renderer`, `weather-rendering`, `render-environment`, `level-of-detail` |
-| 実行基盤 | `frame-scratch`, `particle-pool`, `particle-system`, `worker-pool`, `frustum-culling`, `stage-registration` |
-
-Three surface tests establish structural assignability against real `three` types; they do not replace a browser/GPU visual fixture.
-
-### 4.1 公開済み mc-kernel の直接利用
-
-mc-kernel の語彙は公開 package から直接 import している。ローカルミラーと専用テストを
-残さないことで、実装と型契約の二重化を避け、`pnpm typecheck` が公開型との
-assignability を直接検査する。mc-kernel の変更は package の公開 API 差分としてレビューする。
+| ファイル | テスト数 | 対応 |
+| --- | ---: | --- |
+| `test/post-processing.test.ts` | 22 | DN-01 / DN-07 |
+| `test/input.test.ts` | 128 | DN-04 / DN-05 / DN-08 / DN-09 / DN-12 / DN-13 / DN-14 |
+| `test/browser-input-adapter.test.ts` | 77 | `window` アダプタ。DN-04（登録と解除）/ DN-12 / DN-13 / DN-14 / DN-15 |
+| `test/touch-controls.test.ts` | 23 | タッチ入力（DN-16 周辺） |
+| `test/movement-keys.test.ts` | 10 | 移動キーの語彙 |
+| `test/camera-mirror.test.ts` | 14 | DN-06 |
+| `test/frame-scratch.test.ts` | 18 | DN-03 |
+| `test/material-policy.test.ts` | 10 | DN-02 |
+| **`test/particle-pool.test.ts`** | **36** | **DN-17**（容量・drop-oldest・シード付き乱数） |
+| **`test/water-surface.test.ts`** | **31** | **DN-18**（水マテリアルと `forceSinglePass` の穴）/ DN-02 |
+| **`test/water-refraction.test.ts`** | **29** | **DN-18**（屈折プリパスのゲート 6 つとその順序） |
+| **`test/texture-atlas.test.ts`** | **19** | **DN-19**（レイアウト算術、RGBA生成、全マッピングcoverage、素材別alpha） |
+| **`test/world-renderer.test.ts`** | **20** | THREE シーム。呼び出しプロトコルのみ（§12.3） |
+| **`test/chunk-geometry.test.ts`** | **21** | merged extent と per-face AO（§12.2） |
+| **`test/three-surface.test.ts`** | **4** | 本物の `three` に対する構造的代入可能性の証明（§12.1） |
+| `test/stage-registration.test.ts` | 29 | `stages/` のフレーム位置と順序制約（public-api.md §6-2）+ クリック→ロック要求（DN-14）+ `render:draw` の `DrawPort` 呼び出し |
 
 ### 4.2 パーティクル / 水面で**押さえられなかった**もの
 
@@ -302,6 +327,12 @@ assignability を直接検査する。mc-kernel の変更は package の公開 A
 リップルが有界であること、フレネルが単調であること、
 正弦近似の誤差が 0.056 を超えないこと（**参照実装の数値を引用せず、この場で測っている**）、
 屈折ゲート 6 つの順序が答えを変えないこと（720 通り全数）。
+
+### 4.1 公開済み mc-kernel の直接利用
+
+mc-kernel の語彙は公開 package から直接 import している。ローカルミラーと専用テストを
+残さないことで、実装と型契約の二重化を避け、`pnpm typecheck` が公開型との
+assignability を直接検査する。mc-kernel の変更は package の公開 API 差分としてレビューする。
 
 ## 5. テストの書き方（本リポジトリの規約）
 
@@ -376,15 +407,17 @@ assert しているのは文字列の存在であって、数値の再現では�
 
 ### 5.7 規則が自分の書いた基準より狭いときは、**両方**を固定する
 
-`test/water-surface.test.ts` は、水面の `alphaTest: 0` を cutout と偽らず、
-`flatSurface: true` を意味論として与えた場合に `must-force-single-pass` になることを
-assert している。同時に `flatSurface: false` の閉じた透明体が `review-sharing` に残ることも
-固定している。[responsibility.md §2.1](./responsibility.md) の判定
-`shared && transparent+DoubleSide && (cutout || flatSurface)` と一致するため、
-旧来の `KNOWN GAP` は解消済みである。
+`test/water-surface.test.ts` に `KNOWN GAP:` で始まるテストがある。
+`domain/material-policy.ts` の述語が水マテリアルを `review-sharing` と判定すること
+——**参照実装がフラグを立てている**マテリアルについて —— を assert している。
 
-`alphaTest: 0` だけで水面を cutout 扱いすることはしない。平面性は Three のマテリアル
-フラグから復元できないので、`MaterialSpec.flatSurface` を供給側が明示する。
+正しい答えのほうだけを assert するのが自然に見えるが、それをやると
+**食い違いが消える**。共有述語を誰かが広げた日に、
+このテストが落ちて [responsibility.md §2.1](./responsibility.md) に導かれるのが望ましい挙動であり、
+「合成した側だけ緑」だとその日は静かに過ぎる。
+
+規則は書き換えていない。データも偽っていない（水面の `alphaTest` は本当に 0 である）。
+欠けた条項を値として置き、合成した。**3 つとも別々のテストで固定してある。**
 
 ### 5.8 参照実装が書いた数値は、測れるなら**引用せず測る**
 
@@ -399,34 +432,24 @@ assert している。同時に `flatSurface: false` の閉じた透明体が `r
 
 ## 6. カバレッジ
 
-`pnpm test:coverage` は v8 を使い、`src/index.ts`、`src/domain`、
-`src/application`、`src/stages` の実行可能コードを計測する。`three-surface.ts` は
-純粋な型シームとして除外し、実 Three の型宣言に対する TypeScript の検査と
-`test/three-surface.test.ts` で契約を確認する。
+`vitest.config.ts` は branches / functions / lines / statements の全指標に 100% の閾値を
+設定している。`pnpm test:coverage` はこの閾値を含む現行の品質ゲートであり、CI でも実行する。
 
-`vitest.config.ts` は statements / branches / functions / lines の 4 指標に 100% の閾値を設定する。
-このカバレッジはブラウザ/GPU 出力、テクスチャ転送、スクリーンショット比較を検証しない。
+カバレッジは Node 上で実行されるソースとテストの範囲を示す。GPU を使うブラウザ描画の
+見た目はカバレッジの代替にならないため、fixture 描画とスクリーンショット比較は別の
+検証として追加する。
 
 ## 7. CI
 
-`.github/workflows/ci.yaml` は、依存関係をインストールした後に型検査、Nix 上の lint、
-テスト、PR の changeset 検査、カバレッジ、package 検査を実行する。ローカルでは
-ツールチェーンを揃えるため `nix develop --command pnpm verify`、カバレッジまで含める場合は
-`nix develop --command pnpm test:coverage`、配布物まで含める場合は
-`nix develop --command pnpm pack:check` を使う。
+`.github/workflows/ci.yaml` は、型検査・lint・テスト・ビルド・カバレッジを個別に実行する。
 
 ```
-install --frozen-lockfile
-  → typecheck (build + test + preview + browser)
-  → lint (Nix 提供の oxlint)
+typecheck (build + test + preview)
+  → lint (oxlint)
   → test
-  → changeset status (pull request のみ)
-  → coverage (4 指標 100% ゲート)
-  → package check (build + tarball contents + manifest/exports + core/browser import probes)
+  → build
+  → coverage (100% 閾値、アーティファクト化)
 ```
-
-`check:deps` や API lock の独立ゲートは現在の構成にはない。直接依存宣言、TypeScript の
-import graph、`src/index.ts`、振る舞いテストがそれぞれの境界を検証する。
 
 スクリーンショット比較を入れる際の注意。**以前ここには「SwiftShader の非決定性に注意」と
 書いてあったが、それは誤りだった**（§2.5 で実測）。根拠として引いていたのは
@@ -455,24 +478,39 @@ import graph、`src/index.ts`、振る舞いテストがそれぞれの境界を
 
 ## 8. これから必要なテスト
 
-本リポジトリで残るテスト課題は、実装済みの structural/Node paths と
-host-owned visual paths を分けて扱う。
+[design-notes.md](./design-notes.md) の「（要追加）」印を参照。特に重要な未実装:
 
-| テスト | 状態 |
-| --- | --- |
-| production `WorldRenderer` の shader / water / instanced construction | Node 側の constructor / port contract tests と `./browser` の実装は済み。GPU 上の見た目は固定データを持つホスト/CI fixture で検証する |
-| browser fixture + screenshot | `./browser` runtime は実装済み。固定データ、canvas、GPU、スクリーンショット受入れを組み合わせる fixture はホスト/CI 側の残課題 |
-| worker-pool Port 適合 / dead worker replacement | `test/worker-pool.test.ts` で失敗通知、ワーカー交換、待機ジョブ解放を検証済み。`test/browser-worker-port.test.ts` で実 DOM `Worker` 型適合、message/error/terminate/transfer の adapter 経路を検証済み。実ブラウザ Worker の end-to-end 実行は host fixture の残課題 |
-| キーボードフォーカスのグループ内移動 | `focusNavigation` の direction / current / consumption 契約は実装済み。実 DOM の `focus()` と mx-ui の移動規則は host fixture で検証する |
-| 入力回帰 | 現在の state machine は既存テストでカバー済み |
+**「いつ」の列は 2026-07-28 に監査した。** 「アダプタ実装時」と書かれた 4 行のうち
+**2 行は条件が成立している**（シームは着地した）。条件が静かに真になった行を放置するのが、
+この表が信用されなくなる経路なので、成否を明示する。
 
-レンダラは **1 フレームを明示的に描いて戻る入口**を持つこと。rAF ループを内部に抱えたまま
-描き続ける設計は、スクリーンショットを決定的に駆動できない。
+| テスト | 対応 | いつ | 条件は成立したか |
+| --- | --- | --- | --- |
+| `the THREE adapter adds passes in exactly buildPostProcessingChain order` | DN-01 | ホストの EffectComposer アダプタが着地したとき | **mc-compose 側で成立。** mc-render の純粋なシームには Three.js の `EffectComposer` / `Pass` を入れず、ブラウザ実装は `mc-compose/apps/web/post-processing.ts` が検証対象として所有する |
+| `every shared material built by the adapter passes auditMaterials` | DN-02 | 起動時アサーションとして | **成立した。** `makeWorldRenderer` は共有 `MeshBasicMaterial` を 1 枚作る。ただし `describeMaterialPolicy` の入力である `MaterialSpec` を組む所がまだ無い |
+| `a full frame allocates no new Map` | DN-03 | シーム着地後 | **成立した。** `render:draw` は実体になった。未着手 |
+| `no source file in this repository reads camera.position` | DN-06 | 走査テストで | **成立した。ただし優先度は下がった** —— `ThreeSurface` の `ThreeVector3` は `set` しか持たず、`ThreeCamera` は読み出し口を持たない。**読む書き方が型として存在しない**ので、走査テストは型が既に保証しているものの二重化になる。書くなら「シームに getter が生えていないこと」を見るほうが強い |
+| `blur clears gamepad and touch state too` | DN-08 | それらの実装時 | **成立。** `test/touch-controls.test.ts`（25 件）と `test/gamepad-input.test.ts`（5 件）で、保持状態・軸・押下エッジを検証する |
+| ワーカープールの Port 適合 / 死んだワーカーの置き換え | DN-10 | プール実装時 | まだ |
+| fixture 描画 + スクリーンショット比較（許容差 0、SwiftShader 限定 skip 付き） | §2.5 | 描く対象が届いたとき | **アダプタ条件は成立、データ条件は未成立。** §1 の表と §2.2 を見ること。塞いでいるのはワールドデータであってアダプタではない |
+| 参照実装の入力テスト 1,261 LOC の移植 | — | 残り（[porting.md](./porting.md) §6） | — |
 
-### 8.1 解消済み: `window` 入力アダプタ
+**アダプタを書き始める前に決めておくこと（テストではなく設計制約）。**
+§2.5 の測定から出た要求は 1 つだけで、しかし**後から入れると高くつく**:
 
-`test/browser-input-adapter.test.ts` が、window アダプタのリスナー、wheel、pointer lock を
-**実装済み**として検証する。
+> レンダラは **1 フレームを明示的に描いて戻る入口**を持つこと。
+> rAF ループを内部に抱えたまま「描きっぱなし」にしないこと。
+
+自前の rAF ループを持つレンダラは**テストから決定的に駆動できない**。
+ループを埋め込んだ後でフレームステップの入口を後付けするには、
+生存期間と順序の前提を全体にわたって解きほぐすことになる。
+だからこれは「スクリーンショットテストを書く人の要望」ではなく
+**アダプタの仕様に最初から入れる制約**である。
+測定 2（rAF + 固定待ちで 5 回とも別画像、最悪 1.196% / 最大チャンネル差 103）がその根拠。
+
+### 8.1 解消済み: `window` 入力アダプタの 5 本
+
+かつてこの表にあった以下は `test/browser-input-adapter.test.ts`（49 テスト）で**実装済み**である。
 
 | テスト | 対応 |
 | --- | --- |
@@ -497,35 +535,26 @@ DOM は**偽物**で駆動している。§5.2 の「ブラウザを要するテ
 
 ### 8.2 キーボードフォーカス（DN-16）
 
-`test/input.test.ts` と `test/browser-input-adapter.test.ts` が、フォーカスを
-level として扱うこと、ロック中に視覚状態をマスクすること、Tab を奪わないことを検証する。
-矢印キーは `focusNavigation` を通じて host-owned の移動へ委譲し、消費されたときだけ
-ブラウザ既定動作を抑止する。
-全表は [design-notes.md](./design-notes.md) DN-16 にある。
+`test/input.test.ts` に 3 describe、`test/browser-input-adapter.test.ts` に 2 describe。
+全表は [design-notes.md](./design-notes.md) DN-16 にある。**この 3 本が要**である。
 
 | テスト | 何を守るか |
 | --- | --- |
 | `REGRESSION: no focus handler EVER calls preventDefault` | Tab を奪えばキーボードトラップ（WCAG 2.1 SC 2.1.2）。実リスナ越しに、ロック中でも 0 件であることを assert する |
 | `REGRESSION: the lock MASKS the focus, it does not forget it` | ロック中に消すと、明けたときリングとブラウザのフォーカスがずれる |
 | `endFrame does NOT clear it: focus is a LEVEL, like pressed and unlike justPressed` | フレーム境界の一貫性。エッジ扱いにするとリングがリフレッシュレートで点滅する |
-| `a consumed arrow delegates the move and suppresses only that browser default` | host が現在位置を受け取り、移動を消費した矢印だけを抑止する |
-| `an unconsumed or unrelated key stays on the ordinary input path` | 境界キーと通常キーを入力サービスへ残す |
-| `arrow navigation is disabled while locked and outside declared focus groups` | ロック中または対象外では host 移動を呼ばない |
-| `maps every supported browser code to its semantic direction` | `Arrow*` と意味方向の対応を固定する |
 
 `focusin` / `focusout` も偽 DOM で駆動している。フォーカスは Playwright なら実在するが、
 **ロック中の分岐は相変わらず届かない**（§3.2）ので、
 「ロック中はリングを出さない」は node 側でしか押さえられない。
 
-矢印キーの repo 内の契約には、意図的な空白はない。`focusNavigation` は direction と現在の
-`FocusTarget` を host に渡し、`true` のときだけその keydown を消費する。callback が次の要素を
-選び、実際に `focus()` を呼び、mx-ui の inventory / hotbar 規則へ接続する部分は host の責務である。
-実ブラウザのフォーカス移動と mx-ui への配線は、GPU / browser fixture と同じ host 側受入れに残る。
+**このうち 1 つには意図的にテストが無い**（[design-notes.md](./design-notes.md) DN-16 §5(a)）。
+無いのは実装が無いからであり、テストの穴ではない。ここに書いておくのは、
+§8.2 の表を「フォーカスまわりは全部押さえてある」と読まれないようにするためである。
 
-| host-owned の残る確認 | 理由 |
+| 未実装 | なぜ今テストが無いか |
 | --- | --- |
-| 実 DOM で矢印キーが次の要素へ `focus()` する | focusable element と移動トポロジーは host / mx-ui の契約であり、mc-render は DOM 要素の配列を所有しない |
-| inventory / hotbar が矢印を二重処理しない | mx-ui が inventory の keydown を所有する場合、host は同じキーの所有者を一つに定める必要がある |
+| 矢印キーでグループ**内**を移動する | `focus()` を呼ぶ主体がまだ無い。入れるには `dom-surface.ts` に動詞が 1 つ増え、DN-15 の代入可能性の証明をやり直すことになる。どのキーが移動するか、ロック中はどう振る舞うかは mx-ui と一緒に決める |
 
 **もう 1 つ（HUD の上のクリックがロック要求になる）は閉じた**（DN-16 §5(b)）。
 `acquiresPointerLock` は `(button, state, landing)` になり、`landing` は
@@ -542,36 +571,38 @@ level として扱うこと、ロック中に視覚状態をマスクするこ�
 without a cast` はそのまま通る。フィクスチャには「ロック対象を `===` でしか触らない」ハンドラを
 1 つ足してあり、`contains` に手を伸ばした瞬間にそこが落ちる。
 
-前者はフィクスチャを `ts.createProgram` で**テストの中からコンパイル**する。
-この検査には compiler API が必要なため、`typescript-compiler-api`（TypeScript 6 の
-npm alias）を使う。TypeScript 7 の公開 runtime package は version metadata だけを公開し、
-`createProgram` や `readConfigFile` を提供しないためである。通常の型検査・ビルドは
-TypeScript 7 を使い、compiler API を直接呼ぶテストだけを TypeScript 6 に固定する。
-この二重化は互換層ではなく、異なる公開 API を持つツール境界である。
+前者はフィクスチャを `test/typescript-project.ts` の
+`inspectTypeScriptFixture` で**テストの中からコンパイル**する。
+TypeScript 7 の `typescript/unstable/sync` API を使い、fixture が実際に開いた
+プログラムの診断と解決済みソースを検査する。
 フィクスチャは `tsconfig.json` / `tsconfig.test.json` から `test/fixtures/**` として除外してある。
 DOM 型を名指しするのが目的のファイルであり、DOM の無いプロジェクトに入れれば落ちるだけで、
 出荷プロジェクトに入れれば `"DOM"` が裏口から入ったのと同じになる。
 
-公開面の検証は API lock ファイルではなく、`src/index.ts` と各パッケージの
-`typecheck`、および振る舞いテストで行う。ブラウザ/GPU/PNG の検証だけは
-Three namespace と canvas を所有するホスト fixture に残る。
+API ロックの生成器・ロックファイル・専用コマンドはこのパッケージには置かない。
+公開面は `package.json` の `exports` と `tsconfig.build.json` の declaration 出力で定義し、
+`pnpm typecheck`、`pnpm build`、`pnpm pack --dry-run` と実行時 import で検証する。
+詳細は [public-api.md](./public-api.md) の「公開 API と package 検証」を参照する。
 
-## 9. 現行 lint/typecheck の対象
+## 9. `stages/` の検証範囲
 
-`package.json` の `lint` / `lint:fix` は `src apps scripts test` を対象にする。
-`typecheck` は build / test / preview / browser の各 tsconfig を実行し、公開 index から到達する stages も検査する。
-依存境界は package.json の直接依存宣言と TypeScript import graph で検証し、別の `check:deps` スクリプトは持たない。
+`stages/` は現在の各検証に含まれている。
 
-## 12. Three surface と renderer path のテスト
+- `pnpm typecheck` は `stages/` を見る。`tsconfig.build.json` / `tsconfig.test.json` の
+  `include` に足してあり、加えて `index.ts` が `stages/registration.ts` を re-export しているので、
+  `include` が無くても tsc のプログラムには入る。
+- `pnpm lint` は `stages/` を明示的に走査する。
+- `pnpm test` は `stages/` を `test/stage-registration.test.ts` 経由で実行する。
 
-構造的 Three surface、ジオメトリ、WorldRenderer のテストは、
-それぞれ異なる契約を検証する。
+## 12. THREE シームのテスト（2026-07-28）
+
+3 ファイル増えた。それぞれ**何を主張し、何を主張しないか**が違う。
 
 ### 12.1 `test/three-surface.test.ts` —— 型の証明であって、実行の証明ではない
 
 `test/fixtures/three-surface.ts` を `lib: ["ES2022", "DOM"]` と**本物の `three`** に
 対してコンパイルし、診断 0 件を主張する。`test/browser-input-adapter.test.ts` 末尾の
-DOM 証明と同じ機構である（`ts.createProgram` を直接叩く）。
+DOM 証明と同じ `inspectTypeScriptFixture` の機構である。
 
 **これが必要な理由は 1 つ**: `application/three-surface.ts` の型が正しいかどうかを、
 `pnpm typecheck` は原理的に判定できない。そのプロジェクトには `three` も DOM も無く、
@@ -584,13 +615,12 @@ DOM 証明と同じ機構である（`ts.createProgram` を直接叩く）。
 | `ThreeMaterial` に `dispose` を持たせる | `Mesh` の第 2 引数は `Material \| Material[]` で、**配列に `dispose` は無い** |
 | `ThreeCamera` に `aspect` を持たせる | `WebGLRenderer.render` が取るのは `Camera` で、`aspect` は `PerspectiveCamera` にしか無い |
 
-同じテストが 3 つの周辺事実も固定している: コア用 `tsconfig.build.json` が
-`lib: ["ES2024"]` / `types: []` のままであること、コア出荷面に `three` の import が
-無く、**`src/browser.ts` を root とする browser entry graph だけが意図した runtime 境界であること**（grep。
-`src/browser-water-visibility.ts` など、その graph から到達する Three import は含む。`skipLibCheck` が
-あるので型検査では見えない）、`three` と `@types/three` のバージョン文字列が一致していること。
+同じテストが 3 つの周辺事実も固定している: `tsconfig.build.json` が
+`lib: ["ES2024"]` / `types: []` のままであること、**出荷ファイルに `three` の import が
+1 つも無いこと**（grep。`skipLibCheck` があるので型検査では見えない）、
+`three` と `@types/three` のバージョン文字列が一致していること。
 
-### 12.2 chunk geometry と voxel lighting
+### 12.2 `test/chunk-geometry.test.ts` —— merged extent と per-face AO
 
 **この 2 つが load-bearing である。**
 
@@ -612,10 +642,6 @@ per-vertex AO と greedy merge は本質的に両立しない）。テストは
 golden は 1 quad 分を全バイト書き下してある（plan.md §3.3 はハッシュを要求しているが、
 ハッシュは「何かが動いた」しか言わない）。
 
-Cross-plant と fluid の geometry は同じ projection path で検証し、
-`voxel-lighting.test.ts` と `block-texture-map.test.ts` がサンプル位置、
-面方向、テクスチャ役割を検証する。
-
 ### 12.3 `test/world-renderer.test.ts` —— 呼び出しプロトコルだけ
 
 `test/support/fake-three.ts` を使う。**そのファイルのヘッダに、この fake が
@@ -634,10 +660,13 @@ index がバッファをはみ出していないか、`dispose` が本当に解�
 - `draw` が **mirrored** カメラを書き込む。authoritative pose を渡す実装は
   「view bob だけが静かに効かなくなった正しく見える世界」を描く
 
-### 12.4 ブラウザ/GPU の検証
+### 12.4 目視の実測（2026-07-28）
 
-Node の fake surface は実 Three のアップロード、WebGL context、カリング、深度、
-dispose、スクリーンショットを検証しない。`./browser` runtime は実 Three と canvas を
-接続するが、固定ワールドデータ、GPU、スクリーンショット受入れを所有するホスト fixture が
-その検証を担当する。このリポジトリでは fixture の入力契約と Node 側の呼び出し契約までを
-検証する。
+fake が「主張できない」と書いた側 —— バッファが本当にアップロードでき、
+巻き順が正しく、AO が実際に見えるか —— は、mc-compose のページに
+一時的にジオメトリを流し込んで**スクリーンショットで確認した**（コミットには含まれない）。
+merged な 16x15 の床が正しい遠近で出て、ao=0 の壁が白、ao=3 の壁が濃いグレー、
+ao=1 の `xNeg` 壁が薄いグレーで、いずれもカリングされずに出た。
+
+**この確認は自動化されていない。** ワールドデータが mc-compose に届くようになった時点で、
+`docs/e2e-triage.md` にピクセル主張の行を足すべきである。

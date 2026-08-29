@@ -260,6 +260,25 @@ describe('cancellation', () => {
     }),
   )
 
+  it.effect('does not cancel a queued job under a different key', () =>
+    Effect.gen(function* () {
+      const [worker] = workers(1)
+      if (worker === undefined) {throw new Error('no worker')}
+      const pool = yield* makeWorkerPool([worker])
+
+      const running = yield* Effect.fork(pool.submit('running', { chunk: 'running' }))
+      yield* settle
+      const queued = yield* Effect.fork(pool.submit('queued', { chunk: 'queued' }))
+      yield* settle
+
+      expect(yield* pool.cancel('other')).toBe(0)
+      yield* pool.shutdown
+
+      expect(yield* Fiber.join(running)).toStrictEqual({ _tag: 'cancelled' })
+      expect(yield* Fiber.join(queued)).toStrictEqual({ _tag: 'cancelled' })
+    }),
+  )
+
   it.effect('one key submitted twice cancels both', () =>
     Effect.gen(function* () {
       // `world-sync` can dirty the same chunk twice before the first result
@@ -476,6 +495,22 @@ describe('shutdown', () => {
       expect(yield* Fiber.join(queued)).toStrictEqual({ _tag: 'cancelled' })
       expect(yield* Fiber.join(alsoQueued)).toStrictEqual({ _tag: 'cancelled' })
       expect(pool_workers.every((worker) => worker.terminated())).toBe(true)
+    }),
+  )
+
+  it.effect('shutdown leaves an already-discarded running reply inert', () =>
+    Effect.gen(function* () {
+      const [worker] = workers(1)
+      if (worker === undefined) {throw new Error('no worker')}
+      const pool = yield* makeWorkerPool([worker])
+
+      const running = yield* Effect.fork(pool.submit('a', { chunk: 'a' }))
+      yield* settle
+      expect(yield* pool.cancel('a')).toBe(1)
+      expect(yield* Fiber.join(running)).toStrictEqual({ _tag: 'cancelled' })
+
+      yield* pool.shutdown
+      expect(worker.terminated()).toBe(true)
     }),
   )
 

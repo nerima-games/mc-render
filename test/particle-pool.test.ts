@@ -462,6 +462,30 @@ describe('eviction, when the pool is full', () => {
     }),
   )
 
+  it.effect('skips a non-zero lifetime while searching for a free slot', () =>
+    Effect.sync(() => {
+      const pool = makeParticlePool({ capacity: 2, seed: 7 })
+      pool.lifetimesSecs[0] = Number.NaN
+
+      expect(spawnBurst(pool, 0, 0, 0, 0, 0, 1)).toBe(1)
+      expect(pool.activeCount()).toBe(1)
+      expect(pool.evictionCount()).toBe(0)
+      expect(pool.lifetimesSecs[0]).toBeNaN()
+      expect(pool.lifetimesSecs[1]).toBeCloseTo(PARTICLE_LIFETIME_SECS, 6)
+    }),
+  )
+
+  it.effect('falls back to eviction when the live-slot metadata has no free slot', () =>
+    Effect.sync(() => {
+      const pool = makeParticlePool({ capacity: 2, seed: 7 })
+      pool.lifetimesSecs.fill(PARTICLE_LIFETIME_SECS)
+
+      expect(spawnBurst(pool, 0, 0, 0, 0, 0, 1)).toBe(1)
+      expect(pool.evictionCount()).toBe(1)
+      expect(pool.lifetimesSecs[0]).toBeCloseTo(PARTICLE_LIFETIME_SECS, 6)
+    }),
+  )
+
   it.effect('it evicts the OLDEST particle', () =>
     Effect.sync(() => {
       const pool = makeParticlePool({ capacity: 4, seed: 7 })

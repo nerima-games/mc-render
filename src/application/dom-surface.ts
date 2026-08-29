@@ -23,12 +23,10 @@
  *      for months.
  *
  *   2. A second tsconfig project that compiles only adapter files with
- *      `lib: ["ES2024", "DOM"]`. Rejected on a mechanical consequence rather
- *      because it splits the shipped source contract: `src/index.ts` and
- *      `tsconfig.build.json` would no longer describe one reachable public
- *      surface, while the normal typecheck would not prove the adapter's
- *      relationship to the host types. An adapter outside the build project
- *      would therefore be unusable by the previews it exists for.
+ *      `lib: ["ES2024", "DOM"]`. Rejected because it would create a second
+ *      publishing boundary and make declarations depend on a project that is
+ *      not the package build. `tsconfig.build.json` is the sole emitting
+ *      project; the test and preview projects are verification-only.
  *
  *   3. DESCRIBE, structurally, the handful of DOM members the adapter actually
  *      uses. Chosen.

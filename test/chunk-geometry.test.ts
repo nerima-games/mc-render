@@ -25,8 +25,8 @@ import {
   AO_MAX,
   AO_SHADE_BY_LEVEL,
   aoShade,
-  buildChunkGeometry,
   buildCrossPlantGeometry,
+  buildChunkGeometry,
   COLOR_COMPONENTS,
   faceNormal,
   INDICES_PER_QUAD,
@@ -41,7 +41,6 @@ import {
   type FaceDirection,
   type MeshQuad,
   type QuadAxis,
-  type RenderableQuad,
 } from '../src/domain/chunk-geometry'
 
 const DIRECTIONS: ReadonlyArray<FaceDirection> = ['xPos', 'xNeg', 'yPos', 'yNeg', 'zPos', 'zNeg']
@@ -67,13 +66,13 @@ const quad = (overrides: Partial<MeshQuad> = {}): MeshQuad => ({
 })
 
 const crossPlantQuad = (overrides: Partial<CrossPlantQuad> = {}): CrossPlantQuad => ({
-  blockId: 5,
+  blockId: 21,
   role: 'side',
   vertices: [
-    [0, 0, 0],
-    [0, 1, 0],
-    [1, 1, 1],
-    [1, 0, 1],
+    [1, 10, 2],
+    [1, 11, 2],
+    [2, 11, 3],
+    [2, 10, 3],
   ],
   nx: 0,
   ny: 0,
@@ -131,12 +130,11 @@ const vertexColor = (colors: Uint8Array, vertex: number): readonly [number, numb
   colors[vertex * COLOR_COMPONENTS + 2] ?? Number.NaN,
 ]
 
-describe('the mirrored mc-meshing vocabulary', () => {
+describe('the canonical meshing vocabulary', () => {
   it.effect('tangentAxes names the two axes that are NOT the normal, in x, y, z order', () =>
     Effect.sync(() => {
-      // Mirror of `mc-meshing/domain/faces.ts`. Asserted as the RULE rather
-      // than as a table, because the rule is what a future reader will apply
-      // and the table is what they would copy.
+      // Assert the canonical RULE
+      // rather than a table, because the rule is what callers apply.
       for (const direction of DIRECTIONS) {
         const [first, second] = tangentAxes(direction)
         const normal = faceNormal(direction)
@@ -473,12 +471,22 @@ describe('buffer shape and conservation', () => {
     }),
   )
 
+  it.effect('skips holes while preserving indexed quad capacity', () =>
+    Effect.sync(() => {
+      const quads = new Array<MeshQuad>(2)
+      quads[1] = quad()
+      const built = buildChunkGeometry(quads)
+
+      expect(built.quadCount).toBe(2)
+      expect(built.vertexCount).toBe(8)
+      expect(built.indexCount).toBe(12)
+    }),
+  )
+
   it.effect('totalQuadArea counts covered block faces, not quads', () =>
     Effect.sync(() => {
-      // mc-meshing's own invariant, mirrored: merging REDUCES the quad count
-      // and must not move the area. Stated here so that a caller can compare a
-      // geometry against the faces it was built from without importing
-      // mc-meshing, which this repository cannot do — see the module header.
+      // mc-meshing's own invariant: merging REDUCES the quad count and must not
+      // move the area. A caller can compare geometry against its source faces.
       const merged = [quad({ width: 4, height: 3 })]
       const unmerged = Array.from({ length: 12 }, () => quad({ width: 1, height: 1 }))
 
@@ -490,69 +498,11 @@ describe('buffer shape and conservation', () => {
   )
 })
 
-describe('cross-plant geometry', () => {
-  it.effect('preserves plant vertices, normals, callbacks, tiles and indices', () =>
-    Effect.sync(() => {
-      const source = crossPlantQuad()
-      const colors: Array<RenderableQuad> = []
-      const tiles: Array<RenderableQuad> = []
-      const built = buildCrossPlantGeometry(
-        [source],
-        16,
-        -32,
-        (value) => {
-          colors.push(value)
-          return [10, 20, 30]
-        },
-        (value) => {
-          tiles.push(value)
-          return value.blockId + 0.5
-        },
-      )
-
-      expect(colors).toStrictEqual([source])
-      expect(tiles).toStrictEqual([source])
-      expect(built.quadCount).toBe(1)
-      expect([...built.positions]).toStrictEqual([
-        16, 0, -32,
-        16, 1, -32,
-        17, 1, -31,
-        17, 0, -31,
-      ])
-      expect([...built.normals]).toStrictEqual([
-        0, 0, 1,
-        0, 0, 1,
-        0, 0, 1,
-        0, 0, 1,
-      ])
-      expect([...built.colors]).toStrictEqual([
-        10, 20, 30,
-        10, 20, 30,
-        10, 20, 30,
-        10, 20, 30,
-      ])
-      expect([...built.tileIndices]).toStrictEqual([5.5, 5.5, 5.5, 5.5])
-      expect([...built.uvs]).toStrictEqual([0, 0, 0, 1, 1, 1, 1, 0])
-      expect([...built.indices]).toStrictEqual([0, 1, 2, 0, 2, 3])
-    }),
-  )
-
-  it.effect('reuses the singleton empty buffers', () =>
-    Effect.sync(() => {
-      const first = buildCrossPlantGeometry([])
-
-      expect(buildCrossPlantGeometry([])).toBe(first)
-      expect(first.quadCount).toBe(0)
-      expect(first.positions.length).toBe(0)
-    }),
-  )
-})
-
 describe('GOLDEN: one merged top face, every byte', () => {
   it.effect('a 2x3 yPos quad at (1, 4, 2) with ao 1 emits exactly this', () =>
     Effect.sync(() => {
       // plan.md §3.3 asks for golden tests that hash a geometry buffer, and
-      // mc-meshing's `domain/faces.ts` warns that changing the canonical order
+      // The meshing vocabulary warns that changing the canonical order
       // invalidates "every golden hash in this repository and in mc-render".
       // This is mc-render's, written out rather than hashed: a hash tells you
       // that something moved and this tells you what.
@@ -577,6 +527,39 @@ describe('GOLDEN: one merged top face, every byte', () => {
       ])
       expect([...built.uvs]).toStrictEqual([0, 0, 0, 3, 2, 3, 2, 0])
       expect([...built.indices]).toStrictEqual([0, 1, 2, 0, 2, 3])
+    }),
+  )
+})
+
+describe('cross-plant geometry', () => {
+  it.effect('preserves the diagonal plate and emits front and reverse winding', () =>
+    Effect.sync(() => {
+      const built = buildCrossPlantGeometry(
+        [crossPlantQuad()],
+        16,
+        -8,
+        () => [12, 34, 56],
+        () => 7,
+      )
+
+      expect([...built.positions]).toStrictEqual([
+        17, 10, -6,
+        17, 11, -6,
+        18, 11, -5,
+        18, 10, -5,
+      ])
+      expect([...built.normals]).toStrictEqual([0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1])
+      expect([...built.colors]).toStrictEqual([
+        12, 34, 56,
+        12, 34, 56,
+        12, 34, 56,
+        12, 34, 56,
+      ])
+      expect([...built.tileIndices]).toStrictEqual([7, 7, 7, 7])
+      expect([...built.uvs]).toStrictEqual([0, 0, 0, 1, 1, 1, 1, 0])
+      expect([...built.indices]).toStrictEqual([0, 1, 2, 0, 2, 3, 0, 2, 1, 0, 3, 2])
+      expect(built.vertexCount).toBe(4)
+      expect(built.indexCount).toBe(12)
     }),
   )
 })

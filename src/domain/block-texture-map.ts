@@ -8,8 +8,7 @@
  * only one of them changes when a texture is redrawn.
  *
  * ---------------------------------------------------------------------------
- * THE TABLE COULD NOT BE TRANSCRIBED INDEX-WISE. THE BLOCK IDS ARE NOT THE
- * SAME IDS.
+ * THE TABLE COULD NOT BE TRANSCRIBED. THE BLOCK IDS ARE NOT THE SAME IDS.
  * ---------------------------------------------------------------------------
  *
  * This is the whole reason the file has a header rather than a one-line comment.
@@ -82,26 +81,34 @@
  * WHAT THIS FILE DOES NOT DO: EMIT UVs
  * ---------------------------------------------------------------------------
  *
+ * A tile index is not yet a texture coordinate on a chunk face, and the gap is
+ * the same missing noun `./voxel-lighting.ts` names — a `ShaderMaterial` in
+ * `application/three-surface.ts`.
+ *
  * `./chunk-geometry.ts`'s `quadUvExtent` emits UVs in BLOCK units: a merged
  * 16x1 quad gets `u` running 0..16, carrying the reference's comment for why —
  * "keeping UVs in block units lets the shader repeat the selected atlas tile
  * once per block instead of stretching one texel tile across the whole merged
- * face". `./chunk-shader.ts` does that work in the production path.
- * `THREE.RepeatWrapping` repeats the WHOLE IMAGE, not a tile inside it, so
- * feeding those UVs to a
+ * face". THE SHADER IS DOING THE WORK IN THAT SENTENCE. `THREE.RepeatWrapping`
+ * repeats the WHOLE IMAGE, not a tile inside it, so feeding those UVs to a
  * plain textured `MeshBasicMaterial` tiles the entire 512x512 atlas sixteen
  * times across one merged face.
  *
- * The production path keeps the merged geometry and resolves the tile in the
- * shader. A plain textured `MeshBasicMaterial` remains unsuitable for this
- * buffer layout, because it cannot use the per-vertex tile index to select a
- * sub-rectangle of the atlas.
+ * The three ways out, so the next reader does not have to re-derive them:
+ * add the shader and keep merging; stop merging and emit per-block quads, which
+ * gives back the 99.8% triangle reduction docs/design-notes.md M-9 measured;
+ * or pad every tile with its own repeated border, which costs atlas space and
+ * still breaks at high mip levels. The first is the reference's answer and the
+ * only one that keeps a measurement this organisation has already paid for.
  *
- * The table also feeds `./particle-pool.ts`, which uses a per-particle UV
- * offset to sample the block a particle was broken from. A particle quad is a
+ * The table is nonetheless useful before any of that, and not only as
+ * groundwork: `./particle-pool.ts` needs a per-particle UV offset to sample the
+ * block a particle was broken from, and `./texture-atlas.ts`'s header already
+ * names that as a dependency rather than a side-quest. A particle quad is a
  * single unit face, so it has none of the merged-repeat problem above.
  */
-import type { FaceRole, QuadTile, RenderableQuad } from './chunk-geometry'
+import type { FaceRole } from './meshing-vocabulary'
+import type { QuadTile } from './chunk-geometry'
 
 /** The three tiles a block shows: one per texturing role. */
 export type TileAssignment = Readonly<Record<FaceRole, number>>
@@ -313,20 +320,10 @@ export const tileIndexResolver =
  * table. Putting the adapter beside the table keeps the arrow single; putting it
  * beside the type would make it a cycle.
  */
-const faceRoleForRenderableQuad = (quad: RenderableQuad): FaceRole => {
-  if ('role' in quad) {
-    return quad.role
-  }
-  if (quad.direction === 'yPos') {
-    return 'top'
-  }
-  return 'side'
-}
-
 export const quadTileFromResolver =
   (resolve: (blockId: number, role: FaceRole) => number): QuadTile =>
   (quad) =>
-    resolve(quad.blockId, faceRoleForRenderableQuad(quad))
+    resolve(quad.blockId, quad.role)
 
 /**
  * The whole binding in one call: a host's `id -> name` becomes a `QuadTile`.

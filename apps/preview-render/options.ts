@@ -135,7 +135,8 @@ export const parseArguments = (argv: ReadonlyArray<string>): PreviewOptions => {
     const takeValue = (): string | undefined => inlineValue ?? queue.shift()
 
     switch (flag) {
-      // Accept the literal separator from npm-style invocations.
+      // pnpm forwards a literal `--` into argv when someone writes
+      // `pnpm preview -- --stats` out of npm habit.
       case '--':
         break
       case '--help':

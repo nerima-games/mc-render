@@ -21,7 +21,6 @@ import {
   type CrossPlantQuad,
   type FaceDirection,
   type MeshQuad,
-  type FluidQuad,
 } from '../src/domain/chunk-geometry'
 import { LIGHT_LEVEL_MAX } from '@nerima-games/mc-kernel'
 import {
@@ -38,8 +37,8 @@ import {
   combinedShadeFactor,
   effectiveLightLevel,
   faceBrightness,
+  lightSampleForGeometryQuad,
   lightSamplePoint,
-  lightSamplePointForRenderableQuad,
   lightShadeFactor,
   litColor,
   litShade,
@@ -73,31 +72,18 @@ const quad = (overrides: Partial<MeshQuad> = {}): MeshQuad => ({
   ...overrides,
 })
 
-const fluidQuad = (overrides: Partial<FluidQuad> = {}): FluidQuad => ({
-  blockId: 7,
-  direction: 'yPos',
-  vertices: [
-    [5, 64.75, 7],
-    [6, 64.75, 7],
-    [6, 64.75, 8],
-    [5, 64.75, 8],
-  ],
-  ao: 0,
-  ...overrides,
-})
-
-const crossPlant = (overrides: Partial<CrossPlantQuad> = {}): CrossPlantQuad => ({
-  blockId: 8,
+const crossPlantQuad = (overrides: Partial<CrossPlantQuad> = {}): CrossPlantQuad => ({
+  blockId: 21,
   role: 'side',
   vertices: [
-    [5, 64, 7],
-    [5, 65, 7],
-    [6, 65, 8],
-    [6, 64, 8],
+    [0, 64, 0],
+    [0, 65, 0],
+    [1, 65, 1],
+    [1, 64, 1],
   ],
   nx: 0,
-  ny: 1,
-  nz: 0,
+  ny: 0,
+  nz: 1,
   ao: 0,
   ...overrides,
 })
@@ -335,35 +321,6 @@ describe('the sample point', () => {
     }),
   )
 
-  it.effect('centres non-cubic renderables and samples along their explicit normal', () =>
-    Effect.sync(() => {
-      expect(lightSamplePointForRenderableQuad(fluidQuad())).toStrictEqual([6, 65.75, 8])
-      expect(
-        lightSamplePointForRenderableQuad(crossPlant({ nx: 0, ny: 0, nz: 1 })),
-      ).toStrictEqual([6, 65, 8.5])
-    }),
-  )
-
-  it.effect('maps a cross-plant normal to the matching face brightness direction', () =>
-    Effect.sync(() => {
-      const lit = litShade(FULLY_LIT)
-      const cases: ReadonlyArray<readonly [CrossPlantQuad, FaceDirection]> = [
-        [crossPlant({ nx: 0, ny: 1, nz: 0 }), 'yPos'],
-        [crossPlant({ nx: 0, ny: -1, nz: 0 }), 'yNeg'],
-        [crossPlant({ nx: 1, ny: 0, nz: 0 }), 'xPos'],
-        [crossPlant({ nx: -1, ny: 0, nz: 0 }), 'xNeg'],
-        [crossPlant({ nx: 0, ny: 0, nz: 1 }), 'zPos'],
-        [crossPlant({ nx: 0, ny: 0, nz: -1 }), 'zNeg'],
-      ]
-
-      for (const [plant, direction] of cases) {
-        expect(lit(plant)).toBe(
-          combinedShadeByte(FULL_LIGHT, 0, { direction, skyIntensity: 1 }),
-        )
-      }
-    }),
-  )
-
   it.effect('lands inside a cell rather than on the seam between two', () =>
     Effect.sync(() => {
       // The half-block offset on the tangent axes. A sample exactly on an
@@ -371,6 +328,15 @@ describe('the sample point', () => {
       // of the two cells it picks would depend on the sign of the coordinate.
       const [x, y, z] = lightSamplePoint({ lx: 0, y: 0, lz: 0 }, faceNormal('yPos'))
       expect([x, y, z]).toStrictEqual([0.5, 1, 0.5])
+    }),
+  )
+
+  it.effect('samples a cross plant at its geometric centre', () =>
+    Effect.sync(() => {
+      expect(lightSampleForGeometryQuad(crossPlantQuad())).toStrictEqual({
+        direction: 'yPos',
+        point: [0.5, 64.5, 0.5],
+      })
     }),
   )
 })

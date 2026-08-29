@@ -131,11 +131,10 @@
  * no bitwise operator, so `.oxlintrc.json`'s `no-bitwise` needs no suppression in
  * the one file that produces randomness.
  *
- * It is TRANSCRIBED rather than imported. `package.json` declares the runtime
- * dependency boundary, and mx-gameplay is intentionally not a renderer
- * dependency: importing a gameplay-rules package to obtain a number would add
- * an edge for convenience. Sixteen lines of arithmetic with a citation is the
- * cheaper of the two.
+ * It is kept as local deterministic data rather than imported from gameplay
+ * code. A renderer should not add a gameplay dependency merely to obtain a
+ * numeric constant, and the small arithmetic sequence is part of the render
+ * domain's own reproducible particle behavior.
  *
  * ---------------------------------------------------------------------------
  * Why there is no `ScratchMap` here
@@ -264,10 +263,8 @@ export const MAX_PARTICLE_STEP_SECS = 0.1
 /**
  * The seed a pool starts from when the caller does not supply one.
  *
- * A LITERAL, for the reason mx-gameplay's `DEFAULT_ROLL_SEED` is one: a clock
- * read would make two runs of one scenario differ. The render domain avoids raw
- * clock reads so the value is stable across runs. Written as a full number
- * rather than as `1` so nobody reads it as a placeholder somebody forgot.
+ * A literal keeps repeated runs of one scenario reproducible. It is written as
+ * a full number rather than as `1` so nobody reads it as a placeholder.
  */
 export const DEFAULT_PARTICLE_SEED = 20_260_728
 
@@ -349,8 +346,8 @@ const normaliseSeed = (seed: number): number => {
  *
  * The five typed arrays are the ones the adapter reads. They are exposed
  * DIRECTLY, rather than behind an accessor, for the same reason
- * `domain/frame-scratch.ts` reuses one lease facade: an accessor per particle
- * per frame is the allocation and indirection this whole file exists to avoid. The
+ * `domain/frame-scratch.ts` exposes its raw `Map`: an accessor per particle per
+ * frame is the allocation and indirection this whole file exists to avoid. The
  * cost is that a caller can write into them, and the mitigation is that the only
  * caller is the adapter that also owns the `InstancedMesh` they feed.
  *
@@ -405,20 +402,12 @@ export type ParticlePoolOptions = {
 }
 
 /**
- * Read a float that the type system cannot prove is in bounds.
+ * Read a float at an index constructed by the pool's bounded loops.
  *
  * `noUncheckedIndexedAccess` is on, so every typed-array read is
- * `number | undefined`. The fallback is written ONCE, here, rather than as a
- * `?? 0` at each of the twenty-odd read sites — the same move, and for the same
- * reason, as `rollAt` in mx-gameplay's `domain/frame-rolls.ts`: twenty
- * unreachable fallbacks are twenty permanently-red coverage branches that each
- * invite a different answer to a question none of them should be asking.
- *
- * Every call below is in bounds by construction. The non-null assertion below
- * records that invariant at the one shared read site. 0 is the inert value for all
- * five buffers: a zero lifetime is a free slot, a zero scale is invisible, and a
- * zero position or velocity is the origin rather than a NaN travelling through
- * the integrator.
+ * `number | undefined`. The non-null assertion belongs here because all calls
+ * below are in bounds by construction; keeping that invariant explicit avoids
+ * adding an unreachable fallback branch to every buffer read.
  */
 const readFloat = (buffer: Float32Array, index: number): number => buffer[index]!
 
@@ -926,12 +915,13 @@ export const readSlot = (pool: ParticlePool, slot: number): ParticleSlotState | 
  *
  * Transcribed from particle-system.ts:50-61. It is `shared` because ONE material
  * backs the whole `InstancedMesh` — which is the entire point of an instanced
- * pool — and that is the third condition of the `forceSinglePass` rule.
+ * pool — and that is the shared-material condition of the `forceSinglePass`
+ * rule.
  *
- * `alphaTest: 0.5` makes it a cutout and `flatSurface: false` records that the
- * instanced quad's material does not rely on flat-surface semantics. The shared
- * policy returns true and the reference's flag at :60 is what the rule already
- * says. Water uses the same policy with `flatSurface: true`.
+ * `alphaTest: 0.5` makes it a cutout, so `requiresForceSinglePass` returns true
+ * for it and the reference's flag at :60 is what the rule already says. The
+ * billboard geometry is also a flat surface, so its `MaterialSpec` records that
+ * fact even though the cutout flag is already sufficient.
  */
 /**
  * The cutout threshold. `alphaTest: 0.5` at particle-system.ts:54.
@@ -948,7 +938,7 @@ export const PARTICLE_ALPHA_TEST = 0.5
 
 export const PARTICLE_MATERIAL_SPEC: MaterialSpec = {
   alphaTest: PARTICLE_ALPHA_TEST,
-  flatSurface: false,
+  flatSurface: true,
   name: 'particleMaterial',
   shared: true,
   side: 'double',

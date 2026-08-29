@@ -123,7 +123,8 @@ describe('gamepad input', () => {
       const buttons = Array.from({ length: 15 }, (_unused, index) => ({
         pressed: index === 14,
       }))
-      const adapter = makeGamepadInputAdapter(input, () => [pad(buttons)])
+      let current: ReadonlyArray<ReturnType<typeof pad> | null> = [pad(buttons)]
+      const adapter = makeGamepadInputAdapter(input, () => current)
 
       yield* adapter.poll
 
@@ -132,6 +133,9 @@ describe('gamepad input', () => {
       const snapshot = yield* input.snapshot
       expect(snapshot.pressed.size).toBe(0)
       expect(snapshot.justPressed.size).toBe(0)
+
+      current = [null]
+      yield* adapter.poll
     }),
   )
 

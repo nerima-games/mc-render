@@ -3,7 +3,7 @@
  *
  * See `@nerima-games/mc-kernel.ts` for why a stage id is a string and what
  * that implies: naming one creates no import and no dependency edge, so an
- * `after` constraint is invisible to the package import graph. Collecting them here is
+ * `after` constraint is invisible to import analysis. Collecting them here is
  * what makes them reviewable, and `test/stage-registration.test.ts` reads this
  * file and fails if an edge points somewhere it should not.
  *
@@ -34,8 +34,7 @@
  *
  * Before this file existed, the ONLY registered input stage anywhere in the
  * 16-repository roster was `input:sample` in `mc-playground-kit` — and kit is
- * developer tooling, not a runtime dependency of this package. So the SHIPPED
- * build had no input
+ * developer tooling, excluded from runtime `dependencies`. So the SHIPPED build had no input
  * stage at all: `justPressed` would never clear, and a single press of the
  * inventory key would re-fire on every frame it was held.
  *
@@ -60,7 +59,7 @@ import { StageId } from '@nerima-games/mc-kernel'
  *   `chunk-sync`, `render`, `post-fx`, `input`) against a mod claiming them.
  *   Registering a bare name is legal for a first-party module and needlessly
  *   spends the reserved id.
- * - the prefix is what makes import-graph-invisible ownership legible: a
+ * - the prefix is what makes import-analysis-invisible ownership legible: a
  *   reviewer looking at a resolved frame order can tell at a glance which
  *   repository to open.
  *
@@ -129,9 +128,9 @@ export const UPSTREAM_STAGE_IDS = {
  * §2.2). Used by the regression test that enforces §2.3-1's zero-edge rule at
  * the ordering level as well as at the import level.
  *
- * An `after: [StageId('ui:hud-sync')]` is only a string at runtime, so it would
- * still couple mc-render's frame position to mx-ui's existence. The test closes
- * that gap.
+ * An `after: [StageId('ui:hud-sync')]` would pass import analysis — it is a
+ * string — while still coupling mc-render's frame position to mx-ui's
+ * existence. The test closes that gap.
  */
 export const EXPERIENCE_MODULE_STAGE_PREFIXES = ['gameplay:', 'redstone:', 'ui:', 'multiplayer:'] as const
 

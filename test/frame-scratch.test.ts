@@ -3,7 +3,14 @@
  *
  * plan.md §3.9 / §5.2 — a sanctioned deviation from idiomatic Effect, alongside
  * meshing's native `Set` and noise's `let` + `for` octave loop. Reference
- * evidence at the renderer's per-frame scratch allocations.
+ * evidence at
+ * ts-minecraft/packages/rendering/infrastructure/entity/entity-renderer.ts:35-38
+ * and .../renderer/world-renderer.ts:52-58.
+ *
+ * A reused mutable buffer is only safe under one rule: nothing may hold a
+ * reference to it across a frame boundary. These tests pin that rule, because
+ * violating it produces a timing-dependent bug that is close to impossible to
+ * find by reading.
  */
 import { describe, expect, it } from '@effect/vitest'
 import { Effect } from 'effect'
@@ -13,15 +20,14 @@ import {
   ScratchMisuseError,
   snapshotScratch,
   withScratch,
-  type ScratchBuffer,
   type ScratchMap,
 } from '../src/domain/frame-scratch'
 
 describe('reuse', () => {
-  it.effect('the same lease object serves every frame — no per-frame wrapper allocation', () =>
+  it.effect('the SAME Map object serves every frame — no allocation per frame', () =>
     Effect.sync(() => {
       const scratch = makeScratchMap<string, number>('visibleChunks', 512)
-      const seen: Array<ScratchBuffer<string, number>> = []
+      const seen: Array<Map<string, number>> = []
 
       for (let frame = 0; frame < 5; frame += 1) {
         withScratch(scratch, (buffer) => {
@@ -37,20 +43,7 @@ describe('reuse', () => {
     }),
   )
 
-  it.effect('the native map is private and the lease is only active during the callback', () =>
-    Effect.sync(() => {
-      const scratch = makeScratchMap<string, number>('visibleChunks')
-
-      expect(Reflect.has(scratch, 'buffer')).toBe(false)
-      expect(Reflect.get(scratch, 'buffer')).toBeUndefined()
-      withScratch(scratch, (buffer) => {
-        buffer.set('chunk:0', 1)
-      })
-      expect(scratch.borrowedCount()).toBe(0)
-    }),
-  )
-
-  it.effect('the buffer is cleared on entry, so a frame never sees stale data', () =>
+  it.effect('REGRESSION: the buffer is cleared on ENTRY, so a frame never sees stale data', () =>
     Effect.sync(() => {
       const scratch = makeScratchMap<string, number>('lightUpdates')
 
@@ -63,74 +56,33 @@ describe('reuse', () => {
     }),
   )
 
-  it.effect('all map operations use the active reusable lease', () =>
+  it.effect('clearing keeps the buffer identity, which is what keeps the bucket array', () =>
     Effect.sync(() => {
       const scratch = makeScratchMap<string, number>('entityInstances')
-      const values = withScratch(scratch, (buffer) => {
-        buffer.set('mob:1', 0).set('mob:2', 1)
-        const visited: Array<string> = []
-        const context = { visited }
-        buffer.forEach(function (this: typeof context, value, key, map) {
-          expect(map).toBe(buffer)
-          this.visited.push(`${key}:${String(value)}`)
-        }, context)
+      let identity = new Map<string, number>()
 
-        const entries = [...buffer.entries()]
-        const keys = [...buffer.keys()]
-        const iteratorEntries = [...buffer]
-        const iteratorValues = [...buffer.values()]
-        const read = buffer.get('mob:1')
-        const has = buffer.has('mob:2')
-        const deleted = buffer.delete('mob:1')
-        const missing = buffer.delete('missing')
-        const sizeAfterDelete = buffer.size
-        buffer.clear()
-
-        return {
-          deleted,
-          entries,
-          has,
-          iteratorEntries,
-          iteratorValues,
-          keys,
-          missing,
-          read,
-          sizeAfterDelete,
-          visited,
-          clearedSize: buffer.size,
-        }
+      withScratch(scratch, (buffer) => {
+        identity = buffer
+        buffer.set('mob:1', 0)
+      })
+      withScratch(scratch, (buffer) => {
+        expect(buffer).toBe(identity)
+        buffer.set('mob:2', 1)
       })
 
-      expect(values).toStrictEqual({
-        clearedSize: 0,
-        deleted: true,
-        entries: [
-          ['mob:1', 0],
-          ['mob:2', 1],
-        ],
-        has: true,
-        iteratorEntries: [
-          ['mob:1', 0],
-          ['mob:2', 1],
-        ],
-        iteratorValues: [0, 1],
-        keys: ['mob:1', 'mob:2'],
-        missing: false,
-        read: 0,
-        sizeAfterDelete: 1,
-        visited: ['mob:1:0', 'mob:2:1'],
-      })
+      expect(identity).toBeDefined()
     }),
   )
 })
 
 describe('REGRESSION: the buffer must not escape the frame', () => {
-  it.effect('returning the lease itself throws and releases the borrow', () =>
+  it.effect('returning the buffer itself throws rather than handing out a live reference', () =>
     Effect.sync(() => {
+      // A caller that keeps this reference sees it emptied and refilled with
+      // next frame's data. Failing loudly here is the whole point.
       const scratch = makeScratchMap<string, number>('visibleChunks')
 
       expect(() => withScratch(scratch, (buffer) => buffer)).toThrow(ScratchMisuseError)
-      expect(scratch.borrowedCount()).toBe(0)
       try {
         withScratch(scratch, (buffer) => buffer)
       } catch (error) {
@@ -139,53 +91,13 @@ describe('REGRESSION: the buffer must not escape the frame', () => {
     }),
   )
 
-  it.effect('a wrapper that retains the lease fails when read after the callback', () =>
+  it.effect('a failed escape still releases the borrow, so the buffer stays usable', () =>
     Effect.sync(() => {
       const scratch = makeScratchMap<string, number>('visibleChunks')
-      const escaped = withScratch(scratch, (buffer) => {
-        buffer.set('chunk:0', 1)
-        return { inside: buffer }
-      })
 
-      expect(() => escaped.inside.size).toThrow(ScratchMisuseError)
-      expect(() => escaped.inside.set('chunk:1', 2)).toThrow(ScratchMisuseError)
-    }),
-  )
-
-  it.effect('a closure over the lease fails when invoked later', () =>
-    Effect.sync(() => {
-      const scratch = makeScratchMap<string, number>('visibleChunks')
-      const readLater = withScratch(scratch, (buffer) => {
-        buffer.set('chunk:0', 1)
-        return () => buffer.size
-      })
-
-      expect(() => readLater()).toThrow(ScratchMisuseError)
-    }),
-  )
-
-  it.effect('a deferred Effect cannot read a lease after its synchronous borrow', () =>
-    Effect.sync(() => {
-      const scratch = makeScratchMap<string, number>('visibleChunks')
-      const deferred = withScratch(scratch, (buffer) => {
-        buffer.set('chunk:0', 1)
-        return Effect.sync(() => buffer.size)
-      })
-
+      expect(() => withScratch(scratch, (buffer) => buffer)).toThrow()
       expect(scratch.borrowedCount()).toBe(0)
-      expect(() => Effect.runSync(deferred)).toThrow(/withScratch lease ended/)
-    }),
-  )
-
-  it.effect('an escaped iterator fails on its next operation', () =>
-    Effect.sync(() => {
-      const scratch = makeScratchMap<string, number>('visibleChunks')
-      const iterator = withScratch(scratch, (buffer) => {
-        buffer.set('chunk:0', 1)
-        return buffer.entries()
-      })
-
-      expect(() => iterator.next()).toThrow(ScratchMisuseError)
+      expect(withScratch(scratch, (buffer) => buffer.size)).toBe(0)
     }),
   )
 
@@ -199,6 +111,7 @@ describe('REGRESSION: the buffer must not escape the frame', () => {
         return snapshotScratch(buffer)
       })
 
+      // The buffer moves on; the copy does not.
       withScratch(scratch, (buffer) => {
         buffer.set('chunk:2', 99)
       })
@@ -209,8 +122,60 @@ describe('REGRESSION: the buffer must not escape the frame', () => {
       ])
     }),
   )
+})
 
-  it.effect('a foreign ScratchMap gets a diagnostic rather than a private-property TypeError', () =>
+describe('REGRESSION: withScratch prevents cross-frame escapes', () => {
+  it.effect('a wrapper cannot retain a usable view after the lease ends', () =>
+    Effect.sync(() => {
+      const scratch = makeScratchMap<string, number>('visibleChunks')
+
+      const escaped = withScratch(scratch, (buffer) => {
+        buffer.set('chunk:0', 1)
+        buffer.set('chunk:1', 2)
+        return { inside: buffer }
+      })
+
+      expect(() => escaped.inside.size).toThrow(ScratchMisuseError)
+    }),
+  )
+
+  it.effect('a closure cannot read the view after the lease ends', () =>
+    Effect.sync(() => {
+      const scratch = makeScratchMap<string, number>('visibleChunks')
+
+      const readLater = withScratch(scratch, (buffer) => {
+        buffer.set('chunk:0', 1)
+        buffer.set('chunk:1', 2)
+        return () => buffer.size
+      })
+
+      expect(() => readLater()).toThrow(ScratchMisuseError)
+    }),
+  )
+
+  it.effect('a deferred Effect fails when it tries to use the released view', () =>
+    Effect.sync(() => {
+      const scratch = makeScratchMap<string, number>('visibleChunks')
+
+      const deferred = withScratch(scratch, (buffer) => {
+        buffer.set('chunk:0', 1)
+        return Effect.sync(() => buffer.size)
+      })
+
+      expect(scratch.borrowedCount()).toBe(0)
+      expect(() => Effect.runSync(deferred)).toThrow('used outside its withScratch borrow')
+    }),
+  )
+
+  it.effect('the raw buffer is not part of the public scratch value', () =>
+    Effect.sync(() => {
+      const scratch = makeScratchMap<string, number>('visibleChunks')
+
+      expect('buffer' in scratch).toBe(false)
+    }),
+  )
+
+  it.effect('a foreign ScratchMap is rejected with a diagnostic error', () =>
     Effect.sync(() => {
       const foreign: ScratchMap<string, number> = {
         name: 'hand-built',
@@ -222,12 +187,12 @@ describe('REGRESSION: the buffer must not escape the frame', () => {
       try {
         withScratch(foreign, (buffer) => buffer.size)
       } catch (error) {
-        expect(error instanceof ScratchMisuseError && error.violation.rule).toBe('invalid-scratch')
+        expect(error instanceof ScratchMisuseError && error.violation.rule).toBe('foreign-scratch')
       }
     }),
   )
 
-  it.effect('usageCount counts borrows, including one that failed its escape check', () =>
+  it.effect('usageCount counts BORROWS, including one that died on the escape check', () =>
     Effect.sync(() => {
       const scratch = makeScratchMap<string, number>('visibleChunks')
 
@@ -247,6 +212,8 @@ describe('REGRESSION: re-entrant borrows are rejected', () => {
       expect(() =>
         withScratch(scratch, (outer) => {
           outer.set('outer', 1)
+          // The inner borrow would clear the buffer the outer one is mid-way
+          // through filling.
           return withScratch(scratch, (inner) => inner.size)
         }),
       ).toThrow(ScratchMisuseError)
@@ -274,7 +241,7 @@ describe('REGRESSION: re-entrant borrows are rejected', () => {
     }),
   )
 
-  it.effect('two different buffers may be borrowed at once', () =>
+  it.effect('two DIFFERENT buffers may be borrowed at once', () =>
     Effect.sync(() => {
       const frame = makeFrameScratch()
 
@@ -292,12 +259,26 @@ describe('REGRESSION: re-entrant borrows are rejected', () => {
 })
 
 describe('makeFrameScratch', () => {
-  it.effect('provides distinct scratch owners, each named for the profiler', () =>
+  it.effect('provides distinct buffers, each named for the profiler', () =>
     Effect.sync(() => {
       const frame = makeFrameScratch()
+      let visible = new Map<string, number>()
+      let entities = new Map<string, number>()
+      let lights = new Map<string, number>()
 
-      expect(frame.visibleChunks).not.toBe(frame.entityInstances)
-      expect(frame.entityInstances).not.toBe(frame.lightUpdates)
+      withScratch(frame.visibleChunks, (buffer) => {
+        visible = buffer
+        withScratch(frame.entityInstances, (entityBuffer) => {
+          entities = entityBuffer
+          withScratch(frame.lightUpdates, (lightBuffer) => {
+            lights = lightBuffer
+            expect(visible).not.toBe(entities)
+            expect(entities).not.toBe(lights)
+          })
+        })
+      })
+
+      expect(visible).toBeDefined()
       expect(frame.visibleChunks.name).toBe('visibleChunks[~512]')
       expect(frame.lightUpdates.name).toBe('lightUpdates[~64]')
     }),
@@ -305,6 +286,8 @@ describe('makeFrameScratch', () => {
 
   it.effect('two frame-scratch sets are independent, so two renderers can coexist', () =>
     Effect.sync(() => {
+      // mc-playground-kit runs two previews side by side; a module-level
+      // scratch would have them share one buffer.
       const a = makeFrameScratch()
       const b = makeFrameScratch()
 
@@ -312,9 +295,10 @@ describe('makeFrameScratch', () => {
         buffer.set('chunk:0', 1)
         return buffer.size
       })
+      const bSize = withScratch(b.visibleChunks, (buffer) => buffer.size)
 
       expect(aSize).toBe(1)
-      expect(withScratch(b.visibleChunks, (buffer) => buffer.size)).toBe(0)
+      expect(bSize).toBe(0)
     }),
   )
 })

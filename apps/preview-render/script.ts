@@ -238,32 +238,29 @@ const BLUR_WHILE_LOCKED: Scenario = {
 }
 
 /**
- * The camera mirror, and the state it starts in.
+ * The camera mirror, and its explicit startup pending state.
  *
- * `makeRenderFrameState` seeds `mirroredCamera` from `UNSET_CAMERA_POSE` as an
- * explicitly unpublished state. Its source timestamp is undefined and its
- * mirror lag is Infinity until mc-sim publishes a pose.
+ * Before the first pose, `mirrorLag` remains pending. Once mc-sim publishes a
+ * timestamped pose, advancing the injected clock can make that pose stale.
  */
 const MIRROR_STALENESS: Scenario = {
   name: 'mirror-staleness',
-  headline: 'the mirrored pose starts explicitly unpublished and stale',
+  headline: 'pending startup becomes stale only after a pose is published',
   detail: [
-    'No render stage ever writes authoritativePose — mc-sim does, across the',
-    'boundary. Until it does, the mirror holds UNSET_CAMERA_POSE with',
-    'an undefined source timestamp, and mirrorLagSecs is Infinity: both values',
-    'say "no pose has been published". Advance the injected clock and that',
-    'answer remains explicit without a pose having changed. Then publish a pose',
-    'and watch the finite lag settle.',
+    'Before mc-sim publishes, the authoritative and mirrored camera are pending:',
+    'mirrorLag is pending and isMirrorStale is false. After publication, the',
+    'simulation timestamp becomes the source of truth; the injected clock can',
+    'then show a stale pose, and a newer publication resets the lag.',
   ],
   steps: [
-    at(0, 'nothing has published a pose yet', cmd({ kind: 'note', text: 'lag says Infinity; the pose is UNSET and unpublished' })),
-    at(1, 'a tenth of a second while still unpublished', cmd({ kind: 'advanceClock', seconds: 0.1 })),
-    at(2, 'a second more', cmd({ kind: 'advanceClock', seconds: 1 })),
+    at(0, 'no authoritative pose yet; mirror is pending', cmd({ kind: 'note', text: 'lag is pending; no pose is UNSET' })),
+    at(1, 'a tenth of a second of real startup', cmd({ kind: 'advanceClock', seconds: 0.1 })),
+    at(2, 'startup continues without a source timestamp', cmd({ kind: 'note', text: 'pending remains non-stale' })),
     at(3, 'four seconds of chunk loading', cmd({ kind: 'advanceClock', seconds: 4 })),
     at(4, 'mc-sim finally publishes', cmd({ kind: 'publishPose', x: 8, y: 65.62, z: -8 })),
     at(5, 'one frame later', cmd({ kind: 'advanceClock', seconds: 0.016 })),
     at(6, 'a 200 ms hitch: past MIRROR_LAG_WARNING_SECS', cmd({ kind: 'advanceClock', seconds: 0.2 })),
-    at(7, 'sim catches up', cmd({ kind: 'publishPose', x: 8, y: 65.62, z: -9 })),
+    at(7, 'sim catches up and publishes a newer timestamp', cmd({ kind: 'publishPose', x: 8, y: 65.62, z: -9 })),
   ],
 }
 

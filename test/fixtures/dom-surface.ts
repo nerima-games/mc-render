@@ -18,8 +18,7 @@
  *
  * Excluded from `tsconfig.json` and `tsconfig.test.json` (`test/fixtures/**`),
  * because it names DOM types those projects deliberately cannot see. It is
- * still linted, while its DOM compatibility is checked by
- * `test/browser-input-adapter.test.ts`.
+ * still linted and compiled by the dedicated surface test.
  */
 import {
   isPointerLockHeld,

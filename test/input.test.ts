@@ -374,6 +374,17 @@ describe('InputService frame semantics', () => {
       expect(yield* input.isActionActive('moveRight')).toBe(false)
     }),
   )
+
+  it.effect('unknown event kinds leave state unchanged', () =>
+    Effect.gen(function* () {
+      const input = yield* makeInputService()
+      const before = yield* input.snapshot
+
+      yield* input.dispatch({ kind: 'future-event' } as unknown as Parameters<typeof input.dispatch>[0])
+
+      expect(yield* input.snapshot).toStrictEqual(before)
+    }),
+  )
 })
 
 /**

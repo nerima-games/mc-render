@@ -3,13 +3,8 @@
   // oxlint is the ONLY lint/format configuration in this repository.
   // There is deliberately no prettier, no biome and no .editorconfig.
   //
-  // NOTE on the `Date.now()` ban: `scripts/check-dependency-whitelist.ts`
-  // (and its `pnpm check:deps` script) formerly enforced this. Both were
-  // removed org-wide in favour of `no-restricted-imports` below (DEPENDENCY_
-  // POLICY.md §5); the org standard leaves a replacement time-source check to
-  // each repository's discretion rather than requiring one, so this
-  // repository currently has no active enforcement of the ban. When oxlint
-  // gains `no-restricted-syntax`, move the ban here.
+  // Dependency boundaries are enforced by `no-restricted-imports` below.
+  // This repository has no API-lock or dependency-whitelist command.
   "env": {
     "es2022": true,
     "node": true
@@ -131,8 +126,8 @@
     "default-case": "warn",
     "default-case-last": "warn",
     "no-empty-character-class": "warn",
-    // Declared for intent and for the day oxlint implements it; inert in 0.12.
-    // The real enforcement lives in scripts/check-dependency-whitelist.ts.
+    // Keep global-name restrictions separate from package dependency boundaries.
+    // Package boundaries are enforced by `no-restricted-imports` below.
     "no-restricted-globals": ["warn", "name", "open", "close", "event"],
     // NOTE ON WHETHER THIS RULE ACTUALLY FIRES (re-verified empirically
     // 2026-08-01, after switching oxlint from a package.json devDependency

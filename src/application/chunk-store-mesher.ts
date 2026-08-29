@@ -1,57 +1,113 @@
 import {
   BLOCK_IDS,
-  type FluidKind,
-  type RenderKind,
-  blockIdOf,
   blockIdsWithOpacity,
   blockPosition,
   blockTypeOfId,
   chunkCoord,
   propertyOfBlockId,
 } from '@nerima-games/mc-kernel'
-import { CHUNK_SIZE, type MeshConfig, meshChunk } from '@nerima-games/mc-meshing'
 import {
   type ChunkMesher,
   type SyncOptions,
   type WorldRendererAttachment,
   attachWorldRenderer,
 } from './world-sync'
+import { type GeometryQuad, type QuadColor } from '../domain/chunk-geometry'
 import {
   type LightSampler,
   NO_LIGHT,
   type SkyBlockLight,
-  lightSamplePointForRenderableQuad,
+  lightSampleForGeometryQuad,
   packedLightColor,
 } from '../domain/voxel-lighting'
-import { type QuadColor, type RenderableQuad } from '../domain/chunk-geometry'
+import { type MeshConfig, meshChunk } from '@nerima-games/mc-meshing'
 import type { BlockNameLookup } from '../domain/block-texture-map'
+import type { BlockShapeKind } from '../domain/meshing-vocabulary'
+import { CHUNK_SIZE } from '../domain/lod-vocabulary'
 import type { ChunkStoreApi } from '@nerima-games/mc-worldgen'
 import { Effect } from 'effect'
 import type { WorldRenderer } from './world-renderer'
+import { meshBlockShapes } from '../domain/block-shapes'
 
 /** The kernel registry is the single numeric-id to texture-name authority. */
 export const blockNameFromKernel: BlockNameLookup = (blockId) => blockTypeOfId(blockId) ?? 'unknown'
 
+/** Maximum fall-off level for each fluid kind. */
+const FLUID_MAX_LEVELS = {
+  lava: 3,
+  water: 7,
+} as const
+
+type FluidKind = keyof typeof FLUID_MAX_LEVELS
+
+/** Collect kernel block IDs classified as the requested fluid. */
+const kernelBlockIdsWithFluid = (fluid: FluidKind): ReadonlySet<number> =>
+  new Set(BLOCK_IDS.filter((blockId) => propertyOfBlockId(blockId, 'fluid') === fluid))
+
+/** Build per-block fluid maximum levels from kernel classifications. */
+const kernelFluidMaxLevels = (): ReadonlyMap<number, number> =>
+  new Map(
+    BLOCK_IDS.flatMap((blockId) => {
+      const fluid = propertyOfBlockId(blockId, 'fluid')
+      if (fluid === 'water' || fluid === 'lava') {
+        return [[blockId, FLUID_MAX_LEVELS[fluid]] as const]
+      }
+      return []
+    }),
+  )
+
+/** Collect kernel block IDs rendered as diagonal plant plates. */
+const kernelCrossPlantBlockIds = (): ReadonlySet<number> =>
+  new Set(BLOCK_IDS.filter((blockId) => propertyOfBlockId(blockId, 'renderKind') === 'cross'))
+
+const blockShapeFor = (blockId: number): BlockShapeKind | undefined => {
+  const renderKind = propertyOfBlockId(blockId, 'renderKind')
+  switch (renderKind) {
+    case 'cactus':
+      return 'cactus'
+    case 'lilyPad':
+      return 'lilyPad'
+    case 'rail':
+      return 'rail'
+    default:
+      break
+  }
+  const collisionShape = propertyOfBlockId(blockId, 'collisionShape')
+  if (collisionShape === 'pressurePlate') {
+    return 'pressurePlate'
+  }
+  if (collisionShape === 'slab') {
+    return 'slab'
+  }
+  return undefined
+}
+
+/** Collect kernel block IDs whose geometry is not a full cube. */
+export const KERNEL_BLOCK_SHAPE_KINDS: ReadonlyMap<number, BlockShapeKind> = new Map(
+  BLOCK_IDS.flatMap((blockId) => {
+    const shape = blockShapeFor(blockId)
+    if (shape === undefined) {
+      return []
+    }
+    return [[blockId, shape] as const]
+  }),
+)
+
+export type RenderMeshConfig = MeshConfig & {
+  readonly blockShapeKinds?: ReadonlyMap<number, BlockShapeKind>
+}
+
+const EMPTY_BLOCK_SHAPE_KINDS: ReadonlyMap<number, BlockShapeKind> = new Map()
+
 /**
- * Propagation levels are meshing policy; block identities come from the kernel
- * registry so numeric ids cannot drift from the shared block vocabulary.
+ * Material and shape routing derived from the kernel registry.
  */
-const WATER_MAX_LEVEL = 7
-const LAVA_MAX_LEVEL = 3
-const FLUID_MAX_LEVELS = [
-  ['water', WATER_MAX_LEVEL],
-  ['lava', LAVA_MAX_LEVEL],
-] as const satisfies ReadonlyArray<readonly [Exclude<FluidKind, 'none'>, number]>
-
-const blockIdsWithRenderKind = (renderKind: RenderKind): ReadonlySet<number> =>
-  new Set(BLOCK_IDS.filter((blockId) => propertyOfBlockId(blockId, 'renderKind') === renderKind))
-
-/** Material routing derived from the kernel's block registry. */
-export const KERNEL_MESH_CONFIG: MeshConfig = {
-  crossPlantBlockIds: blockIdsWithRenderKind('cross'),
-  fluidMaxLevels: new Map(FLUID_MAX_LEVELS.map(([fluid, maxLevel]) => [blockIdOf(fluid), maxLevel] as const)),
+export const KERNEL_MESH_CONFIG: RenderMeshConfig = {
+  blockShapeKinds: KERNEL_BLOCK_SHAPE_KINDS,
+  crossPlantBlockIds: kernelCrossPlantBlockIds(),
+  fluidMaxLevels: kernelFluidMaxLevels(),
   transparentSolidBlockIds: blockIdsWithOpacity('transparentSolid'),
-  waterBlockIds: blockIdsWithOpacity('fluid'),
+  waterBlockIds: kernelBlockIdsWithFluid('water'),
 }
 
 /** The two store operations required to mesh one resident chunk. */
@@ -91,11 +147,12 @@ const lightSamplePositionFor = (
 /** Every distinct light-sample position a chunk's quads reference, keyed for lookup by `lightKey`. */
 const collectLightSamplePositions = (
   chunk: { readonly cx: number; readonly cz: number },
-  quads: ReadonlyArray<RenderableQuad>,
+  quads: ReadonlyArray<GeometryQuad>,
 ): ReadonlyMap<string, LightSamplePosition> => {
   const samples = new Map<string, LightSamplePosition>()
   for (const quad of quads) {
-    const [localX, localY, localZ] = lightSamplePointForRenderableQuad(quad)
+    const { point } = lightSampleForGeometryQuad(quad)
+    const [localX, localY, localZ] = point
     const position = lightSamplePositionFor(chunk, { localX, localY, localZ })
     samples.set(lightKey(position.blockX, position.blockY, position.blockZ), position)
   }
@@ -106,7 +163,7 @@ const collectLightSamplePositions = (
 export const makeChunkStoreLightColor = (
   store: Pick<ChunkStoreApi, 'getLight'>,
   chunk: { readonly cx: number; readonly cz: number },
-  quads: ReadonlyArray<RenderableQuad>,
+  quads: ReadonlyArray<GeometryQuad>,
 ): Effect.Effect<QuadColor> =>
   Effect.gen(function* () {
     const samples = collectLightSamplePositions(chunk, quads)
@@ -132,7 +189,7 @@ export const makeChunkStoreLightColor = (
 /** Adapt a worldgen chunk store to the renderer's pull-based meshing port. */
 export const makeChunkStoreMesher = (
   store: MeshingChunkStore,
-  config: MeshConfig = KERNEL_MESH_CONFIG,
+  config: RenderMeshConfig = KERNEL_MESH_CONFIG,
 ): ChunkMesher =>
   ({ cx, cz }) =>
     Effect.gen(function* () {
@@ -144,8 +201,16 @@ export const makeChunkStoreMesher = (
 
       const neighbours = yield* store.neighbours(coord)
       const layers = meshChunk(chunk, neighbours, config)
-      const quads = [...layers.opaque, ...layers.water, ...layers.transparentSolid]
-      return Object.assign(quads, { crossPlants: layers.crossPlants, fluids: layers.fluids })
+      const blockShapeKinds = config.blockShapeKinds ?? EMPTY_BLOCK_SHAPE_KINDS
+      const quads = [...layers.opaque, ...layers.water, ...layers.transparentSolid].filter(
+        (quad) => !blockShapeKinds.has(quad.blockId),
+      )
+      const blockShapes = meshBlockShapes(chunk, neighbours, blockShapeKinds)
+      return Object.assign(quads, {
+        blockShapes,
+        crossPlants: layers.crossPlants,
+        fluids: layers.fluids,
+      })
     })
 
 /** `options` with a light-sampling `colorForChunk` filled in, unless the caller already supplied one (or a flat `color`). */
@@ -155,14 +220,14 @@ const withDefaultColorForChunk = (store: RendererChunkStore, options: SyncOption
   }
   return {
     ...options,
-    colorForChunk: (chunk: { readonly cx: number; readonly cz: number }, quads: ReadonlyArray<RenderableQuad>) =>
+    colorForChunk: (chunk: { readonly cx: number; readonly cz: number }, quads: ReadonlyArray<GeometryQuad>) =>
       makeChunkStoreLightColor(store, chunk, quads),
   }
 }
 
 /** `attachChunkStoreRenderer`'s options: every `SyncOptions` field, plus the mesher's own `MeshConfig`. */
 export type ChunkStoreRendererOptions = SyncOptions & {
-  readonly config?: MeshConfig
+  readonly config?: RenderMeshConfig
 }
 
 /** Attach the renderer directly to a worldgen ChunkStore subscription. */

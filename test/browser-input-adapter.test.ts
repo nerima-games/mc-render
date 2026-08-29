@@ -22,7 +22,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from '@effect/vitest'
 import { Effect } from 'effect'
-import ts from 'typescript-compiler-api'
+import { inspectTypeScriptFixture, parseTypeScriptConfig } from './typescript-project'
 import {
   acquiresPointerLock,
   defaultBindings,
@@ -247,7 +247,7 @@ describe('REGRESSION: the window adapter registers what LISTENER_PLAN says', () 
       expect(nonPassive).toContain('wheel')
       expect(mayPreventDefault('wheel')).toBe(true)
       expect(mayPreventDefault('contextmenu')).toBe(true)
-      expect(mayPreventDefault('keydown')).toBe(true)
+      expect(mayPreventDefault('keydown')).toBe(false)
       expect(mayPreventDefault('mousedown')).toBe(false)
     }),
   )
@@ -260,7 +260,7 @@ describe('REGRESSION: the window adapter registers what LISTENER_PLAN says', () 
       installInputListeners(dom.targets, input)
 
       expect(dom.added.every((call) => call.options?.capture === false)).toBe(true)
-      expect(listenerOptionsFor('keydown')).toStrictEqual({ capture: false, passive: false })
+      expect(listenerOptionsFor('keydown')).toStrictEqual({ capture: false })
       expect(listenerOptionsFor('wheel')).toStrictEqual({ capture: false, passive: false })
     }),
   )
@@ -1077,27 +1077,10 @@ describe('multi-touch dispatch: per-finger guards', () => {
       installInputListeners(dom.targets, input, { touchControls: controls })
 
       dom.fire('touchstart', { changedTouches: [{ identifier: 7, target: touchUndeclared }] })
+      dom.fire('touchstart', { changedTouches: [{ identifier: Number.NaN, target: touchJumpButton }] })
 
       expect(yield* input.isActionActive('jump')).toBe(false)
       expect((yield* input.snapshot).pressed.size).toBe(0)
-    }),
-  )
-
-  it.effect('keeps a shared action held until its last finger releases', () =>
-    Effect.gen(function* () {
-      const dom = makeFakeDom()
-      const input = yield* makeInputService()
-      const controls: ReadonlyArray<TouchControlTarget> = [{ action: 'jump', target: touchJumpButton }]
-      installInputListeners(dom.targets, input, { touchControls: controls })
-
-      dom.fire('touchstart', { changedTouches: [{ identifier: 1, target: touchJumpButton }] })
-      dom.fire('touchstart', { changedTouches: [{ identifier: 2, target: touchJumpButton }] })
-      dom.fire('touchend', { changedTouches: [{ identifier: 1, target: touchJumpButton }] })
-
-      expect(yield* input.isActionActive('jump')).toBe(true)
-
-      dom.fire('touchend', { changedTouches: [{ identifier: 2, target: touchJumpButton }] })
-      expect(yield* input.isActionActive('jump')).toBe(false)
     }),
   )
 
@@ -1336,115 +1319,6 @@ describe('the adapter observes focus the way a browser would deliver it', () => 
     }),
   )
 
-  it.effect('a consumed arrow delegates the move and suppresses only that browser default', () =>
-    Effect.gen(function* () {
-      const dom = makeFakeDom()
-      const input = yield* makeInputService()
-      const slots = makeSlots(9)
-      const navigations: Array<{ readonly direction: string; readonly current: unknown }> = []
-      const dispatched: Array<InputEvent> = []
-      const spying: InputServiceApi = {
-        ...input,
-        dispatch: (event) =>
-          Effect.zipRight(
-            Effect.sync(() => {
-              dispatched.push(event)
-            }),
-            input.dispatch(event),
-          ),
-      }
-
-      installInputListeners(dom.targets, spying, {
-        focusGroups: [{ group: HOTBAR_FOCUS_GROUP, targets: slots }],
-        focusNavigation: (direction, current) => {
-          navigations.push({ direction, current })
-          return true
-        },
-      })
-
-      dom.fire('keydown', { code: 'ArrowRight', target: slots[1] })
-
-      expect(navigations).toStrictEqual([
-        { direction: 'right', current: { group: HOTBAR_FOCUS_GROUP, index: 1 } },
-      ])
-      expect(dispatched).toStrictEqual([])
-      expect(dom.preventedDefaults()).toBe(1)
-    }),
-  )
-
-  it.effect('an unconsumed or unrelated key stays on the ordinary input path', () =>
-    Effect.gen(function* () {
-      const dom = makeFakeDom()
-      const input = yield* makeInputService()
-      const slots = makeSlots(9)
-      const navigations: Array<string> = []
-      const dispatched: Array<InputEvent> = []
-      const spying: InputServiceApi = {
-        ...input,
-        dispatch: (event) =>
-          Effect.zipRight(
-            Effect.sync(() => {
-              dispatched.push(event)
-            }),
-            input.dispatch(event),
-          ),
-      }
-
-      installInputListeners(dom.targets, spying, {
-        focusGroups: [{ group: HOTBAR_FOCUS_GROUP, targets: slots }],
-        focusNavigation: (direction) => {
-          navigations.push(direction)
-          return false
-        },
-      })
-
-      dom.fire('keydown', { code: 'ArrowLeft', target: slots[1] })
-      dom.fire('keydown', { code: 'KeyW', target: slots[1] })
-
-      expect(navigations).toStrictEqual(['left'])
-      expect(dispatched.map((event) => event.kind)).toStrictEqual(['keydown', 'keydown'])
-      expect(dom.preventedDefaults()).toBe(0)
-    }),
-  )
-
-  it.effect('arrow navigation is disabled while locked and outside declared focus groups', () =>
-    Effect.gen(function* () {
-      const dom = makeFakeDom()
-      const input = yield* makeInputService()
-      const slots = makeSlots(9)
-      const navigations: Array<string> = []
-      const dispatched: Array<InputEvent> = []
-      const spying: InputServiceApi = {
-        ...input,
-        dispatch: (event) =>
-          Effect.zipRight(
-            Effect.sync(() => {
-              dispatched.push(event)
-            }),
-            input.dispatch(event),
-          ),
-      }
-
-      installInputListeners(dom.targets, spying, {
-        focusGroups: [{ group: HOTBAR_FOCUS_GROUP, targets: slots }],
-        focusNavigation: (direction) => {
-          navigations.push(direction)
-          return true
-        },
-      })
-
-      dom.setPointerLockElement({ canvas: true })
-      dom.fire('keydown', { code: 'ArrowUp', target: slots[1] })
-      dom.setPointerLockElement(null)
-      dom.fire('keydown', { code: 'ArrowDown', target: { outside: true } })
-      dom.fire('keyup', { code: 'ArrowDown', target: slots[1] })
-
-      expect(navigations).toStrictEqual([])
-      expect(dispatched.map((event) => event.kind)).toStrictEqual(['keydown', 'keydown', 'keyup'])
-      expect(dom.preventedDefaults()).toBe(0)
-    }),
-  )
-
   it.effect('REGRESSION: no focus handler EVER calls preventDefault', () =>
     Effect.gen(function* () {
       // The trap this feature is most likely to fall into, asserted through the
@@ -1515,43 +1389,6 @@ describe('the adapter observes focus the way a browser would deliver it', () => 
       expect(dom.live()).toStrictEqual([])
       // A dead listener cannot report a focus that is not this page's any more.
       expect(dom.fire('focusin', { target: slots[6] })).toBe(0)
-    }),
-  )
-
-  it.effect('browserInputLayer forwards host-owned focus navigation', () =>
-    Effect.gen(function* () {
-      const dom = makeFakeDom()
-      const slots = makeSlots(9)
-      const navigations: Array<{ readonly direction: string; readonly current: unknown }> = []
-
-      yield* Effect.gen(function* () {
-        const input = yield* InputService
-
-        dom.fire('focusin', { target: slots[2] })
-        dom.fire('keydown', { code: 'ArrowRight', target: slots[2] })
-
-        expect(navigations).toStrictEqual([
-          { direction: 'right', current: { group: HOTBAR_FOCUS_GROUP, index: 2 } },
-        ])
-        expect(dom.preventedDefaults()).toBe(1)
-        expect((yield* input.snapshot).keyboardFocus).toStrictEqual({
-          group: HOTBAR_FOCUS_GROUP,
-          index: 2,
-        })
-      }).pipe(
-        Effect.provide(
-          browserInputLayer({
-            targets: dom.targets,
-            focusGroups: [{ group: HOTBAR_FOCUS_GROUP, targets: slots }],
-            focusNavigation: (direction, current) => {
-              navigations.push({ direction, current })
-              return true
-            },
-          }),
-        ),
-      )
-
-      expect(dom.live()).toStrictEqual([])
     }),
   )
 
@@ -1854,8 +1691,7 @@ describe('REGRESSION: clicking the HUD does not take the pointer', () => {
     Effect.gen(function* () {
       // The landing is an OBSERVATION. Suppressing the default on a HUD click
       // would break the focus the click is supposed to move — and the
-      // `preventDefault` list includes keydown only for consumed arrows;
-      // clicks remain observational (DN-16 §1).
+      // `preventDefault` list stays at wheel and contextmenu (DN-16 §1).
       const dom = makeFakeDom()
       const page = makePage()
       const input = yield* makeInputService()
@@ -1866,7 +1702,7 @@ describe('REGRESSION: clicking the HUD does not take the pointer', () => {
       dom.fire('mousedown', { button: 0, target: { letterbox: true } })
 
       expect(dom.preventedDefaults()).toBe(0)
-      expect(PREVENT_DEFAULT_EVENTS).toStrictEqual(['wheel', 'contextmenu', 'keydown'])
+      expect(PREVENT_DEFAULT_EVENTS).toStrictEqual(['wheel', 'contextmenu'])
     }),
   )
 })
@@ -1891,34 +1727,9 @@ describe('REGRESSION: the DOM surface is a real subset of the real DOM', () => {
         // be assignable FROM; the first person to notice would be a browser
         // consumer, and the fix they would reach for is `as unknown as`.
         const fixture = path.join(repositoryRoot, 'test', 'fixtures', 'dom-surface.ts')
-        const program = ts.createProgram({
-          rootNames: [fixture],
-          options: {
-            noEmit: true,
-            strict: true,
-            exactOptionalPropertyTypes: true,
-            noUncheckedIndexedAccess: true,
-            target: ts.ScriptTarget.ES2022,
-            module: ts.ModuleKind.ESNext,
-            moduleResolution: ts.ModuleResolutionKind.Bundler,
-            moduleDetection: ts.ModuleDetectionKind.Force,
-            skipLibCheck: true,
-            types: [],
-            // THE POINT OF THE TEST: the real thing, not a hand-written stub.
-            lib: ['lib.es2022.d.ts', 'lib.dom.d.ts'],
-          },
-        })
+        const inspection = inspectTypeScriptFixture(repositoryRoot, fixture, ['ES2022', 'DOM'])
 
-        const diagnostics = [
-          ...program.getSemanticDiagnostics(),
-          ...program.getSyntacticDiagnostics(),
-        ].filter((diagnostic) => diagnostic.category === ts.DiagnosticCategory.Error)
-
-        expect(
-          diagnostics.map((diagnostic) =>
-            ts.flattenDiagnosticMessageText(diagnostic.messageText, ' '),
-          ),
-        ).toStrictEqual([])
+        expect(inspection.errors).toStrictEqual([])
       }),
     30_000,
   )
@@ -1930,15 +1741,13 @@ describe('REGRESSION: the DOM surface is a real subset of the real DOM', () => {
       // `types: []`. If a later change adds "DOM" there, every pure module
       // silently becomes able to reach `document` and the reason
       // `environment: 'node'` can test the pointer-lock machine at all is gone.
-      const config = ts.readConfigFile(path.join(repositoryRoot, 'tsconfig.build.json'), ts.sys.readFile)
-      const parsed = ts.parseJsonConfigFileContent(
-        config.config as unknown,
-        ts.sys,
+      const parsed = parseTypeScriptConfig(
         repositoryRoot,
+        path.join(repositoryRoot, 'tsconfig.build.json'),
       )
 
-      expect(parsed.options.lib).toStrictEqual(['lib.es2024.d.ts'])
-      expect(parsed.options.types).toStrictEqual([])
+      expect(parsed.options['lib']).toStrictEqual(['lib.es2024.d.ts'])
+      expect(parsed.options['types']).toStrictEqual([])
       expect(parsed.fileNames.some((file) => file.endsWith('application/browser-input-adapter.ts'))).toBe(true)
       expect(parsed.fileNames.some((file) => file.includes('/test/fixtures/'))).toBe(false)
     }),

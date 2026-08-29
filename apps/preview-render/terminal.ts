@@ -10,10 +10,10 @@
  * `InputService` keeps the DOM behind an injected `InputEventSource`.
  *
  * Note what is NOT here, and what is not anywhere in this app: a clock read.
- * `Date.now()` / `new Date()` / `performance.now()` do not appear. The camera
- * mirror's staleness is measured from an injected `MonotonicTimeSecs` the
- * operator moves by hand, which is the whole point of that view. Frames are
- * drawn in response to keystrokes.
+ * `Date.now()` / `new Date()` / `performance.now()` do not appear. The camera mirror's
+ * staleness is measured from an injected `MonotonicTimeSecs` the operator
+ * moves by hand, which is the whole point of that view. Frames are drawn in
+ * response to keystrokes.
  */
 
 export const ESC = String.fromCharCode(27)

@@ -11,8 +11,7 @@
  *
  * Until this file existed, the only registered input stage in the entire
  * 16-repository roster was `input:sample` in `mc-playground-kit` — which is
- * developer tooling and is not a runtime dependency of this package. The
- * SHIPPED build therefore had
+ * developer tooling and is excluded from runtime `dependencies`. The SHIPPED build therefore had
  * no input stage: `justPressed` would never clear, and one press of the
  * inventory key would re-fire on every frame it was held. plan.md §2.3-2 was
  * written to prevent exactly that, and it had been reintroduced by a missing
@@ -37,17 +36,20 @@
  * something else supplies what it itself ships.
  *
  * ---------------------------------------------------------------------------
- * What is host-bound here
+ * What is FIRST CUT here, and what is not
  * ---------------------------------------------------------------------------
  *
- * The frame positions and ordering edges are settled — that is what
- * mc-compose needs. Stage bodies keep authoritative simulation state at the
- * explicit frame boundary: the driver supplies copied snapshots, while this
- * module owns only derived renderer state.
+ * The frame POSITIONS and the ordering edges are settled — that is what
+ * mc-compose needs and it does not change when the bodies fill in.
  *
- * No local port mirrors mc-sim or mc-meshing; their public APIs remain the
- * source of truth. Host-specific resources are supplied at the application
- * boundary rather than hidden behind a second renderer-owned service layer.
+ * The bodies that need a service this repository cannot yet reach are marked
+ * FIRST CUT and do the minimum, exactly as `mx-gameplay/stages/registration.ts`
+ * does. Nothing here invents a cross-repository dependency: mc-sim and
+ * mc-meshing are declared parents of mc-render but nothing is published yet
+ * (plan.md §6 Step 3 is bottom-up publish-then-pin), so where a stage would
+ * read one it reads a `Ref` that a preview or a test fills instead. An invented
+ * local port would be a second answer to "who owns the camera pose", which is
+ * the inversion plan.md §3.8 records as the reference's worst structural bug.
  */
 import {
   type CameraPoseSnapshot,
@@ -81,27 +83,23 @@ import {
   type ViewOffset,
   mirrorLagSecs,
   mirroredCameraState,
-  uninitializedMirroredCameraState,
 } from '../domain/camera-mirror'
 import { type MouseButton, acquiresPointerLock, defaultBindings } from '../domain/input-bindings'
 import { NO_PLAYER_CONTROL, type PlayerControlPort } from '../domain/player-control'
 import { RENDER_STAGE_IDS, UPSTREAM_STAGE_IDS } from './stage-ids'
 
-/* Shared numeric building blocks. The unset pose sits at the world origin,
- * captured at time zero (see `UNSET_CAMERA_POSE`'s own header for why visibly
- * wrong beats plausibly wrong); the frame-local diagnostics below start at
- * Infinity for the startup mirror because no pose has been published yet.
- * Each name is the specific domain quantity represented here, not a bare
- * literal repeated for its own sake. */
+/* Shared numeric building blocks for the explicit display/test fixture and
+ * frame-local diagnostics. Each name is the specific domain quantity zero
+ * represents here, not a bare literal repeated for its own sake. */
 const UNSET_POSE_CAPTURED_AT_SECS = 0
 const WORLD_ORIGIN_AXIS = 0
-const INITIAL_MIRROR_LAG_SECS = Number.POSITIVE_INFINITY
 const INITIAL_VISIBLE_CHUNK_COUNT = 0
 const INITIAL_FRAMES_DRAWN = 0
 const FRAMES_DRAWN_INCREMENT = 1
 
 /**
- * The pose a renderer mirrors before mc-sim has said anything.
+ * An explicit display/test fixture for a renderer before mc-sim has said
+ * anything. It is not the default frame state.
  *
  * Deliberately the origin looking down -Z rather than a plausible spawn point.
  * A renderer that draws this is drawing "no pose has arrived yet", and making
@@ -129,11 +127,11 @@ export type RenderFrameState = {
   /**
    * The authoritative pose, as most recently handed over.
    *
-   * The frame driver owns the authoritative pose and supplies its copied
-   * snapshot. This `Ref` is renderer-local state, never a live handle —
-   * mc-render reads the pose and must never hold a mutable reference to another
-   * subsystem's state (plan.md §5.1-2). It is `undefined` until mc-sim has
-   * published its first snapshot.
+   * FIRST CUT: written by whoever drives the frame. When mc-sim is published
+   * this is read from `PlayerService.cameraPose` at registration time and this
+   * `Ref` becomes an implementation detail of the previews. It is a COPY, never
+   * a live handle — mc-render reads the pose and must never hold a mutable
+   * reference to somebody else's state (plan.md §5.1-2).
    */
   readonly authoritativePose: Ref.Ref<CameraPoseSnapshot | undefined>
   /** Cosmetic displacement applied at mirror time. Never fed back. */
@@ -147,15 +145,15 @@ export type RenderFrameState = {
    * renderer decides whether to interpolate or stall from this rather than
    * drawing a stale pose and finding out from a bug report.
    */
-  readonly mirrorLagSecs: Ref.Ref<number>
+  readonly mirrorLagSecs: Ref.Ref<number | undefined>
   /** This frame's input, sampled once. See `render:input` below. */
   readonly input: Ref.Ref<InputSnapshot>
   /**
    * How many chunks last frame's visibility pass kept.
    *
-   * Copied OUT of the scratch lease during the borrow, never a reference into it
-   * — see `domain/frame-scratch.ts` on why holding the lease across a frame
-   * boundary is the bug that module exists to make impossible.
+   * Copied OUT of the scratch buffer, never a reference into it — see
+   * `domain/frame-scratch.ts` on why holding the buffer across a frame boundary
+   * is the bug that module exists to make impossible.
    */
   readonly visibleChunkCount: Ref.Ref<number>
   readonly quality: Ref.Ref<GraphicsQuality>
@@ -194,31 +192,6 @@ const makeQualityState = (
     return { postFxBuiltFrom, postFxChain, qualityRef }
   })
 
-type InitialCameraState = {
-  readonly authoritativePose: CameraPoseSnapshot | undefined
-  readonly mirroredCamera: MirroredCameraState
-  readonly mirrorLag: number
-}
-
-const makeInitialCameraState = (initialPose?: CameraPoseSnapshot): InitialCameraState => {
-  const startingPose = initialPose ?? UNSET_CAMERA_POSE
-
-  if (initialPose === undefined) {
-    return {
-      authoritativePose: undefined,
-      mirrorLag: INITIAL_MIRROR_LAG_SECS,
-      mirroredCamera: uninitializedMirroredCameraState(startingPose),
-    }
-  }
-
-  const mirroredCamera = mirroredCameraState(startingPose)
-  return {
-    authoritativePose: startingPose,
-    mirrorLag: mirrorLagSecs(mirroredCamera, startingPose.capturedAtSecs),
-    mirroredCamera,
-  }
-}
-
 /**
  * An Effect rather than a constant, so a test, each preview and the game can
  * hold their own.
@@ -234,32 +207,18 @@ export const makeRenderFrameState = (
   /**
    * Where the camera starts.
    *
-   * A PARAMETER RATHER THAN THE CONSTANT, and the reason is the constant's own
-   * header: `UNSET_CAMERA_POSE` is the origin because "visibly wrong is better
-   * than plausibly wrong", and it is visibly wrong precisely when there is a
-   * world — the origin is at y=0, and a generated surface is nowhere near it,
-   * so the camera spawns inside solid rock and every frame renders the sky.
-   * That is what it is for, and it is also useless to a host that has a world
-   * and knows where its surface is.
-   *
-   * IT IS NOT A SPAWN POINT AND MUST NOT BECOME ONE. Choosing where a player
-   * appears is a rule, and rules are mc-sim's — the field it seeds is the one
-   * The frame driver owns that rule and supplies the initial snapshot; this
-   * default only keeps the renderer usable before a host supplies its world
-   * pose.
+   * `undefined` means mc-sim has not published a pose yet. The mirrored camera
+   * keeps that pending state, with no synthetic timestamp or lag measurement.
+   * An explicit pose is useful for deterministic host and test setup; choosing
+   * a player's spawn point remains mc-sim's responsibility.
    */
-  initialPose?: CameraPoseSnapshot,
+  initialPose: CameraPoseSnapshot | undefined = undefined,
 ): Effect.Effect<RenderFrameState> =>
   Effect.gen(function* () {
-    const {
-      authoritativePose: initialAuthoritativePose,
-      mirrorLag: initialMirrorLag,
-      mirroredCamera: initialMirroredCamera,
-    } = makeInitialCameraState(initialPose)
-    const authoritativePose = yield* Ref.make(initialAuthoritativePose)
+    const authoritativePose = yield* Ref.make(initialPose)
     const viewOffset = yield* Ref.make(NO_VIEW_OFFSET)
-    const mirroredCamera = yield* Ref.make(initialMirroredCamera)
-    const lag = yield* Ref.make(initialMirrorLag)
+    const mirroredCamera = yield* Ref.make(mirroredCameraState(initialPose))
+    const lag = yield* Ref.make<number | undefined>(undefined)
     const input = yield* Ref.make<InputSnapshot>({
       gamepadAxes: { leftX: 0, leftY: 0, rightX: 0, rightY: 0 },
       justPressed: new Set<string>(),
@@ -409,21 +368,19 @@ export const renderStages = ({
     // Thing nobody files.
     run: () =>
       Effect.gen(function* () {
-        // Read the copied frame snapshot at the stage boundary. The renderer
-        // Never acquires simulation state or keeps a mutable cross-subsystem
-        // Reference.
+        // FIRST CUT: the snapshot comes from a Ref. When mc-sim is published,
+        // `PlayerService` is acquired in `renderModule` below and this reads
+        // `player.cameraPose` — which is an `Effect<_, never, ClockPort>`, and
+        // `ClockPort` is exactly what `FrameServices` already provides. That is
+        // The measurement that let `FrameServices` freeze at `ClockPort`.
         const pose = yield* Ref.get(state.authoritativePose)
-        if (pose === undefined) {
-          return
-        }
-
         const offset = yield* Ref.get(state.viewOffset)
         const mirrored = mirroredCameraState(pose, offset)
         yield* Ref.set(state.mirroredCamera, mirrored)
 
         // The one real read of `FrameServices` in this repository. Time comes
         // From the injected Port; plan.md §5.1-3 bans reading a global clock
-        // The import boundary and typecheck keep the port explicit.
+        // The injected Port keeps the stage deterministic and testable.
         const now = yield* monotonicSecs
         yield* Ref.set(state.mirrorLagSecs, mirrorLagSecs(mirrored, now))
       }),
@@ -442,8 +399,9 @@ export const renderStages = ({
   {
     after: [RENDER_STAGE_IDS.chunkSync],
     id: RENDER_STAGE_IDS.draw,
-    // This is the sole live Three draw boundary: `DrawPort` acquires the
-    // Renderer context and submits the frame in the host implementation.
+    // THE THREE.js RENDERER CALL, and it is no longer a FIRST CUT: `draw` is a
+    // `DrawPort`, and in a browser it is `application/world-renderer.ts`'s,
+    // Which acquires a WebGL2 context and submits a frame.
     //
     // This is deliberately the ONLY place in the repository that touches a live
     // Camera object, and it sets that camera from `state.mirroredCamera` —
@@ -533,15 +491,7 @@ export const renderModule = (
    * host owns what there is to draw ON.
    */
   draw: DrawPort = NO_DRAW_TARGET,
-  /**
-   * Where the camera starts. See `makeRenderFrameState`.
-   *
-   * The FOURTH thing a host supplies, after the clock, the input targets and
-   * the draw target — and, like the other three, a value rather than a branch.
-   * A host with no world omits it: the renderer keeps the visible origin
-   * placeholder, but marks it as unpublished until mc-sim supplies a pose.
-   * Supplying a pose explicitly seeds the mirror as published.
-   */
+  /** Where the camera starts. `undefined` remains pending until mc-sim publishes a pose. */
   initialPose: CameraPoseSnapshot | undefined = undefined,
   control: PlayerControlPort = NO_PLAYER_CONTROL,
   chunkSync: ChunkSyncPort = NO_CHUNK_SYNC,

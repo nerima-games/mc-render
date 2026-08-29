@@ -22,9 +22,9 @@ $ pnpm preview --scenario stranded-request --at 10 --once --ascii
 
 [docs/testing.md](../../docs/testing.md) はこのリポジトリのプレビューを
 **「固定チャンクを読み込んでマテリアルとポストFXを目視」**と定めている。
-Node 上の構造 surface と数値プレビューに加えて、公開 `@nerima-games/mc-render/browser`
-エントリが実際の `three` namespace、canvas、GPU を接続する既定ランタイムを持つ。
-ただし固定ワールドを使ったブラウザ/GPU fixture と screenshot 受入れはまだホスト側の責務である。
+それには THREE.js アダプタと canvas と GPU が要る。mc-render の THREE.js アダプタは
+`src/application/three-surface.ts` に着地しているが、preview-render は意図的に terminal-only
+であり、ブラウザ描画と固定チャンクの fixture は別の検証タスクとして残っている。
 
 `tsconfig.base.json` の `lib` に `"DOM"` が無い。これが偶然ではないのは、
 ポストFXの順序も、ホイールのモデルも、ポインタロックの 4 値状態機械も、
@@ -80,18 +80,19 @@ plan.md §3.10 は **Playwright が SwiftShader 上で動き、ポインタロ�
 
 ## 見つけたもの
 
-`--stats` が全部を数値で出す。**8 件すべてを修正し、テストで固定した。**
-`--stats` の数字は、見つけるための数字から、戻っていないことを確かめる数字になった。
+`--stats` が全部を数値で出す。**8 件のうち 6 件は修正済み、2 件は「直さない」と決めて
+テストで固定した。** `--stats` の数字は、見つけるための数字から、戻っていないことを確かめる
+数字になった —— そして `--stats` の行はピンではないので、保留分にも `test/` のテストがある。
 
 | # | 内容 | 状態 |
 | --- | --- | --- |
 | RND-1 | **`requested` は吸収状態だった。** `blur` が保存し、`requestPointerLock` は再送しない。セッション中もう二度とマウスルックに入れない | **修正** |
 | RND-2 | **`endFrame` が、どのフレームにも報告していないホイール段を消費していた。** `Math.trunc` を 2 回別々の瞬間に取っていた | **修正** |
 | RND-3 | **`blur` が `pointerLocked` を残していた。** タブに戻るためのクリックが `attack` になる | **修正** |
-| RND-4 | ミラーの初期状態は `UNSET_CAMERA_POSE` の未発行を明示し、`sourceCapturedAtSecs` は `undefined`、`mirrorLagSecs` は `Infinity` | **修正** |
+| RND-4 | ミラーの初期状態が自己矛盾。最初の pose が届く前を `undefined` で表さず、`UNSET_CAMERA_POSE`（`capturedAtSecs` 0）を新鮮と表示していた | **修正** |
 | RND-5 | `MIRROR_LAG_WARNING_SECS` の doc が「Milliseconds」と書いていた。名前は `_SECS`、値は `0.1`、比較対象は秒 | **修正** |
 | RND-6 | **`RenderRegistrationLayer` が `renderModule` の引数を捨てていた。** ステージが別インスタンスに結び付く | **修正（削除）** |
-| RND-7 | `withScratch` は非公開の native `Map` と再利用 lease facade を使い、返却後の wrapper / closure / 遅延 callback / iterator の利用も捕まえる | **修正** |
+| RND-7 | `withScratch` が捕まえるのは同一性エスケープだけ。包んで返す / クロージャ / 遅延コールバック / 直接読みはすべて素通り | **修正** |
 | RND-8 | **`buildPostProcessingChain` が `high` と `ultra` に同一の配列を返していた。** composite の入力が型に無い | **修正** |
 
 各行がどのテストに固定されたかは [`docs/testing.md`](../../docs/testing.md) §2.2 にある。
@@ -185,22 +186,14 @@ $ pnpm preview --stats | sed -n '/WHEEL-LEDGER/,/^$/p'
 `GameModule` は、その間違いを書けなくする形だった: `module.layers` を **1 回**
 provide し、`frameStages` はその中から取る。
 
-### RND-7 —— lease で返却後の利用も止める
+### RND-4 / RND-7 —— lease と未初期化状態を機構化した
 
-`withScratch` は native `Map` を `ScratchMap` から非公開にし、各 scratch に 1 つだけ
-再利用する lease facade を持つ。借用時に private map を `clear()` し、借用中の全操作と
-iterator の `next()` が lease の有効期間を検査するため、返却後の次の経路が同じ
-`ScratchMisuseError` になる。
-
-- lease 自体を返す
-- lease を wrapper に包んで返す
-- lease を closure や遅延 Effect に閉じ込める
-- lease の iterator を返却後に進める
-
-結果をフレーム境界の外へ持ち出す場合は `snapshotScratch` で明示的にコピーする。
-facade は borrow ごとに作らず、`Map` も置き換えないので、定常フレームでの scratch
-lease と native map の割り当ては増えない。`test/frame-scratch.test.ts` は 18 件の不変条件を
-固定している。
+- **RND-4**: `MirroredCameraState.sourceCapturedAtSecs`、`mirrorLagSecs`、
+  `RenderFrameState.authoritativePose` を optional にし、mc-sim の最初の pose が届くまでを
+  「未初期化」として表現する。時計を読むステージの責務は変わらない。
+- **RND-7**: `withScratch` は native `Map` を公開せず、scratch ごとに一度だけ作る
+  lease-checked view を渡す。view / wrapper / closure / iterator / deferred Effect の
+  lease 後アクセスを `ScratchMisuseError` にし、持ち出しは `snapshotScratch` に限定する。
 
 ## クロックを読んでいない
 
@@ -216,16 +209,17 @@ lease と native map の割り当ては増えない。`test/frame-scratch.test.t
 **GPU が要るものすべて。** ポストFXチェーンは見せられるが、それが作る絵は見せられない。
 マテリアルポリシーは見せられるが、マテリアルは見せられない。カメラミラーは見せられるが、視界は見せられない。
 
-`./browser` の Three 境界は実装済みだが、固定チャンクの目視テストはその隣に置くのが正しく、
-その fixture には mc-playground-kit が要る。**ここにあるのはその代わりではない。**
+THREE アダプタができたら、固定チャンクの目視テストはその隣に置くのが正しく、
+そのときは mc-playground-kit が要る。**ここにあるのはその代わりではない。**
 GPU 無しで確かめられる半分であり、入力状態機械にいたっては
 **他に置き場所が無い**（Playwright はポインタロックを扱えない）。
 
 ## 依存
 
-**このリポジトリ自身のモジュール、宣言済みの `mc-*` パッケージ、`effect`、`three`。**
-`three` は preview source から import せず、`./browser` だけが実行時の Three namespace を使う。
-依存境界は `package.json` の直接依存宣言、TypeScript の import graph、typecheck で検証する。
+**このリポジトリ自身のモジュールと `effect` だけ。**
+`effect` は既に `dependencies` にある。org パッケージも新規 npm 依存も THREE も無い。
+`tsconfig.preview.json` と `pnpm lint` がアプリの import / 型境界を検証し、package の公開面は
+`src/index.ts` からのみ構成する。
 
 ## ファイル
 

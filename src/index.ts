@@ -15,8 +15,8 @@
  * What this repository is NOT allowed to be: the authority on the camera.
  * mc-sim owns `CameraPoseSnapshot`; `domain/camera-mirror.ts` consumes one and
  * produces renderer state, in that direction only. The package dependency
- * direction makes the reverse a cycle; the typecheck keeps the reachable
- * public source consistent.
+ * policy and TypeScript boundaries keep the reverse edge out of the shipped
+ * surface.
  *
  * The domain is PURE — no THREE.js, no DOM, no WebGL. The post-FX chain, the
  * material policy, the input bindings and the scratch buffers are all data and
@@ -32,33 +32,36 @@
  * pointer-lock state machine testable at all (plan.md §3.10: Playwright runs on
  * SwiftShader and cannot do pointer lock).
  *
- * The core entry keeps the THREE surface structural: `application/three-surface.ts`
- * describes the constructors the renderer needs, and the fixture proves that
- * real `three` satisfies the contract. The explicit `./browser` entry is the
- * platform boundary: it owns the runtime `three` namespace, WebGL renderer,
- * texture loading, refraction target and EffectComposer. Keeping that entry
- * separate leaves the root entry and its Node tests DOM-free.
+ * THE THREE.js ADAPTER IS HERE NOW, AND IT DID NOT TURN `"DOM"` ON EITHER.
+ * `application/three-surface.ts` describes the seven constructors the renderer
+ * uses and the ~20 members off them, and `test/three-surface.test.ts` compiles a
+ * fixture against the REAL `three` and `lib.dom.d.ts` to prove the namespace
+ * satisfies them. `three` is a devDependency: it exists so that proof has an
+ * oracle, and no shipped file imports it. `"WebWorker"` is still ahead, with the
+ * mesher pool.
  */
 
 // --- Domain: pure values, policies and orderings ---------------------------
 // Which atlas tile each block shows. Keyed by NAME and not by id: the
 // Reference's table is indexed by ITS block ids, and mc-kernel's ordering
 // Disagrees from index 1 onward, so an index-wise copy would have been wrong in
-// 117 of 120 rows with a real texture on every face.
+// Texture coverage: 117 of 120 rows have a real texture on every face.
 export * from './domain/block-texture-map'
+export * from './domain/block-shapes'
 export * from './domain/camera-mirror'
 export * from './domain/chunk-geometry'
 export * from './domain/frame-scratch'
 export * from './domain/frustum-culling'
-export * from './domain/focus-navigation'
 export * from './domain/input-bindings'
 export * from './domain/gamepad-input'
 export * from './domain/player-control'
-// `level-of-detail.ts` owns distance-based LOD policy. The shared level and
-// Chunk vocabulary remains in `@nerima-games/mc-meshing` and is intentionally
-// Consumed directly rather than re-exported from this package.
+// Level-of-detail.ts decides which LOD tier a chunk is drawn at.
+// The same module measures the cost to the picture.
+// The portable tier vocabulary belongs to this package and uses the kernel's chunk dimension as its coordinate authority.
 export * from './domain/level-of-detail'
+export * from './domain/lod-vocabulary'
 export * from './domain/material-policy'
+export * from './domain/meshing-vocabulary'
 export * from './domain/mob-visual'
 export * from './domain/particle-pool'
 export * from './domain/particle-shader'
@@ -85,19 +88,23 @@ export * from './application/input-service'
 // --- Application: the browser adapter for the input service ------------------
 // The ONLY files in this repository that know what an `addEventListener` is.
 // `dom-surface.ts` is the whole DOM dependency, structurally; see its header for
-// WHY that is a narrow interface rather than `"lib": ["DOM"]`.
+// Why that is a narrow interface rather than `"lib": ["DOM"]`.
 export * from './application/dom-surface'
 export * from './application/browser-input-adapter'
-export * from './application/browser-worker-port'
 export * from './application/gamepad-input-adapter'
 
-// --- Application: the core THREE surface ------------------------------------
-// The root entry exposes the structural contract and renderer. The browser
-// Entry is intentionally separate so consumers that only need plans, input or
-// The Node surface does not acquire DOM/WebGL types through this module.
+// --- Application: the THREE.js adapter --------------------------------------
+// `three-surface.ts` is the whole THREE dependency, structurally — the same
+// Move `dom-surface.ts` makes for `window`, and for the same reason: no shipped
+// File imports `three`, so `tsconfig.build.json` still compiles this package
+// With `lib: ["ES2024"]` and `types: []`. The HOST passes the real namespace in.
+//
+// `world-renderer.ts` is the only file in the repository that touches a GPU. It
+// Is what closes docs/e2e-triage.md #1 in mc-compose: nothing in the roster
+// Created a WebGL context, so the composed page drew nothing and the smoke test
+// That says so was `fixme`.
 export * from './application/three-surface'
 export * from './application/world-renderer'
-export * from './application/world-renderer-production'
 export * from './application/particle-system'
 export * from './application/weather-renderer'
 export * from './application/world-sync'

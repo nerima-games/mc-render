@@ -16,7 +16,6 @@ import { Effect } from 'effect'
 import {
   auditMaterials,
   describeMaterialPolicy,
-  hasNoTwoPassOrderingBenefit,
   isCutout,
   requiresForceSinglePass,
   takesTwoPassPath,
@@ -78,23 +77,15 @@ describe('requiresForceSinglePass', () => {
     }),
   )
 
-  it.effect('a shared flat surface requires it without falsifying alphaTest', () =>
+  it.effect('a shared flat surface requires it even without alpha testing', () =>
     Effect.sync(() => {
-      const flatWater: MaterialSpec = {
-        name: 'waterSurfaceMaterial',
-        transparent: true,
-        side: 'double',
-        alphaTest: 0,
-        flatSurface: true,
-        shared: true,
-      }
+      const flatSurface = { ...GLASS_LEAVES, name: 'flatSurfaceMaterial', alphaTest: 0, flatSurface: true }
 
-      expect(isCutout(flatWater)).toBe(false)
-      expect(hasNoTwoPassOrderingBenefit(flatWater)).toBe(true)
-      expect(requiresForceSinglePass(flatWater)).toBe(true)
-      const verdict = describeMaterialPolicy(flatWater)
+      expect(isCutout(flatSurface)).toBe(false)
+      expect(requiresForceSinglePass(flatSurface)).toBe(true)
+      const verdict = describeMaterialPolicy(flatSurface)
       expect(verdict.kind).toBe('must-force-single-pass')
-      expect(verdict.reason).toContain('flatSurface')
+      expect(verdict.reason).toContain('flatSurface is true')
     }),
   )
 
@@ -137,7 +128,6 @@ describe('genuine translucency is NOT forced single-pass', () => {
       }
 
       expect(isCutout(stainedGlass)).toBe(false)
-      expect(hasNoTwoPassOrderingBenefit(stainedGlass)).toBe(false)
       expect(requiresForceSinglePass(stainedGlass)).toBe(false)
 
       const verdict = describeMaterialPolicy(stainedGlass)
