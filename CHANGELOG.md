@@ -1,5 +1,26 @@
 # @nerima-games/mc-render
 
+## 0.3.0
+
+### Minor Changes
+
+- [#10](https://github.com/nerima-games/mc-render/pull/10) [`8bc3635`](https://github.com/nerima-games/mc-render/commit/8bc363520789c1a054d9c1b0f75f2f0db1b54b2e) Thanks [@takeokunn](https://github.com/takeokunn)! - Clear every `oxlint --deny-warnings` violation across `src/`, `apps/`, `scripts/`, and `test/`, and close the coverage gate (all four metrics now above the 99% threshold, up from below it since the 2026-08-01 org rollout).
+  
+  `.oxlintrc.json` gained a small number of narrow, evidence-based base-rule refinements rather than per-file suppressions: an `id-length` exception for the graphics-domain vector/color vocabulary (`x`/`y`/`z`/`u`/`v`/`r`/`g`/`b`/`a`, matching Three.js's own field names), a `no-underscore-dangle` allowance for Effect's `_tag` discriminated-union field, and file-scoped `max-params` exemptions for published entry points confirmed (by inspecting the sibling `mc-compose` checkout) to be called positionally by real external code — `makeWorldRenderer`, `makeProductionWorldRenderer`, `syncWorld`, `buildChunkGeometry` — plus `src/domain/particle-pool.ts`, whose already-documented zero-allocation frame-path design predates this change.
+  
+  Two previously-unused exported functions had their signatures reshaped from long positional argument lists into an options object, with zero known external callers (verified against this repo and the sibling `mc-compose`/`mc-playground-kit` checkouts):
+  
+  - `attachChunkStoreRenderer(renderer, store, options?, config?)` → `attachChunkStoreRenderer(renderer, store, options?)`, where `options.config` now carries the mesh config.
+  - `preparePerspectiveFrustum(camera, verticalFovDegrees, aspect, nearPlane, farPlane)` → `preparePerspectiveFrustum(frustum: PerspectiveFrustum)`, reusing the file's own existing `PerspectiveFrustum` type.
+  
+  No other exported function's signature or runtime behavior changed. The coverage work added real behavioral tests for previously-untested branches across `src/application/**` and `src/domain/**`; a handful of branches that proved genuinely unreachable through any public call path (documented in each case, e.g. `worker-pool.ts`'s post-`shift()` guard on a provably non-empty queue) remain uncovered rather than forced with `v8 ignore`.
+
+- [#14](https://github.com/nerima-games/mc-render/pull/14) [`89eaff2`](https://github.com/nerima-games/mc-render/commit/89eaff22c579d2876d8581566bf1828a6a19d876) Thanks [@takeokunn](https://github.com/takeokunn)! - Land the local main: renderer implementation, browser runtime boundary, and the uninitialized mirrored-camera state and ThreeMaterialSide exports.
+
+### Patch Changes
+
+- [#15](https://github.com/nerima-games/mc-render/pull/15) [`0e443ec`](https://github.com/nerima-games/mc-render/commit/0e443ecd69f92e56572aa3f39e88af3fab3ba462) Thanks [@takeokunn](https://github.com/takeokunn)! - Toolchain frozen to org pin set (TypeScript 7.0.2, vitest 4.1.11, effect 3.22.1, node 24, pnpm 11.24.0); build switched to tsc emit; release workflow added
+
 ## 0.2.0
 
 ### Minor Changes
