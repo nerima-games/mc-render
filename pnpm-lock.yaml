@@ -18,8 +18,8 @@ importers:
         specifier: 0.1.42
         version: 0.1.42
       '@nerima-games/mc-worldgen':
-        specifier: 0.1.14
-        version: 0.1.14
+        specifier: 0.2.0
+        version: 0.2.0
       effect:
         specifier: 3.22.1
         version: 3.22.1
@@ -371,6 +371,10 @@ packages:
     resolution: {integrity: sha512-b39/9ugZvF59ZvO4J/M6CMZZgziZa3keVzxt/6RQo+mYS3a33suB0wvBF2xOlE+cKw1cKO7xe25WM2Xxu7XshQ==, tarball: https://npm.pkg.github.com/download/@nerima-games/mc-noise/0.2.0/33559f7c79806dc9412b8193fb8be0b76c5a9a53}
     engines: {node: '>=24.0.0', pnpm: '>=11.0.0'}
 
+  '@nerima-games/mc-noise@0.3.0':
+    resolution: {integrity: sha512-ntPWqPFWH2VADOF0Q4a3qgdvgndo472/FFhzJnVKNANhChvCLbcZ2754+NeOWI56Bw2ZOGYUUD3u116dKBB15Q==, tarball: https://npm.pkg.github.com/download/@nerima-games/mc-noise/0.3.0/598f4b65934dad3ae5b16b3250a7084b9a221496}
+    engines: {node: '>=24.0.0', pnpm: '>=11.24.0'}
+
   '@nerima-games/mc-physics@0.1.7':
     resolution: {integrity: sha512-ptuMTPm8B+/h+TYDKpA9XBmRVuLsSWrFWRPl7TpESsmb1Ma67oXYbUwdYbEaToymu1oDmbzuSK1yDKhT0iQRww==, tarball: https://npm.pkg.github.com/download/@nerima-games/mc-physics/0.1.7/639e9afb98458abbba391bcc750dd7eff9a1ee75}
     engines: {node: '>=24.0.0', pnpm: '>=11.0.0'}
@@ -379,6 +383,10 @@ packages:
     resolution: {integrity: sha512-RfBRez6UxbmepJ9b1H9z+lM/jeHCYgcFura1dVFa7rnr+DLHy8pZuGzeASytnNyyHL1fXqtsf202fZKvxFwiog==, tarball: https://npm.pkg.github.com/download/@nerima-games/mc-save/0.2.2/86bae2e984e31d03dbe474e61c8cdc0a86e34b12}
     engines: {node: '>=24.0.0', pnpm: '>=11.0.0'}
 
+  '@nerima-games/mc-save@0.3.0':
+    resolution: {integrity: sha512-zxFznYQ58lVKyRh8faR1riZ4y5lCksk5mf7IPdCPjUVqrxG0fIpAs5YDie2Pp3R8+ZIUQANqCD5opqqGBspbdA==, tarball: https://npm.pkg.github.com/download/@nerima-games/mc-save/0.3.0/91153dba4d5cff6c5047d35367f7d940f8470e19}
+    engines: {node: '>=24.0.0', pnpm: '>=11.24.0'}
+
   '@nerima-games/mc-sim@0.1.42':
     resolution: {integrity: sha512-22mLSOa1rkSUIcra8S++eAkM3T/3ZD2bEyFQQJ+8OD2qe8Q2QshnAT542TcTMpdxOQES5FBcVHPtOca446bVCg==, tarball: https://npm.pkg.github.com/download/@nerima-games/mc-sim/0.1.42/9b5b0539f82525f437f61a228666c2e140004bef}
     engines: {node: '>=24.0.0', pnpm: '>=11.0.0'}
@@ -386,6 +394,10 @@ packages:
   '@nerima-games/mc-worldgen@0.1.14':
     resolution: {integrity: sha512-v9RzxGuqro90Ou4mBsMSYkAGHE5WCcLO0bkx7bXFnMKI29QPTIUEHOabCa93WR0CKTxv1gTRhH8aH6BviTDhgQ==, tarball: https://npm.pkg.github.com/download/@nerima-games/mc-worldgen/0.1.14/941dc634384bdad39503bf49702e85ca0b6809cb}
     engines: {node: '>=24.0.0', pnpm: '>=11.0.0'}
+
+  '@nerima-games/mc-worldgen@0.2.0':
+    resolution: {integrity: sha512-UumeyQ2hlSauT5kqK+nfNrktP7D3oRF5ludoOI5cH3jHZfyq5pdDA7yK9FqGM/YziM7omlON1uZAToQuaCafZQ==, tarball: https://npm.pkg.github.com/download/@nerima-games/mc-worldgen/0.2.0/775029996c974970e912572a964f66dc098f843d}
+    engines: {node: '>=24.0.0', pnpm: '>=11.24.0'}
 
   '@pnpm/deps.graph-sequencer@1100.0.1':
     resolution: {integrity: sha512-pOr5+q1fLYKwFN3LAJuGZEnfXDcQ73zqgDHMtGy+K+uIoUqyY+6MeDCWFwfu+4EFuq76I5EPFofoNAI+Bmmq4A==}
@@ -1294,6 +1306,11 @@ snapshots:
     dependencies:
       effect: 3.22.1
 
+  '@nerima-games/mc-noise@0.3.0':
+    dependencies:
+      '@nerima-games/mc-kernel': 0.4.0(effect@3.22.1)
+      effect: 3.22.1
+
   '@nerima-games/mc-physics@0.1.7':
     dependencies:
       '@nerima-games/mc-kernel': 0.2.17
@@ -1301,6 +1318,11 @@ snapshots:
 
   '@nerima-games/mc-save@0.2.2':
     dependencies:
+      effect: 3.22.1
+
+  '@nerima-games/mc-save@0.3.0':
+    dependencies:
+      '@nerima-games/mc-kernel': 0.4.0(effect@3.22.1)
       effect: 3.22.1
 
   '@nerima-games/mc-sim@0.1.42':
@@ -1316,6 +1338,13 @@ snapshots:
       '@nerima-games/mc-kernel': 0.2.17
       '@nerima-games/mc-noise': 0.2.0
       '@nerima-games/mc-save': 0.2.2
+      effect: 3.22.1
+
+  '@nerima-games/mc-worldgen@0.2.0':
+    dependencies:
+      '@nerima-games/mc-kernel': 0.4.0(effect@3.22.1)
+      '@nerima-games/mc-noise': 0.3.0
+      '@nerima-games/mc-save': 0.3.0
       effect: 3.22.1
 
   '@pnpm/deps.graph-sequencer@1100.0.1': {}

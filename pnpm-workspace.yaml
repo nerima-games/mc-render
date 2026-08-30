@@ -2,3 +2,6 @@ allowBuilds:
   esbuild: true
 minimumReleaseAgeExclude:
   - '@nerima-games/mc-meshing@0.1.5'
+  - '@nerima-games/mc-noise@0.3.0'
+  - '@nerima-games/mc-save@0.3.0'
+  - '@nerima-games/mc-worldgen@0.2.0'
