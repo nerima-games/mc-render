@@ -8,6 +8,16 @@ type FixtureInspection = {
   readonly sourceFileNames: readonly string[]
 }
 
+/**
+ * Type-check one fixture file in an isolated, throwaway project.
+ *
+ * TypeScript 7's main entry point has no synchronous `createProgram`: the
+ * classic Program API this repository's tests used to call was removed, and
+ * `typescript/unstable/sync`'s `API`/`Snapshot`/`Project` is its replacement.
+ * A real `tsconfig.json` is written to a temp directory (rather than passed
+ * as an in-memory `CompilerOptions` object) because `openProjects` takes a
+ * config file path, not parsed options.
+ */
 export const inspectTypeScriptFixture = (
   repositoryRoot: string,
   fixture: string,
@@ -19,20 +29,20 @@ export const inspectTypeScriptFixture = (
   writeFileSync(
     configPath,
     JSON.stringify({
-      files: [fixture],
       compilerOptions: {
-        noEmit: true,
-        strict: true,
         exactOptionalPropertyTypes: true,
-        noUncheckedIndexedAccess: true,
-        target: 'ES2022',
-        module: 'ESNext',
-        moduleResolution: 'Bundler',
-        moduleDetection: 'Force',
-        skipLibCheck: true,
-        types: [],
         lib,
+        module: 'ESNext',
+        moduleDetection: 'Force',
+        moduleResolution: 'Bundler',
+        noEmit: true,
+        noUncheckedIndexedAccess: true,
+        skipLibCheck: true,
+        strict: true,
+        target: 'ES2022',
+        types: [],
       },
+      files: [fixture],
     }),
   )
 

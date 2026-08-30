@@ -204,6 +204,119 @@ describe('REGRESSION: withScratch prevents cross-frame escapes', () => {
   )
 })
 
+describe('the guarded view delegates the whole Map interface, lease-checked', () => {
+  it.effect('every read/write method delegates to the backing buffer', () =>
+    Effect.sync(() => {
+      const scratch = makeScratchMap<string, number>('visibleChunks')
+
+      withScratch(scratch, (buffer) => {
+        expect(buffer.has('a')).toBe(false)
+        buffer.set('a', 1)
+        buffer.set('b', 2)
+
+        expect(buffer.size).toBe(2)
+        expect(buffer.has('a')).toBe(true)
+        expect(buffer.get('a')).toBe(1)
+        expect(buffer.get('missing')).toBeUndefined()
+        expect([...buffer.entries()]).toStrictEqual([
+          ['a', 1],
+          ['b', 2],
+        ])
+        expect([...buffer.values()]).toStrictEqual([1, 2])
+        expect([...buffer]).toStrictEqual([
+          ['a', 1],
+          ['b', 2],
+        ])
+
+        const seen: Array<readonly [string, number, Map<string, number>]> = []
+        buffer.forEach((value, key, map) => {
+          seen.push([key, value, map])
+        })
+        expect(seen).toStrictEqual([
+          ['a', 1, buffer],
+          ['b', 2, buffer],
+        ])
+
+        expect(buffer.delete('a')).toBe(true)
+        expect(buffer.has('a')).toBe(false)
+        expect(buffer.size).toBe(1)
+
+        buffer.clear()
+        expect(buffer.size).toBe(0)
+      })
+    }),
+  )
+
+  it.effect('forEach honours thisArg, exactly as the real Map does', () =>
+    Effect.sync(() => {
+      const scratch = makeScratchMap<string, number>('visibleChunks')
+      const receiver = { tag: 'receiver' }
+      const seenThis: Array<unknown> = []
+
+      withScratch(scratch, (buffer) => {
+        buffer.set('a', 1)
+        buffer.forEach(function callback(this: unknown) {
+          seenThis.push(this)
+        }, receiver)
+      })
+
+      expect(seenThis).toStrictEqual([receiver])
+    }),
+  )
+
+  it.effect('the Map delegate methods raise the same escaped-buffer error after the lease ends', () =>
+    Effect.sync(() => {
+      const scratch = makeScratchMap<string, number>('visibleChunks')
+      const escaped = withScratch(scratch, (buffer) => {
+        buffer.set('a', 1)
+        return { inside: buffer }
+      })
+      const { inside } = escaped
+
+      expect(() => inside.clear()).toThrow(ScratchMisuseError)
+      expect(() => inside.delete('a')).toThrow(ScratchMisuseError)
+      expect(() => [...inside.entries()]).toThrow(ScratchMisuseError)
+      expect(() => inside.forEach(() => undefined)).toThrow(ScratchMisuseError)
+      expect(() => inside.get('a')).toThrow(ScratchMisuseError)
+      expect(() => inside.has('a')).toThrow(ScratchMisuseError)
+      expect(() => [...inside.keys()]).toThrow(ScratchMisuseError)
+      expect(() => inside.set('b', 2)).toThrow(ScratchMisuseError)
+      expect(() => [...inside.values()]).toThrow(ScratchMisuseError)
+      expect(() => [...inside]).toThrow(ScratchMisuseError)
+    }),
+  )
+
+  it.effect('withScratch received a non-object scratch value created outside makeScratchMap', () =>
+    Effect.sync(() => {
+      // `stateFor`'s first guard, ahead of the WeakMap lookup: a scratch value
+      // that is not even an object (a stray string) cannot be a WeakMap key
+      // at all.
+      const foreign = 'not-a-scratch-map' as unknown as ScratchMap<string, number>
+
+      expect(() => withScratch(foreign, (buffer) => buffer.size)).toThrow(ScratchMisuseError)
+      try {
+        withScratch(foreign, (buffer) => buffer.size)
+      } catch (error) {
+        expect(error instanceof ScratchMisuseError && error.violation.rule).toBe('foreign-scratch')
+        expect(error instanceof ScratchMisuseError && error.violation.message).toContain(
+          'non-object scratch value',
+        )
+      }
+    }),
+  )
+
+  it.effect('withScratch received null, which typeof reports as "object"', () =>
+    Effect.sync(() => {
+      // `typeof null === 'object'`, so the non-object check alone would let a
+      // null scratch value through to the WeakMap lookup — this is the
+      // `scratch === null` half of that guard, exercised on its own.
+      const foreign = null as unknown as ScratchMap<string, number>
+
+      expect(() => withScratch(foreign, (buffer) => buffer.size)).toThrow(ScratchMisuseError)
+    }),
+  )
+})
+
 describe('REGRESSION: re-entrant borrows are rejected', () => {
   it.effect('two nested users of one buffer would clobber each other', () =>
     Effect.sync(() => {

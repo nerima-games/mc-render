@@ -49,7 +49,7 @@ import {
 import { LISTENER_PLAN } from '../../src/application/input-service'
 import { MIRROR_LAG_WARNING_SECS } from '../../src/domain/camera-mirror'
 import { RENDER_STAGE_IDS, UPSTREAM_STAGE_IDS } from '../../src/stages/stage-ids'
-import { scenarioFor, scenarioLength, stepAt, type ScenarioName } from './script'
+import { SCENARIO_NAMES, scenarioFor, scenarioLength, stepAt, type ScenarioName } from './script'
 import { describeCommand, describeEvent, type MachineView } from './machine'
 import {
   BAD,
@@ -738,14 +738,15 @@ export const renderFrame = (
   ]
 }
 
-const SCENARIO_LIST = [
-  'happy-path',
-  'stranded-request',
-  'lost-notch',
-  'blur-while-locked',
-  'mirror-staleness',
-  'rebinding',
-] as const
+/**
+ * The catalogue's own scenario order.
+ *
+ * Was a hand-copied literal list, and it drifted from `SCENARIO_NAMES` in
+ * `script.ts` — missing `'hud-click'` entirely, so the catalogue silently
+ * never documented that scenario. Reusing `SCENARIO_NAMES` directly makes
+ * that particular drift impossible rather than merely caught by a test.
+ */
+const SCENARIO_LIST = SCENARIO_NAMES
 
 const describeLast = (name: ScenarioName): string => {
   const scenario = scenarioFor(name)

@@ -371,10 +371,26 @@ export type ThreeShaderMaterialParameters = {
   readonly depthWrite?: boolean
   readonly forceSinglePass?: boolean
   readonly alphaTest?: number
-  readonly side?: unknown
+  readonly side?: ThreeMaterialSide
 }
 
-export const THREE_DOUBLE_SIDE = 2
+/**
+ * Three's own `Side` enum, restated as a literal type rather than imported.
+ *
+ * `side?: unknown` used to sit here, and `test/fixtures/three-surface.ts`
+ * caught why that was wrong rather than merely loose: passing `unknown` as a
+ * `ShaderMaterial` CONSTRUCTOR parameter is a contravariant position, and
+ * `unknown` is not assignable INTO three's real `side?: Side` — the direction
+ * that matters is "can our parameter type be handed to three's real
+ * constructor", not "can any value be assigned to `side`". `0 | 1 | 2` is
+ * three's `FrontSide | BackSide | DoubleSide`, transcribed rather than
+ * imported for the same reason this whole file avoids a `three` import: see
+ * the header.
+ */
+// oxlint-disable-next-line no-magic-numbers -- THREE's Side type is the literal enum 0|1|2.
+export type ThreeMaterialSide = 0 | 1 | 2
+
+export const THREE_DOUBLE_SIDE: ThreeMaterialSide = 2
 
 /**
  * The surface, plus a `ShaderMaterial`.

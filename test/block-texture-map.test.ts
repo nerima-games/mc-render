@@ -21,7 +21,7 @@ import type {
   CrossPlantQuad,
   FaceDirection,
   FaceRole,
-  FluidQuad,
+  MeshQuad,
 } from '../src/domain/chunk-geometry'
 
 const ROLES: ReadonlyArray<FaceRole> = ['top', 'bottom', 'side']
@@ -231,17 +231,27 @@ describe('the injected name lookup', () => {
         return 30
       }
       const tile = quadTileFromResolver(resolve)
-      const fluid = (direction: FaceDirection): FluidQuad => ({
-        blockId: 3,
-        direction,
-        vertices: [
-          [0, 0, 0],
-          [0, 1, 0],
-          [1, 1, 1],
-          [1, 0, 1],
-        ],
-        ao: 0,
-      })
+      // `tile()` never sees a raw `FluidQuad`: `buildFluidGeometry` converts one via
+      // `fluidProxyQuad` before calling `tile`, deriving `role` from `direction`
+      // ('yPos' -> 'top', else -> 'side'). Mirror that shape here rather than the
+      // pre-conversion one, since that is what a `QuadTile` actually receives.
+      const fluidProxy = (direction: FaceDirection): MeshQuad => {
+        let role: FaceRole = 'side'
+        if (direction === 'yPos') {
+          role = 'top'
+        }
+        return {
+          ao: 0,
+          blockId: 3,
+          direction,
+          height: 1,
+          lx: 0,
+          lz: 0,
+          role,
+          width: 1,
+          y: 0,
+        }
+      }
       const cross: CrossPlantQuad = {
         blockId: 3,
         role: 'bottom',
@@ -258,8 +268,8 @@ describe('the injected name lookup', () => {
       }
 
       expect(tile(cross)).toBe(20)
-      expect(tile(fluid('yPos'))).toBe(10)
-      expect(tile(fluid('xPos'))).toBe(30)
+      expect(tile(fluidProxy('yPos'))).toBe(10)
+      expect(tile(fluidProxy('xPos'))).toBe(30)
     }),
   )
 })

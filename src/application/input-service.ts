@@ -941,7 +941,6 @@ const withBlur = (current: InputState): InputState => {
 
 /** One event applied to the state it changes. THE reducer `dispatch` runs. */
 const applyInputEvent = (current: InputState, event: InputEvent): InputState => {
-  // oxlint-disable-next-line default-case -- InputEvent is a closed discriminated union.
   switch (event.kind) {
     case 'keydown':
       return unlessModalConsumed(event.target, current, () => withCodeDown(current, event.code))
@@ -1005,6 +1004,15 @@ const applyInputEvent = (current: InputState, event: InputEvent): InputState => 
       return { ...current, pointerLockState: 'refused' }
     case 'blur':
       return withBlur(current)
+    default:
+      /* `InputEvent` is closed for every caller `dispatch`'s own type lets
+         through, but `event.kind` is read off a value at a Ref-update
+         boundary, not re-verified against the union — a `kind` this build
+         does not recognise (a stale client, a mistyped internal caller
+         reaching past the type checker) must leave state untouched rather
+         than fall through the switch and return `undefined`, which would
+         poison the Ref for every read after it. */
+      return current
   }
 }
 

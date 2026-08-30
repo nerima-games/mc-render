@@ -33,7 +33,7 @@ import { spawnBurst } from '../src/domain/particle-pool'
 import { FAKE_CANVAS, makeFakeThree } from './support/fake-three'
 import { planRenderEnvironment } from '../src/domain/render-environment'
 import { planMobVisual } from '../src/domain/mob-visual'
-import { buildPostProcessingChain } from '../src/domain/post-processing'
+import { buildPostProcessingChain, QUALITY_PRESETS } from '../src/domain/post-processing'
 import { planWitherSkullVisual, planWitherVisual } from '../src/domain/wither-visual'
 import { makeThreeWeatherPrecipitation } from '../src/application/three-weather-runtime'
 import type { ThreeScene } from '../src/application/three-surface'
@@ -705,6 +705,7 @@ describe('drawing', () => {
       const three = makeFakeThree()
       const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT)
       const quality = {
+        ...QUALITY_PRESETS.high,
         ssaoEnabled: true,
         godRaysEnabled: false,
         bloomEnabled: true,

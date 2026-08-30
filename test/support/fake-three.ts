@@ -66,7 +66,6 @@ import type {
   ThreeMesh,
   ThreePerspectiveCamera,
   ThreeRendererParameters,
-  ThreeMaterialSide,
   ThreeInstancedBufferAttribute,
   ThreeInstancedBufferGeometry,
   ThreeScene,
@@ -132,7 +131,7 @@ export type FakeShaderMaterial = ThreeMaterial & {
   readonly transparent?: boolean
   readonly depthWrite?: boolean
   readonly forceSinglePass?: boolean
-  readonly side?: ThreeMaterialSide
+  readonly side?: unknown
   readonly disposed: () => boolean
 }
 

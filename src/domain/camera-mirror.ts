@@ -102,6 +102,15 @@ export type MirroredCameraState = {
   readonly rotation: Readonly<Record<EulerAngleAxis, number>> & { readonly order: 'YXZ' }
   /** The instant mc-sim produced the pose, or `undefined` before first publish. */
   readonly sourceCapturedAtSecs: MonotonicTimeSecs | undefined
+  /**
+   * `true` when this state was never confirmed by a live mc-sim publish — see
+   * `uninitializedMirroredCameraState`. Distinct from an ordinary undefined
+   * `sourceCapturedAtSecs`, which `mirrorLagSecs` treats as "pending" (not yet
+   * stale, since nothing has arrived to be late). This flag makes the same
+   * undefined timestamp read as infinitely stale instead, for a pose the
+   * renderer should not trust even provisionally.
+   */
+  readonly unpublished?: boolean
 }
 
 /**
@@ -160,6 +169,24 @@ export const mirroredCameraState = (
 }
 
 /**
+ * A last-known pose the renderer can show before mc-sim has ever confirmed
+ * one — a spawn snapshot, say — flagged so staleness checks never treat it as
+ * fresh.
+ *
+ * Distinct from `mirroredCameraState(undefined)`: that represents "nothing
+ * has arrived yet, and there is nothing to compare against" and reads as NOT
+ * stale (`isMirrorStale` needs a lag to complain about). This instead takes a
+ * real snapshot — so the camera can sit at a sensible position rather than
+ * the origin — while still marking it `unpublished`, which `mirrorLagSecs`
+ * reads as infinitely stale regardless of the snapshot's own timestamp.
+ */
+export const uninitializedMirroredCameraState = (snapshot: CameraPoseSnapshot): MirroredCameraState => ({
+  ...mirroredCameraState(snapshot),
+  sourceCapturedAtSecs: undefined,
+  unpublished: true,
+})
+
+/**
  * Unit forward vector of an authoritative snapshot.
  *
  * Present so that no code in this repository ever needs
@@ -192,6 +219,9 @@ export const mirrorLagSecs = (
 ): number | undefined => {
   const capturedAtSecs = state.sourceCapturedAtSecs
   if (capturedAtSecs === undefined) {
+    if (state.unpublished === true) {
+      return Number.POSITIVE_INFINITY
+    }
     return undefined
   }
   return now - capturedAtSecs

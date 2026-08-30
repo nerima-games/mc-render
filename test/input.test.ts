@@ -1844,10 +1844,14 @@ describe('REGRESSION: Tab belongs to the user agent, and is never taken away', (
       // suppressed scroll costs them the bottom of a settings screen; a
       // suppressed Tab costs them every way out of the canvas — including the
       // settings screen that would let them rebind their way out of it
-      // (WCAG 2.1 SC 2.1.2). `keydown` is listed only because a consumed
-      // arrow can be prevented; the adapter never consumes Tab.
-      expect([...PREVENT_DEFAULT_EVENTS].sort()).toStrictEqual(['contextmenu', 'keydown', 'wheel'])
-      expect(mayPreventDefault('keydown')).toBe(true)
+      // (WCAG 2.1 SC 2.1.2). `keydown` is NOT here: `suppressionFor` has no
+      // case for it, so this adapter never calls `preventDefault()` on a key
+      // at all. `ARROW_FOCUS_NAVIGATION_POLICY.preventDefault` ('when-consumed')
+      // is a real policy, but its `owner` is 'host' — deciding it is the
+      // caller's job, not this adapter's, and adding `keydown` here would
+      // make every key event eligible for suppression, Tab included.
+      expect([...PREVENT_DEFAULT_EVENTS].sort()).toStrictEqual(['contextmenu', 'wheel'])
+      expect(mayPreventDefault('keydown')).toBe(false)
       expect(mayPreventDefault('keyup')).toBe(false)
       expect(mayPreventDefault('focusin')).toBe(false)
       expect(mayPreventDefault('focusout')).toBe(false)
