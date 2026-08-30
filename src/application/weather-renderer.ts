@@ -10,8 +10,7 @@ import {
   type WorldWeatherSnapshot,
   planWeatherFrame,
 } from '../domain/weather-rendering'
-import { type RenderEnvironmentPlan, planRenderEnvironment } from '../domain/render-environment'
-import type { Viewport } from './world-renderer'
+import { type RenderEnvironmentPlan, type Viewport, planRenderEnvironment } from '../domain/render-environment'
 
 export type WeatherPrecipitationResource = {
   readonly update: (particles: ReadonlyArray<PrecipitationParticle>) => Effect.Effect<void>

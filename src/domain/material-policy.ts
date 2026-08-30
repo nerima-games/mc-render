@@ -111,6 +111,8 @@ export type MaterialSpec = {
   readonly side: MaterialSide
   /** Alpha cutoff. Greater than zero means the material is a cutout. */
   readonly alphaTest: number
+  /** True when the rendered geometry is a single surface, not a closed volume. */
+  readonly flatSurface: boolean
   /** True when one material instance is referenced by many meshes. */
   readonly shared: boolean
 }
@@ -134,19 +136,26 @@ export const isCutout = (material: MaterialSpec): boolean => material.alphaTest 
 
 /**
  * THE RULE. `forceSinglePass: true` is required exactly when a material is
- * shared, takes the two-pass path, and is a cutout.
+ * shared, takes the two-pass path, and is either a cutout or a flat surface.
  *
  * Shared + two-pass + NOT a cutout is genuine translucency: it must keep the
  * two-pass ordering and must instead be un-shared, or accept the cost. See
  * `describeMaterialPolicy` for that case's diagnostic.
  */
 export const requiresForceSinglePass = (material: MaterialSpec): boolean =>
-  material.shared && takesTwoPassPath(material) && isCutout(material)
+  material.shared && takesTwoPassPath(material) && (isCutout(material) || material.flatSurface)
 
 export type MaterialPolicyVerdict =
   | { readonly kind: 'ok'; readonly reason: string }
   | { readonly kind: 'must-force-single-pass'; readonly reason: string }
   | { readonly kind: 'review-sharing'; readonly reason: string }
+
+const cutoutReason = (material: MaterialSpec): string => {
+  if (material.flatSurface) {
+    return 'flatSurface is true: the geometry is not a closed volume; '
+  }
+  return `alphaTest ${String(material.alphaTest)} makes it a cutout; `
+}
 
 /**
  * Explain what to do about a material.
@@ -170,21 +179,22 @@ export const describeMaterialPolicy = (material: MaterialSpec): MaterialPolicyVe
         'only its own shader program.',
     }
   }
-  if (isCutout(material)) {
+  if (isCutout(material) || material.flatSurface) {
     return {
       kind: 'must-force-single-pass',
       reason:
         `${material.name} is shared, transparent and DoubleSide, so every frame bumps ` +
         'material.version twice and re-resolves the shader program for every mesh that shares it ' +
         '(~15k getParameters calls per 3s at idle in the reference; p95 frame time 33ms -> 9.2ms ' +
-        `once forced). alphaTest ${String(material.alphaTest)} makes it a cutout, so the two-pass ` +
-        'ordering buys nothing. Set forceSinglePass: true.',
+        `once forced). ${cutoutReason(material)}` +
+        'the two-pass ordering buys nothing. Set forceSinglePass: true.',
     }
   }
   return {
     kind: 'review-sharing',
     reason:
-      `${material.name} is shared, transparent and DoubleSide, but alphaTest is 0 — it is ` +
+      `${material.name} is shared, transparent and DoubleSide, but flatSurface is false and ` +
+      `alphaTest ${String(material.alphaTest)} does not enable alpha testing — it is ` +
       'genuinely translucent and needs the two-pass ordering for correct back-then-front ' +
       'rendering. forceSinglePass would visibly break it. Un-share the material instead, or ' +
       'accept the program-cache cost deliberately.',

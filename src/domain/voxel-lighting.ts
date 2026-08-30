@@ -88,6 +88,12 @@
  */
 import {
   type FaceDirection,
+  type QuadCorners,
+  isBlockShapeQuad,
+  isCrossPlantQuad,
+} from './meshing-vocabulary'
+import {
+  type GeometryQuad,
   type QuadColor,
   type QuadShade,
   aoShade,
@@ -352,6 +358,44 @@ export const lightSamplePoint = (
   ]
 }
 
+/** The light lookup and face direction needed to shade one geometry quad. */
+export type GeometryLightSample = {
+  readonly point: readonly [number, number, number]
+  readonly direction: FaceDirection
+}
+
+const QUAD_CORNER_COUNT = 4
+
+const explicitQuadCenter = (vertices: QuadCorners): readonly [number, number, number] => {
+  const [first, second, third, fourth] = vertices
+  const [firstX, firstY, firstZ] = first
+  const [secondX, secondY, secondZ] = second
+  const [thirdX, thirdY, thirdZ] = third
+  const [fourthX, fourthY, fourthZ] = fourth
+  return [
+    (firstX + secondX + thirdX + fourthX) / QUAD_CORNER_COUNT,
+    (firstY + secondY + thirdY + fourthY) / QUAD_CORNER_COUNT,
+    (firstZ + secondZ + thirdZ + fourthZ) / QUAD_CORNER_COUNT,
+  ]
+}
+
+/** Explicit-vertex shapes and plants have no cube-face origin, so sample their centre. */
+export const lightSampleForGeometryQuad = (quad: GeometryQuad): GeometryLightSample => {
+  if (isBlockShapeQuad(quad)) {
+    return { direction: quad.direction, point: explicitQuadCenter(quad.vertices) }
+  }
+  if (isCrossPlantQuad(quad)) {
+    return {
+      direction: 'yPos',
+      point: explicitQuadCenter(quad.vertices),
+    }
+  }
+  return {
+    direction: quad.direction,
+    point: lightSamplePoint(quad, faceNormal(quad.direction)),
+  }
+}
+
 /**
  * The question this repository asks a light grid, and the whole of it.
  *
@@ -405,8 +449,8 @@ export const litShade = (
 ): QuadShade => {
   const skyIntensity = options.skyIntensity ?? SKY_INTENSITY_MAX
   return (quad) => {
-    const [sampleX, sampleY, sampleZ] = lightSamplePoint(quad, faceNormal(quad.direction))
-    return combinedShadeByte(sampler(sampleX, sampleY, sampleZ), quad.ao, { direction: quad.direction, skyIntensity })
+    const sample = lightSampleForGeometryQuad(quad)
+    return combinedShadeByte(sampler(...sample.point), quad.ao, { direction: sample.direction, skyIntensity })
   }
 }
 
@@ -462,8 +506,8 @@ export const litColor = (sampler: LightSampler, options: ShadingOptions = {}): Q
 export const packedLightColor =
   (sampler: LightSampler): QuadColor =>
   (quad) => {
-    const [sampleX, sampleY, sampleZ] = lightSamplePoint(quad, faceNormal(quad.direction))
-    const light = sampler(sampleX, sampleY, sampleZ)
+    const sample = lightSampleForGeometryQuad(quad)
+    const light = sampler(...sample.point)
     return [
       /* R: the AO table's own byte, NOT the level. The shader's `0.8 + 0.2 * R`
          expects a 0..1 fraction, and `normalized: true` on the attribute divides

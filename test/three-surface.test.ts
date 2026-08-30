@@ -23,7 +23,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from '@effect/vitest'
 import { Effect } from 'effect'
-import ts from 'typescript'
+import { inspectTypeScriptFixture, parseTypeScriptConfig } from './typescript-project'
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -43,36 +43,9 @@ describe('REGRESSION: the THREE surface is a real subset of the real three', () 
         //   Mesh: new (g: ThreeBufferGeometry) -> the contravariant direction,
         //       which is the one construct signatures get and methods do not.
         const fixture = path.join(repositoryRoot, 'test', 'fixtures', 'three-surface.ts')
-        const program = ts.createProgram({
-          rootNames: [fixture],
-          options: {
-            noEmit: true,
-            strict: true,
-            exactOptionalPropertyTypes: true,
-            noUncheckedIndexedAccess: true,
-            target: ts.ScriptTarget.ES2022,
-            module: ts.ModuleKind.ESNext,
-            moduleResolution: ts.ModuleResolutionKind.Bundler,
-            moduleDetection: ts.ModuleDetectionKind.Force,
-            skipLibCheck: true,
-            types: [],
-            // THE POINT OF THE TEST: the real DOM and, through the import in
-            // the fixture, the real `three`.
-            lib: ['lib.es2022.d.ts', 'lib.dom.d.ts'],
-            baseUrl: repositoryRoot,
-          },
-        })
+        const inspection = inspectTypeScriptFixture(repositoryRoot, fixture, ['ES2022', 'DOM'])
 
-        const diagnostics = [
-          ...program.getSemanticDiagnostics(),
-          ...program.getSyntacticDiagnostics(),
-        ].filter((diagnostic) => diagnostic.category === ts.DiagnosticCategory.Error)
-
-        expect(
-          diagnostics.map((diagnostic) =>
-            ts.flattenDiagnosticMessageText(diagnostic.messageText, ' '),
-          ),
-        ).toStrictEqual([])
+        expect(inspection.errors).toStrictEqual([])
       }),
     60_000,
   )
@@ -82,17 +55,19 @@ describe('REGRESSION: the THREE surface is a real subset of the real three', () 
       // Without this, the test above passes if `three` is absent AND the
       // fixture's import silently resolves to `any` — which is exactly the
       // failure mode `application/three-surface.ts` rejects `skipLibCheck` for.
-      // Resolving the specifier the same way the program does is what makes
-      // "zero diagnostics" mean "checked" rather than "not checked".
-      const resolved = ts.resolveModuleName(
-        'three',
+      // Inspecting the program's loaded source files is what makes "zero
+      // diagnostics" mean "checked" rather than "not checked".
+      const inspection = inspectTypeScriptFixture(
+        repositoryRoot,
         path.join(repositoryRoot, 'test', 'fixtures', 'three-surface.ts'),
-        { moduleResolution: ts.ModuleResolutionKind.Bundler, baseUrl: repositoryRoot },
-        ts.sys,
+        ['ES2022', 'DOM'],
       )
 
-      expect(resolved.resolvedModule?.resolvedFileName).toMatch(/three/u)
-      expect(resolved.resolvedModule?.extension).toBe(ts.Extension.Dts)
+      expect(
+        inspection.sourceFileNames.some((file) =>
+          /node_modules[\\/](?:three|@types[\\/]three)[\\/].+\.d\.ts$/u.test(file),
+        ),
+      ).toBe(true)
     }),
   )
 
@@ -102,14 +77,13 @@ describe('REGRESSION: the THREE surface is a real subset of the real three', () 
       // being satisfiable by giving up. `pnpm typecheck` runs
       // `tsconfig.build.json`; if a later change adds "DOM" there, every pure
       // module can reach `document` and nothing notices for months.
-      const config = ts.readConfigFile(
+      const parsed = parseTypeScriptConfig(
+        repositoryRoot,
         path.join(repositoryRoot, 'tsconfig.build.json'),
-        ts.sys.readFile,
       )
-      const parsed = ts.parseJsonConfigFileContent(config.config as unknown, ts.sys, repositoryRoot)
 
-      expect(parsed.options.lib).toStrictEqual(['lib.es2024.d.ts'])
-      expect(parsed.options.types).toStrictEqual([])
+      expect(parsed.options['lib']).toStrictEqual(['lib.es2024.d.ts'])
+      expect(parsed.options['types']).toStrictEqual([])
       expect(
         parsed.fileNames.some((file) => file.endsWith('application/world-renderer.ts')),
       ).toBe(true)
@@ -128,11 +102,10 @@ describe('REGRESSION: the THREE surface is a real subset of the real three', () 
       // the declarations and hand every use site `any`. That is the exact
       // failure this surface exists to prevent, and it is INVISIBLE to
       // `pnpm typecheck`.
-      const config = ts.readConfigFile(
+      const parsed = parseTypeScriptConfig(
+        repositoryRoot,
         path.join(repositoryRoot, 'tsconfig.build.json'),
-        ts.sys.readFile,
       )
-      const parsed = ts.parseJsonConfigFileContent(config.config as unknown, ts.sys, repositoryRoot)
 
       const offenders = parsed.fileNames.filter((file) =>
         /(?:^|\n)\s*import[^\n]*from\s*['"]three(?:\/[^'"]*)?['"]/u.test(readFileSync(file, 'utf8')),
@@ -148,11 +121,13 @@ describe('REGRESSION: the THREE surface is a real subset of the real three', () 
 
       expect(manifest.dependencies?.['three']).toBeUndefined()
       expect(manifest.devDependencies?.['three']).toBeDefined()
-      // Pinned to the same major/minor as the types, and that is not
-      // bookkeeping: docs/versioning.md §5 records that THREE ships breaking
-      // changes in MINOR releases, so a `@types/three` a minor ahead of `three`
-      // describes a library that is not installed.
-      expect(manifest.devDependencies?.['@types/three']).toBe(manifest.devDependencies?.['three'])
+      // Keep the type package on the same major/minor as THREE because THREE
+      // ships breaking changes in MINOR releases; patch releases may differ.
+      const minorVersion = (version: string | undefined): string | undefined =>
+        version?.match(/(?<minor>\d+\.\d+)/u)?.groups?.['minor']
+      expect(minorVersion(manifest.devDependencies?.['@types/three'])).toBe(
+        minorVersion(manifest.devDependencies?.['three']),
+      )
     }),
   )
 })

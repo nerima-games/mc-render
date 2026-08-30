@@ -49,9 +49,8 @@
  * test that needs no GPU: the input snapshot is not the output, and there is no
  * path from output to input.
  *
- * The dependency graph enforces it independently: mc-render depends on mc-sim,
- * so a write-back edge would be a cycle, and `pnpm check:deps` rejects cycles
- * outright with no allowlist.
+ * The package dependency policy enforces the one-way relationship independently:
+ * mc-render depends on mc-sim, so a write-back edge is outside the boundary.
  */
 import {
   type CameraPoseSnapshot,
@@ -101,8 +100,17 @@ type EulerAngleAxis = 'x' | 'y' | 'z'
 export type MirroredCameraState = {
   readonly position: Position
   readonly rotation: Readonly<Record<EulerAngleAxis, number>> & { readonly order: 'YXZ' }
-  /** The instant mc-sim produced the pose this was mirrored from. */
-  readonly sourceCapturedAtSecs: MonotonicTimeSecs
+  /** The instant mc-sim produced the pose, or `undefined` before first publish. */
+  readonly sourceCapturedAtSecs: MonotonicTimeSecs | undefined
+  /**
+   * `true` when this state was never confirmed by a live mc-sim publish — see
+   * `uninitializedMirroredCameraState`. Distinct from an ordinary undefined
+   * `sourceCapturedAtSecs`, which `mirrorLagSecs` treats as "pending" (not yet
+   * stale, since nothing has arrived to be late). This flag makes the same
+   * undefined timestamp read as infinitely stale instead, for a pose the
+   * renderer should not trust even provisionally.
+   */
+  readonly unpublished?: boolean
 }
 
 /**
@@ -123,6 +131,8 @@ export type MirroredCameraState = {
 const EULER_X_AXIS: EulerAngleAxis = 'x'
 const EULER_Y_AXIS: EulerAngleAxis = 'y'
 const EULER_Z_AXIS: EulerAngleAxis = 'z'
+const UNPUBLISHED_COORDINATE = 0
+const UNPUBLISHED_ANGLE_RADIANS = 0
 
 const eulerRotation = (
   pitchRadians: number,
@@ -136,22 +146,45 @@ const eulerRotation = (
 })
 
 export const mirroredCameraState = (
-  snapshot: CameraPoseSnapshot,
+  snapshot: CameraPoseSnapshot | undefined,
   offset: ViewOffset = NO_VIEW_OFFSET,
 ): MirroredCameraState => {
-  const cosYaw = Math.cos(snapshot.yawRadians)
-  const sinYaw = Math.sin(snapshot.yawRadians)
+  const cameraPosition =
+    snapshot?.position ??
+    position(UNPUBLISHED_COORDINATE, UNPUBLISHED_COORDINATE, UNPUBLISHED_COORDINATE)
+  const pitchRadians = snapshot?.pitchRadians ?? UNPUBLISHED_ANGLE_RADIANS
+  const yawRadians = snapshot?.yawRadians ?? UNPUBLISHED_ANGLE_RADIANS
+  const cosYaw = Math.cos(yawRadians)
+  const sinYaw = Math.sin(yawRadians)
 
   return {
     position: position(
-      snapshot.position.x + offset.right * cosYaw,
-      snapshot.position.y + offset.up,
-      snapshot.position.z - offset.right * sinYaw,
+      cameraPosition.x + offset.right * cosYaw,
+      cameraPosition.y + offset.up,
+      cameraPosition.z - offset.right * sinYaw,
     ),
-    rotation: eulerRotation(snapshot.pitchRadians, snapshot.yawRadians, offset.rollRadians),
-    sourceCapturedAtSecs: snapshot.capturedAtSecs,
+    rotation: eulerRotation(pitchRadians, yawRadians, offset.rollRadians),
+    sourceCapturedAtSecs: snapshot?.capturedAtSecs,
   }
 }
+
+/**
+ * A last-known pose the renderer can show before mc-sim has ever confirmed
+ * one — a spawn snapshot, say — flagged so staleness checks never treat it as
+ * fresh.
+ *
+ * Distinct from `mirroredCameraState(undefined)`: that represents "nothing
+ * has arrived yet, and there is nothing to compare against" and reads as NOT
+ * stale (`isMirrorStale` needs a lag to complain about). This instead takes a
+ * real snapshot — so the camera can sit at a sensible position rather than
+ * the origin — while still marking it `unpublished`, which `mirrorLagSecs`
+ * reads as infinitely stale regardless of the snapshot's own timestamp.
+ */
+export const uninitializedMirroredCameraState = (snapshot: CameraPoseSnapshot): MirroredCameraState => ({
+  ...mirroredCameraState(snapshot),
+  sourceCapturedAtSecs: undefined,
+  unpublished: true,
+})
 
 /**
  * Unit forward vector of an authoritative snapshot.
@@ -180,8 +213,19 @@ export const forwardVector = (snapshot: CameraPoseSnapshot): Position => {
  * The renderer uses this to decide whether to interpolate or to stall, rather
  * than drawing a stale pose and finding out from a bug report.
  */
-export const mirrorLagSecs = (state: MirroredCameraState, now: MonotonicTimeSecs): number =>
-  now - state.sourceCapturedAtSecs
+export const mirrorLagSecs = (
+  state: MirroredCameraState,
+  now: MonotonicTimeSecs,
+): number | undefined => {
+  const capturedAtSecs = state.sourceCapturedAtSecs
+  if (capturedAtSecs === undefined) {
+    if (state.unpublished === true) {
+      return Number.POSITIVE_INFINITY
+    }
+    return undefined
+  }
+  return now - capturedAtSecs
+}
 
 /**
  * SECONDS of lag past which a mirrored pose is worth complaining about.
@@ -199,8 +243,10 @@ export const mirrorLagSecs = (state: MirroredCameraState, now: MonotonicTimeSecs
  */
 export const MIRROR_LAG_WARNING_SECS = 0.1
 
-export const isMirrorStale = (state: MirroredCameraState, now: MonotonicTimeSecs): boolean =>
-  mirrorLagSecs(state, now) > MIRROR_LAG_WARNING_SECS
+export const isMirrorStale = (state: MirroredCameraState, now: MonotonicTimeSecs): boolean => {
+  const lag = mirrorLagSecs(state, now)
+  return lag !== undefined && lag > MIRROR_LAG_WARNING_SECS
+}
 
 /** Re-exported so consumers measure staleness from the snapshot too. */
 export { snapshotAgeSecs }

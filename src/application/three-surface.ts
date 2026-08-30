@@ -46,13 +46,10 @@
  *     `window`, `document` and the canvas to `browserInputLayer`. A host is
  *     already the thing that owns the platform; `three` is platform.
  *
- * `pnpm check:deps` has NO OPINION on any of this, and that is worth stating
- * because it is easy to assume otherwise. Its rules 3-6 are written over
- * `@nerima-games/*` specifiers only — `checkDeclaredDependencies` skips every
- * name that does not start with the org scope, and so does the import check.
- * Adding `three` therefore required no edit to `REPOSITORY_POLICY` and no
- * widening of any whitelist. The gate that DOES have an opinion is
- * `pnpm typecheck`, and it keeps it by seeing no `three` import at all.
+ * Package boundaries are enforced by `pnpm lint` for the `@nerima-games/*`
+ * imports. This adapter is a structural seam: the package build stays free of
+ * a direct `three` import, while `pnpm typecheck` and the fixture test compile
+ * the surface against the real Three.js declarations.
  *
  * ---------------------------------------------------------------------------
  * Why the surface has THREE type parameters, which looks like over-engineering
@@ -373,7 +370,27 @@ export type ThreeShaderMaterialParameters = {
   readonly transparent?: boolean
   readonly depthWrite?: boolean
   readonly forceSinglePass?: boolean
+  readonly alphaTest?: number
+  readonly side?: ThreeMaterialSide
 }
+
+/**
+ * Three's own `Side` enum, restated as a literal type rather than imported.
+ *
+ * `side?: unknown` used to sit here, and `test/fixtures/three-surface.ts`
+ * caught why that was wrong rather than merely loose: passing `unknown` as a
+ * `ShaderMaterial` CONSTRUCTOR parameter is a contravariant position, and
+ * `unknown` is not assignable INTO three's real `side?: Side` — the direction
+ * that matters is "can our parameter type be handed to three's real
+ * constructor", not "can any value be assigned to `side`". `0 | 1 | 2` is
+ * three's `FrontSide | BackSide | DoubleSide`, transcribed rather than
+ * imported for the same reason this whole file avoids a `three` import: see
+ * the header.
+ */
+// oxlint-disable-next-line no-magic-numbers -- THREE's Side type is the literal enum 0|1|2.
+export type ThreeMaterialSide = 0 | 1 | 2
+
+export const THREE_DOUBLE_SIDE: ThreeMaterialSide = 2
 
 /**
  * The surface, plus a `ShaderMaterial`.

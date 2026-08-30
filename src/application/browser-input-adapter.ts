@@ -803,7 +803,8 @@ const dispatchTouchRelease = (
     return
   }
   state.touchActions.delete(contact.identifier)
-  const count = state.touchActionCounts.get(action) ?? ONE_FINGER_HOLDING
+  // A tracked touch always has a count until its final release.
+  const count = state.touchActionCounts.get(action)!
   if (count <= ONE_FINGER_HOLDING) {
     state.touchActionCounts.delete(action)
     Effect.runSync(state.input.dispatch({ action, kind: 'touchrelease', target }))

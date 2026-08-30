@@ -95,9 +95,9 @@ plan.md の見出しと §2.4 は「**15 リポジトリで固定**」と書き�
 束ねる薄いリポジトリで、開発中は `workspace:*` 解決でモノレポ同等の DX を得る。
 npm 公開・バージョン bump 運用は界面安定（APIロック 4 週間無変更）まで開始しない（plan.md §6 Step 0-2）。
 
-このグラフは `scripts/check-dependency-whitelist.ts` の `REPOSITORY_POLICY.dependencyGraph` に
-**全 16 行そのまま**記録されており、`pnpm check:deps` が循環検査を行う。
-`test/check-dependency-whitelist.test.ts` が「16 行あること」「全体が非循環であること」を assert している。
+このリポジトリは組織全体の依存グラフを生成・検査しない。ここで守る直接依存の境界は
+`package.json` と `.oxlintrc.json` にあり、`pnpm lint` が禁止された package import を検査する。
+組織全体のグラフを更新した場合は、その変更を行ったリポジトリ側の検証結果を別途確認する。
 
 ## 3. mc-render の位置
 
@@ -129,13 +129,13 @@ kit が壊れると 15 リポジトリの完了条件（「内蔵プレビュー
 
 ### 3.3 推移閉包は禁止
 
-`mc-render → mc-sim → mc-physics` だが、**mc-render は mc-physics を import できない**。
+`mc-render → mc-sim` だが、**mc-render は mc-physics を import できない**。
 レンダラはシミュレーションが「真である」と言ったものを描くのであって、
 衝突判定をやり直さない。やり直せば「描かれている世界」と「シミュレートされている世界」が
 同じ問いへの独立した 2 つの答えになり、必ず食い違う。
 
 同様に `mc-save` も推移依存であり import 禁止。レンダラはセーブファイルを読まない。
-`test/check-dependency-whitelist.test.ts` の `transitive-import` 回帰テストが両方を固定している。
+`.oxlintrc.json` の restricted-imports と package の型検査が、この境界を検証する。
 
 ## 4. 構成の成立条件（plan.md §2.3）
 
@@ -166,13 +166,13 @@ kit は出荷ビルドに入らない。もし実行時入力サービスが kit
 **ビルドが通り、起動し、描画し、キーボードを完全に無視する**。コンパイル時に無音で、
 実行時に全損。これが最悪の組み合わせであり、だから機械的に防いでいる。
 
-| 違反 | `pnpm check:deps` の検出ルール |
+| 違反 | 現行の検証 |
 | --- | --- |
-| `dependencies` に kit がある | `dev-only-package-in-dependencies` |
-| `index.ts` / `domain/` / `application/` から kit を import | `dev-only-package-in-shipped-source` |
+| 出荷依存に kit がある | `package.json` の依存宣言をレビューする |
+| 出荷ソースから kit を import | `pnpm lint` の restricted-imports と `pnpm typecheck` |
 
 kit は実行時エッジを作らないため依存グラフの循環には参加しない。
-`test/check-dependency-whitelist.test.ts` に「kit は依存に無い」ことを assert する回帰テストがある。
+この package は kit を依存に持たず、preview の統合は `apps/preview-render/` に閉じている。
 
 **逆向きの誤解に注意**: 制約は「誰が kit に依存してよいか」についてのものである。
 kit 自身が mc-render に依存するのは正常な実行時依存であり、何も問題はない。
@@ -219,15 +219,17 @@ plan.md §5.1-2「カメラ姿勢は sim 所有」。詳細と参照実装の証
 ```
 
 構造的保証は**依存の向き**である。`mc-render → mc-sim` があるため `mc-sim → mc-render` は循環になり、
-`pnpm check:deps` が例外リスト無しで落とす。mc-sim には「レンダラに問い合わせる」という選択肢が
+package の依存境界レビューで許可しない。mc-sim には「レンダラに問い合わせる」という選択肢が
 そもそも存在しない。
 
 攻撃スイングのバンプのような演出は、ミラーした姿勢の**上に**適用し、mc-sim には戻さない。
 `domain/camera-mirror.ts` の `ViewOffset` がその置き場である。
 
-## 6. なぜ現在のソースに THREE.js が 1 行も無いのか
+## 6. なぜ出荷ソースは THREE.js を直接 import しないのか
 
-**意図的**である。現在の `domain/` と `application/` は純粋な値と関数だけでできている。
+**意図的**である。`src/domain/` は純粋な値と関数を持ち、`src/application/` は
+Three.js の実装型を構造的な port の裏側に閉じ込める。GPU を使う実装境界を分離することで、
+Node の型検査と単体テストを保てる。
 
 | 本来 THREE.js に埋まっている知識 | ここでの表現 | 効果 |
 | --- | --- | --- |

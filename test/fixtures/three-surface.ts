@@ -26,8 +26,8 @@
  *
  * Excluded from `tsconfig.json` and `tsconfig.test.json` (`test/fixtures/**`),
  * because it names DOM types and imports `three`, and those projects
- * deliberately can see neither. It is still linted and still scanned by
- * `pnpm check:deps`.
+ * deliberately can see neither. It is still linted and compiled by the
+ * dedicated surface test.
  */
 import * as THREE from 'three'
 import {

@@ -30,7 +30,7 @@ GPU を必要としない部分の単体テストは、§3 で述べるとおり
 プレビューは `apps/preview-<name>/` に置く。モジュール契約には含めない（plan.md §4.1 末尾）。
 本リポジトリのそれは [`apps/preview-render/`](../apps/preview-render/README.md) であり、
 `pnpm preview` で起動する。`pnpm verify` には入らないが、`pnpm typecheck`
-（`tsconfig.preview.json`）と `pnpm lint` と `pnpm check:deps` の対象には入っている。
+（`tsconfig.preview.json`）と `pnpm lint` の対象には入っている。
 
 ### 2.1 順序の都合
 
@@ -107,27 +107,20 @@ DN-02 §「数値の出所」は**コミットメッセージを見なかった�
 | RND-1 | `requested` は吸収状態。`blur` が保存し `requestPointerLock` は再送しない | **修正** | `test/input.test.ts` `REGRESSION: a blur ABANDONS a pending request rather than stranding the session` |
 | RND-2 | `endFrame` がどのフレームにも報告していないホイール段を消費する | **修正** | `REGRESSION: endFrame consumes what the FRAME was told, not what arrived after it` ほか 4 件 |
 | RND-3 | `blur` が `pointerLocked` を残すので、復帰クリックが `attack` になる | **修正** | `REGRESSION: blur ends the LOCKED SESSION, so the click that refocuses is not an attack` |
-| RND-4 | ミラーの初期状態が自己矛盾（`UNSET` のポーズに `mirrorLagSecs = 0`） | **保留（ピン）** | `test/stage-registration.test.ts` `KNOWN GAP: before a pose arrives, the two staleness answers DISAGREE` |
+| RND-4 | ミラーの初期状態が自己矛盾（`UNSET` のポーズに `mirrorLagSecs = 0`） | **修正** | `test/stage-registration.test.ts`（未初期化は `undefined` として扱う） |
 | RND-5 | `MIRROR_LAG_WARNING_SECS` の doc が「Milliseconds」と書いている | **修正** | `test/camera-mirror.test.ts`（秒として比較していることは既に固定済み） |
 | RND-6 | `RenderRegistrationLayer` が `renderModule` の引数を捨てる | **修正（削除）** | `test/stage-registration.test.ts` `registers its stages against the InputService it itself provides` |
-| RND-7 | `withScratch` が捕まえるのは同一性エスケープだけ | **保留（ピン）** | `test/frame-scratch.test.ts` `KNOWN GAP: withScratch catches only the identity escape`（6 件） |
+| RND-7 | `withScratch` が捕まえるのは同一性エスケープだけ | **修正** | `test/frame-scratch.test.ts`（lease 外の view / wrapper / closure / iterator / Effect と foreign handle） |
 | RND-8 | `buildPostProcessingChain` が `high` と `ultra` に同一の配列を返す | **修正** | `test/post-processing.test.ts` `REGRESSION: \`high\` and \`ultra\` are DIFFERENT chains, and the composite step is why` |
 
-保留 2 件の理由:
+保留分はない。RND-4 と RND-7 は実装と回帰テストで閉じた。
 
-- **RND-4**: ゲージに入れる正直な値が無い。`makeRenderFrameState` は時計を持たない
-  （ステージではなくコンストラクタで、plan.md §5.1-3 がグローバル時計の読み取りを禁じている）し、
-  `Infinity` を入れても矛盾が `mirroredCamera.sourceCapturedAtSecs` に移るだけである
-  —— 消費側が実際に読むのはそちらだ。両者を一致させるには
-  `MirroredCameraState` 自身で「未設定」と「陳腐化」を区別する必要があり、
-  それは mc-sim を pin して `authoritativePose` が `PlayerService.cameraPose` になるときの仕事である。
-  そのとき窓は構造的に閉じる。いまの窓は「最初のフレームより前」だけで、
-  リポジトリ内の読み手は診断ゲージ 1 つだけ。
-- **RND-7**: 検出するには生の `Map` を渡すのをやめるしかない（lease 付き facade、または
-  `buffer` の非公開化）。どちらも公開型を変え、facade はこのモジュールが
-  無アロケーションに保つためのホットパスに分岐とラッパーを載せる —— それは
-  plan.md §5.2 が**名指しで**認めている逸脱であり、局所的に決めてよい話ではない。
-  出荷されている呼び出し口（`render:chunk-sync`）は同期で、だから誰も踏んでいない。
+ - **RND-4**: `MirroredCameraState.sourceCapturedAtSecs`、`mirrorLagSecs`、
+   `RenderFrameState.authoritativePose` を optional にし、mc-sim の最初の pose が届くまでを
+   「未初期化」として表現する。時計を読むステージの責務は変わらない。
+ - **RND-7**: `withScratch` は native `Map` を公開せず、scratch ごとに一度だけ作る
+   lease-checked view を渡す。view / wrapper / closure / iterator / deferred Effect の
+   lease 後アクセスを `ScratchMisuseError` にし、持ち出しは `snapshotScratch` に限定する。
 
 全件の詳細は [`apps/preview-render/README.md`](../apps/preview-render/README.md)。
 
@@ -141,20 +134,20 @@ GPU 無しで確かめられる半分であり、入力状態機械にいたっ�
 ### 2.4 プレビューの依存
 
 `apps/preview-render/` は**このリポジトリ自身のモジュールと `effect` しか import しない**。
-org パッケージも新規 npm 依存も THREE も無い。
-`scripts/check-dependency-whitelist.ts` の `SCAN_ROOTS` に `'apps'` が入っており、
-`isToolingOrTestPath` が `apps/` を tooling 扱いする
-（`index.ts` / `domain/` / `application/` / `stages/` 以外はすべて tooling）。
-`Date.now()` 禁止も `apps/` に効く —— ミラーの陳腐化は注入した
-`MonotonicTimeSecs` を操作者が動かして測るので抵触しない。
+org パッケージも THREE も持たず、`tsconfig.preview.json` と `pnpm lint` で検証する。
+ミラーの陳腐化は注入した `MonotonicTimeSecs` を操作者が動かして測るため、
+ランタイムがグローバルな時計を直接読む設計にもしていない。
 
 ### 2.5 スクリーンショット比較の決定性 —— **実測して片付けた**
 
 アダプタが無くても、**比較側の未知**は先に潰せる。潰した。以下はすべて実測値である
-（Apple M4 Max / macOS、Playwright 1.59.1、640x480、`deviceScaleFactor: 1`、
-参照実装 `playwright.config.ts` と同じ launch フラグ、THREE 0.170.0 の
-`MeshLambertMaterial` + 平行光 + 環境光、16x16 チャンクを greedy merge した
-169 quad / 1690 三角形、カメラ固定）。
+（Apple macOS、Playwright、640x480、`deviceScaleFactor: 1`、参照実装と同じ
+launch フラグ、現行 `package.json` の THREE、`MeshLambertMaterial` + 平行光 + 環境光、
+16x16 チャンクを greedy merge した 169 quad / 1690 三角形、カメラ固定）。
+
+この節の画像測定値は参照実装条件での記録であり、現行依存関係でのブラウザ画像比較を
+完了したことを意味しない。現行の受け入れゲートは `pnpm test:coverage` と
+`pnpm build`、および将来追加する fixture / screenshot 検証である。
 
 #### 測定 1: SwiftShader は**ビット単位で決定的**である
 
@@ -294,7 +287,9 @@ E2E でも（ポインタロックが使えないので）単体でも（DOM が
 
 ## 4. 現在のテスト
 
-`vitest run`。**18 ファイル / 543 テスト**（2026-07-28 実測）。すべて `environment: 'node'`。
+`pnpm test`（`vitest run`）が `test/**/*.test.ts` を実行する。すべて
+`environment: 'node'` であり、テスト数は固定値として文書化せず、実行時の Vitest 出力を
+一次資料とする。
 
 | ファイル | テスト数 | 対応 |
 | --- | ---: | --- |
@@ -314,8 +309,6 @@ E2E でも（ポインタロックが使えないので）単体でも（DOM が
 | **`test/chunk-geometry.test.ts`** | **21** | merged extent と per-face AO（§12.2） |
 | **`test/three-surface.test.ts`** | **4** | 本物の `three` に対する構造的代入可能性の証明（§12.1） |
 | `test/stage-registration.test.ts` | 29 | `stages/` のフレーム位置と順序制約（public-api.md §6-2）+ クリック→ロック要求（DN-14）+ `render:draw` の `DrawPort` 呼び出し |
-| `test/check-dependency-whitelist.test.ts` | 30 | DN-11 + 依存ホワイトリスト本体 |
-| `test/api-lock.test.ts` | 26 | APIロック生成器 `scripts/api-lock.ts` の機構（§8 / public-api.md §8） |
 
 ### 4.2 パーティクル / 水面で**押さえられなかった**もの
 
@@ -439,36 +432,28 @@ assert しているのは文字列の存在であって、数値の再現では�
 
 ## 6. カバレッジ
 
-**閾値は現在設定していない。意図的である。**
+`vitest.config.ts` は branches / functions / lines / statements の全指標に 100% の閾値を
+設定している。`pnpm test:coverage` はこの閾値を含む現行の品質ゲートであり、CI でも実行する。
 
-参照実装は branches / functions / lines / statements の 99% を強制している。
-スケルトンに 99% を課しても意味がない。
-
-- 計測とレポートは常に動く（`pnpm test:coverage`、CI でもアーティファクト化）。
-- **99% ゲートは完了条件（§2）到達時に `vitest.config.ts` と CI の両方で有効化する。**
-  `vitest.config.ts` の `coverage.thresholds` にコメントアウトした形で置いてある。
-
-THREE.js アダプタが入ると、カバレッジの意味が変わる点に注意。
-GPU を要するコードは Node のカバレッジ計測から漏れる。
-**99% ゲートを入れる時点で「何を分母にするか」を決め直す必要がある。**
-おそらく `domain/` + `application/` に限定し、アダプタは fixture 描画とスクリーンショット比較で
-担保することになる。
+カバレッジは Node 上で実行されるソースとテストの範囲を示す。GPU を使うブラウザ描画の
+見た目はカバレッジの代替にならないため、fixture 描画とスクリーンショット比較は別の
+検証として追加する。
 
 ## 7. CI
 
-`.github/workflows/ci.yaml`。`pnpm verify` と同じ内容 + カバレッジ。
+ローカルで品質ゲートを再現する場合、Nix の開発環境では lint を
+`nix develop --command pnpm lint` として実行する。型検査とテストは同じ環境で
+`pnpm typecheck` と `pnpm test` を実行し、CI と同じ検証対象を確認する。
+
+`.github/workflows/ci.yaml` は、型検査・lint・テスト・ビルド・カバレッジを個別に実行する。
 
 ```
-typecheck (build + test の 2 プロジェクト)
+typecheck (build + test + preview)
   → lint (oxlint)
-  → check:deps (依存ホワイトリスト + 循環 + Date.now() 禁止)  ← ハードゲート
-  → api:check (api-lock.md が公開 API と一致するか)          ← ハードゲート
   → test
-  → coverage (閾値なし、アーティファクト化)
+  → build
+  → coverage (100% 閾値、アーティファクト化)
 ```
-
-`API lock` を `verify` 経由だけでなく独立ステップにしてあるのは、ステップ名を見ただけで
-落ちた理由が分かるようにするため（[public-api.md](./public-api.md) §8）。
 
 スクリーンショット比較を入れる際の注意。**以前ここには「SwiftShader の非決定性に注意」と
 書いてあったが、それは誤りだった**（§2.5 で実測）。根拠として引いていたのは
@@ -590,42 +575,28 @@ DOM は**偽物**で駆動している。§5.2 の「ブラウザを要するテ
 without a cast` はそのまま通る。フィクスチャには「ロック対象を `===` でしか触らない」ハンドラを
 1 つ足してあり、`contains` に手を伸ばした瞬間にそこが落ちる。
 
-前者はフィクスチャを `ts.createProgram` で**テストの中からコンパイル**する
-（`typescript` は既に devDependency で、`test/api-lock.test.ts` と同じ手である）。
+前者はフィクスチャを `test/typescript-project.ts` の
+`inspectTypeScriptFixture` で**テストの中からコンパイル**する。
+TypeScript 7 の `typescript/unstable/sync` API を使い、fixture が実際に開いた
+プログラムの診断と解決済みソースを検査する。
 フィクスチャは `tsconfig.json` / `tsconfig.test.json` から `test/fixtures/**` として除外してある。
 DOM 型を名指しするのが目的のファイルであり、DOM の無いプロジェクトに入れれば落ちるだけで、
 出荷プロジェクトに入れれば `"DOM"` が裏口から入ったのと同じになる。
 
-**APIロックの diff はこの表から外れた。** 実装済みで、しかも vitest のテストではない。
-「コミット済みの `api-lock.md` が現在の公開面と一致するか」は `pnpm api:check` が見る。
-vitest 側の `test/api-lock.test.ts` が見ているのは生成器 `scripts/api-lock.ts` の機構そのもの
-（並びのロケール非依存性、可搬性ガード、スナップショットの往復、失敗時の diff）であり、
-16 リポジトリに byte-identical で vendor されている。詳細は [public-api.md](./public-api.md) §8。
+API ロックの生成器・ロックファイル・専用コマンドはこのパッケージには置かない。
+公開面は `package.json` の `exports` と `tsconfig.build.json` の declaration 出力で定義し、
+`pnpm typecheck`、`pnpm build`、`pnpm pack --dry-run` と実行時 import で検証する。
+詳細は [public-api.md](./public-api.md) の「公開 API と package 検証」を参照する。
 
-## 9. 解消済みのギャップ: `pnpm lint` は `stages/` を見る
+## 9. `stages/` の検証範囲
 
-かつてここには「`package.json` の `lint` スクリプトに `stages` が入っていない」と書かれていた。
-**現在の `package.json` は入っている**（`lint` / `lint:fix` の両方）ので、記録だけ残す。
-
-以下は当時の影響範囲の分析であり、`stages/` が他のゲートに掛かっていることの説明として
-なお有用なので残してある。
+`stages/` は現在の各検証に含まれている。
 
 - `pnpm typecheck` は `stages/` を見る。`tsconfig.build.json` / `tsconfig.test.json` の
   `include` に足してあり、加えて `index.ts` が `stages/registration.ts` を re-export しているので、
   `include` が無くても tsc のプログラムには入る。
-- `pnpm check:deps` は `stages/` を見る。`scripts/check-dependency-whitelist.ts` の
-  `SCAN_ROOTS` に足してあり、`isToolingOrTestPath` は `stages/` を**出荷ソース**として分類する
-  （これが「mc-playground-kit を出荷ソースから import してはならない」を stage 登録にも効かせている）。
+- `pnpm lint` は `stages/` を明示的に走査する。
 - `pnpm test` は `stages/` を `test/stage-registration.test.ts` 経由で実行する。
-
-当時必要だった差分は 1 語で、**適用済み**である:
-
-```diff
--"lint": "oxlint --deny-warnings index.ts domain application scripts test",
-+"lint": "oxlint --deny-warnings index.ts domain application stages scripts test",
-```
-
-`lint:fix` も同様。mx-* の 3 リポジトリも `stages` を含む形で書かれている。
 
 ## 12. THREE シームのテスト（2026-07-28）
 
@@ -635,7 +606,7 @@ vitest 側の `test/api-lock.test.ts` が見ているのは生成器 `scripts/ap
 
 `test/fixtures/three-surface.ts` を `lib: ["ES2022", "DOM"]` と**本物の `three`** に
 対してコンパイルし、診断 0 件を主張する。`test/browser-input-adapter.test.ts` 末尾の
-DOM 証明と同じ機構である（`ts.createProgram` を直接叩く）。
+DOM 証明と同じ `inspectTypeScriptFixture` の機構である。
 
 **これが必要な理由は 1 つ**: `application/three-surface.ts` の型が正しいかどうかを、
 `pnpm typecheck` は原理的に判定できない。そのプロジェクトには `three` も DOM も無く、

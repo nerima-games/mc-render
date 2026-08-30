@@ -27,7 +27,8 @@
           pkgs = pkgsFor system;
         in
         {
-          # Node 22 matches the `engines` field and the CI runner. pnpm comes
+          # Node 24 matches the `engines` fields of the mc-* dependencies and
+          # the package itself. pnpm comes
           # from corepack rather than nixpkgs so that the version is decided by
           # the `packageManager` field in package.json — one source of truth
           # instead of two that can drift.
@@ -42,13 +43,14 @@
           # instead of 16 independently-drifting npm pins.
           default = pkgs.mkShell {
             packages = [
-              pkgs.nodejs_22
-              pkgs.corepack_22
+              pkgs.nodejs_24
+              pkgs.corepack_24
               pkgs.typescript-language-server
               pkgs.oxlint
             ];
 
             shellHook = ''
+              mkdir -p "$PWD/.corepack"
               corepack enable --install-directory "$PWD/.corepack" 2>/dev/null || true
               export PATH="$PWD/.corepack:$PATH"
             '';

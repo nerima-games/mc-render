@@ -6,8 +6,8 @@
  * symbols by hand: `lodForDistance`, `LOD1_DISTANCE_CHUNKS` and
  * `LOD2_DISTANCE_CHUNKS` are mc-render's, because `distanceChunks` is the norm
  * between the player's chunk and another one and mc-meshing holds no
- * coordinates (§3.3). `simplifyMesh` and the level vocabulary stayed there;
- * `./lod-vocabulary.ts` mirrors the vocabulary back.
+ * coordinates (§3.3). `simplifyMesh` and the level vocabulary stay there; this
+ * module imports that vocabulary directly and owns only distance-based policy.
  *
  * ---------------------------------------------------------------------------
  * THE TWO CONSTANTS ARRIVED WITH A JUSTIFICATION THAT IS WRONG BY A FACTOR OF TEN
@@ -338,7 +338,7 @@ const pixelsPerBlockAt = (distanceBlocks: number, view: ViewingConditions): numb
  *
  *   error[px] = (step - 1) / (CHUNK_SIZE * d) * H / (2 * tan(fov_v / 2))
  *
- * with `step = STEP_FOR_LOD[level]` mirrored from mc-meshing, so the numerator
+ * with `step = STEP_FOR_LOD[level]` from the local LOD vocabulary, so the numerator
  * tracks the snapping mechanism rather than a copy of it.
  *
  * WHY `step - 1` IS THE RIGHT NUMERATOR, since it is the one part that is not

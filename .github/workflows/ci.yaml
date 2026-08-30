@@ -40,7 +40,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
-          node-version: "22"
+          node-version: "24"
           cache: "pnpm"
 
       - name: Configure GitHub Packages authentication
@@ -49,7 +49,7 @@ jobs:
         run: pnpm config set --location=user //npm.pkg.github.com/:_authToken "$NODE_AUTH_TOKEN"
 
       - name: Install dependencies
-        # --ignore-scripts: pnpm 9 runs postinstall, and a fork PR can edit
+        # --ignore-scripts: pnpm 11 runs postinstall, and a fork PR can edit
         # package.json and the lockfile consistently and still satisfy
         # --frozen-lockfile. Nothing here needs a lifecycle script.
         run: pnpm install --frozen-lockfile --ignore-scripts
@@ -76,6 +76,9 @@ jobs:
 
       - name: Test
         run: pnpm test
+
+      - name: Build package
+        run: pnpm build
 
       - name: Changeset status
         # Detects a user-facing PR that forgot to add a .changeset/*.md file

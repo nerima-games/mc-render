@@ -262,16 +262,16 @@ plan.md §3.9 は「`packages/worker` のプール実装」と書く。
 
 ## 5. `three` のバージョン
 
-参照実装 `package.json`:
+現行 `package.json`:
 
 ```
-"three": "^0.170.0"
-"@types/three": "^0.170.0"
+"three": "^0.185.1"
+"@types/three": "^0.185.4"
 ```
 
-**まだ `dependencies` に入れていない**（[versioning.md](./versioning.md) §5）。
-現在のソースは THREE.js を 1 行も import していないので、依存を宣言すると
-「使っていないものへの依存」になる。最初の THREE.js アダプタと同じコミットで追加する。
+どちらも `devDependencies` にあり、出荷ソースは THREE.js を直接 import しない。
+`src/application/three-surface.ts` の構造的なシームと
+`test/three-surface.test.ts` の実物 `.d.ts` fixture が、ホストから渡される THREE API を検証する。
 
 参照実装は `three/addons/postprocessing/*` を直接使っている
 （`EffectComposer` / `RenderPass` / `GTAOPass` / `UnrealBloomPass` / `BokehPass` / `SMAAPass` /
@@ -279,7 +279,8 @@ plan.md §3.9 は「`packages/worker` のプール実装」と書く。
 `GodRaysPass` と `CompositePass` は**自作**で、`packages/rendering/infrastructure/post-processing/`
 にある（`god-rays-pass.ts` / `composite-pass.ts`、ディレクトリ計 587 LOC）。
 
-`0.170.0` を採るかは移植時に再確認すること。THREE は minor でも破壊的変更を入れる。
+THREE は minor でも破壊的変更を入れるため、`three` と `@types/three` の major/minor は揃える。
+patch の差は型定義側の追従差として許容し、依存更新時は fixture の型検査を実行する。
 
 ## 6. テスト資産の移植
 

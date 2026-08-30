@@ -1,8 +1,6 @@
 /**
  * @nerima-games/mc-render — rendering, and the runtime input service.
  *
- * PRE-AUDIT FIRST CUT (叩き台). See README.md 現状.
- *
  * Two responsibilities that look unrelated and are not:
  *
  *   RENDERING (plan.md §3.9) — THREE.js materials, camera, post-FX, particles,
@@ -16,8 +14,9 @@
  *
  * What this repository is NOT allowed to be: the authority on the camera.
  * mc-sim owns `CameraPoseSnapshot`; `domain/camera-mirror.ts` consumes one and
- * produces renderer state, in that direction only. The dependency graph makes
- * the reverse a cycle, which `pnpm check:deps` rejects outright.
+ * produces renderer state, in that direction only. The package dependency
+ * policy and TypeScript boundaries keep the reverse edge out of the shipped
+ * surface.
  *
  * The domain is PURE — no THREE.js, no DOM, no WebGL. The post-FX chain, the
  * material policy, the input bindings and the scratch buffers are all data and
@@ -46,8 +45,9 @@
 // Which atlas tile each block shows. Keyed by NAME and not by id: the
 // Reference's table is indexed by ITS block ids, and mc-kernel's ordering
 // Disagrees from index 1 onward, so an index-wise copy would have been wrong in
-// 117 of 120 rows with a real texture on every face.
+// Texture coverage: 117 of 120 rows have a real texture on every face.
 export * from './domain/block-texture-map'
+export * from './domain/block-shapes'
 export * from './domain/camera-mirror'
 export * from './domain/chunk-geometry'
 export * from './domain/frame-scratch'
@@ -55,35 +55,18 @@ export * from './domain/frustum-culling'
 export * from './domain/input-bindings'
 export * from './domain/gamepad-input'
 export * from './domain/player-control'
-// `level-of-detail.ts` decides which LOD tier a chunk is drawn at, and measures
-// What that costs the picture. mc-meshing docs/responsibility.md §3.4 assigned
-// It here because it takes a DISTANCE and mc-meshing holds no coordinates; the
-// Level vocabulary stayed there and `domain/lod-vocabulary.ts` mirrors it back.
-//
-// THAT MIRROR IS NOT EXPORTED FROM THIS BARREL. This exclusion is deliberate
-// And pinned by tests because `check:repoint` FAILED WITHOUT IT,
-// Which is worth recording because the failure is invisible from inside this
-// Repository.
-//
-// `export * from './domain/lod-vocabulary'` becomes
-// `export * from '@nerima-games/mc-meshing'` on the day the mirror is deleted —
-// A re-export of that package's ENTIRE surface, which collides with the nine
-// Names `domain/chunk-geometry.ts` declares as its own structural mirrors
-// (`FaceDirection`, `FaceRole`, `QuadAxis`, `tangentAxes`, `totalQuadArea`,
-// `AO_LEVELS`, `AO_MAX`, `VERTICES_PER_QUAD`, `INDICES_PER_QUAD`). Nine TS2308s
-// In three tsconfig projects, and `pnpm verify` here is green throughout,
-// Because the collision does not exist until the import is repointed.
-//
-// A mirror is a private stand-in for somebody else's package. Putting one in a
-// Barrel re-publishes it under this package's name, which is the thing the
-// Mirror headers all promise not to do.
+// Level-of-detail.ts decides which LOD tier a chunk is drawn at.
+// The same module measures the cost to the picture.
+// The portable tier vocabulary belongs to this package and uses the kernel's chunk dimension as its coordinate authority.
 export * from './domain/level-of-detail'
+export * from './domain/lod-vocabulary'
 export * from './domain/material-policy'
+export * from './domain/meshing-vocabulary'
 export * from './domain/mob-visual'
 export * from './domain/particle-pool'
 export * from './domain/particle-shader'
 export * from './domain/post-processing'
-export * from './domain/render-environment'
+export { DAY_SKY_COLOR, NIGHT_SKY_COLOR, DEFAULT_ENVIRONMENT_FAR_PLANE, type RenderEnvironmentPlan } from './domain/render-environment'
 export * from './domain/weather-rendering'
 export * from './domain/texture-atlas'
 export * from './domain/vehicle-visual'

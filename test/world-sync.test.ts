@@ -29,7 +29,7 @@ import {
   type DirtyBatch,
 } from '../src/application/world-sync'
 import { CHUNK_SIZE } from '../src/domain/lod-vocabulary'
-import type { MeshQuad, QuadColor } from '../src/domain/chunk-geometry'
+import type { CrossPlantQuad, GeometryQuad, MeshQuad, QuadColor } from '../src/domain/chunk-geometry'
 import { FAKE_CANVAS, makeFakeThree } from './support/fake-three'
 
 const VIEWPORT = { width: 1280, height: 720 }
@@ -43,6 +43,22 @@ const quad = (overrides: Partial<MeshQuad> = {}): MeshQuad => ({
   lz: 0,
   width: 1,
   height: 1,
+  ao: 0,
+  ...overrides,
+})
+
+const crossPlantQuad = (overrides: Partial<CrossPlantQuad> = {}): CrossPlantQuad => ({
+  blockId: 21,
+  role: 'side',
+  vertices: [
+    [1, 10, 2],
+    [1, 11, 2],
+    [2, 11, 3],
+    [2, 10, 3],
+  ],
+  nx: 0,
+  ny: 0,
+  nz: 1,
   ao: 0,
   ...overrides,
 })
@@ -138,6 +154,32 @@ describe('syncWorld', () => {
     }),
   )
 
+  it.effect('passes cross plants into the Three.js buffer with double-sided indices', () =>
+    Effect.gen(function* () {
+      const three = makeFakeThree()
+      const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT)
+      const source = yield* scriptedSource([{ changed: [{ cx: 0, cz: 0 }], removed: [] }])
+      const mesh = Object.assign([quad()], { crossPlants: [crossPlantQuad()] })
+
+      const report = yield* syncWorld(renderer, source, () => Effect.succeed(mesh))
+
+      expect(report).toStrictEqual({ meshed: 1, deferred: 0, removed: 0 })
+      const [geometry] = three.geometries()
+      if (geometry === undefined) {
+        throw new Error('the synchronized chunk must create a geometry')
+      }
+      const positions = geometry.attributes.get('position')
+      const index = geometry.index()
+      if (positions === undefined || index === undefined) {
+        throw new Error('the synchronized chunk must expose position and index buffers')
+      }
+
+      expect(positions.array).toHaveLength(24)
+      expect(index.array).toHaveLength(18)
+      expect(Array.from(index.array).slice(6)).toStrictEqual([4, 5, 6, 4, 6, 7, 4, 6, 5, 4, 7, 6])
+    }),
+  )
+
   it.effect('colorForChunk, when given, is used instead of the flat color option', () =>
     Effect.gen(function* () {
       // `resolveChunkColor`'s other branch: with `colorForChunk` present, the
@@ -148,8 +190,8 @@ describe('syncWorld', () => {
       const three = makeFakeThree()
       const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT)
       const source = yield* scriptedSource([{ changed: [{ cx: 0, cz: 0 }], removed: [] }])
-      const flatColorCalls: Array<MeshQuad> = []
-      const chunkColorCalls: Array<{ chunk: ChunkRef; quads: ReadonlyArray<MeshQuad> }> = []
+      const flatColorCalls: Array<GeometryQuad> = []
+      const chunkColorCalls: Array<{ chunk: ChunkRef; quads: ReadonlyArray<GeometryQuad> }> = []
       const flatColor: QuadColor = (meshQuad) => {
         flatColorCalls.push(meshQuad)
         return [1, 0, 0]

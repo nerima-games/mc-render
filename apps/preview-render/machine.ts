@@ -60,7 +60,6 @@ import {
   type InputCode,
   type PointerLockState,
 } from '../../src/domain/input-bindings'
-import { UNSET_CAMERA_POSE } from '../../src/stages/registration'
 import { MonotonicTimeSecs, position, type CameraPoseSnapshot } from '@nerima-games/mc-kernel'
 import { scenarioFor, stepAt, type Command, type ScenarioName, type ScriptedStep } from './script'
 
@@ -133,12 +132,13 @@ export type MachineView = {
   readonly wouldAcquireOnHudClick: boolean
 
   readonly clockSecs: number
-  readonly authoritativePose: CameraPoseSnapshot
+  /** The latest mc-sim pose, or pending before the first publish. */
+  readonly authoritativePose: CameraPoseSnapshot | undefined
   readonly mirrored: MirroredCameraState
   readonly viewOffset: ViewOffset
-  readonly mirrorLag: number
+  readonly mirrorLag: number | undefined
   readonly mirrorStale: boolean
-  /** True while no pose has ever been published — the mirror is showing UNSET. */
+  /** True while no pose has ever been published. */
   readonly poseNeverPublished: boolean
 
   readonly log: ReadonlyArray<LogLine>
@@ -153,7 +153,7 @@ type Book = {
   step: number
   lastThing: string
   clockSecs: number
-  authoritativePose: CameraPoseSnapshot
+  authoritativePose: CameraPoseSnapshot | undefined
   viewOffset: ViewOffset
   poseNeverPublished: boolean
   lastFrameSnapshot: InputSnapshot | undefined
@@ -259,7 +259,7 @@ export const makeMachine = async (config: MachineConfig): Promise<Machine> => {
     step: 0,
     lastThing: '(nothing yet)',
     clockSecs: 0,
-    authoritativePose: UNSET_CAMERA_POSE,
+    authoritativePose: undefined,
     viewOffset: NO_VIEW_OFFSET,
     poseNeverPublished: true,
     lastFrameSnapshot: undefined,
@@ -392,10 +392,11 @@ export const makeMachine = async (config: MachineConfig): Promise<Machine> => {
 
       case 'publishPose':
         return Effect.sync(() => {
+          const previous = book.authoritativePose
           book.authoritativePose = {
             position: position(command.x, command.y, command.z),
-            yawRadians: book.authoritativePose.yawRadians,
-            pitchRadians: book.authoritativePose.pitchRadians,
+            yawRadians: previous?.yawRadians ?? 0,
+            pitchRadians: previous?.pitchRadians ?? 0,
             capturedAtSecs: MonotonicTimeSecs(book.clockSecs),
           }
           book.poseNeverPublished = false

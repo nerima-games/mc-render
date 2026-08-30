@@ -135,7 +135,7 @@ export const parseArguments = (argv: ReadonlyArray<string>): PreviewOptions => {
     const takeValue = (): string | undefined => inlineValue ?? queue.shift()
 
     switch (flag) {
-      // pnpm 9 forwards a literal `--` into argv when someone writes
+      // pnpm forwards a literal `--` into argv when someone writes
       // `pnpm preview -- --stats` out of npm habit.
       case '--':
         break

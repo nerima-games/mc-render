@@ -19,6 +19,7 @@ import {
   REFRACTION_GATE_ORDER,
   REFRACTION_INTERVAL_FRAMES,
   REFRACTION_MIN_SCREEN_RATIO,
+  normalizeRefractionMinScreenRatio,
   refractionRunsOnFrame,
   sameRefractionKey,
   screenRatioForNdcRect,
@@ -307,6 +308,16 @@ describe('the decision', () => {
       expect(
         decideRefractionPrePass({ ...RUNNING, minScreenRatio: 0, waterScreenRatio: 0 }),
       ).toBe('run')
+    }),
+  )
+
+  it.effect('normalizes custom minScreenRatio values to the screen-ratio domain', () =>
+    Effect.sync(() => {
+      expect(normalizeRefractionMinScreenRatio(Number.NaN)).toBe(0)
+      expect(normalizeRefractionMinScreenRatio(-0.25)).toBe(0)
+      expect(normalizeRefractionMinScreenRatio(0.25)).toBe(0.25)
+      expect(normalizeRefractionMinScreenRatio(1.25)).toBe(1)
+      expect(normalizeRefractionMinScreenRatio(Number.POSITIVE_INFINITY)).toBe(0)
     }),
   )
 

@@ -21,6 +21,7 @@ import {
   mirroredCameraState,
   mirrorLagSecs,
   NO_VIEW_OFFSET,
+  uninitializedMirroredCameraState,
   snapshotAgeSecs,
   type ViewOffset,
 } from '../src/domain/camera-mirror'
@@ -145,12 +146,36 @@ describe('forwardVector — no camera.getWorldDirection() anywhere', () => {
 })
 
 describe('mirror staleness', () => {
+  it.effect('an unpublished mirror is infinitely stale and has no source timestamp', () =>
+    Effect.sync(() => {
+      const mirrored = uninitializedMirroredCameraState(AUTHORITATIVE)
+
+      expect(mirrored.sourceCapturedAtSecs).toBeUndefined()
+      expect(mirrorLagSecs(mirrored, MonotonicTimeSecs(100))).toBe(
+        Number.POSITIVE_INFINITY,
+      )
+      expect(isMirrorStale(mirrored, MonotonicTimeSecs(100))).toBe(true)
+    }),
+  )
+
   it.effect('lag is measured from the instant the SIMULATION stamped the pose', () =>
     Effect.sync(() => {
       const mirrored = mirroredCameraState(AUTHORITATIVE)
 
       expect(mirrored.sourceCapturedAtSecs).toBe(100)
       expect(mirrorLagSecs(mirrored, MonotonicTimeSecs(100.05))).toBeCloseTo(0.05, 10)
+    }),
+  )
+
+  it.effect('represents an unpublished pose as pending rather than fresh', () =>
+    Effect.sync(() => {
+      const mirrored = mirroredCameraState(undefined)
+
+      expect(mirrored.position).toStrictEqual(position(0, 0, 0))
+      expect(mirrored.rotation).toStrictEqual({ x: 0, y: 0, z: 0, order: 'YXZ' })
+      expect(mirrored.sourceCapturedAtSecs).toBeUndefined()
+      expect(mirrorLagSecs(mirrored, MonotonicTimeSecs(100))).toBeUndefined()
+      expect(isMirrorStale(mirrored, MonotonicTimeSecs(100))).toBe(false)
     }),
   )
 

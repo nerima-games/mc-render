@@ -22,7 +22,8 @@ mc-playground-kit は devDependency 専用で出荷ビルドに入らないた�
 それを所有しているのがこのリポジトリである。
 
 そして**このリポジトリはカメラの正ではない**。`CameraPoseSnapshot` の正は mc-sim が持ち、
-ここはミラーするだけ。逆向きの依存は循環になり `pnpm check:deps` が落とす。
+ここはミラーするだけ。逆向きの依存は循環になる。依存境界は `package.json` と
+`.oxlintrc.json`、型検査で確認する。
 
 ## 読む順序
 

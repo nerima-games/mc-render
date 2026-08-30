@@ -18,6 +18,7 @@ import {
   aoShade,
   buildChunkGeometry,
   faceNormal,
+  type CrossPlantQuad,
   type FaceDirection,
   type MeshQuad,
 } from '../src/domain/chunk-geometry'
@@ -36,6 +37,7 @@ import {
   combinedShadeFactor,
   effectiveLightLevel,
   faceBrightness,
+  lightSampleForGeometryQuad,
   lightSamplePoint,
   lightShadeFactor,
   litColor,
@@ -66,6 +68,22 @@ const quad = (overrides: Partial<MeshQuad> = {}): MeshQuad => ({
   lz: 0,
   width: 1,
   height: 1,
+  ao: 0,
+  ...overrides,
+})
+
+const crossPlantQuad = (overrides: Partial<CrossPlantQuad> = {}): CrossPlantQuad => ({
+  blockId: 21,
+  role: 'side',
+  vertices: [
+    [0, 64, 0],
+    [0, 65, 0],
+    [1, 65, 1],
+    [1, 64, 1],
+  ],
+  nx: 0,
+  ny: 0,
+  nz: 1,
   ao: 0,
   ...overrides,
 })
@@ -310,6 +328,15 @@ describe('the sample point', () => {
       // of the two cells it picks would depend on the sign of the coordinate.
       const [x, y, z] = lightSamplePoint({ lx: 0, y: 0, lz: 0 }, faceNormal('yPos'))
       expect([x, y, z]).toStrictEqual([0.5, 1, 0.5])
+    }),
+  )
+
+  it.effect('samples a cross plant at its geometric centre', () =>
+    Effect.sync(() => {
+      expect(lightSampleForGeometryQuad(crossPlantQuad())).toStrictEqual({
+        direction: 'yPos',
+        point: [0.5, 64.5, 0.5],
+      })
     }),
   )
 })

@@ -420,9 +420,9 @@ JavaScript の `%` は被除数の符号を保つので、`+ HOTBAR_SIZE` 1 回�
 
 ## 2.8 ポインタロックは**要求**であり、拒否されうる
 
-§2.2 が「要求側（`requestPointerLock`）は未実装」と書いていた穴。
+§2.2 が過去の監査で「要求側（`requestPointerLock`）は未実装」と記録していた穴は、現行実装で閉じている。
 `uiClicks`（§2.5）は「ロックを取り直すクリック」を記録するのに、それを受ける側が無かったので、
-**プレビューはマウスルックに入れなかった。**
+**当時のプレビューはマウスルックに入れなかった。**
 
 ### 状態は boolean ではなく 4 つ
 
@@ -555,11 +555,10 @@ plan.md §3.10（Playwright は SwiftShader でポインタロック不可）に
 ブラウザ側にも逃げ場が無い。1 つのアダプタのために全ファイルからその歯止めを外すのは高すぎる。
 
 アダプタ専用の 2 つ目の tsconfig プロジェクトも採れない。
-`scripts/api-lock.ts` は `tsconfig.build.json` から公開面を作り、
-`scripts/check-dependency-whitelist.ts` は `index.ts` / `domain/` / `application/` / `stages/` で
-出荷ソースを分類する。どちらも 16 リポジトリに byte-identical で vendor される領域であり、
-build プロジェクトの外に置いたアダプタは `index.ts` から re-export できない
-——つまり**それが存在する理由であるプレビューから使えない**。
+`tsconfig.build.json` が package の唯一の出力プロジェクトであり、
+`tsconfig.test.json` と `tsconfig.preview.json` は検証専用である。
+公開 declaration とアダプタの型検証を別の出力境界に分けると、package の公開面と
+実際に検証した面がずれるため、DOM アダプタは構造的な型で build project に留めている。
 
 代入可能性はテストで証明してある（§8.1 相当は [testing.md](./testing.md) §8.1）。
 `test/fixtures/dom-surface.ts` を**本物の `lib.dom.d.ts`** に対してコンパイルし、
@@ -1032,11 +1031,11 @@ type ViewOffset = { right: number; up: number; rollRadians: number }
 type MirroredCameraState = {
   readonly position: Position
   readonly rotation: { x: number; y: number; z: number; order: 'YXZ' }
-  readonly sourceCapturedAtSecs: MonotonicTimeSecs
+  readonly sourceCapturedAtSecs: MonotonicTimeSecs | undefined
 }
-const mirroredCameraState: (snapshot: CameraPoseSnapshot, offset?: ViewOffset) => MirroredCameraState
+const mirroredCameraState: (snapshot: CameraPoseSnapshot | undefined, offset?: ViewOffset) => MirroredCameraState
 const forwardVector: (snapshot: CameraPoseSnapshot) => Position
-const mirrorLagSecs / isMirrorStale
+const mirrorLagSecs / isMirrorStale // 未初期化時は undefined / false
 ```
 
 **`CameraPoseSnapshot` を受け取る口しかない。書き戻す口は無く、作ってはならない**
@@ -1139,39 +1138,18 @@ plan.md §3.8 が参照実装の最悪の構造バグとして記録している
 **mc-physics** に置いている。mc-render 側に残るのは THREE の `Raycaster` を使う
 **描画専用**の用途（マウスピッキング等）だけのはずである。**実装時に切り分けること。**
 
-## 8. APIロック
+## 8. 公開 API と package 検証
 
-plan.md §6 Step 0-3。**実装済みで、§9 のツール選定も決着している。**
-mc-render の下流は kit のみだが、kit は全プレビューの土台なので実質的な影響範囲は広い。
+公開面の source of truth は `src/index.ts` である。package として出荷する境界は
+生成された declaration と `package.json` の `exports` で確認する。
 
-| 項目 | 内容 |
+| 検査 | 保証するもの |
 | --- | --- |
-| 生成物 | リポジトリ直下の `api-lock.md`（公開宣言 121 件 + 参照されている非 export 宣言 17 件。コミット対象） |
-| 生成器 | `scripts/api-lock.ts`（16 リポジトリに byte-identical で vendor。`scripts/check-dependency-whitelist.ts` と同じ方式で、編集してよいのは `REPOSITORY_POLICY` だけ） |
-| 検査 | `pnpm api:check` — `api-lock.md` が実際の公開 API と食い違えば非ゼロ終了 |
-| 更新 | `pnpm api:update` |
-| 配線 | `pnpm verify` の `check:deps` と `test` の間、および CI の `API lock` ステップ |
-| 追加依存 | **なし**（`typescript` は既に devDependency） |
+| `pnpm typecheck` | build / test / preview の TypeScript プロジェクトが解決できること |
+| `pnpm build` | stale な `dist/` を残さず、declaration と ESM bundle を生成すること |
+| `pnpm pack --dry-run` | `package.json#files` に従った package 内容になること |
+| `pnpm test` / `pnpm test:coverage` | 挙動と 100% の statements / branches / functions / lines ゲート |
 
-`@microsoft/api-extractor` を先に試して却下した経緯・実測・仕組み・限界は
-mc-kernel の `docs/versioning.md` §7 が正本。ここでは mc-render にとっての意味だけ書く。
-
-**この選定は本書 §6 の `RRegister` 議論と同じものを守っている。** api-extractor は
-`Context.Tag` のサービスクラスを「forgotten export」として落とし、Tag 識別子文字列と
-束ねられた service 型を捨てる。mc-render の `api-lock.md` にはそれが残っている:
-
-```ts
-const InputService_base: Context.TagClass<InputService, "@nerima-games/mc-render/InputService", InputServiceApi>;
-```
-
-`InputService` は §6 が言う通り `ROut` にも `RRegister` にも現れ、`RIn` には現れないサービスである。
-この Tag 文字列は mc-compose がステージを合成するときの解決鍵であり、
-黙って変わると mc-render 単体では型検査を通ったまま、合成した瞬間に実行時で壊れる。
-`GameModule<ROut, E, RIn, RRegister = never>` の型引数と既定値がロックにそのまま写るのも同じ理由で重要である
-（生成器が `checker.typeToString` ではなく declaration emit を使っているのはこのため）。
-
-捕まえないもの: **挙動**（THREE のアダプタが何を描くかはこのファイルに出ない。テストの仕事）と、
-**interface / 型リテラルのメンバ順**（ソース順を保つので並べ替えは API 変更でなくても diff になる）。
-
-公開面を変える PR は `pnpm api:update` の結果を**同じ PR に**含めること。
-§7 の `WorldRenderer` が入るときが、このロックの最初の大きな diff になる。
+このリポジトリには `api-lock.md`、API lock 生成器、`api:check`、`api:update` は置かない。
+公開 API の変更は `src/index.ts` と declaration の差分を PR でレビューし、実行時の描画挙動は
+テストおよびブラウザ fixture の責務とする。

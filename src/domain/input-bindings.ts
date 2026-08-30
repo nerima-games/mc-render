@@ -14,8 +14,8 @@
  * input service lived there, the shipped game would have no input handling at
  * all — it would build, start, render, and ignore the keyboard. That failure is
  * silent at compile time and total at run time, which is the worst combination,
- * so `scripts/check-dependency-whitelist.ts` makes a runtime dependency on
- * mc-playground-kit a hard CI failure (`dev-only-package-in-dependencies`).
+ * so the package dependency policy keeps mc-playground-kit out of runtime
+ * dependencies.
  *
  * mc-render is the right owner because input is a browser-platform concern and
  * mc-render is already the repository that owns the browser platform (canvas,
@@ -71,9 +71,8 @@
 /**
  * Every action the game can be told to perform by an input device.
  *
- * PRE-AUDIT FIRST CUT. The reference's real set is larger (hotbar slots 1-9,
- * gamepad axes, touch gestures, screenshot, debug overlay). This is the subset
- * needed to express the Escape rule and the remapping mechanism.
+ * The action vocabulary is explicit so device adapters can map into it without
+ * exposing browser or gamepad details to the domain.
  */
 export const INPUT_ACTIONS = [
   'moveForward',

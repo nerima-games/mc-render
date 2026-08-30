@@ -11,12 +11,18 @@ import { Effect, FastCheck } from 'effect'
 import {
   MISSING_TILE,
   TILE_BY_BLOCK_NAME,
+  quadTileFromResolver,
   referencedTileIndices,
   tileIndexForBlockName,
   tileIndexResolver,
 } from '../src/domain/block-texture-map'
 import { ATLAS_TILE_COUNT, isTileIndex } from '../src/domain/texture-atlas'
-import type { FaceRole } from '../src/domain/chunk-geometry'
+import type {
+  CrossPlantQuad,
+  FaceDirection,
+  FaceRole,
+  MeshQuad,
+} from '../src/domain/chunk-geometry'
 
 const ROLES: ReadonlyArray<FaceRole> = ['top', 'bottom', 'side']
 
@@ -210,6 +216,60 @@ describe('the injected name lookup', () => {
         { seed: 0, numRuns: 100 },
       )
       expect(tileIndexForBlockName('not_a_block', 'side')).toBe(MISSING_TILE)
+    }),
+  )
+
+  it.effect('selects the tile role from renderable geometry', () =>
+    Effect.sync(() => {
+      const resolve = (_blockId: number, role: FaceRole): number => {
+        if (role === 'top') {
+          return 10
+        }
+        if (role === 'bottom') {
+          return 20
+        }
+        return 30
+      }
+      const tile = quadTileFromResolver(resolve)
+      // `tile()` never sees a raw `FluidQuad`: `buildFluidGeometry` converts one via
+      // `fluidProxyQuad` before calling `tile`, deriving `role` from `direction`
+      // ('yPos' -> 'top', else -> 'side'). Mirror that shape here rather than the
+      // pre-conversion one, since that is what a `QuadTile` actually receives.
+      const fluidProxy = (direction: FaceDirection): MeshQuad => {
+        let role: FaceRole = 'side'
+        if (direction === 'yPos') {
+          role = 'top'
+        }
+        return {
+          ao: 0,
+          blockId: 3,
+          direction,
+          height: 1,
+          lx: 0,
+          lz: 0,
+          role,
+          width: 1,
+          y: 0,
+        }
+      }
+      const cross: CrossPlantQuad = {
+        blockId: 3,
+        role: 'bottom',
+        vertices: [
+          [0, 0, 0],
+          [0, 1, 0],
+          [1, 1, 1],
+          [1, 0, 1],
+        ],
+        nx: 0,
+        ny: 0,
+        nz: 1,
+        ao: 0,
+      }
+
+      expect(tile(cross)).toBe(20)
+      expect(tile(fluidProxy('yPos'))).toBe(10)
+      expect(tile(fluidProxy('xPos'))).toBe(30)
     }),
   )
 })

@@ -22,7 +22,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from '@effect/vitest'
 import { Effect } from 'effect'
-import ts from 'typescript'
+import { inspectTypeScriptFixture, parseTypeScriptConfig } from './typescript-project'
 import {
   acquiresPointerLock,
   defaultBindings,
@@ -1077,6 +1077,7 @@ describe('multi-touch dispatch: per-finger guards', () => {
       installInputListeners(dom.targets, input, { touchControls: controls })
 
       dom.fire('touchstart', { changedTouches: [{ identifier: 7, target: touchUndeclared }] })
+      dom.fire('touchstart', { changedTouches: [{ identifier: Number.NaN, target: touchJumpButton }] })
 
       expect(yield* input.isActionActive('jump')).toBe(false)
       expect((yield* input.snapshot).pressed.size).toBe(0)
@@ -1726,34 +1727,9 @@ describe('REGRESSION: the DOM surface is a real subset of the real DOM', () => {
         // be assignable FROM; the first person to notice would be a browser
         // consumer, and the fix they would reach for is `as unknown as`.
         const fixture = path.join(repositoryRoot, 'test', 'fixtures', 'dom-surface.ts')
-        const program = ts.createProgram({
-          rootNames: [fixture],
-          options: {
-            noEmit: true,
-            strict: true,
-            exactOptionalPropertyTypes: true,
-            noUncheckedIndexedAccess: true,
-            target: ts.ScriptTarget.ES2022,
-            module: ts.ModuleKind.ESNext,
-            moduleResolution: ts.ModuleResolutionKind.Bundler,
-            moduleDetection: ts.ModuleDetectionKind.Force,
-            skipLibCheck: true,
-            types: [],
-            // THE POINT OF THE TEST: the real thing, not a hand-written stub.
-            lib: ['lib.es2022.d.ts', 'lib.dom.d.ts'],
-          },
-        })
+        const inspection = inspectTypeScriptFixture(repositoryRoot, fixture, ['ES2022', 'DOM'])
 
-        const diagnostics = [
-          ...program.getSemanticDiagnostics(),
-          ...program.getSyntacticDiagnostics(),
-        ].filter((diagnostic) => diagnostic.category === ts.DiagnosticCategory.Error)
-
-        expect(
-          diagnostics.map((diagnostic) =>
-            ts.flattenDiagnosticMessageText(diagnostic.messageText, ' '),
-          ),
-        ).toStrictEqual([])
+        expect(inspection.errors).toStrictEqual([])
       }),
     30_000,
   )
@@ -1765,15 +1741,13 @@ describe('REGRESSION: the DOM surface is a real subset of the real DOM', () => {
       // `types: []`. If a later change adds "DOM" there, every pure module
       // silently becomes able to reach `document` and the reason
       // `environment: 'node'` can test the pointer-lock machine at all is gone.
-      const config = ts.readConfigFile(path.join(repositoryRoot, 'tsconfig.build.json'), ts.sys.readFile)
-      const parsed = ts.parseJsonConfigFileContent(
-        config.config as unknown,
-        ts.sys,
+      const parsed = parseTypeScriptConfig(
         repositoryRoot,
+        path.join(repositoryRoot, 'tsconfig.build.json'),
       )
 
-      expect(parsed.options.lib).toStrictEqual(['lib.es2024.d.ts'])
-      expect(parsed.options.types).toStrictEqual([])
+      expect(parsed.options['lib']).toStrictEqual(['lib.es2024.d.ts'])
+      expect(parsed.options['types']).toStrictEqual([])
       expect(parsed.fileNames.some((file) => file.endsWith('application/browser-input-adapter.ts'))).toBe(true)
       expect(parsed.fileNames.some((file) => file.includes('/test/fixtures/'))).toBe(false)
     }),

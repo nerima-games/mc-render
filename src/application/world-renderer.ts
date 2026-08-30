@@ -1,8 +1,6 @@
 /**
  * The renderer: the only file in this repository that touches a GPU.
  *
- * PRE-AUDIT FIRST CUT (叩き台).
- *
  * `domain/chunk-geometry.ts` is the pure half — quads to typed arrays, testable
  * in Node. This is the half that cannot be pure: it acquires a WebGL2 context,
  * owns the live `Scene`, `PerspectiveCamera` and per-chunk `Mesh` objects, and
@@ -112,6 +110,8 @@ import type { PostProcessingStep } from '../domain/post-processing'
 import type { WeatherFrameOptions } from '../domain/weather-rendering'
 import { makeThreeWeatherPrecipitation } from './three-weather-runtime'
 import { waterShaderSource } from '../domain/water-shader'
+// oxlint-disable-next-line sort-imports
+import { requiresForceSinglePass } from '../domain/material-policy'
 
 /**
  * Vertical field of view, in degrees.
@@ -396,7 +396,7 @@ export const makeWaterMaterial = <
   return {
     material: new three.ShaderMaterial({
       depthWrite: WATER_WRITES_DEPTH,
-      forceSinglePass: true,
+      forceSinglePass: requiresForceSinglePass(WATER_MATERIAL_SPEC),
       fragmentShader: source.fragmentShader,
       transparent: WATER_MATERIAL_SPEC.transparent,
       uniforms,
@@ -999,7 +999,7 @@ export const makeWorldRenderer = <
      * `domain/chunk-geometry.ts` the only thing visible in the mesh.
      *
      * `domain/material-policy.ts`'s rule does not bite here and it is worth
-     * saying why: `requiresForceSinglePass` fires on shared + two-pass + cutout,
+     * saying why: `requiresForceSinglePass` fires on shared + two-pass + (cutout or flat),
      * and this material is shared but neither transparent nor a cutout. The
      * water material, when it exists, is the one that will need the audit.
      */
@@ -1284,8 +1284,8 @@ export const makeWorldRenderer = <
           return ops.buildEntity(entity)
         }
         for (const [index, plan] of plans.entries()) {
-          const part = entry.parts[index]
-          if (part) {ops.applyEntityPartTransform(part.mesh, visual, plan)}
+          const part = entry.parts[index]!
+          ops.applyEntityPartTransform(part.mesh, visual, plan)
         }
         return { ...entry, entity }
       },

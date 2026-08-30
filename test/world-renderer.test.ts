@@ -19,6 +19,7 @@ import { mirroredCameraState } from '../src/domain/camera-mirror'
 import { buildChunkGeometry, type MeshQuad } from '../src/domain/chunk-geometry'
 import { MonotonicTimeSecs, position, type CameraPoseSnapshot } from '@nerima-games/mc-kernel'
 import {
+  applyChunkShaderEnvironment,
   CAMERA_FAR_PLANE,
   CAMERA_FOV_DEGREES,
   CAMERA_NEAR_PLANE,
@@ -32,7 +33,7 @@ import { spawnBurst } from '../src/domain/particle-pool'
 import { FAKE_CANVAS, makeFakeThree } from './support/fake-three'
 import { planRenderEnvironment } from '../src/domain/render-environment'
 import { planMobVisual } from '../src/domain/mob-visual'
-import { buildPostProcessingChain } from '../src/domain/post-processing'
+import { buildPostProcessingChain, QUALITY_PRESETS } from '../src/domain/post-processing'
 import { planWitherSkullVisual, planWitherVisual } from '../src/domain/wither-visual'
 import { makeThreeWeatherPrecipitation } from '../src/application/three-weather-runtime'
 import type { ThreeScene } from '../src/application/three-surface'
@@ -149,10 +150,9 @@ describe('acquiring the renderer', () => {
   it.effect('builds the camera from the transcribed constants and the real aspect', () =>
     Effect.gen(function* () {
       // fov 75 / near 0.1 from `session-bootstrap-scene.ts:47,49`; far 300 is
-      // the FLOOR of that file's :50 expression, which this repository cannot
-      // evaluate because two of its three inputs live in unpublished siblings.
-      // `world-renderer.ts` says so at the constant rather than presenting 300
-      // as derived.
+      // the FLOOR of that file's :50 expression. The renderer keeps the
+      // transcribed fallback explicit because the source inputs are sibling
+      // package values, not renderer-owned state.
       const three = makeFakeThree()
       yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT)
 
@@ -705,6 +705,7 @@ describe('drawing', () => {
       const three = makeFakeThree()
       const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT)
       const quality = {
+        ...QUALITY_PRESETS.high,
         ssaoEnabled: true,
         godRaysEnabled: false,
         bloomEnabled: true,
@@ -1049,6 +1050,27 @@ describe('three-weather-runtime: direct precipitation resource construction', ()
       expect(geometry?.drawRanges().length).toBe(drawRangeCountBeforeUpdate)
     }),
   )
+
+  it.effect('skips holes in a sparse particle list', () =>
+    Effect.gen(function* () {
+      const three = makeFakeThree()
+      const scene = new three.Scene()
+      const resource = makeThreeWeatherPrecipitation({
+        capacity: 2,
+        kind: 'rain',
+        scene,
+        three,
+      })
+      const particle = { id: 1, kind: 'rain' as const, velocityY: -2, opacity: 1, x: 0, y: 0, z: 0 }
+      const particles = new Array<typeof particle>(2)
+      particles[1] = particle
+
+      yield* resource.update(particles)
+
+      expect(three.meshes()[0]?.visible).toBe(true)
+      yield* resource.dispose
+    }),
+  )
 })
 
 describe('teardown', () => {
@@ -1166,6 +1188,30 @@ describe('makeProductionWorldRenderer', () => {
       expect(three.scene().members()).toStrictEqual([])
       expect(three.shaderMaterials().every((material) => material.disposed())).toBe(true)
       expect(three.renderer().disposed()).toBe(true)
+    }),
+  )
+
+  it.effect('tolerates optional water uniforms being absent', () =>
+    Effect.gen(function* () {
+      const three = makeFakeThree()
+      const renderer = yield* makeProductionWorldRenderer(three, FAKE_CANVAS, VIEWPORT, { name: 'terrain-atlas' }, {
+        particles: { capacity: 1 },
+      })
+
+      delete renderer.waterUniforms['uSunIntensity']
+      delete renderer.waterUniforms['uTime']
+      delete renderer.waterUniforms['uCameraPosition']
+      delete renderer.waterUniforms['uResolution']
+
+      applyChunkShaderEnvironment({}, planRenderEnvironment(0.5))
+      yield* renderer.setEnvironment(planRenderEnvironment(0.5))
+      yield* renderer.advanceFrame({
+        elapsedSecs: 1,
+        deltaSecs: 0.01,
+        cameraPosition: { worldX: 1, worldY: 2, worldZ: 3 },
+      })
+      yield* renderer.resize(320, 200)
+      yield* renderer.dispose
     }),
   )
 })

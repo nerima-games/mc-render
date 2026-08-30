@@ -11,8 +11,7 @@
  *
  * Until this file existed, the only registered input stage in the entire
  * 16-repository roster was `input:sample` in `mc-playground-kit` — which is
- * developer tooling and is banned from `dependencies` by rule 6 of
- * `../scripts/check-dependency-whitelist.ts`. The SHIPPED build therefore had
+ * developer tooling and is excluded from runtime `dependencies`. The SHIPPED build therefore had
  * no input stage: `justPressed` would never clear, and one press of the
  * inventory key would re-fire on every frame it was held. plan.md §2.3-2 was
  * written to prevent exactly that, and it had been reintroduced by a missing
@@ -89,21 +88,18 @@ import { type MouseButton, acquiresPointerLock, defaultBindings } from '../domai
 import { NO_PLAYER_CONTROL, type PlayerControlPort } from '../domain/player-control'
 import { RENDER_STAGE_IDS, UPSTREAM_STAGE_IDS } from './stage-ids'
 
-/* Shared numeric building blocks. The unset pose sits at the world origin,
- * captured at time zero (see `UNSET_CAMERA_POSE`'s own header for why visibly
- * wrong beats plausibly wrong); the frame-local diagnostics below start at
- * zero for the ordinary reason that nothing has run yet. Each name is the
- * specific domain quantity zero represents here, not a bare literal repeated
- * for its own sake. */
+/* Shared numeric building blocks for the explicit display/test fixture and
+ * frame-local diagnostics. Each name is the specific domain quantity zero
+ * represents here, not a bare literal repeated for its own sake. */
 const UNSET_POSE_CAPTURED_AT_SECS = 0
 const WORLD_ORIGIN_AXIS = 0
-const INITIAL_MIRROR_LAG_SECS = 0
 const INITIAL_VISIBLE_CHUNK_COUNT = 0
 const INITIAL_FRAMES_DRAWN = 0
 const FRAMES_DRAWN_INCREMENT = 1
 
 /**
- * The pose a renderer mirrors before mc-sim has said anything.
+ * An explicit display/test fixture for a renderer before mc-sim has said
+ * anything. It is not the default frame state.
  *
  * Deliberately the origin looking down -Z rather than a plausible spawn point.
  * A renderer that draws this is drawing "no pose has arrived yet", and making
@@ -137,7 +133,7 @@ export type RenderFrameState = {
    * a live handle — mc-render reads the pose and must never hold a mutable
    * reference to somebody else's state (plan.md §5.1-2).
    */
-  readonly authoritativePose: Ref.Ref<CameraPoseSnapshot>
+  readonly authoritativePose: Ref.Ref<CameraPoseSnapshot | undefined>
   /** Cosmetic displacement applied at mirror time. Never fed back. */
   readonly viewOffset: Ref.Ref<ViewOffset>
   /** What a THREE camera would be set to. Derived; never read by anything else. */
@@ -149,7 +145,7 @@ export type RenderFrameState = {
    * renderer decides whether to interpolate or stall from this rather than
    * drawing a stale pose and finding out from a bug report.
    */
-  readonly mirrorLagSecs: Ref.Ref<number>
+  readonly mirrorLagSecs: Ref.Ref<number | undefined>
   /** This frame's input, sampled once. See `render:input` below. */
   readonly input: Ref.Ref<InputSnapshot>
   /**
@@ -211,28 +207,18 @@ export const makeRenderFrameState = (
   /**
    * Where the camera starts.
    *
-   * A PARAMETER RATHER THAN THE CONSTANT, and the reason is the constant's own
-   * header: `UNSET_CAMERA_POSE` is the origin because "visibly wrong is better
-   * than plausibly wrong", and it is visibly wrong precisely when there is a
-   * world — the origin is at y=0, and a generated surface is nowhere near it,
-   * so the camera spawns inside solid rock and every frame renders the sky.
-   * That is what it is for, and it is also useless to a host that has a world
-   * and knows where its surface is.
-   *
-   * IT IS NOT A SPAWN POINT AND MUST NOT BECOME ONE. Choosing where a player
-   * appears is a rule, and rules are mc-sim's — the field it seeds is the one
-   * whose own comment says "FIRST CUT: written by whoever drives the frame.
-   * When mc-sim is published this is read from `PlayerService.cameraPose`". So
-   * this parameter exists to be REMOVED on that day, and the default keeps
-   * every existing caller and every preview exactly where it was.
+   * `undefined` means mc-sim has not published a pose yet. The mirrored camera
+   * keeps that pending state, with no synthetic timestamp or lag measurement.
+   * An explicit pose is useful for deterministic host and test setup; choosing
+   * a player's spawn point remains mc-sim's responsibility.
    */
-  initialPose: CameraPoseSnapshot = UNSET_CAMERA_POSE,
+  initialPose: CameraPoseSnapshot | undefined = undefined,
 ): Effect.Effect<RenderFrameState> =>
   Effect.gen(function* () {
     const authoritativePose = yield* Ref.make(initialPose)
     const viewOffset = yield* Ref.make(NO_VIEW_OFFSET)
     const mirroredCamera = yield* Ref.make(mirroredCameraState(initialPose))
-    const lag = yield* Ref.make(INITIAL_MIRROR_LAG_SECS)
+    const lag = yield* Ref.make<number | undefined>(undefined)
     const input = yield* Ref.make<InputSnapshot>({
       gamepadAxes: { leftX: 0, leftY: 0, rightX: 0, rightY: 0 },
       justPressed: new Set<string>(),
@@ -394,7 +380,7 @@ export const renderStages = ({
 
         // The one real read of `FrameServices` in this repository. Time comes
         // From the injected Port; plan.md §5.1-3 bans reading a global clock
-        // And `pnpm check:deps` enforces it.
+        // The injected Port keeps the stage deterministic and testable.
         const now = yield* monotonicSecs
         yield* Ref.set(state.mirrorLagSecs, mirrorLagSecs(mirrored, now))
       }),
@@ -505,15 +491,8 @@ export const renderModule = (
    * host owns what there is to draw ON.
    */
   draw: DrawPort = NO_DRAW_TARGET,
-  /**
-   * Where the camera starts. See `makeRenderFrameState`.
-   *
-   * The FOURTH thing a host supplies, after the clock, the input targets and
-   * the draw target — and, like the other three, a value rather than a branch.
-   * A host with no world leaves it at the origin, which is what every Node
-   * consumer and every preview does.
-   */
-  initialPose: CameraPoseSnapshot = UNSET_CAMERA_POSE,
+  /** Where the camera starts. `undefined` remains pending until mc-sim publishes a pose. */
+  initialPose: CameraPoseSnapshot | undefined = undefined,
   control: PlayerControlPort = NO_PLAYER_CONTROL,
   chunkSync: ChunkSyncPort = NO_CHUNK_SYNC,
 ): GameModule<InputService, never, never, InputService> => ({

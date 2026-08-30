@@ -28,6 +28,7 @@ const GLASS_LEAVES: MaterialSpec = {
   transparent: true,
   side: 'double',
   alphaTest: 0.1,
+  flatSurface: false,
   shared: true,
 }
 
@@ -37,6 +38,7 @@ const PARTICLES: MaterialSpec = {
   transparent: true,
   side: 'double',
   alphaTest: 0.5,
+  flatSurface: false,
   shared: true,
 }
 
@@ -46,6 +48,7 @@ const OPAQUE_CHUNK: MaterialSpec = {
   transparent: false,
   side: 'front',
   alphaTest: 0,
+  flatSurface: false,
   shared: true,
 }
 
@@ -71,6 +74,18 @@ describe('requiresForceSinglePass', () => {
   it.effect('REGRESSION: the pooled particle material requires it', () =>
     Effect.sync(() => {
       expect(requiresForceSinglePass(PARTICLES)).toBe(true)
+    }),
+  )
+
+  it.effect('a shared flat surface requires it even without alpha testing', () =>
+    Effect.sync(() => {
+      const flatSurface = { ...GLASS_LEAVES, name: 'flatSurfaceMaterial', alphaTest: 0, flatSurface: true }
+
+      expect(isCutout(flatSurface)).toBe(false)
+      expect(requiresForceSinglePass(flatSurface)).toBe(true)
+      const verdict = describeMaterialPolicy(flatSurface)
+      expect(verdict.kind).toBe('must-force-single-pass')
+      expect(verdict.reason).toContain('flatSurface is true')
     }),
   )
 
@@ -108,6 +123,7 @@ describe('genuine translucency is NOT forced single-pass', () => {
         transparent: true,
         side: 'double',
         alphaTest: 0,
+        flatSurface: false,
         shared: true,
       }
 
