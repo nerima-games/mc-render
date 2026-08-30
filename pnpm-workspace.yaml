@@ -5,3 +5,5 @@ minimumReleaseAgeExclude:
   - '@nerima-games/mc-noise@0.3.0'
   - '@nerima-games/mc-save@0.3.0'
   - '@nerima-games/mc-worldgen@0.2.0'
+  - '@nerima-games/mc-physics@0.2.0 || 0.2.1'
+  - '@nerima-games/mc-sim@0.2.0 || 0.2.1'
