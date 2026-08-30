@@ -7,27 +7,37 @@ import {
   propertyOfBlockId,
 } from '@nerima-games/mc-kernel'
 import {
+  CHUNK_HEIGHT,
+  type Chunk,
+  type ChunkStoreApi,
+  type ChunkNeighbours as WorldgenChunkNeighbours,
+} from '@nerima-games/mc-worldgen'
+import {
   type ChunkMesher,
   type SyncOptions,
   type WorldRendererAttachment,
   attachWorldRenderer,
-} from './world-sync'
-import { type GeometryQuad, type QuadColor } from '../domain/chunk-geometry'
+} from './world-sync.js'
+import {
+  type ChunkView,
+  type MeshConfig,
+  type ChunkNeighbours as MeshingChunkNeighbours,
+  meshChunk,
+} from '@nerima-games/mc-meshing'
+import { type GeometryQuad, type QuadColor } from '../domain/chunk-geometry.js'
 import {
   type LightSampler,
   NO_LIGHT,
   type SkyBlockLight,
   lightSampleForGeometryQuad,
   packedLightColor,
-} from '../domain/voxel-lighting'
-import { type MeshConfig, meshChunk } from '@nerima-games/mc-meshing'
-import type { BlockNameLookup } from '../domain/block-texture-map'
-import type { BlockShapeKind } from '../domain/meshing-vocabulary'
-import { CHUNK_SIZE } from '../domain/lod-vocabulary'
-import type { ChunkStoreApi } from '@nerima-games/mc-worldgen'
+} from '../domain/voxel-lighting.js'
+import type { BlockNameLookup } from '../domain/block-texture-map.js'
+import type { BlockShapeKind } from '../domain/meshing-vocabulary.js'
+import { CHUNK_SIZE } from '../domain/lod-vocabulary.js'
 import { Effect } from 'effect'
-import type { WorldRenderer } from './world-renderer'
-import { meshBlockShapes } from '../domain/block-shapes'
+import type { WorldRenderer } from './world-renderer.js'
+import { meshBlockShapes } from '../domain/block-shapes.js'
 
 /** The kernel registry is the single numeric-id to texture-name authority. */
 export const blockNameFromKernel: BlockNameLookup = (blockId) => blockTypeOfId(blockId) ?? 'unknown'
@@ -186,6 +196,40 @@ export const makeChunkStoreLightColor = (
     return packedLightColor(sampler)
   })
 
+/**
+ * `@nerima-games/mc-worldgen`'s `Chunk` has no `height` field — it is a fixed-height column
+ * baked into its own constants (`CHUNK_VOLUME = CHUNK_SIZE_XZ * CHUNK_SIZE_XZ
+ * * CHUNK_HEIGHT`), not a per-chunk value. mc-meshing 0.1.5's `ChunkView`
+ * added an explicit, required per-chunk `height` for its own variable-height
+ * support. This repository is the adapter between the two: every mc-worldgen
+ * chunk it hands to mc-meshing today is exactly `CHUNK_HEIGHT` tall, so that
+ * constant is the correct (not placeholder) value here — re-exported from
+ * `@nerima-games/mc-worldgen`, which is also where mc-meshing's OWN
+ * `CHUNK_HEIGHT` (256) draws its "canonical vertical extent" from; the two
+ * packages agree on the number. A real variable-height chunk is Wave 1
+ * pin-alignment work in mc-worldgen, not something to invent here.
+ */
+const toChunkView = (chunk: Chunk): ChunkView => ({ ...chunk, height: CHUNK_HEIGHT })
+
+/** One optional worldgen neighbour, converted to a `ChunkView` entry only when present. */
+const toMeshingNeighbourEntry = (
+  direction: keyof MeshingChunkNeighbours,
+  neighbour: Chunk | undefined,
+): MeshingChunkNeighbours => {
+  if (neighbour === undefined) {
+    return {}
+  }
+  return { [direction]: toChunkView(neighbour) }
+}
+
+/** Adapt mc-worldgen's 4-neighbour map to mc-meshing's `ChunkNeighbours`. */
+const toMeshingNeighbours = (neighbours: WorldgenChunkNeighbours): MeshingChunkNeighbours => ({
+  ...toMeshingNeighbourEntry('xPos', neighbours.xPos),
+  ...toMeshingNeighbourEntry('xNeg', neighbours.xNeg),
+  ...toMeshingNeighbourEntry('zPos', neighbours.zPos),
+  ...toMeshingNeighbourEntry('zNeg', neighbours.zNeg),
+})
+
 /** Adapt a worldgen chunk store to the renderer's pull-based meshing port. */
 export const makeChunkStoreMesher = (
   store: MeshingChunkStore,
@@ -194,18 +238,22 @@ export const makeChunkStoreMesher = (
   ({ cx, cz }) =>
     Effect.gen(function* () {
       const coord = chunkCoord(cx, cz)
-      const chunk = yield* store.peek(coord)
-      if (chunk === undefined) {
+      const worldgenChunk = yield* store.peek(coord)
+      if (worldgenChunk === undefined) {
         return undefined
       }
 
-      const neighbours = yield* store.neighbours(coord)
-      const layers = meshChunk(chunk, neighbours, config)
+      const worldgenNeighbours = yield* store.neighbours(coord)
+      const layers = meshChunk(toChunkView(worldgenChunk), toMeshingNeighbours(worldgenNeighbours), config)
       const blockShapeKinds = config.blockShapeKinds ?? EMPTY_BLOCK_SHAPE_KINDS
       const quads = [...layers.opaque, ...layers.water, ...layers.transparentSolid].filter(
         (quad) => !blockShapeKinds.has(quad.blockId),
       )
-      const blockShapes = meshBlockShapes(chunk, neighbours, blockShapeKinds)
+      const blockShapes = meshBlockShapes(
+        toChunkView(worldgenChunk),
+        toMeshingNeighbours(worldgenNeighbours),
+        blockShapeKinds,
+      )
       return Object.assign(quads, {
         blockShapes,
         crossPlants: layers.crossPlants,

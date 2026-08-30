@@ -3,7 +3,7 @@ import {
   BEHIND_NEAR_PLANE_RATIO,
   type NdcRect,
   screenRatioForNdcRect,
-} from './domain/water-refraction'
+} from './domain/water-refraction.js'
 
 const EMPTY_WATER_MESH_COUNT = 0
 const BOUNDING_BOX_MIN = 0

@@ -1,4 +1,4 @@
-import type { InputAction } from './input-bindings'
+import type { InputAction } from './input-bindings.js'
 
 export const GAMEPAD_BUTTONS = [
   'a',

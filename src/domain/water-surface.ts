@@ -129,7 +129,7 @@
  * belong.
  */
 
-import { type MaterialSpec } from './material-policy'
+import { type MaterialSpec } from './material-policy.js'
 
 // --- The uniform vocabulary -------------------------------------------------
 

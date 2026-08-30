@@ -438,6 +438,41 @@ describe('worker failure', () => {
     }),
   )
 
+  it.effect('leaves a job running on a different worker untouched when one worker fails', () =>
+    Effect.gen(function* () {
+      const [failedWorker, otherWorker] = workers(2)
+      if (failedWorker === undefined || otherWorker === undefined) {
+        throw new Error('no workers')
+      }
+      const [replacement] = workers(1)
+      if (replacement === undefined) {
+        throw new Error('no replacement worker')
+      }
+      const pool = yield* makeWorkerPool([failedWorker, otherWorker], {
+        replaceWorker: () => replacement,
+      })
+
+      const onFailedWorker = yield* Effect.fork(pool.submit('on-failed-worker', { chunk: 'on-failed-worker' }))
+      yield* settle
+      const onOtherWorker = yield* Effect.fork(pool.submit('on-other-worker', { chunk: 'on-other-worker' }))
+      yield* settle
+
+      failedWorker.fail(new Error('worker exited'))
+      yield* settle
+
+      expect(yield* Fiber.join(onFailedWorker)).toStrictEqual({
+        _tag: 'failed',
+        error: expect.any(Error),
+      })
+      expect(yield* pool.stats).toMatchObject({ failed: 1, restarted: 1, busy: 1 })
+
+      otherWorker.reply(0, 7)
+      yield* settle
+
+      expect(yield* Fiber.join(onOtherWorker)).toStrictEqual({ _tag: 'completed', result: { quads: 7 } })
+    }),
+  )
+
   it.effect('removes a worker that fails while idle', () =>
     Effect.gen(function* () {
       const [worker] = workers(1)

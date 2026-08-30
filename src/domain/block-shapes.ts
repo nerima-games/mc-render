@@ -16,7 +16,7 @@ import {
   type QuadAxis,
   type QuadCorners,
   tangentAxes,
-} from './meshing-vocabulary'
+} from './meshing-vocabulary.js'
 import { propertyOfBlockId } from '@nerima-games/mc-kernel'
 
 const ZERO = 0

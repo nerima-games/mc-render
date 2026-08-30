@@ -1,4 +1,4 @@
-import type { MirroredCameraState } from './camera-mirror'
+import type { MirroredCameraState } from './camera-mirror.js'
 
 export type AxisAlignedBounds = {
   readonly min: Readonly<{ x: number; y: number; z: number }>

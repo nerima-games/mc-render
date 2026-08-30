@@ -14,7 +14,7 @@ import {
   type QuadVertex,
   VERTICES_PER_QUAD,
   tangentAxes,
-} from './meshing-vocabulary'
+} from './meshing-vocabulary.js'
 
 export { INDICES_PER_QUAD, VERTICES_PER_QUAD, tangentAxes }
 export type {

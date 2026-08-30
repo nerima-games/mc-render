@@ -11,7 +11,7 @@
   },
   "settings": {
     "typescript": {
-      "version": "5.9"
+      "version": "7.0"
     }
   },
   "plugins": [],
@@ -161,7 +161,7 @@
     //   this org may still use) is silently ignored: oxlint only reads the
     //   object at array index 1.
     "no-restricted-imports": [
-      "warn",
+      "error",
       {
         "paths": [
           {
@@ -172,15 +172,25 @@
         ],
         "patterns": [
           {
-            // mc-render is Tier2 (DEPENDENCY_POLICY.md §1) and may depend only
-            // on mc-meshing, mc-sim, mc-worldgen, and the universally-
-            // importable mc-kernel. This covers every other @nerima-games/*
-            // package in the org, including the Tier2 sibling
-            // mc-playground-kit (which must in any case never be a runtime
-            // dependency of shipped code, DEPENDENCY_POLICY.md §3) and all of
-            // Tier1's other members, Tier3, and Tier4.
-            "regex": "^@nerima-games/(mc-noise|mc-physics|mc-audio|mc-save|mc-playground-kit|mx-gameplay|mx-redstone|mx-ui|mx-multiplayer|mc-compose|mc-dev-meta)(/.*)?$",
-            "message": "mc-render (Tier2, DEPENDENCY_POLICY.md) may depend only on mc-meshing, mc-sim, mc-worldgen, and mc-kernel. Propose a graph change (DEPENDENCY_POLICY.md §6) before adding this import."
+            // Wave 0 (D.9): allow-list form, not deny-list. `group`'s first
+            // entry bans every @nerima-games/* import, and each `!`-prefixed
+            // entry after it un-bans one Tier2-allowed package plus its
+            // subpaths. mc-render is Tier2 (DEPENDENCY_POLICY.md §1) and may
+            // depend only on mc-kernel, mc-meshing, mc-sim, and mc-worldgen —
+            // an allow-list cannot silently miss a newly-added org package
+            // the way the previous deny-list regex could.
+            "group": [
+              "@nerima-games/**",
+              "!@nerima-games/mc-kernel",
+              "!@nerima-games/mc-kernel/**",
+              "!@nerima-games/mc-meshing",
+              "!@nerima-games/mc-meshing/**",
+              "!@nerima-games/mc-sim",
+              "!@nerima-games/mc-sim/**",
+              "!@nerima-games/mc-worldgen",
+              "!@nerima-games/mc-worldgen/**"
+            ],
+            "message": "mc-render is Tier2 (DEPENDENCY_POLICY.md §1); only the listed packages may be imported."
           }
         ]
       }

@@ -1,4 +1,4 @@
-import { COLOR_COMPONENTS } from '../domain/chunk-geometry'
+import { COLOR_COMPONENTS } from '../domain/chunk-geometry.js'
 
 export type UnitCubeBuffers = Readonly<{
   readonly colors: Uint8Array

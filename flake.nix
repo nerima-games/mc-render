@@ -4,6 +4,14 @@
   inputs = {
     # nixos-unstable, not nixpkgs-unstable: it advances only after the NixOS
     # release tests pass, so it is less likely to land a broken build.
+    #
+    # flake.lock is pinned (via `nix flake lock --override-input nixpkgs
+    # github:NixOS/nixpkgs/624af665...`, not `nix flake update`) to a specific
+    # revision, org-wide, as of Wave 0: the nixos-unstable head at the time
+    # shipped oxlint >=1.79.0, whose no-redeclare rule false-positives on the
+    # `type X = ... & Brand` + `const X = Brand.refined` idiom used across
+    # this repository's domain/ types (A/B-tested against 1.75.0, which is
+    # clean). Re-check on the next nixpkgs bump.
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
   };
 
@@ -47,12 +55,13 @@
               pkgs.corepack_24
               pkgs.typescript-language-server
               pkgs.oxlint
+              pkgs.ast-grep
             ];
 
             shellHook = ''
-              mkdir -p "$PWD/.corepack"
-              corepack enable --install-directory "$PWD/.corepack" 2>/dev/null || true
-              export PATH="$PWD/.corepack:$PATH"
+              corepackDir="$(mktemp -d "''${TMPDIR:-/tmp}/mc-render-corepack.XXXXXX")"
+              corepack enable --install-directory "$corepackDir"
+              export PATH="$corepackDir:$PATH"
             '';
           };
         }

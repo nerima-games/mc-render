@@ -77,12 +77,15 @@ mc-playground-kit は devDependency 専用で出荷ビルドに入らないた�
 ### セットアップ
 
 ```console
-$ direnv allow          # flake.nix の devShell で nodejs_24 + corepack が入る
-$ pnpm install
+$ direnv allow          # flake.nix の devShell で nodejs_24 + corepack + oxlint + ast-grep が入る
+$ NODE_AUTH_TOKEN=$(gh auth token) pnpm install
 ```
 
-Nix を使わない場合は Node.js 24 以上と pnpm 11.21.0（`corepack` 推奨）を用意する。
+Nix を使わない場合は Node.js 24 以上と pnpm 11.24.0（`corepack` 推奨）を用意する。
 asdf を使う場合は、リポジトリ直下の `.tool-versions` をそのまま読み込む。
+`@nerima-games/*` の依存は GitHub Packages から解決するため、`pnpm install` には
+`packages: read` スコープを持つトークンが要る（`.npmrc` はレジストリのマッピングのみ
+持ち、トークンは持たない）。
 
 > **注意**: ツールチェーンは `devenv.nix` から `flake.nix` + `flake.lock` に移行済みである。
 > `flake.lock` はコミットされているので、`nix develop`（`.envrc` は `use flake`）は
@@ -93,12 +96,13 @@ asdf を使う場合は、リポジトリ直下の `.tool-versions` をそのま
 | コマンド | 内容 |
 | --- | --- |
 | `pnpm typecheck` | `tsconfig.build.json` / `tsconfig.test.json` / `tsconfig.preview.json` の 3 プロジェクトを型検査 |
-| `pnpm lint` | oxlint（このリポジトリ唯一の lint / format 設定。prettier も biome も .editorconfig も置かない）。**`--deny-warnings` 付きで走る**ため、`warn` のルールもビルドを落とす（`.oxlintrc.json` は 5 カテゴリすべてと個別 67 ルールが `warn`、`error` は 4 つだけ。このフラグが無かった頃は実質その 4 つしかゲートになっていなかった） |
-| `pnpm lint:fix` | oxlint の自動修正 |
+| `pnpm lint` | `nix develop --command pnpm lint` として実行すること。oxlint（`.oxlintrc.json`、`--deny-warnings` 付きで `warn` もビルドを落とす）と ast-grep（`sgconfig.yml` / `.ast-grep/rules/*`）の両方を実行する。oxlint と ast-grep は Nix の devShell が供給し、どちらも npm の devDependency ではない。`no-restricted-imports` は Wave 0 で `error` に統一した（D.9） |
+| `pnpm lint:fix` | oxlint の自動修正（ast-grep には自動修正がない） |
 | `pnpm test` | vitest（`@effect/vitest` の `it.effect` が主 API、`environment: 'node'`） |
 | `pnpm test:watch` | vitest watch |
-| `pnpm test:coverage` | 全指標 100% の閾値付きカバレッジ計測 |
-| `pnpm build` | `dist/` を掃除し、宣言ファイルと ESM bundle を生成 |
+| `pnpm test:coverage` | 全指標 100% の閾値付きカバレッジ計測（`coverage.include` は `src/**/*.ts` 全体） |
+| `pnpm build` | `scripts/clean-dist.mjs` で `dist/` を掃除し、`tsc -p tsconfig.release.json` で宣言ファイルと ESM を emit（esbuild によるバンドルは Wave 0 で廃止） |
+| `pnpm package:verify` | `pnpm build` の後、`scripts/verify-package.mjs` が packed tarball を実際に `npm install` して import し、`exports` と実体の一致を検証する |
 | `pnpm pack --dry-run` | package に含まれる生成物が `dist` / `LICENSE` / `README.md`（および npm 必須の `package.json`）だけであることを確認 |
 | `pnpm preview` | 内蔵プレビュー（入力状態機械とポリシー表のステッパ）。**`pnpm verify` には入らない**。[`apps/preview-render/README.md`](./apps/preview-render/README.md) |
 | `pnpm benchmark` | チャンク更新の逐次処理とバッチ処理を同一条件で測定し、JSON の中央値と速度比を出力 |

@@ -1,29 +1,29 @@
 import {
   CHUNK_SHADER_UNIFORMS,
   chunkShaderSource,
-} from '../domain/chunk-shader'
+} from '../domain/chunk-shader.js'
 import {
   type MaterialPolicyVerdict,
   describeMaterialPolicy,
-} from '../domain/material-policy'
+} from '../domain/material-policy.js'
 import {
   type RenderEnvironmentPlan,
   type Viewport,
   planRenderEnvironment,
-} from '../domain/render-environment'
+} from '../domain/render-environment.js'
 import {
   THREE_DOUBLE_SIDE,
   type ThreeBufferGeometry,
   type ThreeMaterial,
   type ThreeShaderSurface,
   type ThreeUniform,
-} from './three-surface'
+} from './three-surface.js'
 import {
   WATER_MATERIAL_SPEC,
   WATER_WRITES_DEPTH,
-} from '../domain/water-surface'
-import { PARTICLE_MATERIAL_SPEC } from '../domain/particle-pool'
-import { waterShaderSource } from '../domain/water-shader'
+} from '../domain/water-surface.js'
+import { PARTICLE_MATERIAL_SPEC } from '../domain/particle-pool.js'
+import { waterShaderSource } from '../domain/water-shader.js'
 
 /** Full daylight used when no environment plan has been supplied. */
 export const FULL_SUN_INTENSITY = 1
@@ -144,7 +144,7 @@ export const REFRACTION_UNAVAILABLE = 0
 const ORIGIN_COMPONENT = 0
 export const UNIFORM_ORIGIN: ReadonlyArray<number> = [ORIGIN_COMPONENT, ORIGIN_COMPONENT, ORIGIN_COMPONENT]
 
-export type { Viewport } from '../domain/render-environment'
+export type { Viewport } from '../domain/render-environment.js'
 
 /** Build the water material and the uniform boxes a host updates per frame. */
 export const makeWaterMaterial = <

@@ -1,4 +1,4 @@
-import type { WorkerPort } from './worker-pool'
+import type { WorkerPort } from './worker-pool.js'
 
 export type BrowserWorkerMessageEvent = {
   readonly data: unknown

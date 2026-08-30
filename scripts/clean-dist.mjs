@@ -1,4 +1,6 @@
-import { rmSync } from 'node:fs'
-import { resolve } from 'node:path'
+import { rm } from "node:fs/promises";
+import { resolve } from "node:path";
 
-rmSync(resolve(process.cwd(), 'dist'), { force: true, recursive: true })
+const root = resolve(import.meta.dirname, "..");
+
+await rm(resolve(root, "dist"), { recursive: true, force: true });

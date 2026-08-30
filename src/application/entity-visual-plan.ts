@@ -2,7 +2,7 @@ import {
   type MobAnimationInput,
   type MobVisualPartPlan,
   planMobVisual,
-} from '../domain/mob-visual'
+} from '../domain/mob-visual.js'
 import {
   type WitherSkullVisualInput,
   type WitherVisualPartDescriptor,
@@ -10,7 +10,7 @@ import {
   type WitherVisualStateInput,
   planWitherSkullVisual,
   planWitherVisual,
-} from '../domain/wither-visual'
+} from '../domain/wither-visual.js'
 
 /** Coarse render policy without importing simulation entity classes. */
 export type EntityRenderCategory = 'hostile' | 'passive' | 'item'

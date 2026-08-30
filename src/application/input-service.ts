@@ -74,9 +74,9 @@ import {
   reportsKeyboardFocus,
   suppressesBrowserContextMenu,
   suppressesBrowserScroll,
-} from '../domain/input-bindings'
+} from '../domain/input-bindings.js'
 import { Context, Effect, Layer, Ref } from 'effect'
-import type { GamepadAxes } from '../domain/gamepad-input'
+import type { GamepadAxes } from '../domain/gamepad-input.js'
 
 /**
  * One input event, as the service sees it.
@@ -1198,4 +1198,4 @@ export {
   ESCAPE_POLICY,
   FOCUS_NAVIGATION_POLICY,
   LISTENER_PLAN,
-} from './input-listener-plan'
+} from './input-listener-plan.js'

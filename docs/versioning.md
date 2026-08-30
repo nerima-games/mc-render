@@ -108,16 +108,17 @@ mc-dev-meta workspace で開発している間は問題にならないが、publ
 ```json
 "publishConfig": {
   "registry": "https://npm.pkg.github.com",
-  "access": "restricted"
+  "access": "public"
 }
 ```
 
 - スコープは `@nerima-games`。GitHub Organization `nerima-games` 配下のリポジトリと対応する。
-- `access: restricted`（private）。plan.md §9 の未決事項「パッケージ公開先」は
-  GitHub Packages で確定したものとして扱う。
+- `access: public`（org 全体の Wave 0 決定。パッケージは public 化済みで、`restricted`
+  のままだと新規 publish が private に戻り、下流 CI が 403 になる）。plan.md §9 の
+  未決事項「パッケージ公開先」は GitHub Packages で確定したものとして扱う。
 - 消費側は `.npmrc` に `@nerima-games:registry=https://npm.pkg.github.com` と
-  `//npm.pkg.github.com/:_authToken=...` が要る。**現在の `.npmrc` にはまだ書いていない**
-  （公開物が無いため）。最初の publish と同時に 16 リポジトリ分を揃える。
+  `//npm.pkg.github.com/:_authToken=...` が要る。この repo 自身の `.npmrc` には
+  すでに前者を書いてある。
 
 ## 5. `three` / `@types/three` —— `devDependencies`、`"DOM"` 無し
 
@@ -163,35 +164,54 @@ mc-kernel の API 差分としてレビューする。
 
 ## 7. ビルド / publish パイプライン
 
-ビルドと package 境界は実装済みである。`pnpm build` は `dist/` を先に削除し、
-`tsconfig.build.json` で宣言ファイルを生成した後、esbuild で `src/index.ts` を ESM に
-バンドルする。`package.json` の `main` / `types` / `exports` / `files` は `dist/` を
-指し、`prepublishOnly` からこの build を呼ぶ。
+ビルドと package 境界は実装済みである。`pnpm build` は `scripts/clean-dist.mjs` で
+`dist/` を先に削除し、`tsc -p tsconfig.release.json` が宣言ファイルと ESM の両方を
+直接 emit する（Wave 0 でバンドラ（esbuild/tsdown）を廃止し、kernel と同じ tsc-emit
+形に揃えた — バンドルは `exports` サブパスと declaration map を壊し、mirror/repoint
+ゲートが読む型の同一性を保証できないため）。`package.json` の `main` / `types` /
+`exports` / `files` は `dist/` を指し、`prepublishOnly`（`pnpm verify && pnpm
+package:verify`）からこの build を呼ぶ。`pnpm package:verify` は
+`scripts/verify-package.mjs` が packed tarball を実際に `npm install` して
+import することで、export map と実体の一致を CI で検証する。
 
 | 項目 | 内容 |
 | --- | --- |
-| ビルド | `pnpm build`: clean dist + declaration emit + esbuild ESM |
-| `exports` | `{ ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" } }` |
+| ビルド | `pnpm build`: clean dist + `tsc -p tsconfig.release.json` による宣言・ESM emit |
+| `exports` | `{ ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js", "default": "./dist/index.js" } }` |
 | `files` | `dist` / `LICENSE` / `README.md`（npm が常に含める `package.json` を除く） |
 | changesets | CLI と CI の status 検査は導入済み。release/publish 操作は未実施 |
-| カバレッジ 100% ゲート | `vitest.config.ts` と CI の `pnpm test:coverage` |
+| カバレッジ 100% ゲート | `vitest.config.ts`（`coverage.include: ['src/**/*.ts']`）と CI の `pnpm test:coverage` |
 
 `.gitignore` は `dist/` `build/` `out/` を無視する。
 
 このリポジトリには API lock の生成物・スクリプト・コマンドは置かない。公開面は
 `src/index.ts`、生成された declaration、PR 差分をレビューし、日数計測ベースの自動ゲートには戻さない。
 
+`src/browser.ts`（THREE.js を使うオプショナルなブラウザランタイム、
+`makeBrowserWorldRuntime`）は `tsconfig.release.json` の include に無く、
+`package.json#exports` にも `"./browser"` サブパスを宣言していない —
+`docs/public-api.md` §8 が `src/index.ts` を公開面の唯一の source of truth と
+明記しており、Wave 0 はこの文書を書き換える対象に含まれていないため。以前は
+tsdown が `dist/browser.js` を生成していたが、それを指す `exports` サブパスは
+一度も存在しなかった（`scripts/check-package.mjs` だけがそれを検証しようとして
+いたが、`package.json` 側にサブパスが無いため到達不能だった）。この repo 内の
+どのファイルもこのエントリを import していない（`grep` で確認済み）。**`./browser`
+を正式な公開面として復活させるか、shipped ではないファイルとして扱うかは
+Wave 0 の範囲外の決定として残っている。**
+
 ## 8. 依存の固定
 
 | 依存 | 現在 | 方針 |
 | --- | --- | --- |
-| `effect` | `^3.22.1` | Effect の major を揃え、Context / Layer の型を同じ系統で合成する |
+| `effect` | `3.22.1`（exact） | Effect の major を揃え、Context / Layer の型を同じ系統で合成する |
 | `@nerima-games/*` | `mc-kernel 0.4.0` / `mc-meshing 0.1.4` / `mc-sim 0.1.42` / `mc-worldgen 0.1.14` | 公開後も互換性を確認し、下流 publish の順序を守る |
-| `three` / `@types/three` | `^0.185.1` / `^0.185.4`（**devDependencies**） | §5。出荷ソースは import せず、メジャー・マイナーをテストで揃える |
-| `typescript` / `vitest` | `^7.0.2` / `^3.2.7` | 開発ツールとして更新し、lockfile で実解決を固定する |
-| `oxlint` | **package.json devDependency ではない** | `flake.nix` の devShell が `pkgs.oxlint`（nixpkgs 追従）を入れる。16 リポジトリが各自 npm 解決で drift するのを防ぐため、Nix 側で一本化した単一ソース |
-| `packageManager` | `pnpm@11.21.0` | lockfile と package manager の解決を揃える |
+| `three` / `@types/three` | `0.185.1` / `0.185.4`（exact、**devDependencies**） | §5。出荷ソースは import せず、メジャー・マイナーをテストで揃える |
+| `typescript` / `vitest` | `7.0.2` / `4.1.11`（exact） | 開発ツールとして更新し、lockfile で実解決を固定する |
+| `oxlint` | **package.json devDependency ではない** | `flake.nix` の devShell が `pkgs.oxlint`（org 全体で `nix flake lock --override-input` により 624af665 に固定）を入れる。16 リポジトリが各自 npm 解決で drift するのを防ぐため、Nix 側で一本化した単一ソース |
+| `packageManager` | `pnpm@11.24.0` | lockfile と package manager の解決を揃える |
 
 `engines.node` は `>=24.0.0`。`flake.nix` の devShell が `nodejs_24` を入れる。
 
-Vitest は `@effect/vitest@0.30.0` の peer dependency が `vitest ^3.2.0` を要求するため、Vitest 4 対応が公開されるまで 3.2 系に固定する。
+Vitest は Wave 0（chore/wave0-toolchain）で `4.1.11` に上げた。`@effect/vitest@0.30.0`
+は `vitest ^4.1.11` の peer dependency を満たし、`pnpm test` / `pnpm test:coverage` は
+ソース変更なしで green のままだった。

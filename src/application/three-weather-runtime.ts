@@ -1,7 +1,7 @@
 import type {
   PrecipitationKind,
   PrecipitationParticle,
-} from '../domain/weather-rendering'
+} from '../domain/weather-rendering.js'
 import type {
   ThreeBufferAttribute,
   ThreeBufferGeometry,
@@ -9,9 +9,9 @@ import type {
   ThreeMesh,
   ThreeScene,
   ThreeSurface,
-} from './three-surface'
+} from './three-surface.js'
 import { Effect } from 'effect'
-import type { WeatherPrecipitationResource } from './weather-renderer'
+import type { WeatherPrecipitationResource } from './weather-renderer.js'
 
 const VERTICES_PER_PARTICLE = 12
 const POSITION_COMPONENTS = 3

@@ -68,8 +68,8 @@ import {
   WATER_SURFACE_ALPHA,
   WATER_UNIFORM_NAMES,
   type WaterColor,
-} from './water-surface'
-import { glslFloat } from './chunk-shader'
+} from './water-surface.js'
+import { glslFloat } from './chunk-shader.js'
 
 /* Mirrors water-surface.ts's own HALF_TURN_DIVISOR / QUARTER_TURN_DIVISOR (not
  * exported there), so waveApprox's phase-shift arithmetic below is named the
