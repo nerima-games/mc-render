@@ -1,5 +1,15 @@
 # @nerima-games/mc-render
 
+## 0.4.0
+
+### Minor Changes
+
+- [#18](https://github.com/nerima-games/mc-render/pull/18) [`8da0ca0`](https://github.com/nerima-games/mc-render/commit/8da0ca01aac7062033fdce1d7ab10fc5fe363815) Thanks [@takeokunn](https://github.com/takeokunn)! - Repoint the LOD vocabulary (`CHUNK_SIZE`, `LOD_LEVELS`, `LodLevel`, `LodLevelSchema`, `STEP_FOR_LOD`) from the local `domain/lod-vocabulary.ts` mirror to `@nerima-games/mc-meshing`, now that mc-meshing has published it. The barrel no longer re-exports these names; consumers import them from `@nerima-games/mc-meshing` directly.
+
+### Patch Changes
+
+- [#17](https://github.com/nerima-games/mc-render/pull/17) [`d0e146e`](https://github.com/nerima-games/mc-render/commit/d0e146e3c5d9c0b615de2b41b5bf333f5b2dbf0d) Thanks [@takeokunn](https://github.com/takeokunn)! - Complete the org toolchain devDependency pin set: knip 6.33.0 (its verify gate arrives in Wave 3; the pin belongs to the Wave 0 table) plus @effect/vitest 0.30.0 where it was missing.
+
 ## 0.3.0
 
 ### Minor Changes
