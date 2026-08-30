@@ -57,9 +57,9 @@ export * from './domain/gamepad-input.js'
 export * from './domain/player-control.js'
 // Level-of-detail.ts decides which LOD tier a chunk is drawn at.
 // The same module measures the cost to the picture.
-// The portable tier vocabulary belongs to this package and uses the kernel's chunk dimension as its coordinate authority.
+// The tier vocabulary itself (LodLevel, STEP_FOR_LOD, CHUNK_SIZE) is
+// @nerima-games/mc-meshing's; consumers import it from there directly.
 export * from './domain/level-of-detail.js'
-export * from './domain/lod-vocabulary.js'
 export * from './domain/material-policy.js'
 export * from './domain/meshing-vocabulary.js'
 export * from './domain/mob-visual.js'
@@ -120,5 +120,6 @@ export * from './stages/registration.js'
 export * from './stages/stage-ids.js'
 
 // --- Provisional -------------------------------------------------------------
-// Kernel vocabulary is not re-exported from this package: consumers import it
-// From `@nerima-games/mc-kernel`, keeping one source of truth.
+// Kernel and meshing vocabulary are not re-exported from this package:
+// Consumers import them from `@nerima-games/mc-kernel` and
+// `@nerima-games/mc-meshing` directly, keeping one source of truth.

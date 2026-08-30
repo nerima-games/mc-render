@@ -48,7 +48,7 @@ import {
 } from '../domain/chunk-geometry.js'
 import type { ChunkGeometryUpdate, ChunkKey, WorldRenderer } from './world-renderer.js'
 import { Effect, Ref } from 'effect'
-import { CHUNK_SIZE } from '../domain/lod-vocabulary.js'
+import { CHUNK_SIZE } from '@nerima-games/mc-meshing'
 
 /**
  * Which chunk, in chunk coordinates.

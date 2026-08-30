@@ -13,17 +13,18 @@ import {
   type ChunkNeighbours as WorldgenChunkNeighbours,
 } from '@nerima-games/mc-worldgen'
 import {
-  type ChunkMesher,
-  type SyncOptions,
-  type WorldRendererAttachment,
-  attachWorldRenderer,
-} from './world-sync.js'
-import {
+  CHUNK_SIZE,
   type ChunkView,
   type MeshConfig,
   type ChunkNeighbours as MeshingChunkNeighbours,
   meshChunk,
 } from '@nerima-games/mc-meshing'
+import {
+  type ChunkMesher,
+  type SyncOptions,
+  type WorldRendererAttachment,
+  attachWorldRenderer,
+} from './world-sync.js'
 import { type GeometryQuad, type QuadColor } from '../domain/chunk-geometry.js'
 import {
   type LightSampler,
@@ -34,7 +35,6 @@ import {
 } from '../domain/voxel-lighting.js'
 import type { BlockNameLookup } from '../domain/block-texture-map.js'
 import type { BlockShapeKind } from '../domain/meshing-vocabulary.js'
-import { CHUNK_SIZE } from '../domain/lod-vocabulary.js'
 import { Effect } from 'effect'
 import type { WorldRenderer } from './world-renderer.js'
 import { meshBlockShapes } from '../domain/block-shapes.js'
