@@ -28,7 +28,7 @@ import {
   type ChunkRef,
   type DirtyBatch,
 } from '../src/application/world-sync'
-import { CHUNK_SIZE } from '../src/domain/lod-vocabulary'
+import { CHUNK_SIZE } from '@nerima-games/mc-meshing'
 import type { CrossPlantQuad, GeometryQuad, MeshQuad, QuadColor } from '../src/domain/chunk-geometry'
 import { FAKE_CANVAS, makeFakeThree } from './support/fake-three'
 

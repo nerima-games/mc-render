@@ -32,7 +32,7 @@ import {
   unreachableLodTiers,
   type LodThresholds,
 } from '../src/domain/level-of-detail'
-import { CHUNK_SIZE, LOD_LEVELS, STEP_FOR_LOD, type LodLevel } from '../src/domain/lod-vocabulary'
+import { CHUNK_SIZE, LOD_LEVELS, STEP_FOR_LOD, type LodLevel } from '@nerima-games/mc-meshing'
 import { CAMERA_FOV_DEGREES } from '../src/application/world-renderer'
 
 const arbitraryLevel: FastCheck.Arbitrary<LodLevel> = FastCheck.constantFrom(...LOD_LEVELS)
@@ -420,13 +420,17 @@ describe('the canonical vocabulary, and the constants it owns', () => {
     }),
   )
 
-  it.effect('the barrel exposes the canonical LOD vocabulary', () =>
+  it.effect('the barrel does not re-export mc-meshing`s LOD vocabulary, and still exposes this package`s own', () =>
     Effect.gen(function* () {
       const barrel = yield* Effect.promise(() => import('../src/index'))
       const names = Object.keys(barrel)
 
-      for (const canonical of ['LOD_LEVELS', 'LodLevelSchema', 'STEP_FOR_LOD', 'CHUNK_SIZE']) {
-        expect(names).toContain(canonical)
+      // `LOD_LEVELS`, `LodLevelSchema`, `STEP_FOR_LOD` and `CHUNK_SIZE` are
+      // @nerima-games/mc-meshing's; a consumer imports them from there
+      // directly (see src/index.ts's "Provisional" note), so re-appearing
+      // here would be the mirror this repository just repointed away from.
+      for (const foreign of ['LOD_LEVELS', 'LodLevelSchema', 'STEP_FOR_LOD', 'CHUNK_SIZE']) {
+        expect(names).not.toContain(foreign)
       }
       // The names `chunk-geometry.ts` owns must remain reachable from this barrel.
       for (const owned of ['tangentAxes', 'totalQuadArea', 'AO_MAX', 'VERTICES_PER_QUAD']) {

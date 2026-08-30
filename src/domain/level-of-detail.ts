@@ -120,7 +120,7 @@
  * `lodForDistance` is a pure function of a distance and holds no cache: the
  * cache belongs to whatever owns the chunk meshes, not to the level rule.
  */
-import { CHUNK_SIZE, LOD_LEVELS, type LodLevel, STEP_FOR_LOD } from './lod-vocabulary.js'
+import { CHUNK_SIZE, LOD_LEVELS, type LodLevel, STEP_FOR_LOD } from '@nerima-games/mc-meshing'
 
 /** The three tiers, named — derived from `LOD_LEVELS` rather than re-spelling `0, 1, 2`. */
 const [LOD_LEVEL_FINEST, LOD_LEVEL_MIDDLE, LOD_LEVEL_COARSEST] = LOD_LEVELS
