@@ -59,16 +59,16 @@ import {
   monotonicSecs,
   position,
 } from '@nerima-games/mc-kernel'
-import { type ChunkSyncPort, NO_CHUNK_SYNC } from '../application/world-sync'
-import { type DrawPort, NO_DRAW_TARGET } from '../application/world-renderer'
+import { type ChunkSyncPort, NO_CHUNK_SYNC } from '../application/world-sync.js'
+import { type DrawPort, NO_DRAW_TARGET } from '../application/world-renderer.js'
 import { Effect, Ref } from 'effect'
-import { type FrameScratch, makeFrameScratch } from '../domain/frame-scratch'
+import { type FrameScratch, makeFrameScratch } from '../domain/frame-scratch.js'
 import {
   type GraphicsQuality,
   type PostProcessingStep,
   QUALITY_PRESETS,
   buildPostProcessingChain,
-} from '../domain/post-processing'
+} from '../domain/post-processing.js'
 import {
   InputService,
   type InputServiceApi,
@@ -76,17 +76,17 @@ import {
   type InputSnapshot,
   type PointerLockPort,
   UNAVAILABLE_POINTER_LOCK,
-} from '../application/input-service'
+} from '../application/input-service.js'
 import {
   type MirroredCameraState,
   NO_VIEW_OFFSET,
   type ViewOffset,
   mirrorLagSecs,
   mirroredCameraState,
-} from '../domain/camera-mirror'
-import { type MouseButton, acquiresPointerLock, defaultBindings } from '../domain/input-bindings'
-import { NO_PLAYER_CONTROL, type PlayerControlPort } from '../domain/player-control'
-import { RENDER_STAGE_IDS, UPSTREAM_STAGE_IDS } from './stage-ids'
+} from '../domain/camera-mirror.js'
+import { type MouseButton, acquiresPointerLock, defaultBindings } from '../domain/input-bindings.js'
+import { NO_PLAYER_CONTROL, type PlayerControlPort } from '../domain/player-control.js'
+import { RENDER_STAGE_IDS, UPSTREAM_STAGE_IDS } from './stage-ids.js'
 
 /* Shared numeric building blocks for the explicit display/test fixture and
  * frame-local diagnostics. Each name is the specific domain quantity zero

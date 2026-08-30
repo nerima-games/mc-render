@@ -171,8 +171,8 @@
  * row, and this file does not pretend to cover them.
  */
 
-import { TILE_UV_SPAN, tileUvOrigin } from './texture-atlas'
-import { type MaterialSpec } from './material-policy'
+import { TILE_UV_SPAN, tileUvOrigin } from './texture-atlas.js'
+import { type MaterialSpec } from './material-policy.js'
 
 // --- Constants transcribed from the reference ------------------------------
 /*

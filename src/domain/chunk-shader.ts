@@ -116,8 +116,8 @@ import {
   FACE_BRIGHTNESS,
   LIGHT_SHADE_FLOOR,
   LIGHT_SHADE_RANGE,
-} from './voxel-lighting'
-import { ATLAS_COLUMNS, HALF_TEXEL_UV } from './texture-atlas'
+} from './voxel-lighting.js'
+import { ATLAS_COLUMNS, HALF_TEXEL_UV } from './texture-atlas.js'
 
 /**
  * Render a number as a GLSL float literal.

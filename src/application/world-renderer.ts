@@ -50,12 +50,12 @@ import {
   aabbIntersectsPreparedPerspectiveFrustum,
   boundsFromPositions,
   preparePerspectiveFrustum,
-} from '../domain/frustum-culling'
+} from '../domain/frustum-culling.js'
 import {
   CHUNK_SHADER_ATTRIBUTES,
   CHUNK_SHADER_UNIFORMS,
   chunkShaderSource,
-} from '../domain/chunk-shader'
+} from '../domain/chunk-shader.js'
 import {
   COLOR_COMPONENTS,
   type ChunkGeometryBuffers,
@@ -65,20 +65,20 @@ import {
   POSITION_COMPONENTS,
   TILE_INDEX_COMPONENTS,
   UV_COMPONENTS,
-} from '../domain/chunk-geometry'
+} from '../domain/chunk-geometry.js'
 import {
   DAY_SKY_COLOR,
   type RenderEnvironmentPlan,
   planRenderEnvironment,
-} from '../domain/render-environment'
+} from '../domain/render-environment.js'
 import { Effect, Ref } from 'effect'
 import {
   type MobAnimationInput,
   type MobVisualPartPlan,
   planMobVisual,
-} from '../domain/mob-visual'
-import { type ParticlePool, type ParticlePoolOptions, advanceParticles, makeParticlePool } from '../domain/particle-pool'
-import { type ParticleSystem, makeParticleSystem } from './particle-system'
+} from '../domain/mob-visual.js'
+import { type ParticlePool, type ParticlePoolOptions, advanceParticles, makeParticlePool } from '../domain/particle-pool.js'
+import { type ParticleSystem, makeParticleSystem } from './particle-system.js'
 import type {
   ThreeBufferGeometry,
   ThreeCamera,
@@ -94,9 +94,9 @@ import type {
   ThreeUniform,
   ThreeVector3,
   ThreeWebGLRenderer,
-} from './three-surface'
-import { WATER_MATERIAL_SPEC, WATER_WRITES_DEPTH } from '../domain/water-surface'
-import { type WeatherRenderer, makeWeatherRenderer } from './weather-renderer'
+} from './three-surface.js'
+import { WATER_MATERIAL_SPEC, WATER_WRITES_DEPTH } from '../domain/water-surface.js'
+import { type WeatherRenderer, makeWeatherRenderer } from './weather-renderer.js'
 import {
   type WitherSkullVisualInput,
   type WitherVisualPartDescriptor,
@@ -104,14 +104,14 @@ import {
   type WitherVisualStateInput,
   planWitherSkullVisual,
   planWitherVisual,
-} from '../domain/wither-visual'
-import type { MirroredCameraState } from '../domain/camera-mirror'
-import type { PostProcessingStep } from '../domain/post-processing'
-import type { WeatherFrameOptions } from '../domain/weather-rendering'
-import { makeThreeWeatherPrecipitation } from './three-weather-runtime'
-import { waterShaderSource } from '../domain/water-shader'
+} from '../domain/wither-visual.js'
+import type { MirroredCameraState } from '../domain/camera-mirror.js'
+import type { PostProcessingStep } from '../domain/post-processing.js'
+import type { WeatherFrameOptions } from '../domain/weather-rendering.js'
+import { makeThreeWeatherPrecipitation } from './three-weather-runtime.js'
+import { waterShaderSource } from '../domain/water-shader.js'
 // oxlint-disable-next-line sort-imports
-import { requiresForceSinglePass } from '../domain/material-policy'
+import { requiresForceSinglePass } from '../domain/material-policy.js'
 
 /**
  * Vertical field of view, in degrees.

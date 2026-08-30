@@ -5,8 +5,8 @@
  * assembles the atlas shader, animated water and instanced particles that a
  * browser-facing world uses on top of that protocol.
  */
-import { type ParticlePool, type ParticlePoolOptions, advanceParticles, makeParticlePool } from '../domain/particle-pool'
-import { type ParticleSystem, makeParticleSystem } from './particle-system'
+import { type ParticlePool, type ParticlePoolOptions, advanceParticles, makeParticlePool } from '../domain/particle-pool.js'
+import { type ParticleSystem, makeParticleSystem } from './particle-system.js'
 import type {
   ThreeBufferGeometry,
   ThreeEuler,
@@ -17,19 +17,19 @@ import type {
   ThreeShaderSurface,
   ThreeUniform,
   ThreeVector3,
-} from './three-surface'
+} from './three-surface.js'
 import {
   type Viewport,
   applyChunkShaderEnvironment,
   assertRendererMaterialPolicies,
   makeChunkShaderMaterial,
   makeWaterMaterial,
-} from './world-renderer-materials'
+} from './world-renderer-materials.js'
 import {
   type WorldRenderer,
   type WorldRendererOptions,
   makeWorldRenderer,
-} from './world-renderer'
+} from './world-renderer.js'
 import { Effect } from 'effect'
 
 type TransformableThreeMesh = ThreeMesh & {

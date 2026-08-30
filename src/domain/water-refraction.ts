@@ -115,7 +115,7 @@
  * visible refraction lag when the player turns.
  */
 
-import { type QualityPreset } from './post-processing'
+import { type QualityPreset } from './post-processing.js'
 
 // --- Preset-resolved settings -----------------------------------------------
 

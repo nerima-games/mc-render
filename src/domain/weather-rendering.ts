@@ -2,7 +2,7 @@ import {
   DEFAULT_ENVIRONMENT_FAR_PLANE,
   type RenderEnvironmentPlan,
   planRenderEnvironment,
-} from './render-environment'
+} from './render-environment.js'
 
 export type WeatherMode = 'clear' | 'rain' | 'thunder' | 'snow'
 export type PrecipitationKind = 'rain' | 'snow'

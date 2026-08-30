@@ -104,6 +104,8 @@ describe('makeChunkStoreMesher', () => {
     Effect.gen(function* () {
       const resident = chunk(0, 0, [[1, 20, 1, 2]])
       const config = {
+        crossPlantBlockIds: KERNEL_MESH_CONFIG.crossPlantBlockIds,
+        fluidMaxLevels: KERNEL_MESH_CONFIG.fluidMaxLevels,
         waterBlockIds: KERNEL_MESH_CONFIG.waterBlockIds,
         transparentSolidBlockIds: KERNEL_MESH_CONFIG.transparentSolidBlockIds,
       }

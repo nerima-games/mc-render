@@ -45,10 +45,10 @@ import {
   buildCrossPlantGeometry,
   buildFluidGeometry,
   combineChunkGeometry,
-} from '../domain/chunk-geometry'
-import type { ChunkGeometryUpdate, ChunkKey, WorldRenderer } from './world-renderer'
+} from '../domain/chunk-geometry.js'
+import type { ChunkGeometryUpdate, ChunkKey, WorldRenderer } from './world-renderer.js'
 import { Effect, Ref } from 'effect'
-import { CHUNK_SIZE } from '../domain/lod-vocabulary'
+import { CHUNK_SIZE } from '../domain/lod-vocabulary.js'
 
 /**
  * Which chunk, in chunk coordinates.

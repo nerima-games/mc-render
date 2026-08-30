@@ -441,18 +441,21 @@ assert しているのは文字列の存在であって、数値の再現では�
 
 ## 7. CI
 
-ローカルで品質ゲートを再現する場合、Nix の開発環境では lint を
-`nix develop --command pnpm lint` として実行する。型検査とテストは同じ環境で
-`pnpm typecheck` と `pnpm test` を実行し、CI と同じ検証対象を確認する。
+ローカルで品質ゲートを再現する場合、`nix develop --command pnpm verify`
+（`typecheck && lint && test`）がゲートの中核である。`pnpm lint` は Nix 提供の
+oxlint と ast-grep（`.oxlintrc.json` / `sgconfig.yml`）の両方を実行するため、
+`nix develop` の中で実行すること。
 
-`.github/workflows/ci.yaml` は、型検査・lint・テスト・ビルド・カバレッジを個別に実行する。
+`.github/workflows/ci.yaml` は、`pnpm verify` の後段でカバレッジ・package 境界・
+依存監査を個別のステップとして実行する。
 
 ```
-typecheck (build + test + preview)
-  → lint (oxlint)
-  → test
-  → build
+install (GitHub Packages 認証込み)
+  → verify (typecheck (build + test + preview) → lint (oxlint + ast-grep) → test)
+  → changeset status（PR かつ release/* ブランチでないときのみ）
   → coverage (100% 閾値、アーティファクト化)
+  → package:verify（build → scripts/verify-package.mjs で packed tarball を検証）
+  → audit
 ```
 
 スクリーンショット比較を入れる際の注意。**以前ここには「SwiftShader の非決定性に注意」と

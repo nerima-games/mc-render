@@ -46,8 +46,8 @@ import {
   PARTICLE_UV_SPAN,
   PARTICLE_UV_STRIDE,
   PARTICLE_VECTOR_STRIDE,
-} from './particle-pool'
-import { glslFloat } from './chunk-shader'
+} from './particle-pool.js'
+import { glslFloat } from './chunk-shader.js'
 
 /**
  * The per-instance attributes, with the stride each one is bound at.

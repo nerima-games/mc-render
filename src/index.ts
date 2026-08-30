@@ -46,52 +46,52 @@
 // Reference's table is indexed by ITS block ids, and mc-kernel's ordering
 // Disagrees from index 1 onward, so an index-wise copy would have been wrong in
 // Texture coverage: 117 of 120 rows have a real texture on every face.
-export * from './domain/block-texture-map'
-export * from './domain/block-shapes'
-export * from './domain/camera-mirror'
-export * from './domain/chunk-geometry'
-export * from './domain/frame-scratch'
-export * from './domain/frustum-culling'
-export * from './domain/input-bindings'
-export * from './domain/gamepad-input'
-export * from './domain/player-control'
+export * from './domain/block-texture-map.js'
+export * from './domain/block-shapes.js'
+export * from './domain/camera-mirror.js'
+export * from './domain/chunk-geometry.js'
+export * from './domain/frame-scratch.js'
+export * from './domain/frustum-culling.js'
+export * from './domain/input-bindings.js'
+export * from './domain/gamepad-input.js'
+export * from './domain/player-control.js'
 // Level-of-detail.ts decides which LOD tier a chunk is drawn at.
 // The same module measures the cost to the picture.
 // The portable tier vocabulary belongs to this package and uses the kernel's chunk dimension as its coordinate authority.
-export * from './domain/level-of-detail'
-export * from './domain/lod-vocabulary'
-export * from './domain/material-policy'
-export * from './domain/meshing-vocabulary'
-export * from './domain/mob-visual'
-export * from './domain/particle-pool'
-export * from './domain/particle-shader'
-export * from './domain/post-processing'
-export { DAY_SKY_COLOR, NIGHT_SKY_COLOR, DEFAULT_ENVIRONMENT_FAR_PLANE, type RenderEnvironmentPlan } from './domain/render-environment'
-export * from './domain/weather-rendering'
-export * from './domain/texture-atlas'
-export * from './domain/vehicle-visual'
-export * from './domain/wither-visual'
+export * from './domain/level-of-detail.js'
+export * from './domain/lod-vocabulary.js'
+export * from './domain/material-policy.js'
+export * from './domain/meshing-vocabulary.js'
+export * from './domain/mob-visual.js'
+export * from './domain/particle-pool.js'
+export * from './domain/particle-shader.js'
+export * from './domain/post-processing.js'
+export { DAY_SKY_COLOR, NIGHT_SKY_COLOR, DEFAULT_ENVIRONMENT_FAR_PLANE, type RenderEnvironmentPlan } from './domain/render-environment.js'
+export * from './domain/weather-rendering.js'
+export * from './domain/texture-atlas.js'
+export * from './domain/vehicle-visual.js'
+export * from './domain/wither-visual.js'
 // The shading curve. `chunk-geometry.ts` builds buffers and does not decide how
 // Bright a surface is; this holds the rule, and a host injects the light
 // Readings. Its header names the noun still missing before the reference's
 // R = AO / G = sky / B = block packing can be used: a `ShaderMaterial` in
 // `application/three-surface.ts` to decode it.
-export * from './domain/chunk-shader'
-export * from './domain/voxel-lighting'
-export * from './domain/water-refraction'
-export * from './domain/water-shader'
-export * from './domain/water-surface'
+export * from './domain/chunk-shader.js'
+export * from './domain/voxel-lighting.js'
+export * from './domain/water-refraction.js'
+export * from './domain/water-shader.js'
+export * from './domain/water-surface.js'
 
 // --- Application: Effect services ------------------------------------------
-export * from './application/input-service'
+export * from './application/input-service.js'
 
 // --- Application: the browser adapter for the input service ------------------
 // The ONLY files in this repository that know what an `addEventListener` is.
 // `dom-surface.ts` is the whole DOM dependency, structurally; see its header for
 // Why that is a narrow interface rather than `"lib": ["DOM"]`.
-export * from './application/dom-surface'
-export * from './application/browser-input-adapter'
-export * from './application/gamepad-input-adapter'
+export * from './application/dom-surface.js'
+export * from './application/browser-input-adapter.js'
+export * from './application/gamepad-input-adapter.js'
 
 // --- Application: the THREE.js adapter --------------------------------------
 // `three-surface.ts` is the whole THREE dependency, structurally — the same
@@ -103,21 +103,21 @@ export * from './application/gamepad-input-adapter'
 // Is what closes docs/e2e-triage.md #1 in mc-compose: nothing in the roster
 // Created a WebGL context, so the composed page drew nothing and the smoke test
 // That says so was `fixme`.
-export * from './application/three-surface'
-export * from './application/world-renderer'
-export * from './application/particle-system'
-export * from './application/weather-renderer'
-export * from './application/world-sync'
-export * from './application/chunk-store-mesher'
-export * from './application/worker-pool'
+export * from './application/three-surface.js'
+export * from './application/world-renderer.js'
+export * from './application/particle-system.js'
+export * from './application/weather-renderer.js'
+export * from './application/world-sync.js'
+export * from './application/chunk-store-mesher.js'
+export * from './application/worker-pool.js'
 
 // --- Stages: this repository's contribution to the frame --------------------
 // `renderModule` is a full `GameModule` (plan.md §4.1): a Layer plus an
 // Effect-valued `frameStages`. It is what closes the hole recorded in
 // Mc-compose/docs/architecture.md §5 — nothing in the roster could reach the
 // Renderer, so the shipped build had no input stage at all.
-export * from './stages/registration'
-export * from './stages/stage-ids'
+export * from './stages/registration.js'
+export * from './stages/stage-ids.js'
 
 // --- Provisional -------------------------------------------------------------
 // Kernel vocabulary is not re-exported from this package: consumers import it

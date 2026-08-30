@@ -34,7 +34,7 @@ import {
   PARTICLE_ALPHA_TEST,
   PARTICLE_WRITES_DEPTH,
   type ParticlePool,
-} from '../domain/particle-pool'
+} from '../domain/particle-pool.js'
 import {
   PARTICLE_INSTANCE_ATTRIBUTES,
   PARTICLE_QUAD_INDICES,
@@ -42,11 +42,11 @@ import {
   PARTICLE_QUAD_UVS,
   PARTICLE_SHADER_UNIFORMS,
   particleShaderSource,
-} from '../domain/particle-shader'
+} from '../domain/particle-shader.js'
 import {
   POSITION_COMPONENTS,
   UV_COMPONENTS,
-} from '../domain/chunk-geometry'
+} from '../domain/chunk-geometry.js'
 import {
   THREE_DOUBLE_SIDE,
   type ThreeBufferAttribute,
@@ -58,7 +58,7 @@ import {
   type ThreeMesh,
   type ThreeShaderMaterialParameters,
   type ThreeUniform,
-} from './three-surface'
+} from './three-surface.js'
 
 /**
  * `depthWrite: false`, re-exported at the layer that can act on it.

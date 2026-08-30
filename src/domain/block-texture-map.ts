@@ -107,8 +107,8 @@
  * names that as a dependency rather than a side-quest. A particle quad is a
  * single unit face, so it has none of the merged-repeat problem above.
  */
-import type { FaceRole } from './meshing-vocabulary'
-import type { QuadTile } from './chunk-geometry'
+import type { FaceRole } from './meshing-vocabulary.js'
+import type { QuadTile } from './chunk-geometry.js'
 
 /** The three tiles a block shows: one per texturing role. */
 export type TileAssignment = Readonly<Record<FaceRole, number>>

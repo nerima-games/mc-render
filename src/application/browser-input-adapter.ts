@@ -93,7 +93,7 @@ import {
   defaultBindings,
   mouseButtonForIndex,
   wheelDeltaModeForIndex,
-} from '../domain/input-bindings'
+} from '../domain/input-bindings.js'
 import {
   type DomDocument,
   type DomEventTarget,
@@ -102,7 +102,7 @@ import {
   type DomListenerOptions,
   type PointerLockTarget,
   isPointerLockHeld,
-} from './dom-surface'
+} from './dom-surface.js'
 import { Effect, Layer, Scope } from 'effect'
 import {
   type InputEvent,
@@ -113,7 +113,7 @@ import {
   type PointerLockRequestOutcome,
   UNAVAILABLE_POINTER_LOCK,
   makeInputService,
-} from './input-service'
+} from './input-service.js'
 
 /**
  * The two objects the plan's two `ListenerTarget`s name.

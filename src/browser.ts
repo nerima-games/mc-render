@@ -8,32 +8,32 @@ import {
   buildPostProcessingChain,
   chainEffects,
   qualityUsesHdrRenderTarget,
-} from './domain/post-processing'
+} from './domain/post-processing.js'
 import {
   type PostProcessingRendererFactory,
   type WorldRenderContext,
-} from './application/world-renderer'
+} from './application/world-renderer.js'
 import {
   type ProductionFrame,
   type ProductionWorldRenderer,
   type ProductionWorldRendererOptions,
   makeProductionWorldRenderer,
-} from './application/world-renderer-production'
-import { type RgbaAtlas, generateTerrainAtlas } from './domain/texture-atlas'
-import { normalizeRefractionMinScreenRatio, refractionRunsOnFrame } from './domain/water-refraction'
+} from './application/world-renderer-production.js'
+import { type RgbaAtlas, generateTerrainAtlas } from './domain/texture-atlas.js'
+import { normalizeRefractionMinScreenRatio, refractionRunsOnFrame } from './domain/water-refraction.js'
 import { BokehPass } from 'three/addons/postprocessing/BokehPass.js'
 import { Effect } from 'effect'
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js'
 import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js'
-import type { MirroredCameraState } from './domain/camera-mirror'
+import type { MirroredCameraState } from './domain/camera-mirror.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js'
 import { Pass } from 'three/addons/postprocessing/Pass.js'
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js'
 import { SMAAPass } from 'three/addons/postprocessing/SMAAPass.js'
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js'
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
-import type { Viewport } from './domain/render-environment'
-import { measureWaterVisibility } from './browser-water-visibility'
+import type { Viewport } from './domain/render-environment.js'
+import { measureWaterVisibility } from './browser-water-visibility.js'
 
 const DEFAULT_MAX_PIXEL_RATIO = 2
 const MIN_PIXEL_RATIO_CAP = 0.5

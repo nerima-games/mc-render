@@ -5,7 +5,7 @@ import {
   FOCUS_NAVIGATION_OWNER,
   GAMEPLAY_LISTENER_TARGET,
   type ListenerTarget,
-} from '../domain/input-bindings'
+} from '../domain/input-bindings.js'
 
 /**
  * What the browser adapter must register, as data.

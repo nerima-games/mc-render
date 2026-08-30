@@ -5,7 +5,7 @@ import {
   CHUNK_SIZE,
   type ChunkView,
 } from '@nerima-games/mc-meshing'
-import { BLOCK_IDS, propertyOfBlockId } from '@nerima-games/mc-kernel'
+import { BLOCK_IDS, chunkCoord, propertyOfBlockId } from '@nerima-games/mc-kernel'
 import { Effect } from 'effect'
 import {
   buildBlockShapeGeometry,
@@ -37,7 +37,7 @@ const chunkWithBlocks = (
   for (const [lx, y, lz, blockId] of entries) {
     blocks[blockIndex(lx, y, lz)] = blockId
   }
-  return { blocks }
+  return { blocks, coord: chunkCoord(0, 0), height: CHUNK_HEIGHT }
 }
 
 const shapeKindsForPlacements = (): ReadonlyMap<number, BlockShapeKind> =>
@@ -122,7 +122,7 @@ describe('block shape meshing', () => {
 
   it.effect('treats missing block storage entries as air', () =>
     Effect.sync(() => {
-      const incompleteChunk: ChunkView = { blocks: new Uint8Array(0) }
+      const incompleteChunk: ChunkView = { blocks: new Uint8Array(0), coord: chunkCoord(0, 0), height: CHUNK_HEIGHT }
 
       expect(
         meshBlockShapes(incompleteChunk, {}, new Map<number, BlockShapeKind>([[101, 'slab']])),

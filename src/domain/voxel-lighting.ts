@@ -91,7 +91,7 @@ import {
   type QuadCorners,
   isBlockShapeQuad,
   isCrossPlantQuad,
-} from './meshing-vocabulary'
+} from './meshing-vocabulary.js'
 import {
   type GeometryQuad,
   type QuadColor,
@@ -99,7 +99,7 @@ import {
   aoShade,
   faceNormal,
   greyQuadColor,
-} from './chunk-geometry'
+} from './chunk-geometry.js'
 import { LIGHT_LEVEL_MAX, clampLightLevel } from '@nerima-games/mc-kernel'
 
 /**
