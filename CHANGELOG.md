@@ -1,5 +1,17 @@
 # @nerima-games/mc-render
 
+## 0.5.2
+
+### Patch Changes
+
+- [#24](https://github.com/nerima-games/mc-render/pull/24) [`840485c`](https://github.com/nerima-games/mc-render/commit/840485c51e603f9747d406d17f2c16e23c1f8530) Thanks [@takeokunn](https://github.com/takeokunn)! - Align internal pins to the current published versions
+  
+  - `@nerima-games/mc-meshing` to 0.1.6
+  - `@nerima-games/mc-sim` to 0.4.2
+  - `@nerima-games/mc-worldgen` to 0.3.2
+  Each of these upstream releases contained a pin change and no source change,
+  so no behaviour moves with this bump.
+
 ## 0.5.1
 
 ### Patch Changes
