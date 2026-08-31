@@ -1,0 +1,25 @@
+{
+  // Type-checks `apps/render-preview` and `apps/shader-probe`: real browser
+  // pages that draw through this package's own source (Wave 1, W1-L5, lowered
+  // from mc-compose's `apps/render-preview` and `apps/shader-probe`).
+  //
+  // A SEPARATE project from `tsconfig.preview.json` on purpose, for the same
+  // reason that one gives for itself: `tsconfig.build.json` proves the shipped
+  // package is platform-free by compiling it with `lib: ["ES2024"]` and no
+  // "DOM". These two apps are the opposite of that — real `document` /
+  // `HTMLCanvasElement` / `WebGL2RenderingContext` pages — so they need "DOM"
+  // turned ON, and `tsconfig.preview.json` (which extends the DOM-free base
+  // and explicitly does NOT add "DOM") is the wrong project to add it to.
+  //
+  // This does NOT include `src/browser.ts`. Whether that file is shipped, and
+  // under what tsconfig, is recorded in docs/versioning.md §7 as a decision
+  // left open past Wave 0 — it stays open here; this file only answers for the
+  // two apps Wave 1 moved.
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2024", "DOM", "DOM.Iterable"],
+    "types": []
+  },
+  "include": ["apps/render-preview/**/*.ts", "apps/shader-probe/**/*.ts"],
+  "exclude": ["node_modules", "coverage", "dist", "build"]
+}

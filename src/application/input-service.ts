@@ -1192,6 +1192,82 @@ export const InputServiceLayer = (
   pointerLock: PointerLockPort = UNAVAILABLE_POINTER_LOCK,
 ): Layer.Layer<InputService> => Layer.effect(InputService, makeInputService(bindings, pointerLock))
 
+/**
+ * ---------------------------------------------------------------------------
+ * A native mouse-click latch, for the one click `InputService` deliberately
+ * does not count as a game action
+ * ---------------------------------------------------------------------------
+ *
+ * Lowered from mc-compose's `apps/web/native-input-queue.ts`.
+ * `withButtonDown` above documents the reason this exists: the click that
+ * ACQUIRES pointer lock is, by design, a `uiClick` and touches neither
+ * `pressed` nor `justPressed` — "so `attack` cannot fire from it" is this
+ * file's own words. That is correct for a click on a HUD element. It is wrong
+ * for the very first click on the canvas of a game that, like the reference,
+ * expects "click to look around" and "click to attack" to be the same
+ * gesture.
+ *
+ * This does not change that design; a click still cannot both open the game
+ * and land a blow through `pressed`/`justPressed`. What it adds is a second,
+ * narrower channel a host may register ITS OWN raw `mousedown` listener into
+ * (see the module header on why `InputService` cannot register one itself —
+ * the DOM stays injected, not imported) and drain once per game-logic tick,
+ * for exactly the clicks the host decides should count anyway. `enqueue`
+ * only recognises the two buttons an attack/use action needs; every other
+ * button is dropped, so a host cannot smuggle a third action through this
+ * side channel by construction.
+ *
+ * A COUNT, not a boolean: two clicks landing in the same tick (a fast
+ * double-click before a frame boundary) must trigger twice, the same
+ * "queued, not merely remembered" property `WHEEL-LEDGER` establishes for the
+ * scroll wheel above — see `endFrame`'s header. `consumeNativeInput` drains
+ * one at a time so a host's own per-action trigger check stays a single call.
+ */
+export type NativeInputAction = 'attack' | 'use'
+
+export type NativeInputQueueState = Readonly<{
+  readonly attack: number
+  readonly use: number
+}>
+
+export const EMPTY_NATIVE_INPUT_QUEUE: NativeInputQueueState = {
+  attack: 0,
+  use: 0,
+}
+
+/** `MouseEvent.button`: 0 is the left button (`attack`), 2 is the right button (`use`). */
+const NATIVE_ATTACK_BUTTON = 0
+const NATIVE_USE_BUTTON = 2
+
+const NATIVE_INPUT_QUEUE_STEP = 1
+const NO_QUEUED_NATIVE_INPUT = 0
+
+export const enqueueNativeMouseButton = (
+  state: NativeInputQueueState,
+  button: number,
+): NativeInputQueueState => {
+  if (button === NATIVE_ATTACK_BUTTON) {
+    return { attack: state.attack + NATIVE_INPUT_QUEUE_STEP, use: state.use }
+  }
+  if (button === NATIVE_USE_BUTTON) {
+    return { attack: state.attack, use: state.use + NATIVE_INPUT_QUEUE_STEP }
+  }
+  return state
+}
+
+export const consumeNativeInput = (
+  state: NativeInputQueueState,
+  action: NativeInputAction,
+): { readonly triggered: boolean; readonly state: NativeInputQueueState } => {
+  if (state[action] === NO_QUEUED_NATIVE_INPUT) {
+    return { state, triggered: false }
+  }
+  if (action === 'attack') {
+    return { state: { attack: state.attack - NATIVE_INPUT_QUEUE_STEP, use: state.use }, triggered: true }
+  }
+  return { state: { attack: state.attack, use: state.use - NATIVE_INPUT_QUEUE_STEP }, triggered: true }
+}
+
 // Keep the established module import stable while the policy data lives in its own file.
 // Browser adapters and downstream consumers therefore share one table.
 export {

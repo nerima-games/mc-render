@@ -90,8 +90,13 @@ import {
   type FocusTarget,
   type InputAction,
   type ListenerTarget,
+  TOUCH_LOOK_IDLE,
+  type TouchLookState,
+  type TouchPoint,
   defaultBindings,
   mouseButtonForIndex,
+  touchLookStep,
+  unboundTouchActions,
   wheelDeltaModeForIndex,
 } from '../domain/input-bindings.js'
 import {
@@ -1130,6 +1135,258 @@ export const browserInputLayer = (options: BrowserInputOptions): Layer.Layer<Inp
       return input
     }),
   )
+
+/**
+ * ---------------------------------------------------------------------------
+ * Building a `TouchControlTarget` roster, and a look gesture across fingers
+ * ---------------------------------------------------------------------------
+ *
+ * Lowered from mc-compose's `apps/web/touch-input.ts`.
+ * `TouchControlTarget` and `resolveTouchControl` above are this file's own —
+ * a host still has to build the roster and track a multi-finger look drag by
+ * hand, which is exactly what a composed game did in its own `apps/`, in
+ * mc-render's own vocabulary. Both pieces are DATA and STATE MACHINES, not
+ * DOM: `TouchLookContact` below is `{ identifier, clientX, clientY }`, the same
+ * three fields a real `Touch` has, but nothing here reads a `Touch` — the
+ * adapter above (`dispatchTouchPress`/`dispatchTouchRelease`) is what touches
+ * `changedTouches`. They live here rather than in `input-service.ts` for a
+ * mechanical reason: `TouchControlTarget` is defined in THIS file, and
+ * `input-service.ts` is the module this one imports from — importing it back
+ * would be a cycle.
+ */
+
+/**
+ * The nine actions a touch HUD binds, in a fixed order so a host's target map
+ * cannot silently omit one — `TouchControlTargets` below is `Record`-shaped
+ * over exactly this tuple, and a missing key is a type error, not a roster
+ * with a dead control found only by pressing every button.
+ */
+export const TOUCH_CONTROL_ACTIONS: readonly [
+  'moveForward',
+  'moveBackward',
+  'moveLeft',
+  'moveRight',
+  'jump',
+  'attack',
+  'use',
+  'openInventory',
+  'escape',
+] = [
+  'moveForward',
+  'moveBackward',
+  'moveLeft',
+  'moveRight',
+  'jump',
+  'attack',
+  'use',
+  'openInventory',
+  'escape',
+] as const satisfies ReadonlyArray<InputAction>
+
+export type TouchControlAction = (typeof TOUCH_CONTROL_ACTIONS)[number]
+
+export type TouchControlTargets<Target = unknown> = Readonly<Record<TouchControlAction, Target>>
+
+/**
+ * Build a `TouchControlTarget` roster from a host's `{action: element}` map.
+ *
+ * Rejects at construction, not at the first missed tap: `unboundTouchActions`
+ * catches an action with no binding (see its own header — this is the check
+ * answerable without a browser), and the two loops below catch a target the
+ * host forgot to assign and a target the host assigned to two actions. A
+ * roster is data a host writes by hand, and all three are typo classes, not
+ * runtime conditions.
+ *
+ * `bindings` defaults to `defaultBindings()` rather than being hardcoded to
+ * it — the lowered original always checked the DEFAULT table, which can only
+ * ever pass (every `TOUCH_CONTROL_ACTIONS` entry has a default binding, so
+ * the throw below was unreachable from any caller and untestable). A host
+ * that remapped its keys should validate its roster against what its player
+ * ACTUALLY has bound, not the table nobody is using; the parameter also
+ * makes the rejection reachable from a test.
+ */
+const NO_UNAVAILABLE_TOUCH_ACTIONS = 0
+
+export const createTouchControlRoster = <Target>(
+  targets: TouchControlTargets<Target>,
+  bindings: Bindings = defaultBindings(),
+): ReadonlyArray<TouchControlTarget> => {
+  const unavailable = unboundTouchActions(bindings, TOUCH_CONTROL_ACTIONS)
+  if (unavailable.length > NO_UNAVAILABLE_TOUCH_ACTIONS) {
+    throw new Error(`Touch controls have no input binding: ${unavailable.join(', ')}`)
+  }
+
+  const owners = new Map<unknown, TouchControlAction>()
+  return TOUCH_CONTROL_ACTIONS.map((action) => {
+    const target = targets[action]
+    if (target === null || target === undefined) {
+      throw new Error(`Touch control target is missing: ${action}`)
+    }
+    const owner = owners.get(target)
+    if (owner !== undefined) {
+      throw new Error(`Touch control target is shared by ${owner} and ${action}`)
+    }
+    owners.set(target, action)
+    return { action, target }
+  })
+}
+
+/**
+ * One `changedTouches` entry, reduced to the three fields the look gesture
+ * reads. A distinct type from this file's own `TouchContact` above (the touch
+ * roster's dispatch state, `NonNullable<DomInputEvent['changedTouches']>[number]`)
+ * on purpose: that one is shaped by the DOM's `Touch`, and widening it to
+ * cover a caller who has already reduced a `Touch` to three plain numbers
+ * would let a future DOM-shaped field silently become part of this contract.
+ */
+export type TouchLookContact = {
+  readonly identifier: number
+  readonly clientX: number
+  readonly clientY: number
+}
+
+/**
+ * `domain/input-bindings.ts`'s `touchLookStep` advances ONE gesture by one
+ * event; a real screen can have several fingers down for other reasons (a
+ * touch d-pad, a second hand steadying the device) while only one of them is
+ * the look drag. `activeIdentifier` is which finger that is — `null` between
+ * drags — so a `move` from any OTHER finger is ignored rather than treated as
+ * a second, competing anchor.
+ */
+export type TouchLookControllerState = {
+  readonly activeIdentifier: number | null
+  readonly gesture: TouchLookState
+  /** Accumulated since the last `consumeTouchLook`, in `touchLookStep`'s delta units. */
+  readonly pending: TouchPoint
+}
+
+const ZERO_TOUCH_DELTA: TouchPoint = { positionX: 0, positionY: 0 }
+
+export const TOUCH_LOOK_CONTROLLER_IDLE: TouchLookControllerState = {
+  activeIdentifier: null,
+  gesture: TOUCH_LOOK_IDLE,
+  pending: ZERO_TOUCH_DELTA,
+}
+
+export type TouchLookContactPhase = 'start' | 'move' | 'end' | 'cancel'
+
+const pointOf = (contact: TouchLookContact): TouchPoint => ({
+  positionX: contact.clientX,
+  positionY: contact.clientY,
+})
+
+const accumulate = (pending: TouchPoint, delta: TouchPoint): TouchPoint => ({
+  positionX: pending.positionX + delta.positionX,
+  positionY: pending.positionY + delta.positionY,
+})
+
+/** The `start` phase: claims the finger only if none is currently claimed. */
+const startTouchLook = (
+  state: TouchLookControllerState,
+  contact: TouchLookContact,
+): TouchLookControllerState => {
+  if (state.activeIdentifier !== null) {
+    return state
+  }
+  const next = touchLookStep(state.gesture, 'press', pointOf(contact))
+  return {
+    activeIdentifier: contact.identifier,
+    gesture: next.state,
+    pending: accumulate(state.pending, next.delta),
+  }
+}
+
+/**
+ * The `end`/`cancel` phase.
+ *
+ * Calls `touchLookStep(..., 'release', ...)` rather than assigning
+ * `TOUCH_LOOK_IDLE` to `gesture` directly — its own 'release' phase always
+ * yields that value, and calling it keeps this file from knowing that fact
+ * independently of the module that owns it.
+ */
+const releaseTouchLook = (
+  state: TouchLookControllerState,
+  contact: TouchLookContact,
+): TouchLookControllerState => {
+  const released = touchLookStep(state.gesture, 'release', pointOf(contact))
+  return {
+    activeIdentifier: null,
+    gesture: released.state,
+    pending: state.pending,
+  }
+}
+
+/**
+ * Advance the look drag by one DOM touch event, already reduced to a
+ * `TouchLookContact`.
+ *
+ * `move`/`end`/`cancel` from any finger OTHER than the one `start` claimed are
+ * no-ops: `state` is returned unchanged, which is the same "a stray event
+ * costs nothing" rule `touchLookStep` documents for its own
+ * `move`-with-no-anchor case.
+ */
+export const advanceTouchLook = (
+  state: TouchLookControllerState,
+  phase: TouchLookContactPhase,
+  contact: TouchLookContact,
+): TouchLookControllerState => {
+  if (phase === 'start') {
+    return startTouchLook(state, contact)
+  }
+  if (contact.identifier !== state.activeIdentifier) {
+    return state
+  }
+  if (phase === 'end' || phase === 'cancel') {
+    return releaseTouchLook(state, contact)
+  }
+
+  const next = touchLookStep(state.gesture, 'move', pointOf(contact))
+  return {
+    activeIdentifier: state.activeIdentifier,
+    gesture: next.state,
+    pending: accumulate(state.pending, next.delta),
+  }
+}
+
+export type ConsumedTouchLook = {
+  readonly state: TouchLookControllerState
+  readonly delta: TouchPoint
+}
+
+/** Read and zero the accumulated delta, same "read empties it" contract `endFrame` uses. */
+export const consumeTouchLook = (state: TouchLookControllerState): ConsumedTouchLook => ({
+  delta: state.pending,
+  state: { ...state, pending: ZERO_TOUCH_DELTA },
+})
+
+export type TouchLookResetReason = 'blur' | 'visibility-hidden' | 'state-transition'
+
+/**
+ * Drop an in-progress drag without waiting for its `touchend`.
+ *
+ * Named reasons, not a bare call, so a call site documents ITSELF: `blur` and
+ * `visibility-hidden` are the touch equivalent of `InputService`'s own blur
+ * rule (a finger lifted while the tab was hidden delivers no event at all),
+ * and `state-transition` covers a host leaving gameplay for a modal that owns
+ * its own input (opening the inventory mid-drag, for instance).
+ */
+export const resetTouchLook = (
+  _state: TouchLookControllerState,
+  reason: TouchLookResetReason,
+): TouchLookControllerState => {
+  /**
+   * Exhaustive over `TouchLookResetReason` already, checked by TypeScript
+   * itself (no case, no default, still compiles because every member is
+   * covered): a `default` arm here would be dead code no test could reach.
+   */
+  // oxlint-disable-next-line default-case -- see the comment above.
+  switch (reason) {
+    case 'blur':
+    case 'visibility-hidden':
+    case 'state-transition':
+      return TOUCH_LOOK_CONTROLLER_IDLE
+  }
+}
 
 /**
  * The plan entries this file has a translation for.

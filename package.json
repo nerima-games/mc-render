@@ -47,15 +47,18 @@
   "scripts": {
     "benchmark": "tsx scripts/benchmark-chunk-updates.ts",
     "build": "node scripts/clean-dist.mjs && tsc -p tsconfig.release.json --pretty false",
+    "build:web": "vite build",
+    "dev:web": "vite",
     "lint": "oxlint --deny-warnings src apps scripts test && ast-grep scan",
     "lint:fix": "oxlint --fix src apps scripts test",
     "package:verify": "pnpm build && node scripts/verify-package.mjs",
     "prepublishOnly": "pnpm verify && pnpm package:verify",
     "preview": "tsx apps/preview-render/main.ts",
+    "preview:web": "vite preview",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "test:watch": "vitest",
-    "typecheck": "tsc -p tsconfig.build.json --pretty false && tsc -p tsconfig.test.json --pretty false && tsc -p tsconfig.preview.json --pretty false",
+    "typecheck": "tsc -p tsconfig.build.json --pretty false && tsc -p tsconfig.test.json --pretty false && tsc -p tsconfig.preview.json --pretty false && tsc -p tsconfig.browser.json --pretty false",
     "verify": "pnpm typecheck && pnpm lint && pnpm test"
   },
   "dependencies": {
@@ -76,6 +79,7 @@
     "three": "0.185.1",
     "tsx": "4.23.12",
     "typescript": "7.0.2",
+    "vite": "8.2.2",
     "vitest": "4.1.11"
   }
 }

@@ -11,12 +11,26 @@
   //
   // NOTE what this file does NOT do: it does not add "DOM" to `lib`, and it
   // does not add the browser entry. The preview intentionally renders to a
-  // terminal; `tsconfig.browser.json` checks the concrete browser runtime
-  // separately, and `tsconfig.package.json` checks both public package entries.
+  // terminal.
+  //
+  // `apps/render-preview` and `apps/shader-probe` (Wave 1, W1-L5) are excluded
+  // below and checked instead by `tsconfig.browser.json`, which turns "DOM" ON
+  // — they are real browser pages, and including them here would either fail
+  // (no `document`/`HTMLCanvasElement` in this project's `lib`) or force "DOM"
+  // onto every file this project covers, defeating the proof this file's own
+  // header describes. `src/browser.ts` stays excluded and uncovered by any
+  // project; see docs/versioning.md §7 on why that is still open past Wave 0.
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
     "types": ["node"]
   },
   "include": ["apps/**/*.ts", "src/**/*.ts"],
-  "exclude": ["node_modules", "coverage", "dist", "src/browser.ts"]
+  "exclude": [
+    "node_modules",
+    "coverage",
+    "dist",
+    "src/browser.ts",
+    "apps/render-preview/**",
+    "apps/shader-probe/**"
+  ]
 }

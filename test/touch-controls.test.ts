@@ -77,12 +77,21 @@ import {
   type InputEvent,
 } from '../src/application/input-service'
 import {
+  advanceTouchLook,
+  consumeTouchLook,
+  createTouchControlRoster,
   installInputListeners,
+  resetTouchLook,
   resolveClickLanding,
   resolveTouchControl,
+  TOUCH_CONTROL_ACTIONS,
+  TOUCH_LOOK_CONTROLLER_IDLE,
   translateDomEvent,
   TRANSLATED_DOM_EVENTS,
+  type TouchControlAction,
   type TouchControlTarget,
+  type TouchLookContact,
+  type TouchLookResetReason,
 } from '../src/application/browser-input-adapter'
 import type { DomInputEvent, DomListener, DomListenerOptions } from '../src/application/dom-surface'
 
@@ -660,5 +669,154 @@ describe('REGRESSION: a tap can NOT reach pointer-lock acquisition', () => {
         }),
       ).toBeUndefined()
     }),
+  )
+})
+
+/**
+ * Lowered from mc-compose's `apps/web/touch-input.ts`:
+ * `createTouchControlRoster` builds the `TouchControlTarget[]` roster this
+ * file's own `MOBILE_CONTROLS` above hand-writes. mc-compose used a fixed
+ * nine-action roster, `TOUCH_CONTROL_ACTIONS`, covering the whole HUD
+ * (movement, jump, attack, use, inventory, pause) in one call.
+ */
+describe('createTouchControlRoster', () => {
+  const fullTargets: Readonly<Record<TouchControlAction, { readonly name: string }>> = {
+    moveForward: { name: 'move-forward' },
+    moveBackward: { name: 'move-backward' },
+    moveLeft: { name: 'move-left' },
+    moveRight: { name: 'move-right' },
+    jump: { name: 'jump' },
+    attack: { name: 'attack' },
+    use: { name: 'use' },
+    openInventory: { name: 'open-inventory' },
+    escape: { name: 'escape' },
+  }
+
+  it.effect('builds one roster entry per TOUCH_CONTROL_ACTIONS, target intact', () =>
+    Effect.sync(() => {
+      const roster = createTouchControlRoster(fullTargets)
+
+      expect(roster).toHaveLength(TOUCH_CONTROL_ACTIONS.length)
+      for (const action of TOUCH_CONTROL_ACTIONS) {
+        expect(roster.find((entry) => entry.action === action)?.target).toBe(fullTargets[action])
+      }
+    }),
+  )
+
+  it.effect('rejects a target map missing an action', () =>
+    Effect.sync(() => {
+      const { jump: _dropped, ...partial } = fullTargets
+
+      expect(() =>
+        createTouchControlRoster(partial as unknown as Readonly<Record<TouchControlAction, unknown>>),
+      ).toThrowError(/jump/u)
+    }),
+  )
+
+  it.effect('rejects two actions sharing one target', () =>
+    Effect.sync(() => {
+      const sharedTarget = { name: 'shared' }
+      const shared = { ...fullTargets, attack: sharedTarget, use: sharedTarget }
+
+      expect(() => createTouchControlRoster(shared)).toThrowError(/attack.*use|use.*attack/u)
+    }),
+  )
+
+  it.effect(
+    'rejects an action with no binding at all, checked against the CALLER-SUPPLIED bindings — second angle: this branch is unreachable under defaultBindings() alone, which is why the parameter exists',
+    () =>
+      Effect.sync(() => {
+        // The same "strip one binding" idiom this file already uses above
+        // (`stripped: Bindings = { ...defaultBindings(), X: undefined as never }`).
+        const noJumpBinding: Bindings = { ...defaultBindings(), jump: undefined as never }
+
+        expect(() => createTouchControlRoster(fullTargets, noJumpBinding)).toThrowError(/jump/u)
+      }),
+  )
+})
+
+/**
+ * Lowered from mc-compose's `apps/web/touch-input.ts`: a
+ * multi-finger controller wrapping `domain/input-bindings.ts`'s
+ * `touchLookStep`, which advances only ONE gesture. `advanceTouchLook` adds
+ * the "which finger is it" tracking a real touchscreen needs.
+ */
+describe('advanceTouchLook / consumeTouchLook / resetTouchLook', () => {
+  const contact = (identifier: number, clientX: number, clientY: number): TouchLookContact => ({
+    identifier,
+    clientX,
+    clientY,
+  })
+
+  it.effect('a press claims the finger and emits no delta, mirroring touchLookStep', () =>
+    Effect.sync(() => {
+      const next = advanceTouchLook(TOUCH_LOOK_CONTROLLER_IDLE, 'start', contact(1, 100, 200))
+
+      expect(next.activeIdentifier).toBe(1)
+      expect(consumeTouchLook(next).delta).toEqual({ positionX: 0, positionY: 0 })
+    }),
+  )
+
+  it.effect('a move from the claimed finger accumulates a delta consumeTouchLook then drains', () =>
+    Effect.sync(() => {
+      const pressed = advanceTouchLook(TOUCH_LOOK_CONTROLLER_IDLE, 'start', contact(1, 100, 200))
+      const moved = advanceTouchLook(pressed, 'move', contact(1, 130, 190))
+
+      const consumed = consumeTouchLook(moved)
+      expect(consumed.delta).toEqual({ positionX: 30, positionY: -10 })
+      // Draining zeroes it — a second read without a new event sees nothing.
+      expect(consumeTouchLook(consumed.state).delta).toEqual({ positionX: 0, positionY: 0 })
+    }),
+  )
+
+  it.effect('a second finger touching down does not steal an in-progress drag', () =>
+    Effect.sync(() => {
+      const pressed = advanceTouchLook(TOUCH_LOOK_CONTROLLER_IDLE, 'start', contact(1, 0, 0))
+      const secondPress = advanceTouchLook(pressed, 'start', contact(2, 500, 500))
+
+      expect(secondPress).toBe(pressed)
+      expect(secondPress.activeIdentifier).toBe(1)
+    }),
+  )
+
+  it.effect('a move/end/cancel from any OTHER finger is a no-op', () =>
+    Effect.sync(() => {
+      const pressed = advanceTouchLook(TOUCH_LOOK_CONTROLLER_IDLE, 'start', contact(1, 0, 0))
+
+      expect(advanceTouchLook(pressed, 'move', contact(2, 999, 999))).toBe(pressed)
+      expect(advanceTouchLook(pressed, 'end', contact(2, 999, 999))).toBe(pressed)
+      expect(advanceTouchLook(pressed, 'cancel', contact(2, 999, 999))).toBe(pressed)
+    }),
+  )
+
+  it.effect('end and cancel both release the claimed finger and preserve any un-consumed pending delta', () =>
+    Effect.sync(() => {
+      const pressed = advanceTouchLook(TOUCH_LOOK_CONTROLLER_IDLE, 'start', contact(1, 0, 0))
+      const moved = advanceTouchLook(pressed, 'move', contact(1, 5, 5))
+
+      const ended = advanceTouchLook(moved, 'end', contact(1, 5, 5))
+      expect(ended.activeIdentifier).toBeNull()
+      expect(consumeTouchLook(ended).delta).toEqual({ positionX: 5, positionY: 5 })
+
+      const cancelled = advanceTouchLook(moved, 'cancel', contact(1, 5, 5))
+      expect(cancelled.activeIdentifier).toBeNull()
+    }),
+  )
+
+  it.effect(
+    'resetTouchLook returns to TOUCH_LOOK_CONTROLLER_IDLE for every reason — second angle: enumerated over the whole union',
+    () =>
+      Effect.sync(() => {
+        const reasons: ReadonlyArray<TouchLookResetReason> = ['blur', 'visibility-hidden', 'state-transition']
+        const midDrag = advanceTouchLook(
+          advanceTouchLook(TOUCH_LOOK_CONTROLLER_IDLE, 'start', contact(1, 0, 0)),
+          'move',
+          contact(1, 40, 40),
+        )
+
+        for (const reason of reasons) {
+          expect(resetTouchLook(midDrag, reason), reason).toEqual(TOUCH_LOOK_CONTROLLER_IDLE)
+        }
+      }),
   )
 })

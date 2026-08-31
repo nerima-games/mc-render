@@ -1,0 +1,54 @@
+<!doctype html>
+<!--
+  THE SHADER PROBE. Not the game, and deliberately not part of it.
+
+  Lowered from mc-compose's `apps/shader-probe` — unchanged
+  except `probe.ts` now imports mc-render's own source instead of the
+  published package.
+
+  `apps/web/index.html` (mc-compose) boots the composed game; this page boots
+  nothing. It exists so that mc-render's three generated GLSL sources meet a
+  REAL GL DRIVER, which is the one thing no test in this organisation could
+  previously do.
+
+  Every shader header in mc-render says some version of "none of this compiles
+  GLSL — there is no GL context in Node, and mc-compose's Playwright run is
+  where the source is actually compiled". Until this page existed, that sentence
+  named a check that did not exist. Three shader sources had landed, fully
+  tested as STRINGS, and not one had been through a compiler.
+
+  It imports this package's own source and nothing else from the roster. The
+  direct-import boundary is enforced by `.oxlintrc.json` and `pnpm lint`.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>mc-render shader probe</title>
+    <style>
+      body {
+        margin: 0;
+        font: 14px/1.5 ui-monospace, monospace;
+        background: #14161c;
+        color: #d8dee9;
+        padding: 1rem;
+      }
+      #probe-canvas {
+        width: 320px;
+        height: 180px;
+        display: block;
+        margin-bottom: 1rem;
+      }
+      .ok {
+        color: #7fd88f;
+      }
+      .fail {
+        color: #ff6b6b;
+      }
+    </style>
+  </head>
+  <body data-shader-probe="running">
+    <canvas id="probe-canvas"></canvas>
+    <pre id="probe-report">compiling…</pre>
+    <script type="module" src="./probe.ts"></script>
+  </body>
+</html>

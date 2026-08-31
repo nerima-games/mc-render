@@ -273,6 +273,51 @@ export const QUALITY_PRESETS: Readonly<Record<QualityPreset, GraphicsQuality>> =
   },
 }
 
+/**
+ * ---------------------------------------------------------------------------
+ * Recognising a software rasterizer, so a host does not have to derive it
+ * ---------------------------------------------------------------------------
+ *
+ * Lowered from mc-compose's `apps/web/main.ts` — not a mirror
+ * removal, a genuine duplication risk closed early. `makeProductionWorldRenderer`
+ * defaults to `QUALITY_PRESETS.high` whenever a caller passes no `quality` (see
+ * this file's own header and `world-renderer-production.ts`), and `high`
+ * enables GTAO, bloom and SMAA — calibrated for a hardware rasterizer. On a
+ * software one (SwiftShader, llvmpipe, softpipe — every headless CI target this
+ * organisation runs Playwright against), those passes cost real per-frame time
+ * with nothing behind them to look at. mc-compose measured roughly 15% less
+ * per-frame GPU command-processing time falling back to `QUALITY_PRESETS.low`
+ * there (CDP tracing, `CommandBuffer::Flush`/`WebGL` event duration).
+ *
+ * THE DEFAULT DOES NOT CHANGE. `QUALITY_PRESETS.high` stays what a caller gets
+ * for free on real hardware; nothing in this module calls
+ * `isSoftwareRendererName` on its own behalf. It is offered so that a host
+ * choosing to special-case a software rasterizer does not re-derive the
+ * detection regex, which mc-compose's `apps/web/main.ts` did once, privately,
+ * before this move.
+ *
+ * `WEBGL_debug_renderer_info` and `UNMASKED_RENDERER_WEBGL` are DOM/WebGL
+ * concepts this module does not import — a host reads
+ * `gl.getParameter(gl.getExtension('WEBGL_debug_renderer_info').UNMASKED_RENDERER_WEBGL)`
+ * itself and hands the resulting string here. That keeps the actual STRING
+ * MATCHING rule (which names count as "software") testable in Node, the same
+ * split `qualityUsesHdrRenderTarget` draws between a policy and the Three.js
+ * call that acts on it.
+ */
+const SOFTWARE_RENDERER_NAME_PATTERN = /swiftshader|software|llvmpipe|softpipe/iu
+
+/** `rendererName` is `WEBGL_debug_renderer_info`'s `UNMASKED_RENDERER_WEBGL` string, or `null` when the extension is unavailable. */
+export const isSoftwareRendererName = (rendererName: string | null): boolean =>
+  rendererName !== null && SOFTWARE_RENDERER_NAME_PATTERN.test(rendererName)
+
+/** `QUALITY_PRESETS.low` for a software rasterizer, `undefined` (the caller's own default) otherwise. */
+export const qualityForRendererName = (rendererName: string | null): QualityPreset | undefined => {
+  if (isSoftwareRendererName(rendererName)) {
+    return 'low'
+  }
+  return undefined
+}
+
 /** True when the browser adapter must retain HDR highlights between passes. */
 export const qualityUsesHdrRenderTarget = (quality: GraphicsQuality): boolean =>
   quality.composerRenderTarget === 'hdr'

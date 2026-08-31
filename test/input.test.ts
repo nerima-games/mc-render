@@ -50,11 +50,15 @@ import {
   type InputAction,
 } from '../src/domain/input-bindings'
 import {
+  consumeNativeInput,
+  EMPTY_NATIVE_INPUT_QUEUE,
+  enqueueNativeMouseButton,
   ESCAPE_POLICY,
   FOCUS_NAVIGATION_POLICY,
   LISTENER_PLAN,
   makeInputService,
   UNAVAILABLE_POINTER_LOCK,
+  type NativeInputAction,
   type PointerLockPort,
   type PointerLockRequestOutcome,
 } from '../src/application/input-service'
@@ -1986,5 +1990,105 @@ describe('the focus listeners are planned, on the target the browser dispatches 
       expect(gameplay).toHaveLength(5)
       expect(gameplay.every((planned) => planned.target === GAMEPLAY_LISTENER_TARGET)).toBe(true)
     }),
+  )
+})
+
+/**
+ * Lowered from mc-compose's `apps/web/native-input-queue.ts`.
+ * A second channel a host may drain alongside `wasActionJustTriggered` for
+ * the one click `withButtonDown` (above) deliberately does not count as a
+ * game action — see this module's own header on why. Kept small on purpose:
+ * only the two mouse buttons an attack/use action needs.
+ */
+describe('enqueueNativeMouseButton / consumeNativeInput', () => {
+  const NATIVE_LEFT_BUTTON = 0
+  const NATIVE_MIDDLE_BUTTON = 1
+  const NATIVE_RIGHT_BUTTON = 2
+
+  const BUTTON_FOR_ACTION: Record<NativeInputAction, number> = {
+    attack: NATIVE_LEFT_BUTTON,
+    use: NATIVE_RIGHT_BUTTON,
+  }
+
+  it.effect('starts with nothing queued', () =>
+    Effect.sync(() => {
+      expect(EMPTY_NATIVE_INPUT_QUEUE).toEqual({ attack: 0, use: 0 })
+    }),
+  )
+
+  it.effect('the left button queues an attack, the right button queues a use', () =>
+    Effect.sync(() => {
+      expect(enqueueNativeMouseButton(EMPTY_NATIVE_INPUT_QUEUE, NATIVE_LEFT_BUTTON)).toEqual({
+        attack: 1,
+        use: 0,
+      })
+      expect(enqueueNativeMouseButton(EMPTY_NATIVE_INPUT_QUEUE, NATIVE_RIGHT_BUTTON)).toEqual({
+        attack: 0,
+        use: 1,
+      })
+    }),
+  )
+
+  it.effect('any other button is a no-op, returning the SAME state rather than an equal copy', () =>
+    Effect.sync(() => {
+      expect(enqueueNativeMouseButton(EMPTY_NATIVE_INPUT_QUEUE, NATIVE_MIDDLE_BUTTON)).toBe(
+        EMPTY_NATIVE_INPUT_QUEUE,
+      )
+    }),
+  )
+
+  it.effect('queues, rather than latches: two clicks landed before a drain both trigger', () =>
+    Effect.sync(() => {
+      const twice = enqueueNativeMouseButton(
+        enqueueNativeMouseButton(EMPTY_NATIVE_INPUT_QUEUE, NATIVE_RIGHT_BUTTON),
+        NATIVE_RIGHT_BUTTON,
+      )
+
+      const first = consumeNativeInput(twice, 'use')
+      expect(first.triggered).toBe(true)
+      const second = consumeNativeInput(first.state, 'use')
+      expect(second.triggered).toBe(true)
+      const third = consumeNativeInput(second.state, 'use')
+      expect(third).toEqual({ triggered: false, state: EMPTY_NATIVE_INPUT_QUEUE })
+    }),
+  )
+
+  it.effect('draining a queued attack decrements attack only, leaving use untouched', () =>
+    Effect.sync(() => {
+      const queued = enqueueNativeMouseButton(
+        enqueueNativeMouseButton(EMPTY_NATIVE_INPUT_QUEUE, NATIVE_LEFT_BUTTON),
+        NATIVE_RIGHT_BUTTON,
+      )
+
+      const drained = consumeNativeInput(queued, 'attack')
+
+      expect(drained).toEqual({ triggered: true, state: { attack: 0, use: 1 } })
+    }),
+  )
+
+  it.effect('draining an action with nothing queued reports untriggered and returns the SAME state, not a copy', () =>
+    Effect.sync(() => {
+      const result = consumeNativeInput(EMPTY_NATIVE_INPUT_QUEUE, 'attack')
+
+      expect(result.triggered).toBe(false)
+      expect(result.state).toBe(EMPTY_NATIVE_INPUT_QUEUE)
+    }),
+  )
+
+  it.effect(
+    'attack and use are independent counters — second angle: enumerated over both (queued, drained) pairs, draining the OTHER action never triggers',
+    () =>
+      Effect.sync(() => {
+        const pairs: ReadonlyArray<readonly [NativeInputAction, NativeInputAction]> = [
+          ['attack', 'use'],
+          ['use', 'attack'],
+        ]
+        for (const [queuedAction, drainedAction] of pairs) {
+          const queued = enqueueNativeMouseButton(EMPTY_NATIVE_INPUT_QUEUE, BUTTON_FOR_ACTION[queuedAction])
+          const drained = consumeNativeInput(queued, drainedAction)
+          expect(drained.triggered, `${queuedAction}/${drainedAction}`).toBe(false)
+          expect(drained.state).toEqual(queued)
+        }
+      }),
   )
 })

@@ -101,6 +101,7 @@ import {
   greyQuadColor,
 } from './chunk-geometry.js'
 import { LIGHT_LEVEL_MAX, clampLightLevel } from '@nerima-games/mc-kernel'
+import { Effect } from 'effect'
 
 /**
  * The two light values at a point: how much of it is daylight and how much is
@@ -520,3 +521,95 @@ export const packedLightColor =
       Math.round((clampLightLevel(light.block) / LIGHT_LEVEL_MAX) * MAX_SHADE_BYTE),
     ]
   }
+
+/**
+ * ---------------------------------------------------------------------------
+ * Instrumenting a chunk's `QuadColor` resolution, without becoming a Port
+ * ---------------------------------------------------------------------------
+ *
+ * Lowered from mc-compose's `apps/web/render-lighting.ts`. A
+ * host resolves each chunk's `QuadColor` through its own port — `syncWorld`'s
+ * `colorForChunk`, in the shape `application/world-sync.ts` defines — and
+ * wanted a running report of what that resolution actually produced: how many
+ * chunks, how many sampled quads, the darkest and brightest shade seen. That
+ * is a DECORATOR over an existing `resolve` function, not a new capability, so
+ * it takes the resolver as its one argument and returns the same shape back
+ * wrapped, the same pattern `apps/preview-render/probes.ts`'s `--stats` uses
+ * for its own numbers.
+ *
+ * `ChunkRef` is redeclared locally rather than imported from
+ * `application/world-sync.ts`: this module is `domain/`, and `application/`
+ * is downstream of it (`tsconfig.build.json`'s include order), so importing
+ * from there would be the dependency pointing the wrong way for two fields a
+ * caller already has.
+ */
+type LightTrackerChunkRef = {
+  readonly cx: number
+  readonly cz: number
+}
+
+export type ChunkLightTrackerSnapshot = {
+  readonly resolvedChunks: number
+  readonly sampledQuads: number
+  readonly darkestShade: number | null
+  readonly brightestShade: number | null
+  readonly lastChunk: LightTrackerChunkRef | null
+}
+
+const RESOLVED_CHUNK_INCREMENT = 1
+const SAMPLED_QUAD_INCREMENT = 1
+
+export const trackChunkLightColor = (
+  /**
+   * Forwarded to `resolve` and never inspected by name here, so this stays
+   * `GeometryQuad` even though every sampled quad passes through
+   * `lightSampleForGeometryQuad` eventually — that happens inside `resolve`,
+   * not in this wrapper.
+   */
+  resolve: (
+    chunk: LightTrackerChunkRef,
+    quads: ReadonlyArray<GeometryQuad>,
+  ) => Effect.Effect<QuadColor>,
+): {
+  readonly colorForChunk: typeof resolve
+  readonly snapshot: () => ChunkLightTrackerSnapshot
+} => {
+  let resolvedChunks = 0
+  let sampledQuads = 0
+  let darkestShade: number | null = null
+  let brightestShade: number | null = null
+  let lastChunk: LightTrackerChunkRef | null = null
+
+  return {
+    colorForChunk: (chunk, quads) =>
+      resolve(chunk, quads).pipe(
+        Effect.map((color) => {
+          resolvedChunks += RESOLVED_CHUNK_INCREMENT
+          lastChunk = chunk
+          return (quad) => {
+            const result = color(quad)
+            const [shade] = result
+            sampledQuads += SAMPLED_QUAD_INCREMENT
+            if (darkestShade === null) {
+              darkestShade = shade
+            } else {
+              darkestShade = Math.min(darkestShade, shade)
+            }
+            if (brightestShade === null) {
+              brightestShade = shade
+            } else {
+              brightestShade = Math.max(brightestShade, shade)
+            }
+            return result
+          }
+        }),
+      ),
+    snapshot: () => ({
+      brightestShade,
+      darkestShade,
+      lastChunk,
+      resolvedChunks,
+      sampledQuads,
+    }),
+  }
+}
