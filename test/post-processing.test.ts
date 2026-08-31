@@ -22,10 +22,12 @@ import {
   COMPOSITE_SUBSUMES,
   isCanonicalChain,
   isCompositeActive,
+  isSoftwareRendererName,
   MANDATORY_PASSES,
   passOrderIndex,
   POST_PROCESSING_PASS_ORDER,
   QUALITY_PRESETS,
+  qualityForRendererName,
   qualityUsesHdrRenderTarget,
   validatePostProcessingChain,
   type GraphicsQuality,
@@ -376,6 +378,55 @@ describe('validatePostProcessingChain', () => {
 
       expect(violations).toHaveLength(2)
       expect(violations.every((violation) => violation.rule === 'missing-mandatory')).toBe(true)
+    }),
+  )
+})
+
+/**
+ * Lowered from mc-compose's `apps/web/main.ts`: the
+ * `WEBGL_debug_renderer_info` regex mc-compose used to fall back to
+ * `QUALITY_PRESETS.low` on a software rasterizer, now testable without a
+ * browser because it takes a plain string.
+ */
+describe('isSoftwareRendererName / qualityForRendererName', () => {
+  it.effect('recognises every software rasterizer name mc-compose measured against', () =>
+    Effect.sync(() => {
+      // A TABLE, not a single example: this is the second verification angle
+      // for this move — an enumeration over every renderer string this
+      // organisation's headless CI actually reports, plus the mixed-case form
+      // a real `UNMASKED_RENDERER_WEBGL` string uses, rather than one
+      // hand-picked assertion.
+      const softwareRendererNames: ReadonlyArray<string> = [
+        'SwiftShader',
+        'Google SwiftShader',
+        'llvmpipe (LLVM 15.0.0, 256 bits)',
+        'softpipe',
+        'Software Rasterizer',
+      ]
+      for (const name of softwareRendererNames) {
+        expect(isSoftwareRendererName(name), name).toBe(true)
+        expect(qualityForRendererName(name), name).toBe('low')
+      }
+    }),
+  )
+
+  it.effect('does not flag a real hardware renderer, or claim to know one with no string at all', () =>
+    Effect.sync(() => {
+      const hardwareRendererNames: ReadonlyArray<string> = [
+        'ANGLE (NVIDIA, NVIDIA GeForce RTX 4070 Direct3D11 vs_5_0 ps_5_0)',
+        'Apple M1',
+        'AMD Radeon Pro 5500M OpenGL Engine',
+      ]
+      for (const name of hardwareRendererNames) {
+        expect(isSoftwareRendererName(name), name).toBe(false)
+        expect(qualityForRendererName(name), name).toBeUndefined()
+      }
+
+      // `null`: the extension itself was unavailable (`WEBGL_debug_renderer_info`
+      // is optional). Absence of evidence is not evidence of software, so this
+      // must not default to `low` and silently downgrade a real GPU.
+      expect(isSoftwareRendererName(null)).toBe(false)
+      expect(qualityForRendererName(null)).toBeUndefined()
     }),
   )
 })

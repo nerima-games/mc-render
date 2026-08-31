@@ -21,6 +21,7 @@ import {
   type CrossPlantQuad,
   type FaceDirection,
   type MeshQuad,
+  type QuadColor,
 } from '../src/domain/chunk-geometry'
 import { LIGHT_LEVEL_MAX } from '@nerima-games/mc-kernel'
 import {
@@ -42,6 +43,8 @@ import {
   lightShadeFactor,
   litColor,
   litShade,
+  trackChunkLightColor,
+  type ChunkLightTrackerSnapshot,
   type LightSampler,
   type SkyBlockLight,
 } from '../src/domain/voxel-lighting'
@@ -480,6 +483,77 @@ describe('the injection seam', () => {
       expect(noon(quad())).toBe(MAX_SHADE_BYTE)
       expect(midnight(quad())).toBe(combinedShadeByte(NO_LIGHT, 0, { skyIntensity: 1 }))
       expect(midnight(quad())).toBeLessThan(noon(quad()))
+    }),
+  )
+})
+
+/**
+ * Lowered from mc-compose's `apps/web/render-lighting.ts`: a
+ * decorator over a host's own `colorForChunk` port, reporting how many chunks
+ * and quads it resolved and the shade range it saw. No THREE, no DOM — a
+ * synthetic `QuadColor` stands in for the real lighting curve above, because
+ * this suite is about the WRAPPER's bookkeeping, not the shading rule itself.
+ */
+describe('trackChunkLightColor', () => {
+  const EMPTY_SNAPSHOT: ChunkLightTrackerSnapshot = {
+    resolvedChunks: 0,
+    sampledQuads: 0,
+    darkestShade: null,
+    brightestShade: null,
+    lastChunk: null,
+  }
+
+  it.effect('reports the idle snapshot before any chunk is resolved', () =>
+    Effect.sync(() => {
+      const tracked = trackChunkLightColor(() => Effect.succeed<QuadColor>(() => [0, 0, 0]))
+
+      expect(tracked.snapshot()).toEqual(EMPTY_SNAPSHOT)
+    }),
+  )
+
+  it.effect('counts each resolved chunk and remembers only the LAST one', () =>
+    Effect.sync(() => {
+      const tracked = trackChunkLightColor(() => Effect.succeed<QuadColor>(() => [0, 0, 0]))
+
+      Effect.runSync(tracked.colorForChunk({ cx: 0, cz: 0 }, []))
+      Effect.runSync(tracked.colorForChunk({ cx: 1, cz: 2 }, []))
+      Effect.runSync(tracked.colorForChunk({ cx: -3, cz: 4 }, []))
+
+      const snapshot = tracked.snapshot()
+      expect(snapshot.resolvedChunks).toBe(3)
+      expect(snapshot.lastChunk).toEqual({ cx: -3, cz: 4 })
+    }),
+  )
+
+  it.effect('forwards the underlying QuadColor result unchanged (second angle: the wrapper is transparent)', () =>
+    Effect.sync(() => {
+      const REAL_RESULT: readonly [number, number, number] = [12, 34, 56]
+      const tracked = trackChunkLightColor(() => Effect.succeed<QuadColor>(() => REAL_RESULT))
+
+      const color = Effect.runSync(tracked.colorForChunk({ cx: 0, cz: 0 }, []))
+
+      expect(color(quad())).toEqual(REAL_RESULT)
+    }),
+  )
+
+  it.effect('counts sampled quads and tracks the darkest/brightest R-channel shade across chunks', () =>
+    Effect.sync(() => {
+      // The R channel doubles as "shade" here, keyed off `quad.ao` so each
+      // sample is distinguishable without needing the real lighting curve.
+      const tracked = trackChunkLightColor(() =>
+        Effect.succeed<QuadColor>((sampled) => [(sampled as MeshQuad).ao, 0, 0]),
+      )
+
+      const colorA = Effect.runSync(tracked.colorForChunk({ cx: 0, cz: 0 }, []))
+      colorA(quad({ ao: 40 }))
+      colorA(quad({ ao: 10 }))
+      const colorB = Effect.runSync(tracked.colorForChunk({ cx: 1, cz: 0 }, []))
+      colorB(quad({ ao: 90 }))
+
+      const snapshot = tracked.snapshot()
+      expect(snapshot.sampledQuads).toBe(3)
+      expect(snapshot.darkestShade).toBe(10)
+      expect(snapshot.brightestShade).toBe(90)
     }),
   )
 })

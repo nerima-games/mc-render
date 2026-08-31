@@ -343,16 +343,23 @@
       // These are this package's published entry points, confirmed called
       // positionally with their CURRENT arity by the sibling `mc-compose`
       // repo (fix/ci-green-10 branch, 2026-08-09; `grep` against the actual
-      // checkout at ../mc-compose, not inferred):
+      // checkout at ../mc-compose, not inferred). `apps/render-preview` and
+      // `apps/shader-probe` moved INTO this repository in Wave 1 (W1-L5), so
+      // the same call shapes now also have an internal caller
+      // (`apps/render-preview/preview.ts`, `apps/shader-probe/probe.ts`); the
+      // external-contract reasoning below still holds for `mc-compose/apps/
+      // web/main.ts`, which was not moved:
       //   - `makeWorldRenderer`/`makeProductionWorldRenderer` (world-renderer.ts):
-      //     mc-compose/apps/{web/main.ts,render-preview/preview.ts,shader-probe/probe.ts}
+      //     mc-compose/apps/web/main.ts and this repo's own
+      //     apps/{render-preview/preview.ts,shader-probe/probe.ts}
       //     all call `makeWorldRenderer(three, canvas, viewport[, options])`.
-      //   - `syncWorld` (world-sync.ts): mc-compose/apps/{web/main.ts,
-      //     render-preview/preview.ts} call `syncWorld(renderer, dirtyChunks,
-      //     mesher, options)`; `attachWorldRenderer` shares the file's
-      //     4-param shape and is exported alongside it from the same module.
-      //   - `buildChunkGeometry` (chunk-geometry.ts): mc-compose/apps/
-      //     shader-probe/probe.ts calls `buildChunkGeometry([QUAD], 0, 0)`
+      //   - `syncWorld` (world-sync.ts): mc-compose/apps/web/main.ts and this
+      //     repo's own apps/render-preview/preview.ts call
+      //     `syncWorld(renderer, dirtyChunks, mesher, options)`;
+      //     `attachWorldRenderer` shares the file's 4-param shape and is
+      //     exported alongside it from the same module.
+      //   - `buildChunkGeometry` (chunk-geometry.ts): this repo's own
+      //     apps/shader-probe/probe.ts calls `buildChunkGeometry([QUAD], 0, 0)`
       //     positionally; `buildFluidGeometry` shares its 5-param shape and
       //     is exported alongside it from the same module.
       // Bundling the excess params into the trailing options object -- the

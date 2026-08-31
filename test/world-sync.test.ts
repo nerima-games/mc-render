@@ -13,7 +13,7 @@
  * as nothing, and so reads as "the world generator only made one chunk".
  */
 import { describe, expect, it } from '@effect/vitest'
-import { Effect, Ref } from 'effect'
+import { Effect, FastCheck, Ref } from 'effect'
 import {
   makeWorldRenderer,
   type ChunkGeometryUpdate,
@@ -24,9 +24,11 @@ import {
   attachWorldRenderer,
   chunkKeyOf,
   chunkOrigin,
+  makeBudgetedDirtySource,
   syncWorld,
   type ChunkRef,
   type DirtyBatch,
+  type DirtySource,
 } from '../src/application/world-sync'
 import { CHUNK_SIZE } from '@nerima-games/mc-meshing'
 import type { CrossPlantQuad, GeometryQuad, MeshQuad, QuadColor } from '../src/domain/chunk-geometry'
@@ -374,5 +376,146 @@ describe('attachWorldRenderer', () => {
       expect(yield* renderer.chunkKeys).toStrictEqual([])
       expect(yield* batches).toHaveLength(1)
     }),
+  )
+})
+
+/**
+ * Lowered from mc-compose's `apps/web/chunk-sync-budget.ts` (Wave 1, W1-L5).
+ * A `DirtySource` decorator, so these tests build one directly rather than
+ * reusing `scriptedSource` above (which yields an `Effect<DirtySource>` sized
+ * for `syncWorld`'s tests, not a plain one to wrap).
+ */
+describe('makeBudgetedDirtySource', () => {
+  const chunk = (cx: number, cz: number): ChunkRef => ({ cx, cz })
+  const drain = (source: DirtySource): DirtyBatch => Effect.runSync(source.drain)
+
+  const staticSource = (...batches: ReadonlyArray<DirtyBatch>): DirtySource => {
+    const remaining = [...batches]
+    return {
+      drain: Effect.sync(() => remaining.shift() ?? { changed: [], removed: [] }),
+    }
+  }
+
+  it.effect('requires a positive integer frame budget', () =>
+    Effect.sync(() => {
+      expect(() => makeBudgetedDirtySource(staticSource(), 0)).toThrow(RangeError)
+      expect(() => makeBudgetedDirtySource(staticSource(), -1)).toThrow(RangeError)
+      expect(() => makeBudgetedDirtySource(staticSource(), 1.5)).toThrow(RangeError)
+    }),
+  )
+
+  it.effect('prioritizes removals and carries the remaining changes to later frames', () =>
+    Effect.sync(() => {
+      const source = makeBudgetedDirtySource(
+        staticSource({
+          changed: [chunk(1, 0), chunk(2, 0), chunk(3, 0)],
+          removed: [chunk(4, 0), chunk(5, 0)],
+        }),
+        2,
+      )
+
+      expect(drain(source)).toEqual({ changed: [], removed: [chunk(4, 0), chunk(5, 0)] })
+      expect(drain(source)).toEqual({ changed: [chunk(1, 0), chunk(2, 0)], removed: [] })
+      expect(drain(source)).toEqual({ changed: [chunk(3, 0)], removed: [] })
+      expect(drain(source)).toEqual({ changed: [], removed: [] })
+    }),
+  )
+
+  it.effect('coalesces updates by chunk, and a later change replaces an earlier removal', () =>
+    Effect.sync(() => {
+      const target = chunk(7, -2)
+      const source = makeBudgetedDirtySource(
+        staticSource(
+          { changed: [target, chunk(8, -2)], removed: [] },
+          { changed: [target], removed: [target] },
+          { changed: [], removed: [chunk(8, -2)] },
+        ),
+        2,
+      )
+
+      expect(drain(source)).toEqual({ changed: [target, chunk(8, -2)], removed: [] })
+      expect(drain(source)).toEqual({ changed: [target], removed: [] })
+      expect(drain(source)).toEqual({ changed: [], removed: [chunk(8, -2)] })
+      expect(drain(source)).toEqual({ changed: [], removed: [] })
+    }),
+  )
+
+  it.effect('enqueue renders a chunk loaded before the wrapped source ever notifies', () =>
+    Effect.sync(() => {
+      const source = makeBudgetedDirtySource(staticSource({ changed: [], removed: [] }), 1)
+
+      source.enqueue({ changed: [chunk(8, -3)], removed: [] })
+
+      expect(drain(source)).toEqual({ changed: [chunk(8, -3)], removed: [] })
+    }),
+  )
+
+  it.effect(
+    'never returns more than its per-frame budget, and never permanently drops a chunk — ' +
+      'a property over an arbitrary sequence of dirty batches, not one hand-picked case',
+    () =>
+      Effect.sync(() => {
+        const arbitraryEvent = FastCheck.record({
+          cx: FastCheck.integer({ min: -1000, max: 1000 }),
+          cz: FastCheck.integer({ min: -1000, max: 1000 }),
+          isRemoval: FastCheck.boolean(),
+        })
+
+        FastCheck.assert(
+          FastCheck.property(
+            FastCheck.integer({ min: 1, max: 5 }),
+            FastCheck.array(arbitraryEvent, { minLength: 0, maxLength: 40 }),
+            (budget, events) => {
+              // De-duplicated by key, so each event touches a DISTINCT chunk —
+              // this isolates the budget/no-drop property from coalescing,
+              // which the two example tests above already cover on its own.
+              const seenKeys = new Set<string>()
+              const distinctEvents = events.filter((event) => {
+                const key = chunkKeyOf(chunk(event.cx, event.cz))
+                if (seenKeys.has(key)) {
+                  return false
+                }
+                seenKeys.add(key)
+                return true
+              })
+
+              const remainingEvents = [...distinctEvents]
+              const source: DirtySource = {
+                drain: Effect.sync(() => {
+                  const event = remainingEvents.shift()
+                  if (event === undefined) {
+                    return { changed: [], removed: [] }
+                  }
+                  const dirtiedChunk = chunk(event.cx, event.cz)
+                  if (event.isRemoval) {
+                    return { changed: [], removed: [dirtiedChunk] }
+                  }
+                  return { changed: [dirtiedChunk], removed: [] }
+                }),
+              }
+              const budgeted = makeBudgetedDirtySource(source, budget)
+
+              // One call per event to feed them all in, plus enough more to
+              // drain whatever backlog that built up, plus one to confirm it
+              // is actually empty by then.
+              const drainCallCount =
+                distinctEvents.length + Math.ceil(distinctEvents.length / budget) + 1
+
+              const returnedKeys = new Set<string>()
+              for (let callIndex = 0; callIndex < drainCallCount; callIndex += 1) {
+                const result = drain(budgeted)
+                const returnedThisCall = result.changed.length + result.removed.length
+                expect(returnedThisCall, `call ${String(callIndex)}`).toBeLessThanOrEqual(budget)
+                for (const returnedChunk of [...result.changed, ...result.removed]) {
+                  returnedKeys.add(chunkKeyOf(returnedChunk))
+                }
+              }
+
+              expect(returnedKeys.size).toBe(distinctEvents.length)
+            },
+          ),
+          { seed: 0, numRuns: 200 },
+        )
+      }),
   )
 })

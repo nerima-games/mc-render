@@ -1,0 +1,52 @@
+<!doctype html>
+<!--
+  THE RENDER PREVIEW. A fixture, drawn on a real GPU.
+
+  Lowered from mc-compose's `apps/render-preview` — unchanged
+  except `preview.ts` now imports mc-render's own source instead of the
+  published package.
+
+  docs/testing.md names mc-render's preview 「固定チャンクを読み込んでマテリアルと
+  ポストFXを目視」 — load a FIXED CHUNK and eyeball the materials. mc-render's own
+  `apps/preview-render` cannot be that: it is a terminal stepper, and its header
+  argues at length that adding THREE and a canvas there would trade the
+  mechanical guarantee that `tsconfig.base.json` omits "DOM" for a promise some
+  other tsconfig keeps. That argument still holds and this page does not
+  reopen it — it puts the canvas where a canvas is already allowed
+  (`tsconfig.browser.json`).
+
+  WHAT IT IS NOT: the game. It draws a HAND-AUTHORED fixture, not generated
+  terrain, and the difference is the whole point of being careful here. This
+  fixture page keeps the generated-world path out of its entry point; the
+  direct-import boundary is enforced by `.oxlintrc.json` and `pnpm lint`. A
+  fixture proves the RENDER PATH draws; the composed browser entry point has
+  separate generated-world E2E coverage, and this page claims only the former.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>mc-render — fixture chunk preview</title>
+    <style>
+      body {
+        margin: 0;
+        background: #14161c;
+        color: #d8dee9;
+        font: 13px/1.5 ui-monospace, monospace;
+      }
+      #preview-canvas {
+        display: block;
+        width: 640px;
+        height: 360px;
+      }
+      #preview-report {
+        padding: 0.75rem;
+        margin: 0;
+      }
+    </style>
+  </head>
+  <body data-render-preview="running">
+    <canvas id="preview-canvas"></canvas>
+    <pre id="preview-report">drawing…</pre>
+  <script type="module" src="./preview.ts"></script>
+  </body>
+</html>
