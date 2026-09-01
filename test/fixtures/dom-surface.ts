@@ -27,6 +27,7 @@ import {
   type DomInputEvent,
   type DomListener,
   type DomListenerOptions,
+  type FocusableTarget,
   type PointerLockTarget,
 } from '../../src/application/dom-surface'
 
@@ -102,10 +103,25 @@ const focusHandler: DomListener = (event: DomInputEvent) => {
 }
 
 /**
- * A host's focus roster is `ReadonlyArray<unknown>`, so real elements go in
- * without a cast and nothing in this repository can read one by accident.
+ * `resolveFocusTarget`'s own parameter — the element `focusin` reports — is
+ * still `ReadonlyArray<unknown>` on the READING side, so a real element goes
+ * in without a cast and nothing in this repository can read one by accident.
  */
 export const slotsAreOpaqueToTheAdapter: ReadonlyArray<unknown> = browserSlots
+
+/**
+ * The WRITING side, added for DN-16 §5(a): a host's focus roster
+ * (`FocusGroupTargets.targets`) is `ReadonlyArray<FocusableTarget>`, and a real
+ * `HTMLElement.focus(options?: FocusOptions): void` satisfies `FocusableTarget`
+ * without a cast — a function with an extra OPTIONAL parameter is assignable to
+ * one that takes fewer. This is the half `slotsAreOpaqueToTheAdapter` above
+ * does not cover, now that arrow-key navigation calls `.focus()` on a roster
+ * member instead of only comparing it.
+ */
+export const slotsAreFocusable: ReadonlyArray<FocusableTarget> = browserSlots
+
+/** `Document.activeElement` is `Element | null`; the adapter only compares it. */
+export const activeElementIsComparable: unknown = browserDocument.activeElement
 
 /**
  * The lock target is compared the same way, and needs no more of the DOM than

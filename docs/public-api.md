@@ -617,7 +617,7 @@ plan.md §3.10（Playwright は SwiftShader でポインタロック不可）に
 「既定を抑止しうる」と「非 passive で登録する」の両方を表しており、
 既に非 passive なものに `passive: false` を明示しても挙動もフレーム時間も変わらないからである。
 
-## 2.10 キーボードフォーカスは**観測**であって移動ではない
+## 2.10 キーボードフォーカスは**観測**であり、グループ**内**の移動も入った（DN-16 §5(a)）
 
 mx-ui が半分だけ作って止めた穴（mx-ui/docs/design-notes.md DN-UI-13i）。
 向こうはホットバーを roving-`tabindex` グループにし（**ネイティブなタブストップは 1 つ**）、
@@ -823,10 +823,43 @@ hud.setKeyboardFocus(
 逆に **canvas をフォーカスグループに入れてはならない**——`resolveClickLanding` は
 ロック対象を先に見るので害は無いが、その 2 つは別の問い（§2.11）である。
 
-**まだ閉じていない 1 点**——グループ内をキーボードで移動する手段が無いこと——は
-[design-notes.md](./design-notes.md) DN-16 §5(a) に、どのリポジトリが変わる必要があるかと
-一緒に書いてある。**HUD の上のクリックがポインタロック要求になる問題（§5(b)）は閉じた。**
-下の §2.11 がその決定である。
+**グループ内をキーボードで移動する手段が無かった点（§5(a)）は閉じた。** §2.10.7 がその決定で、
+mx-ui 側のコード変更は要らない——`HudView.setKeyboardFocus` を呼ぶ**回数**が増えるだけである。
+**HUD の上のクリックがポインタロック要求になる問題（§5(b)）も閉じた。** 下の §2.11 がその決定である。
+
+### 2.10.7 グループ内の移動 —— 矢印キー、循環、ロック中は動かない
+
+**ホストが何かを呼ぶ必要は無い。** §2.10.6 の呼び出し列がそのまま、矢印キーでも動く。
+`installInputListeners`（`browserInputLayer` 経由）が `keydown` ごとに:
+
+1. `code` を `domain/focus-navigation.ts` の `focusNavigationStepForCode` に通す。
+   `ArrowLeft` / `ArrowUp` は -1、`ArrowRight` / `ArrowDown` は +1。ホットバーは 1 行なので
+   `up`/`down` は `left`/`right` と同じ意味——将来グリッド状のグループが増えたら、この関数の
+   呼び出し側（`resolveFocusNavigationTarget`）だけが行幅を知ればよく、この関数自身は変わらない。
+2. `document.activeElement` を §2.10.5 と同じ同一性照合でグループへ解決する。
+3. `domain/input-bindings.ts` の `wrapHotbarSelection`（マウスホイールの巡回と同じ関数）で
+   次の index を求め、**循環する**——ホイールでの既存の巡回と挙動を揃えるための再利用であり、
+   新しい巻き込みの罠を増やさないためでもある。
+4. その index の要素へ `.focus()` を呼ぶ。
+
+`.focus()` は `focusin`/`focusout` を**同期的に**発生させるので、§2.10.6 の手順 4 が
+そのまま新しい index を拾う——mx-ui へ新しい経路は増えていない。
+
+**`event.preventDefault()` は呼ばない。** `PREVENT_DEFAULT_EVENTS` に `keydown` は無く、
+これからも無い——足せば Tab も対象になる（§2.10.3 と同じ理由）。矢印キーの既定動作
+（何であれ）を抑止したいホストは、自分の `keydown` リスナで判断する。
+`domain/focus-navigation.ts` の `ARROW_FOCUS_NAVIGATION_POLICY.owner` が `'host'` なのは
+この境界を記録するためである。
+
+**ロック中は動かない。** `resolveFocusNavigationTarget` は `pointerLockHeld` を最初に見て、
+真なら何も返さない——`reportsKeyboardFocus` が読み出し側に掛けているのと同じマスクを、
+書き込み側にも掛けている。ロック中の矢印キーは§2.10.4のとおりプレイヤーを動かしうるので、
+同じキーがリングも動かしてしまう事故を防ぐ。
+
+**mx-ui とまだ確認していない 1 点。** `dom-surface.ts` に `focus()` を足すこと、どのキーが
+動くか、ロック中に動かないことは、いずれもこのリポジトリだけで決められることだったので
+決めて閉じた。決められなかったのは「mx-ui 側がこの挙動自体を望むかどうか」で、これは
+コードの依存ではなく UX 合意の問題である。
 
 ## 2.11 クリックは**どこに落ちたか**で意味が変わる
 

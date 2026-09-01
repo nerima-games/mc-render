@@ -102,13 +102,20 @@ import type { DomInputEvent, DomListener, DomListenerOptions } from '../src/appl
 /**
  * Opaque stand-ins for the elements a host creates.
  *
- * Distinct objects and nothing else, because that is ALL the adapter is allowed
- * to see: `TouchControlTarget.target` is `unknown` and the only operation on it
- * is `===`. A test that gave these `getAttribute` would be testing an adapter
- * this repository refused to write.
+ * Distinct objects and next to nothing else, because that is ALL the adapter is
+ * allowed to see: `TouchControlTarget.target` is `unknown` and the only
+ * operation on it is `===`. A test that gave these `getAttribute` would be
+ * testing an adapter this repository refused to write.
+ *
+ * `inventoryButton` and `pauseButton` carry a `focus()` nobody calls, purely so
+ * they can ALSO stand in for a `FocusGroupTargets` roster member below
+ * ("the synthesised mousedown..." — DN-16 §5(a) made `.focus()` a required
+ * member) — added rather than reusing a spread copy, because `resolveClickLanding`
+ * compares by IDENTITY and a copy would not be the SAME object the test later
+ * passes as the click target.
  */
-const inventoryButton = { name: 'inventory-button' }
-const pauseButton = { name: 'pause-button' }
+const inventoryButton = { name: 'inventory-button', focus: () => undefined }
+const pauseButton = { name: 'pause-button', focus: () => undefined }
 const jumpButton = { name: 'jump-button' }
 const attackButton = { name: 'attack-button' }
 const undeclaredDecoration = { name: 'a-thing-the-host-never-declared' }
@@ -401,7 +408,10 @@ describe('PORTED #35: the same claim through the browser adapter', () => {
         },
         removeEventListener: noop,
       }
-      const targets = { window: target, document: { ...target, pointerLockElement: null } }
+      const targets = {
+        window: target,
+        document: { ...target, pointerLockElement: null, activeElement: null },
+      }
 
       const input = yield* makeInputService()
       installInputListeners(targets, input, { pointerLockTarget: canvas, touchControls: MOBILE_CONTROLS })
@@ -432,7 +442,10 @@ describe('PORTED #35: the same claim through the browser adapter', () => {
         },
         removeEventListener: noop,
       }
-      const targets = { window: target, document: { ...target, pointerLockElement: null } }
+      const targets = {
+        window: target,
+        document: { ...target, pointerLockElement: null, activeElement: null },
+      }
       const input = yield* makeInputService()
       installInputListeners(targets, input, { pointerLockTarget: canvas, touchControls: MOBILE_CONTROLS })
 
@@ -458,7 +471,10 @@ describe('PORTED #35: the same claim through the browser adapter', () => {
         },
         removeEventListener: noop,
       }
-      const targets = { window: target, document: { ...target, pointerLockElement: null } }
+      const targets = {
+        window: target,
+        document: { ...target, pointerLockElement: null, activeElement: null },
+      }
       const input = yield* makeInputService()
       installInputListeners(targets, input, { pointerLockTarget: canvas, touchControls: MOBILE_CONTROLS })
       const fire = (type: string, event: DomInputEvent): void => {
@@ -655,7 +671,10 @@ describe('REGRESSION: a tap can NOT reach pointer-lock acquisition', () => {
       // two controls in different regions are equal by shape and are not the
       // same button — and reading an attribute would put `getAttribute` in
       // `dom-surface.ts`, which breaks the proof outright.
-      const lookalike = { name: 'inventory-button' }
+      // Carries the same `focus()` `inventoryButton` was given for DN-16 §5(a)
+      // (see its declaration), or this "same SHAPE" assertion would fail for a
+      // reason that has nothing to do with the identity check it exists to prove.
+      const lookalike = { name: 'inventory-button', focus: inventoryButton.focus }
       expect(lookalike).toStrictEqual(inventoryButton)
       expect(resolveTouchControl(MOBILE_CONTROLS, lookalike)).toBeUndefined()
       expect(resolveTouchControl(MOBILE_CONTROLS, inventoryButton)).toBe('openInventory')

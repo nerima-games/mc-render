@@ -53,6 +53,9 @@ export * from './domain/chunk-geometry.js'
 export * from './domain/frame-scratch.js'
 export * from './domain/frustum-culling.js'
 export * from './domain/input-bindings.js'
+// Arrow-key navigation WITHIN a keyboard focus group (DN-16 §5(a)) — the codes,
+// The direction they map to, and the index step that direction takes.
+export * from './domain/focus-navigation.js'
 export * from './domain/gamepad-input.js'
 export * from './domain/player-control.js'
 // Level-of-detail.ts decides which LOD tier a chunk is drawn at.

@@ -47,23 +47,44 @@
  *   - `document.pointerLockElement` -> `locked: boolean`
  *   - `Event.target` -> `resolveFocusTarget` -> `{ group, index }`
  *   - `Event.target` -> `resolveClickLanding` -> `'lock-target' | 'ui' | 'elsewhere'`
+ *   - `document.activeElement` + `KeyboardEvent.code` -> `resolveFocusNavigationTarget`
+ *     -> the roster member to move focus TO
  *
- * The last one is DN-16 §5(b), and it is the same conversion as the one above
- * it rather than a new kind of thing: an element in, a NAME out, and the policy
- * that reads the name (`acquiresPointerLock`) stays a pure predicate in the
- * domain. Whether a click may take the pointer is decided there, not here.
+ * The third-from-last is DN-16 §5(b), and it is the same conversion as the one
+ * above it rather than a new kind of thing: an element in, a NAME out, and the
+ * policy that reads the name (`acquiresPointerLock`) stays a pure predicate in
+ * the domain. Whether a click may take the pointer is decided there, not here.
+ *
+ * The last is DN-16 §5(a), and it is the ONE PLACE this file calls a DOM
+ * method other than `addEventListener`/`removeEventListener`/`preventDefault`:
+ * `resolveFocusNavigationTarget` is pure and answers WHICH roster member (if
+ * any), and this file performs the `.focus()` — the same division `render:input`
+ * and `acquiresPointerLock` already draw for the pointer lock ask.
  *
  * ---------------------------------------------------------------------------
- * What this file does NOT do about Tab
+ * What this file does NOT do about Tab, and what it DOES about arrow keys
  * ---------------------------------------------------------------------------
  *
- * It does not listen for it, does not move focus, and does not suppress it. The
- * browser already moves focus on Tab, and mx-ui deliberately put its focus ring
- * and its single tab stop on the SAME slot so that the platform's own answer is
- * the right one by construction. What was missing was nobody noticing, and
- * `focusin`/`focusout` are the whole of the fix. See `FOCUS_NAVIGATION_POLICY`
- * in `input-service.ts` for why suppressing Tab is not an option at any lock
- * state, and `PREVENT_DEFAULT_EVENTS` below for the list that stays at two.
+ * It does not listen for Tab, does not move focus on it, and does not suppress
+ * it. The browser already moves focus on Tab, and mx-ui deliberately put its
+ * focus ring and its single tab stop on the SAME slot so that the platform's
+ * own answer is the right one by construction. What was missing was nobody
+ * noticing, and `focusin`/`focusout` are the whole of the fix. See
+ * `FOCUS_NAVIGATION_POLICY` in `input-service.ts` for why suppressing Tab is
+ * not an option at any lock state, and `PREVENT_DEFAULT_EVENTS` below for the
+ * list that stays at two.
+ *
+ * Arrow keys are different: the browser has no native "move focus within a
+ * roving-`tabindex` group" behaviour to defer to, so DN-16 §5(a) makes this
+ * file the one that moves it, by calling `.focus()` on the roster member
+ * `resolveFocusNavigationTarget` names. What it still does NOT do is call
+ * `event.preventDefault()` for it: `mayPreventDefault` has no `keydown` case,
+ * and it must not grow one — a `keydown` exception for arrows would be a
+ * `keydown` exception, full stop, and would make Tab eligible for suppression
+ * again. `ARROW_FOCUS_NAVIGATION_POLICY` (`domain/focus-navigation.ts`) is
+ * `owner: 'host'` for exactly this reason: whether whatever an arrow key would
+ * otherwise have done should be suppressed is the HOST's decision, made with
+ * its own listener outside this file, never this adapter's.
  *
  * ---------------------------------------------------------------------------
  * Teardown is exact, and it is checkable
@@ -98,6 +119,7 @@ import {
   touchLookStep,
   unboundTouchActions,
   wheelDeltaModeForIndex,
+  wrapHotbarSelection,
 } from '../domain/input-bindings.js'
 import {
   type DomDocument,
@@ -105,6 +127,7 @@ import {
   type DomInputEvent,
   type DomListener,
   type DomListenerOptions,
+  type FocusableTarget,
   type PointerLockTarget,
   isPointerLockHeld,
 } from './dom-surface.js'
@@ -119,6 +142,7 @@ import {
   UNAVAILABLE_POINTER_LOCK,
   makeInputService,
 } from './input-service.js'
+import { focusNavigationStepForCode } from '../domain/focus-navigation.js'
 
 /**
  * The two objects the plan's two `ListenerTarget`s name.
@@ -166,11 +190,16 @@ export type InstalledInputListeners = {
 /**
  * One roving-`tabindex` group, as the host names it.
  *
- * `targets` is `ReadonlyArray<unknown>` because THE ADAPTER NEVER LOOKS INSIDE
- * THEM. It compares `event.target` against each by `===` and reports the
- * position it matched. In a browser these are the nine `HTMLElement`s mx-ui
- * created; in a test they are nine distinct objects; in both cases the code
- * that runs is the same code, which is the point.
+ * `targets` is `ReadonlyArray<FocusableTarget>`. THE ADAPTER STILL NEVER READS
+ * THEM: `resolveFocusTarget` below compares `event.target` against each by
+ * `===` and reports the position it matched, exactly as when this was
+ * `ReadonlyArray<unknown>`. The one new operation, added for DN-16 §5(a), is a
+ * WRITE — `resolveFocusNavigationTarget` calls `.focus()` on the member arrow
+ * navigation moves TO — which is the whole reason the element type grew a
+ * member instead of staying opaque. In a browser these are the nine
+ * `HTMLElement`s mx-ui created; in a test they are nine `{ focus: () => void }`
+ * fakes; in both cases the code that runs is the same code, which is the
+ * point.
  *
  * ---------------------------------------------------------------------------
  * Why identity and not an attribute
@@ -198,7 +227,7 @@ export type InstalledInputListeners = {
  */
 export type FocusGroupTargets = {
   readonly group: string
-  readonly targets: ReadonlyArray<unknown>
+  readonly targets: ReadonlyArray<FocusableTarget>
 }
 
 /**
@@ -217,23 +246,119 @@ export type FocusGroupTargets = {
  * clamp — would light the ring on slot 0 whenever the player Tabbed to the
  * address bar.
  */
-/** What `Array.prototype.indexOf` returns for a member it never found. */
+/** What `Array.prototype.indexOf` (and `findIndex`, below) return for a member never found. */
 const NOT_FOUND_INDEX = -1
 
-export const resolveFocusTarget = (
+/**
+ * The group OBJECT a target resolved into, and its position — the shared core
+ * of `resolveFocusTarget` and `resolveFocusNavigationTarget`.
+ *
+ * Kept internal (not exported) and returning the `FocusGroupTargets` itself
+ * rather than its name, so `resolveFocusNavigationTarget` never has to look a
+ * group up a SECOND time by `group.group === name` — a lookup that would
+ * silently answer a DIFFERENT group object if two entries shared a name. Every
+ * external caller still only ever sees the name (`FocusTarget.group: string`);
+ * this is the one function that is allowed to hold the object instead.
+ */
+const resolveFocusMember = (
   groups: ReadonlyArray<FocusGroupTargets>,
   target: unknown,
-): FocusTarget | undefined => {
+): { readonly group: FocusGroupTargets; readonly index: number } | undefined => {
   if (typeof target === 'undefined' || target === null) {
     return
   }
   for (const group of groups) {
-    const index = group.targets.indexOf(target)
+    /* `findIndex` with an explicit `===`, not `indexOf(target)`: `target` is
+       `unknown` (it comes straight off `event.target`) and `targets` is now
+       `ReadonlyArray<FocusableTarget>` (DN-16 §5(a)), so `indexOf` would
+       demand an argument typed `FocusableTarget` — exactly the cast this file
+       exists to avoid. `findIndex`'s callback parameter is `FocusableTarget`,
+       but its body only ever compares, so `unknown` on the other side of `===`
+       needs nothing from it. */
+    const index = group.targets.findIndex((candidate) => candidate === target)
     if (index > NOT_FOUND_INDEX) {
-      return { group: group.group, index }
+      return { group, index }
     }
   }
   return
+}
+
+/**
+ * The group and position of a focused element, or `undefined` for an element in
+ * no group at all.
+ *
+ * PURE and exported, so that "focus outside the hotbar is reported as no focus,
+ * not as slot 0" is a unit test rather than something reachable only by firing
+ * a fake event at a fake document.
+ *
+ * `undefined`, `null` and an element nobody named all resolve the same way, and
+ * that is deliberate rather than lazy: all three mean "the keyboard is not on
+ * UI this host asked about", and `HudView.setKeyboardFocus(undefined)` is the
+ * one right answer to all three. Reporting an unknown element as index 0 —
+ * which is what a bare `indexOf` returning `-1` would become after a careless
+ * clamp — would light the ring on slot 0 whenever the player Tabbed to the
+ * address bar.
+ */
+export const resolveFocusTarget = (
+  groups: ReadonlyArray<FocusGroupTargets>,
+  target: unknown,
+): FocusTarget | undefined => {
+  const resolved = resolveFocusMember(groups, target)
+  if (typeof resolved === 'undefined') {
+    return
+  }
+  return { group: resolved.group.group, index: resolved.index }
+}
+
+/**
+ * Where ONE press of a navigation code would move focus TO, given who holds it
+ * now — or `undefined` when the press moves nothing: no group is focused, the
+ * code is not a navigation code, or the pointer lock currently masks focus
+ * (DN-16 §5(a): the same arrow may be steering the avatar, and moving the ring
+ * underneath that would be the bug `reportsKeyboardFocus` already exists to
+ * prevent on the read side).
+ *
+ * PURE and exported, for the reason `resolveFocusTarget` above is: "ArrowRight
+ * from the last slot wraps to the first" has to be a unit test, not something
+ * reachable only by firing a fake keydown at a fake document.
+ *
+ * Reuses `wrapHotbarSelection`'s arithmetic rather than re-deriving it — the
+ * precedent this file's header already states for `notchesForWheelDelta`:
+ * `wrapHotbarSelection` takes the size as an argument, stores no selection,
+ * and exists purely so a second caller does not re-derive the wrap trap.
+ * `current.index` is always in range because it and `current.group.targets`
+ * came from the SAME `resolveFocusMember` call — there is no second, by-name
+ * lookup here to disagree with it.
+ */
+/**
+ * What one `keydown` knows, gathered into one value rather than three
+ * parameters — `max-params` is 3 in this repository, and a fourth would have
+ * meant either loosening that or splitting a query that is one fact
+ * ("what does this keydown mean for focus") into separate arguments a caller
+ * would have to keep in step by hand.
+ */
+export type FocusNavigationQuery = {
+  readonly activeElement: unknown
+  readonly code: string | undefined
+  readonly pointerLockHeld: boolean
+}
+
+export const resolveFocusNavigationTarget = (
+  groups: ReadonlyArray<FocusGroupTargets>,
+  query: FocusNavigationQuery,
+): FocusableTarget | undefined => {
+  if (query.pointerLockHeld) {
+    return
+  }
+  const step = focusNavigationStepForCode(query.code)
+  if (typeof step === 'undefined') {
+    return
+  }
+  const current = resolveFocusMember(groups, query.activeElement)
+  if (typeof current === 'undefined') {
+    return
+  }
+  return current.group.targets[wrapHotbarSelection(current.index, step, current.group.targets.length)]
 }
 
 /**
@@ -846,6 +971,45 @@ const dispatchTouchEvent = (state: TouchDispatchState, request: TouchDispatchReq
   return true
 }
 
+/**
+ * The DN-16 §5(a) side effect a `keydown` may trigger, factored out of
+ * `installInputListeners`'s listener closure purely to keep that closure under
+ * this repository's own `max-statements` — the logic is unchanged from what
+ * was inline: resolve, then call `.focus()` on what came back, if anything
+ * did. See the listener's own comment for why this runs AFTER the ordinary
+ * `keydown` dispatch and never calls `event.preventDefault()`.
+ *
+ * Takes `eventName` and returns immediately for anything but `'keydown'`,
+ * rather than leaving that check in the listener as a second statement: only
+ * `keydown` can be arrow-key navigation, so every other event — `mousemove`
+ * included — must skip the `activeElement` read and the roster walk below
+ * before either happens, not after.
+ *
+ * One object parameter, not four positional ones — `max-params` is 3 in this
+ * repository, and threading `targets`/`focusGroups`/`eventName`/`code`
+ * separately would only invite a call site to pass them in the wrong order.
+ */
+type FocusNavigationDispatch = {
+  readonly targets: BrowserInputTargets
+  readonly focusGroups: ReadonlyArray<FocusGroupTargets>
+  readonly eventName: string
+  readonly code: string | undefined
+}
+
+const applyFocusNavigation = (dispatch: FocusNavigationDispatch): void => {
+  if (dispatch.eventName !== 'keydown') {
+    return
+  }
+  const nextFocus = resolveFocusNavigationTarget(dispatch.focusGroups, {
+    activeElement: dispatch.targets.document.activeElement,
+    code: dispatch.code,
+    pointerLockHeld: isPointerLockHeld(dispatch.targets.document),
+  })
+  if (typeof nextFocus !== 'undefined') {
+    nextFocus.focus()
+  }
+}
+
 export const installInputListeners = (
   targets: BrowserInputTargets,
   input: InputServiceApi,
@@ -900,6 +1064,28 @@ export const installInputListeners = (
       if (typeof translated !== 'undefined') {
         Effect.runSync(input.dispatch(translated))
       }
+
+      /* AFTER the ordinary dispatch above, not instead of it: the raw
+         `keydown` — ArrowLeft included — still reaches the service as an
+         ordinary held code, exactly as Tab does (see the file header). This
+         is a SEPARATE effect layered on top: DN-16 §5(a)'s answer to "which
+         member does the group move to", applied by calling `.focus()`
+         directly rather than by inventing a new `InputEvent` case for it.
+         `.focus()` fires `focusout`/`focusin` on `document` SYNCHRONOUSLY —
+         both are already registered listeners — so the resulting
+         `keyboardFocus` update reaches `InputService` through the exact same
+         path a real Tab press or mouse click does, and this file never
+         becomes a second writer of it.
+
+         No `event.preventDefault()` here, and none is added: `mayPreventDefault`
+         has no `keydown` case, on purpose (REGRESSION: Tab belongs to the user
+         agent), and giving arrow keys an exception would have to be a `keydown`
+         exception, which would make Tab eligible too. `ARROW_FOCUS_NAVIGATION_POLICY`
+         (`domain/focus-navigation.ts`) records `owner: 'host'` for exactly
+         this reason: suppressing whatever a moved arrow key would otherwise
+         have done is the HOST's call, made with its own listener, not this
+         adapter's. */
+      applyFocusNavigation({ code: event.code, eventName: planned.event, focusGroups, targets })
     }
 
     return {
