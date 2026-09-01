@@ -47,6 +47,7 @@ import {
   mayPreventDefault,
   PREVENT_DEFAULT_EVENTS,
   resolveClickLanding,
+  resolveFocusNavigationTarget,
   resolveFocusTarget,
   scopedInputListeners,
   translateDomEvent,
@@ -54,9 +55,10 @@ import {
   type BrowserInputTargets,
   type DomEventContext,
   type FocusGroupTargets,
+  type FocusNavigationQuery,
   type TouchControlTarget,
 } from '../src/application/browser-input-adapter'
-import type { DomInputEvent, DomListener, DomListenerOptions } from '../src/application/dom-surface'
+import type { DomInputEvent, DomListener, DomListenerOptions, FocusableTarget } from '../src/application/dom-surface'
 
 // ---------------------------------------------------------------------------
 // The fake DOM
@@ -85,6 +87,8 @@ type FakeDom = {
   /** Dispatch to every LIVE listener for `type`, as a browser would. */
   readonly fire: (type: string, event?: Partial<DomInputEvent>) => number
   readonly setPointerLockElement: (element: unknown) => void
+  /** `document.activeElement`, for arrow-key navigation to resolve FROM (DN-16 §5(a)). */
+  readonly setActiveElement: (element: unknown) => void
   /** How many times any handler called `preventDefault()`. */
   readonly preventedDefaults: () => number
 }
@@ -99,6 +103,7 @@ const makeFakeDom = (): FakeDom => {
   const added: Array<ListenerCall> = []
   const removed: Array<ListenerCall> = []
   let pointerLockElement: unknown = null
+  let activeElement: unknown = null
   let prevented = 0
 
   const targetFor = (where: 'window' | 'document') => ({
@@ -120,6 +125,9 @@ const makeFakeDom = (): FakeDom => {
         ...targetFor('document'),
         get pointerLockElement(): unknown {
           return pointerLockElement
+        },
+        get activeElement(): unknown {
+          return activeElement
         },
       },
     },
@@ -145,6 +153,9 @@ const makeFakeDom = (): FakeDom => {
     },
     setPointerLockElement: (element) => {
       pointerLockElement = element
+    },
+    setActiveElement: (element) => {
+      activeElement = element
     },
     preventedDefaults: () => prevented,
   }
@@ -1123,17 +1134,32 @@ describe('multi-touch dispatch: per-finger guards', () => {
 // Keyboard focus
 // ---------------------------------------------------------------------------
 
+/** One `makeSlots` fake, with its own `.focus()` call count exposed for DN-16 §5(a) tests. */
+type FakeSlot = FocusableTarget & { readonly slot: number; readonly focusCalls: () => number }
+
 /**
- * Nine opaque objects standing in for mx-ui's nine hotbar slot elements.
+ * Objects standing in for mx-ui's hotbar slot elements — as opaque as
+ * `FocusGroupTargets.targets` allows, and no more: the adapter still has no way
+ * to READ anything off them (`resolveFocusTarget` only ever compares), so a
+ * test cannot accidentally exercise a path a browser would not have.
  *
- * They are `{}` and not fakes of an element, which is the whole point of
- * `FocusGroupTargets.targets` being `ReadonlyArray<unknown>`: the adapter has no
- * way to read anything off them, so a test cannot accidentally exercise a path
- * a browser would not have. Identity is all there is, and identity is all the
- * adapter uses.
+ * The one member beyond identity is `focus()`, and it is there because DN-16
+ * §5(a) added a WRITE: `resolveFocusNavigationTarget` calls it on the roster
+ * member arrow-key navigation moves TO. It records a count rather than doing
+ * anything else — no DOM to move focus IN, since these are not real elements —
+ * so a test can assert "this and only this slot's `focus()` was called".
  */
-const makeSlots = (count: number): ReadonlyArray<unknown> =>
-  Array.from({ length: count }, (_unused, index) => ({ slot: index }))
+const makeSlots = (count: number): ReadonlyArray<FakeSlot> =>
+  Array.from({ length: count }, (_unused, index) => {
+    let calls = 0
+    return {
+      slot: index,
+      focus: () => {
+        calls += 1
+      },
+      focusCalls: () => calls,
+    }
+  })
 
 describe('REGRESSION: focusin resolves the element the browser focused', () => {
   it.effect('an element in the roster becomes its group and its 0-based position', () =>
@@ -1240,7 +1266,7 @@ describe('REGRESSION: focusin resolves the element the browser focused', () => {
       // The property that makes an attribute read unnecessary. Two slots that
       // carry the same `data-slot-index` — mx-ui's hotbar slot 0 and its
       // inventory slot 0 do — are still two different objects.
-      const hotbarSlot0 = { 'data-slot-index': '0' }
+      const hotbarSlot0 = { 'data-slot-index': '0', focus: () => undefined }
       const inventorySlot0 = { 'data-slot-index': '0' }
       const groups: ReadonlyArray<FocusGroupTargets> = [
         { group: HOTBAR_FOCUS_GROUP, targets: [hotbarSlot0] },
@@ -1251,6 +1277,122 @@ describe('REGRESSION: focusin resolves the element the browser focused', () => {
         index: 0,
       })
       expect(resolveFocusTarget(groups, inventorySlot0)).toBeUndefined()
+    }),
+  )
+})
+
+/** `resolveFocusNavigationTarget`'s query, terser at each call site below. */
+const navQuery = (
+  activeElement: unknown,
+  code: string | undefined,
+  pointerLockHeld = false,
+): FocusNavigationQuery => ({ activeElement, code, pointerLockHeld })
+
+describe('DN-16 §5(a): resolveFocusNavigationTarget answers WHERE arrow navigation moves TO', () => {
+  it.effect('ArrowRight from the middle of the group answers the next member', () =>
+    Effect.sync(() => {
+      const slots = makeSlots(9)
+      const hotbar: FocusGroupTargets = { group: HOTBAR_FOCUS_GROUP, targets: slots }
+
+      expect(resolveFocusNavigationTarget([hotbar], navQuery(slots[3], 'ArrowRight'))).toBe(slots[4])
+      expect(resolveFocusNavigationTarget([hotbar], navQuery(slots[3], 'ArrowLeft'))).toBe(slots[2])
+    }),
+  )
+
+  it.effect('ArrowUp and ArrowDown take the same step as Left and Right, for this one-row group', () =>
+    Effect.sync(() => {
+      // `focusStepForDirection`'s own contract (domain/focus-navigation.ts): a
+      // one-dimensional group has no vertical neighbours, so up/down are not
+      // dead keys, they are synonyms for the only axis that exists.
+      const slots = makeSlots(9)
+      const hotbar: FocusGroupTargets = { group: HOTBAR_FOCUS_GROUP, targets: slots }
+
+      expect(resolveFocusNavigationTarget([hotbar], navQuery(slots[3], 'ArrowUp'))).toBe(slots[2])
+      expect(resolveFocusNavigationTarget([hotbar], navQuery(slots[3], 'ArrowDown'))).toBe(slots[4])
+    }),
+  )
+
+  it.effect('it WRAPS at both ends, the same way the mouse wheel already cycles the hotbar', () =>
+    Effect.sync(() => {
+      // wrapHotbarSelection is reused rather than re-derived (domain/input-bindings.ts):
+      // this is the second caller it was written to have.
+      const slots = makeSlots(9)
+      const hotbar: FocusGroupTargets = { group: HOTBAR_FOCUS_GROUP, targets: slots }
+
+      expect(resolveFocusNavigationTarget([hotbar], navQuery(slots[8], 'ArrowRight'))).toBe(slots[0])
+      expect(resolveFocusNavigationTarget([hotbar], navQuery(slots[0], 'ArrowLeft'))).toBe(slots[8])
+    }),
+  )
+
+  it.effect('REGRESSION: while the pointer is locked, arrow navigation answers NOTHING', () =>
+    Effect.sync(() => {
+      // DN-16 §5(a)'s safety rule: the same arrow may be steering the avatar
+      // while locked, and moving the ring underneath that would be the write-side
+      // twin of the bug `reportsKeyboardFocus` already prevents on the read side.
+      const slots = makeSlots(9)
+      const hotbar: FocusGroupTargets = { group: HOTBAR_FOCUS_GROUP, targets: slots }
+
+      expect(
+        resolveFocusNavigationTarget([hotbar], navQuery(slots[3], 'ArrowRight', true)),
+      ).toBeUndefined()
+      expect(slots[3]?.focusCalls()).toBe(0)
+      expect(slots[4]?.focusCalls()).toBe(0)
+    }),
+  )
+
+  it.effect('a code that is not arrow-key navigation answers nothing, Tab included', () =>
+    Effect.sync(() => {
+      const slots = makeSlots(9)
+      const hotbar: FocusGroupTargets = { group: HOTBAR_FOCUS_GROUP, targets: slots }
+
+      expect(resolveFocusNavigationTarget([hotbar], navQuery(slots[3], 'Tab'))).toBeUndefined()
+      expect(resolveFocusNavigationTarget([hotbar], navQuery(slots[3], 'KeyW'))).toBeUndefined()
+      expect(resolveFocusNavigationTarget([hotbar], navQuery(slots[3], undefined))).toBeUndefined()
+    }),
+  )
+
+  it.effect('no group focused answers nothing — an arrow press cannot invent a starting point', () =>
+    Effect.sync(() => {
+      const slots = makeSlots(9)
+      const hotbar: FocusGroupTargets = { group: HOTBAR_FOCUS_GROUP, targets: slots }
+
+      expect(
+        resolveFocusNavigationTarget([hotbar], navQuery(undefined, 'ArrowRight')),
+      ).toBeUndefined()
+      expect(
+        resolveFocusNavigationTarget([hotbar], navQuery({ somethingElse: true }, 'ArrowRight')),
+      ).toBeUndefined()
+    }),
+  )
+
+  it.effect('a single-member group wraps to itself, and does not throw', () =>
+    Effect.sync(() => {
+      // The boundary `wrapHotbarSelection` states a total for: `size = 1` makes
+      // every step land back on the one member there is. Worth asserting through
+      // THIS function too, since it is the one that turns the wrapped index back
+      // into the element to call `.focus()` on.
+      const slots = makeSlots(1)
+      const solo: FocusGroupTargets = { group: HOTBAR_FOCUS_GROUP, targets: slots }
+
+      expect(resolveFocusNavigationTarget([solo], navQuery(slots[0], 'ArrowRight'))).toBe(slots[0])
+      expect(resolveFocusNavigationTarget([solo], navQuery(slots[0], 'ArrowLeft'))).toBe(slots[0])
+    }),
+  )
+
+  it.effect('a group with no member resolved for it never surfaces — reuses the SAME lookup', () =>
+    Effect.sync(() => {
+      // `resolveFocusNavigationTarget` does not look a group up a second time by
+      // name (`resolveFocusMember` is the one lookup both functions share), so
+      // two groups sharing a name cannot make it answer from the WRONG one: the
+      // group it wraps within is always the exact object the active element was
+      // found in, never a same-named group earlier in the list.
+      const empty: FocusGroupTargets = { group: HOTBAR_FOCUS_GROUP, targets: [] }
+      const slots = makeSlots(9)
+      const real: FocusGroupTargets = { group: HOTBAR_FOCUS_GROUP, targets: slots }
+
+      expect(resolveFocusNavigationTarget([empty, real], navQuery(slots[8], 'ArrowRight'))).toBe(
+        slots[0],
+      )
     }),
   )
 })
@@ -1406,6 +1548,196 @@ describe('the adapter observes focus the way a browser would deliver it', () => 
 })
 
 // ---------------------------------------------------------------------------
+// DN-16 §5(a): arrow keys move focus WITHIN a group
+// ---------------------------------------------------------------------------
+//
+// Through the real listener, the way `dom.fire` already exercises Tab and
+// mouse clicks above: nothing here calls `resolveFocusNavigationTarget`
+// directly, so a failure here means the WIRING is wrong even where the pure
+// function above is right.
+
+describe('DN-16 §5(a): arrow keys move focus within a group, through the real listener', () => {
+  it.effect('ArrowRight calls .focus() on the next slot, and on no other slot', () =>
+    Effect.gen(function* () {
+      // What THIS fake can prove: the wiring reads `activeElement`, resolves
+      // it against the roster, and calls `.focus()` on exactly the member
+      // `resolveFocusNavigationTarget` names — through the real listener, not
+      // by calling that function directly.
+      //
+      // What it CANNOT prove: that calling a REAL `HTMLElement.focus()`
+      // actually fires `focusout`/`focusin` and moves `document.activeElement`
+      // — that is a fact about the browser, not about this adapter, and this
+      // fake's `.focus()` is a call counter, not a browser. `a Tab into the
+      // hotbar is visible in the snapshot, end to end` (above) already proves
+      // the OTHER half — that a real `focusin` reaches `keyboardFocus` — and
+      // the two halves compose because both go through the SAME two
+      // `document`-level listeners; nothing here is a second path.
+      const dom = makeFakeDom()
+      const input = yield* makeInputService()
+      const slots = makeSlots(9)
+      installInputListeners(dom.targets, input, {
+        focusGroups: [{ group: HOTBAR_FOCUS_GROUP, targets: slots }],
+      })
+      dom.fire('focusin', { target: slots[3] })
+      dom.setActiveElement(slots[3])
+
+      dom.fire('keydown', { code: 'ArrowRight' })
+
+      expect(slots[4]?.focusCalls()).toBe(1)
+      for (const [index, slot] of slots.entries()) {
+        if (index !== 4) {
+          expect(slot.focusCalls()).toBe(0)
+        }
+      }
+    }),
+  )
+
+  it.effect('ArrowLeft from the first slot wraps to the last, calling .focus() on it alone', () =>
+    Effect.gen(function* () {
+      const dom = makeFakeDom()
+      const input = yield* makeInputService()
+      const slots = makeSlots(9)
+      installInputListeners(dom.targets, input, {
+        focusGroups: [{ group: HOTBAR_FOCUS_GROUP, targets: slots }],
+      })
+      dom.fire('focusin', { target: slots[0] })
+      dom.setActiveElement(slots[0])
+
+      dom.fire('keydown', { code: 'ArrowLeft' })
+
+      expect(slots[8]?.focusCalls()).toBe(1)
+      for (const untouched of slots.slice(0, 8)) {
+        expect(untouched.focusCalls()).toBe(0)
+      }
+    }),
+  )
+
+  it.effect('REGRESSION: while the pointer is locked, ArrowRight does not call .focus() at all', () =>
+    Effect.gen(function* () {
+      // DN-16 §5(a)'s safety rule, through the real listener rather than only the
+      // pure function: the same arrow may be steering the avatar while locked,
+      // and `document.activeElement` does not change on lock (a real browser
+      // does not blur the element either — DN-16 §3), so without this gate the
+      // ring would move underneath a masked focus that the player cannot see.
+      const dom = makeFakeDom()
+      const input = yield* makeInputService()
+      const slots = makeSlots(9)
+      installInputListeners(dom.targets, input, {
+        focusGroups: [{ group: HOTBAR_FOCUS_GROUP, targets: slots }],
+      })
+      dom.fire('focusin', { target: slots[3] })
+      dom.setActiveElement(slots[3])
+      dom.setPointerLockElement({ theCanvas: true })
+
+      dom.fire('keydown', { code: 'ArrowRight' })
+
+      expect(slots[3]?.focusCalls()).toBe(0)
+      expect(slots[4]?.focusCalls()).toBe(0)
+    }),
+  )
+
+  it.effect('a code that is not arrow-key navigation never calls .focus() — Tab included', () =>
+    Effect.gen(function* () {
+      // Tab already works (the browser moves it); this asserts this file does
+      // not ALSO move it, which would fire focus twice for one keypress.
+      const dom = makeFakeDom()
+      const input = yield* makeInputService()
+      const slots = makeSlots(9)
+      installInputListeners(dom.targets, input, {
+        focusGroups: [{ group: HOTBAR_FOCUS_GROUP, targets: slots }],
+      })
+      dom.fire('focusin', { target: slots[3] })
+      dom.setActiveElement(slots[3])
+
+      dom.fire('keydown', { code: 'Tab' })
+      dom.fire('keydown', { code: 'KeyW' })
+
+      expect(slots.every((slot) => slot.focusCalls() === 0)).toBe(true)
+    }),
+  )
+
+  it.effect('REGRESSION: no keydown handler EVER calls preventDefault, arrows included', () =>
+    Effect.gen(function* () {
+      // `mayPreventDefault('keydown')` is false and stays false (see the file
+      // header and `ARROW_FOCUS_NAVIGATION_POLICY.owner === 'host'` in
+      // domain/focus-navigation.ts): suppressing whatever an arrow key would
+      // otherwise have done is the HOST's call, not this adapter's, because a
+      // `keydown` exception for arrows would be a `keydown` exception, and Tab
+      // would be eligible again.
+      const dom = makeFakeDom()
+      const input = yield* makeInputService()
+      const slots = makeSlots(9)
+      installInputListeners(dom.targets, input, {
+        focusGroups: [{ group: HOTBAR_FOCUS_GROUP, targets: slots }],
+      })
+      dom.fire('focusin', { target: slots[3] })
+      dom.setActiveElement(slots[3])
+
+      dom.fire('keydown', { code: 'ArrowRight' })
+      dom.fire('keydown', { code: 'ArrowLeft' })
+
+      expect(dom.preventedDefaults()).toBe(0)
+    }),
+  )
+
+  it.effect('a host that names no groups still registers keydown, and nothing ever calls .focus()', () =>
+    Effect.gen(function* () {
+      const dom = makeFakeDom()
+      const input = yield* makeInputService()
+      installInputListeners(dom.targets, input)
+
+      // No roster to resolve `activeElement` against, so this must not throw —
+      // an event handler that throws is the one thing this file cannot allow.
+      expect(() => dom.fire('keydown', { code: 'ArrowRight' })).not.toThrow()
+    }),
+  )
+
+  it.effect('ArrowUp/ArrowDown also move focus, taking the same step as Left/Right', () =>
+    Effect.gen(function* () {
+      // Through the real listener too, not only the pure function above: the
+      // wiring reads `focusNavigationStepForCode`, which does not special-case
+      // the four codes by name.
+      const dom = makeFakeDom()
+      const input = yield* makeInputService()
+      const slots = makeSlots(9)
+      installInputListeners(dom.targets, input, {
+        focusGroups: [{ group: HOTBAR_FOCUS_GROUP, targets: slots }],
+      })
+      dom.fire('focusin', { target: slots[3] })
+      dom.setActiveElement(slots[3])
+
+      dom.fire('keydown', { code: 'ArrowDown' })
+
+      expect(slots[4]?.focusCalls()).toBe(1)
+    }),
+  )
+
+  it.effect('the roster travels through browserInputLayer, arrows included', () =>
+    Effect.gen(function* () {
+      const dom = makeFakeDom()
+      const slots = makeSlots(9)
+
+      yield* Effect.sync(() => {
+        dom.fire('focusin', { target: slots[0] })
+        dom.setActiveElement(slots[0])
+
+        dom.fire('keydown', { code: 'ArrowRight' })
+
+        expect(slots[1]?.focusCalls()).toBe(1)
+      }).pipe(
+        Effect.provide(
+          browserInputLayer({
+            targets: dom.targets,
+            bindings: defaultBindings(),
+            focusGroups: [{ group: HOTBAR_FOCUS_GROUP, targets: slots }],
+          }),
+        ),
+      )
+    }),
+  )
+})
+
+// ---------------------------------------------------------------------------
 // DN-16 §5(b): WHERE the click landed
 // ---------------------------------------------------------------------------
 //
@@ -1476,7 +1808,7 @@ describe('REGRESSION: a mousedown carries WHERE it landed', () => {
       // somewhere and it breaks toward the truth, because that element IS the
       // one `requestPointerLock` will be called on. No roster produces this by
       // accident — a query like `[data-mx-ui="slot"]` cannot return the canvas.
-      const canvas = { canvas: true }
+      const canvas = { canvas: true, focus: () => undefined }
       const confused: FocusGroupTargets = { group: HOTBAR_FOCUS_GROUP, targets: [canvas] }
 
       expect(resolveClickLanding(canvas, [confused], canvas)).toBe('lock-target')

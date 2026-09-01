@@ -154,6 +154,7 @@ DOM に触るのは `window` 入力アダプタ 1 つだけで、**`tsconfig` �
 | `window` 入力アダプタ（登録 / 正確な解除 / イベント変換 / ロック要求の実行） | `application/browser-input-adapter.ts` | DN-04 / DN-12 / DN-13 / DN-14 |
 | DOM を `lib` ではなく狭い構造的インターフェースで受ける | `application/dom-surface.ts` | DN-15 |
 | キーボードフォーカスの**観測**（`focusin` / `focusout`、ロック中のマスク、Tab を奪わない） | 同上 + `domain/input-bindings.ts` / `application/input-service.ts` | DN-16 |
+| キーボードフォーカスの**移動**（グループ内を矢印キーで、ロック中は動かない） | `domain/focus-navigation.ts` / `application/browser-input-adapter.ts` / `application/dom-surface.ts` | DN-16 §5(a) |
 | カメラのミラー（書き戻し無し） | `domain/camera-mirror.ts` | DN-06 |
 
 各 DN の参照実装証跡（file:line）と書くべき回帰テスト一覧は
@@ -175,13 +176,18 @@ DOM に触るのは `window` 入力アダプタ 1 つだけで、**`tsconfig` �
   `planRenderEnvironment(daylight, farPlane)` は純粋関数として空色、日照強度、
   フォグ色と距離を返す。`WorldRenderer.setEnvironment` は clear color と既存の
   chunk shader uniform を更新し、material や GPU resource を再生成しない。
-- **キーボードフォーカスの「移動」側。** 観測（`focusin` / `focusout` → `InputSnapshot.keyboardFocus`）は
-  **入った**が、グループ**内**を矢印キーで動かす手段は無い。ホットバーはタブストップが 1 つなので、
-  Tab で入れるのはスロット 0 だけである。閉じるには `dom-surface.ts` に `focus()` が要り、
-  どのキーが移動するかとロック中の扱いを mx-ui と一緒に決める必要がある
-  （[`docs/design-notes.md`](./docs/design-notes.md) DN-16 §5(a)、配線手順は
-  [`docs/public-api.md`](./docs/public-api.md) §2.10.6）。
-  **同 §5(b)（HUD の上のクリックがポインタロック要求になる）は閉じた**——
+- **キーボードフォーカスの「移動」側も入った。** 観測（`focusin` / `focusout` →
+  `InputSnapshot.keyboardFocus`）に加え、グループ**内**を矢印キー（`ArrowLeft`/`ArrowUp` で
+  前へ、`ArrowRight`/`ArrowDown` で次へ、循環する）で動かす手段が入った。
+  `dom-surface.ts` に `FocusableTarget`（`focus(): void`）が増え、
+  `resolveFocusNavigationTarget` がロック中は動かさない
+  （[`docs/design-notes.md`](./docs/design-notes.md) DN-16 §5(a)）。
+  `event.preventDefault()` は呼ばない——`ARROW_FOCUS_NAVIGATION_POLICY.owner` は
+  `'host'` で、抑止するかどうかはホストの判断のままである。
+  **mx-ui 側のコード変更は要らない**（`HudView.setKeyboardFocus` は既存のまま呼ばれる回数が
+  増えるだけ）が、**この挙動を mx-ui のオーナーとまだ確認していない**——DN-16 §5(a) の
+  「まだ残っている 1 点」。
+  **同 §5(b)（HUD の上のクリックがポインタロック要求になる）も閉じた**——
   `acquiresPointerLock` がクリックの落ちた先を受け取るようになり、
   mx-ui もホストも変わっていない（[`docs/public-api.md`](./docs/public-api.md) §2.11）。
 - **ゲームパッドとタッチ入力。** `domain/gamepad-input.ts` と

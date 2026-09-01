@@ -1190,7 +1190,8 @@ DN-08 の「blur で保持キーを消す」は、**ブラウザが keyup を送
 
 ### 5. 観測の外に残った 2 点。**どちらも観測の欠陥ではなく、決定が要った**
 
-（(b) は閉じた。(a) は依然 mx-ui と一緒に決める。）
+（両方とも閉じた。(a) の採用条件だった mx-ui 側の合意は、まだ得ていない——
+下記「(a) を閉じたが、まだ残っている 1 点」を参照。）
 
 入っているのは**観測**であり、それは mx-ui が名指しで待っていたもの
 （DN-UI-13i「閉じるにはキーストロークに気づく必要がある」）そのものである。
@@ -1198,23 +1199,43 @@ DN-08 の「blur で保持キーを消す」は、**ブラウザが keyup を送
 入力を所有する側がグループ**内**でフォーカスを動かせるようにするためだ」と書いている。
 その動詞はまだ無い。書いておかないと、次に読む人が観測の側を疑い始める。
 
-**(a) グループ内の移動（矢印キー）が無い。** ホットバーはタブストップが 1 つなので、
-Tab で入れるのは常に `DEFAULT_TAB_STOP_INDEX`（= スロット 0）だけである。
-`focus()` を呼ぶ主体が居ないので、キーボードだけでスロット 1..8 に**リングを動かす手段は無い**。
+**(a) グループ内の移動（矢印キー）が無かった。—— 閉じた。** ホットバーはタブストップが 1 つ
+なので、Tab で入れるのは常に `DEFAULT_TAB_STOP_INDEX`（= スロット 0）だけだった。
+`focus()` を呼ぶ主体が居なかったので、キーボードだけでスロット 1..8 に
+**リングを動かす手段が無かった**。
 
-これを欠陥と呼ばない理由が 2 つある。
-1 つは、キーボードのスロット選択は既に `hotbarSlot1..9`（`Digit1`..`Digit9`）で閉じており、
-リング（キーボードの居場所）と選択（ゲームが使っているスロット）は
-mx-ui のパレットが**意図的に別々の問い**として持っているものだからである
-（`FOCUS_RING` と `SLOT_SELECTED`、別要素・同時点灯可）。
-もう 1 つは、閉じるには**この 1 リポジトリでは決められないこと**が要るからである:
+閉じるには**この 1 リポジトリだけでは決められない 3 点**が要ると書いていた:
 `dom-surface.ts` に `focus()` を足す（DN-15 の代入可能性の証明をやり直す）、
 どのキーが移動するかを決める（矢印か、Home/End か、循環するのか）、
-そして**ロック中はそのキーが移動してはならない**——
-ロック中は同じ矢印がプレイヤーを動かすかもしれないからである。
-述語 1 つでは済まず、`FOCUS_NAVIGATION_POLICY` の隣にもう 1 つ方針が要る。
-**採るなら mx-ui と一緒に決める。** それまで観測だけで正しく閉じているのは
-「Tab で入る / Tab で出る / リングが正しいスロットに出る」までである。
+そして**ロック中はそのキーが移動してはならない**。3 つとも決めて閉じた:
+
+| 決定 | どこ | 理由 |
+| --- | --- | --- |
+| `focus(): void` を `FocusableTarget` として `dom-surface.ts` に足した | `application/dom-surface.ts` | `preventDefault` と同じ理由で REQUIRED。全省略可能型は weak type で、TS が拒否する |
+| 矢印（`ArrowLeft`/`ArrowUp` が -1、`ArrowRight`/`ArrowDown` が +1）、循環する | `domain/focus-navigation.ts` の `focusNavigationStepForCode`、`domain/input-bindings.ts` の `wrapHotbarSelection` | ホットバーは 1 行なので `up`/`down` は `left`/`right` と同じ意味にした。循環はホイールでの既存の巡回（`wrapHotbarSelection`）と揃えた——新しい巻き込みの罠を作らないための再利用 |
+| ロック中は移動しない | `application/browser-input-adapter.ts` の `resolveFocusNavigationTarget` | `reportsKeyboardFocus` が読み出しに掛けているのと同じマスクを、書き込み側にも掛けた |
+
+`FocusGroupTargets.targets` は `ReadonlyArray<unknown>` から `ReadonlyArray<FocusableTarget>` へ広がった——
+比較だけだった箱に、初めて**書き込み**（`.focus()`）が 1 つ増えた。
+`resolveFocusTarget` はそれでも読まない: `Array.prototype.indexOf(target)` は
+`target: unknown` を `FocusableTarget` へ渡すことになり弾かれるので、
+`findIndex((candidate) => candidate === target)` に書き換えた——比較の中身は変わっていない。
+
+**`preventDefault()` は呼んでいない。** `mayPreventDefault` に `keydown` の場合分けは無く、
+これからも無い——足せば Tab も対象になる（REGRESSION テストが既にこれを固定していた）。
+`ARROW_FOCUS_NAVIGATION_POLICY.owner` が `'host'` なのはこのためで、
+矢印キーの既定動作を抑止するかどうかは**ホストの判断**であり、
+このアダプタの判断ではない。
+
+#### (a) を閉じたが、まだ残っている 1 点
+
+`dom-surface.ts` の `focus()` と、キーが動く/動かない条件は
+**この 1 リポジトリで決められる**ことだったので決めて閉じた。
+決められなかったのは「**mx-ui 側がこの挙動を望むかどうか**」で、それはコードの依存ではなく、
+公開後の UX が両リポジトリのオーナーにとって正しいかという合意の問題である
+（`HudView.setKeyboardFocus` は既にどんな index も受け付けるので、
+mx-ui 側のコード変更は要らない——変わったのは「呼ばれる回数」だけである）。
+まだ mx-ui と確認していない。
 
 **(b) HUD の上のクリックが、ポインタロック要求になる。—— 閉じた。**
 これは DN-12 / DN-14 から来ていた既存の穴で、

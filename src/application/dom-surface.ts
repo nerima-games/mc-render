@@ -51,10 +51,15 @@
  *   - `preventDefault` is REQUIRED, both because `Event` really does have it and
  *     because a type whose members are all optional is a "weak type" that TS
  *     refuses to accept anything from;
- *   - `pointerLockElement` is `unknown`, because the adapter only ever compares
- *     it against `null`;
+ *   - `pointerLockElement` and `activeElement` are `unknown`, because the
+ *     adapter only ever compares them — against `null`, and against a host's
+ *     focus roster (DN-16 §5(a));
  *   - `requestPointerLock` returns `unknown`, because lib.DOM has changed it
- *     from `void` to `Promise<void>` and both must satisfy this.
+ *     from `void` to `Promise<void>` and both must satisfy this;
+ *   - `FocusableTarget.focus` is the one member below that is REQUIRED and NOT
+ *     a comparison: arrow-key navigation moves the browser's real focus by
+ *     calling it, so the roster this file accepts is no longer opaque to every
+ *     operation, only to reading.
  *
  * `test/fixtures/dom-surface.ts` is compiled BY A TEST against the real
  * `lib.dom.d.ts` and asserted to produce zero diagnostics, so "a real Window,
@@ -180,14 +185,39 @@ export type DomEventTarget = {
 }
 
 /**
- * `document`: an event target that also answers who holds the pointer lock.
+ * `document`: an event target that also answers who holds the pointer lock and
+ * which element currently has keyboard focus.
  *
- * `unknown` rather than an element type because the adapter only asks whether it
- * is `null`. Naming an element type here would drag in the DOM's node hierarchy
- * for a question that is answered by one comparison.
+ * Both members are `unknown` rather than an element type, for the same reason:
+ * the adapter only ever COMPARES them — `pointerLockElement` against `null`
+ * (`isPointerLockHeld`), `activeElement` against a host's focus roster
+ * (`resolveFocusTarget`, read on every `keydown` so arrow-key navigation knows
+ * which member to move FROM — DN-16 §5(a)). Naming an element type here would
+ * drag in the DOM's node hierarchy for a question either one answers by a
+ * single `===`.
  */
 export type DomDocument = DomEventTarget & {
   readonly pointerLockElement: unknown
+  readonly activeElement: unknown
+}
+
+/**
+ * One roster member the adapter may WRITE to — the one exception to "every DOM
+ * member in this file is only ever compared" that the rest of it states
+ * (`target`, `pointerLockElement`, `activeElement`). Arrow-key navigation
+ * within a focus group (DN-16 §5(a)) has to MOVE the browser's real focus, and
+ * `.focus()` is the one member that lets it.
+ *
+ * `focus(): void`, not an element type: a real `HTMLElement`'s
+ * `focus(options?: FocusOptions): void` satisfies this without a cast — a
+ * function with an extra OPTIONAL parameter is assignable to a function type
+ * that takes fewer. REQUIRED, not optional, for the reason `preventDefault` on
+ * `DomInputEvent` is: an all-optional object type is a "weak type" TypeScript
+ * accepts anything into, which would defeat the one member this type exists to
+ * demand.
+ */
+export type FocusableTarget = {
+  readonly focus: () => void
 }
 
 /**
