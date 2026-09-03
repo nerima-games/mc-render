@@ -24,7 +24,7 @@ plan.md §2.3-1 の分類でいう **名詞**。「どう見えるか」の仕�
 | **実行時入力サービス** | キーボード / マウス / ポインタロック / タッチ / ゲームパッド / キーリマッピング | ポート越しに実装済 `application/input-service.ts` + `window` アダプタ `application/browser-input-adapter.ts` + `application/gamepad-input-adapter.ts`。ブラウザの `GamepadList` 取得はホストの責務 |
 | **フレーム stage 登録** | `render:input` / `render:camera-mirror` / `render:chunk-sync` / `render:draw` / `render:post-fx` | 登録位置は確定済 `stages/`。5 本とも実体。`render:post-fx` はチェーンを組み、既定の `src/browser.ts` または外部ホスト注入の `PostProcessingRenderer` が `EffectComposer` を実行する。 |
 | フレーム毎スクラッチ | 一時 `Map` の事前確保と再利用 | 実装済 `domain/frame-scratch.ts` |
-| グラフィックス品質プリセット適用 | low / medium / high / ultra | `domain/post-processing.ts` がポストFX、`composerRenderTarget`、屈折間引き、DPR 上限、bloom 強度、god-rays サンプル数を定義し、既定ブラウザが EffectComposer／水面屈折へ反映。`WorldRendererOptions.renderDistance` によるカメラ描画距離は実装済み。影解像度と実 Three のライトは現行 API の責務外 |
+| グラフィックス品質プリセット適用 | low / medium / high / ultra | `domain/post-processing.ts` がポストFX、`composerRenderTarget`、屈折間引き、DPR 上限、bloom 強度、god-rays サンプル数を定義し、既定ブラウザが EffectComposer／水面屈折へ反映。カメラ描画距離は生の `farPlane`（`WorldRendererOptions`、既定 300、`application/world-renderer.ts:529,166`）で上書きできるが、`WorldRendererOptions` に `renderDistance` という名のフィールドは無い——参照実装のチャンク基準の `renderDistance` は mc-sim 所有で未公開であり、本パッケージから届かない（`application/world-renderer.ts:145-166`）。影解像度と実 Three のライトは現行 API の責務外 |
 | テクスチャアセット | アトラス画像を同梱（plan.md §5.3「独立アセットリポジトリは作らない」） | **RGBAアトラス生成とレイアウト算術は実装済**。`domain/texture-atlas.ts` が512x512画像をDOM非依存で生成し、`src/browser.ts` が生成値・URLを Three の texture へ転送する。ゲーム固有アセットの配布・キャッシュはホストの責務 — §2.2 |
 | ライトグリッドの**適用** | worldgen が持つ 4bit ライトグリッドを描画に反映 | **実装済** —— world adapter が sky/block light を geometry に運び、chunk shader が AO と合成する。`planRenderEnvironment` は同じ shader の日照、空色、距離フォグを決定的に同期する。 |
 

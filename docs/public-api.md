@@ -66,22 +66,40 @@ const isCanonicalChain: (chain: ReadonlyArray<PostProcessingPass>) => boolean
 | 構築箇所 | `packages/app/application/main/session-post-processing.ts:33-154`（**mc-app にあった**） | mc-render 内。合成層に描画設定を置かない |
 | パス順序 | `addPass` の文の並び（:51, :63, :76, :94, :110, :127, :137, :142） | 配列 `POST_PROCESSING_PASS_ORDER` + 検証関数 |
 | 無効パス | 作って `enabled = false`（composite 有効時） | **作らない**。無効パスもレンダーターゲットは確保する（:53-56） |
-| プリセット解決 | `resolvePreset`（`packages/game/application/settings-service.config.ts`） | `QUALITY_PRESETS`。ただしポストFX部分のみ（§1.3） |
+| プリセット解決 | `resolvePreset`（`packages/game/application/settings-service.config.ts`） | `QUALITY_PRESETS`。ポストFX・屈折間引き・DPR上限は転写済み、影解像度・視界距離は所有者違いで対象外（§1.3） |
 | 定数 | `packages/app/application/main.config.ts:30-32` `GTAO_BLEND_INTENSITY = 0.8`、`BLOOM_*`、`BOKEH_*` | 未移植 |
 
-### 1.3 まだ無いプリセット項目
+### 1.3 プリセット項目の現況
 
-参照実装の `resolvePreset` はポストFX以外も返す。少なくとも:
+`GraphicsQuality` は当初ポストFXの有無しか持たなかったが、現在は 5 フィールドに
+拡張済みである（`domain/post-processing.ts:135-160`）。参照実装の `resolvePreset`
+が返す値のうち、次の 4 つは本実装に転写され、ブラウザアダプタまで配線済み:
 
-- `composerRtType`（`WebGLRenderTarget` の `type`。:48）
-- `bloomStrength`（プリセットごとに違う。:92）
-- `godRaysSamples`（:78。しかも `render-stage.ts:67-69` が**適応的に**減らす）
-- レンダースケール（`browser-runtime-resize-layout.ts` がこれで各パスのサイズを決める）
-- 影解像度・視界距離
+- `composerRenderTarget`（参照実装の `composerRtType` に相当。`WebGLRenderTarget` の
+  `type` を LDR/HDR で切り替える。`domain/post-processing.ts:137,163`、値は
+  `:221,235,249,263`）。`src/browser.ts:285-288` の `qualityUsesHdrRenderTarget` が
+  `THREE.HalfFloatType` / `THREE.UnsignedByteType` へ写像する
+- `bloomStrength`（プリセットごとに違う。`domain/post-processing.ts:141`、値は
+  `:220,234,248,262`）。`src/browser.ts:257-259` が `UnrealBloomPass` へ渡す
+- `godRaysSamples`（`domain/post-processing.ts:139`、値は `:224,238,252,266`）。
+  `src/browser.ts:338` が `createGodRaysShader` へ渡す
+- レンダースケール（`pixelRatioCap`。DPR の上限で、レンダーバッファのサイズを
+  `viewport size × pixelRatio` として直接決める。`domain/post-processing.ts:147`、
+  値は各プリセット）。`src/browser.ts:180-193`（`resolveMaxPixelRatio`/
+  `resolvePixelRatio`）・`:893`（呼び出し）・`:309,373,683`（`setPixelRatio`）で配線済み
 
-`GraphicsQuality` にはポストFXの有無しか入っていない。**本実装で拡張が要る。**
-拡張は `mc-playground-kit` と `mx-ui`（設定画面）の両方に波及するので、
-1 度で決めること。
+残るのは 2 項目で、どちらも「ノブが無い」のではなく「所有者が別にいる」という
+理由で止まっている（`domain/post-processing.ts:201-206`）:
+
+- **影解像度** — このリポジトリに実時間の影を落とす THREE ライトが 1 つも無い
+  （`DirectionalLight` 等は未使用）。既存の焼き込み voxel-lighting モデルの隣に
+  もう 1 つの照明モデルを足す製品判断であり、ノブの追加では済まない。保留は
+  意図であって漏れではない（`domain/post-processing.ts:201-206`）
+- **視界距離** — `WorldRendererOptions` に `renderDistance` は無い
+  （`application/world-renderer.ts:526-557`）。生の `farPlane`（世界単位、既定
+  300、`:529`,`:166`）が逃げ道として既にあるが、参照実装のチャンク基準の
+  `renderDistance` は mc-sim 所有で未公開であり、本パッケージから届かない
+  （`application/world-renderer.ts:145-166`）
 
 ### 1.4 THREE.js アダプタへの契約
 
