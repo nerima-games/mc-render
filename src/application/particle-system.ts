@@ -28,6 +28,40 @@
  * texture the chunk material samples — particles are chips off blocks and
  * sample the same tiles, which is why `ParticlePool.uvOffsets` holds an atlas
  * origin rather than a colour.
+ *
+ * IT DOES NOT USE `THREE.InstancedMesh` (DN-20). `domain/particle-pool.ts`'s
+ * header names the reference's choice of `InstancedMesh`, but the property
+ * that actually matters — one geometry, one material, one draw call — is a
+ * property of the GEOMETRY, not of the mesh class: `ThreeInstancedBufferGeometry`
+ * above already says so (`instanceCount` is what tells three "draw the first N
+ * instances"). `InstancedMesh` is `Mesh` PLUS an `instanceMatrix` convenience
+ * built on that same instanced-geometry mechanism, so skipping it does not cost
+ * a draw call — this file already had the one draw call before this question
+ * was even asked. What `InstancedMesh` would add is `instanceMatrix`, and nothing
+ * here needs it, at a real cost:
+ *
+ *   - `InstancedMesh.instanceMatrix` is a `Float32Array(count * 16)` — a full
+ *     `Matrix4` per instance, 64 bytes, because a mesh instance can rotate and
+ *     shear. A particle here needs `instancePosition` (3), `instanceScale` (1)
+ *     and `instanceUvOffset` (2) — 24 bytes (`PARTICLE_INSTANCE_ATTRIBUTES`,
+ *     `domain/particle-shader.ts`) — because the billboard rotation happens in
+ *     the vertex shader, in view space, from the camera basis
+ *     (`domain/particle-shader.ts` "WHY THE QUAD IS BILLBOARDED IN THE VERTEX
+ *     STAGE"). `InstancedMesh` would carry 40 bytes/instance nobody reads, and
+ *     `instanceMatrix` still has no slot for `instanceUvOffset` — the atlas
+ *     tile origin would need its OWN `InstancedBufferAttribute` bolted on
+ *     alongside it regardless, which is the attribute this file already
+ *     builds directly. Adopting `InstancedMesh` would not remove a custom
+ *     attribute; it would add a second one next to the ones already required.
+ *   - Writing a `Matrix4` per instance means calling `setMatrixAt(i, matrix)`
+ *     in a loop, once per particle, every frame that has a live particle. THE
+ *     POOL IS NOT COPIED (above) is exactly the property that loop would
+ *     undo — `advanceParticles` already leaves the final bytes sitting in the
+ *     pool's own arrays, and `InstancedBufferAttribute` reads them in place.
+ *
+ * If a later change needs true per-instance rotation or non-uniform scale,
+ * that is the point to re-open this, not before — the two costs above are the
+ * price of a capability nothing here uses yet.
  */
 import { Effect, Ref } from 'effect'
 import {
