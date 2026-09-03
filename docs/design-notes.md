@@ -27,11 +27,15 @@ plan.md §3.9「設計注意（参照実装の実測知見）」の全項目を�
 | DN-17 | パーティクルプールは固定容量 + **drop-oldest**。乱数はシード付き | 済 |
 | DN-18 | 水面は**平面**なので `forceSinglePass` は正しい。屈折プリパスはゲート 6 つ | 済 |
 | DN-19 | アトラス UV はハーフテクセルだけ内側に寄せる。V は反転する | 済 |
+| DN-20 | パーティクルは `InstancedMesh` を使わない。`InstancedBufferGeometry` で十分 | 済 |
 
 DN-17 / DN-18 / DN-19 は plan.md §3.9 の設計注意リストには無い。
 参照実装の**移植中に見つかった**もので、扱いは他と同じ（証跡 file:line + 回帰テスト名）である。
+DN-20 も同リストには無いが、見つかった欠落ではなく**外部のギャップ一覧が「instanced-mesh クラスが無い」
+と名指ししたことへの回答**である —— 実装済みの判断を、後から読む人のために文章にしただけで、
+挙動は変えていない。
 **全文の論証はモジュールのヘッダにある** —— このリポジトリは
-`domain/frame-scratch.ts` 以来そこを一次の置き場にしており、下の 3 節はその索引である。
+`domain/frame-scratch.ts` 以来そこを一次の置き場にしており、下の 4 節はその索引である。
 
 ---
 
@@ -1237,6 +1241,15 @@ DN-08 の「blur で保持キーを消す」は、**ブラウザが keyup を送
 mx-ui 側のコード変更は要らない——変わったのは「呼ばれる回数」だけである）。
 まだ mx-ui と確認していない。
 
+**もう 1 点、mx-ui との合意とは別の軸で残っている。** 実 `HTMLElement.focus()` が実際に
+`document.activeElement` を動かし `focusout`/`focusin` を発火させることは、
+`test/browser-input-adapter.test.ts` のフェイクでは確かめられない——それはブラウザについての
+事実であって、このアダプタについての事実ではない（同テストのコメント）。手作業で CDP 越しに
+実ブラウザを駆動して一度確認されたが、コミットされたチェックとしては存在しない。
+このリポジトリがブラウザテスト一式を持たない理由と、この 1 点をどう扱うかは
+[testing.md](./testing.md) §8.2 に書く——ブラウザテストを足すかどうかは
+1 タスクの一存で決めることではない。
+
 **(b) HUD の上のクリックが、ポインタロック要求になる。—— 閉じた。**
 これは DN-12 / DN-14 から来ていた既存の穴で、
 **フォーカス可能な DOM UI が実在するようになったことで初めて手が届く**ようになった。
@@ -1536,3 +1549,63 @@ DN-02 の述語（`shared && two-pass && cutout`）は**水面を分類できな
 **手元で試した内容次第で生き延びる**という最悪の組合せである。
 `tileIndexForUvOrigin` で逆写像を作り、256 タイル全数で往復させている。
 **片方向だけでは捕まらない**: 反転を逆に書いても写像は依然として全単射である。
+
+---
+
+## DN-20 パーティクルは `InstancedMesh` を使わない。`InstancedBufferGeometry` で十分
+
+全文: `application/particle-system.ts` のヘッダ「IT DOES NOT USE `THREE.InstancedMesh`」。
+
+### 背景
+
+`domain/particle-pool.ts` のヘッダは参照実装（`particle-system-factory.ts:96-128`）が
+`THREE.InstancedMesh` を使っていたことを記録している。本リポジトリの実装は
+**それを使っていない** —— 代わりに `InstancedBufferGeometry` と
+`InstancedBufferAttribute` を `application/three-surface.ts` の
+`ThreeInstancedSurface` 経由で直接組んでいる（`InstancedMesh` 自身がその 2 つの上に
+built されている、three.js 本体の実装と同じ層）。外部のギャップ一覧がこれを
+「instanced-mesh クラスが無い」と読んだ形跡があるが、**instancing 自体は既にある**——
+無いのは `InstancedMesh` という名前の便利クラスだけである。
+
+**「1 描画呼び出し」は `InstancedMesh` の持ち物ではない。** それは
+`InstancedBufferGeometry` 自身の性質で、`ThreeInstancedBufferGeometry` の
+コメント（`application/three-surface.ts`）が既に書いている——`instanceCount` が
+three に「先頭 N インスタンスだけ描け」と伝える、その 1 フィールドがそれである。
+`InstancedMesh` は `Mesh` に `instanceMatrix` という便利フィールドを足したものに
+過ぎず、同じ instanced-geometry の仕組みの上に built されている。だから
+`InstancedMesh` を使わない選択は描画呼び出しを 1 つも増やさない —— この問いが
+出る前から、描画は既に 1 回である。増えるのは `instanceMatrix` を**足すかどうか**
+だけで、本実装はそれを必要としない。
+
+### 使わない理由。コストが 2 つ増え、買えるものが無い
+
+| | `InstancedMesh` | 本実装 |
+| --- | --- | --- |
+| インスタンスあたりのバイト数 | `instanceMatrix`: `Float32Array(count * 16)` = 64 バイト（`Matrix4` 1 個） | `instancePosition`(3) + `instanceScale`(1) + `instanceUvOffset`(2) = 24 バイト（`PARTICLE_INSTANCE_ATTRIBUTES`、`domain/particle-shader.ts`） |
+| 毎フレームの更新 | `setMatrixAt(i, matrix)` をインスタンスごとに呼ぶループが要る | 無い。`ParticlePool` の typed array を直接エイリアスしているので `advanceParticles` の結果がそのまま GPU に渡るバイト列 |
+| アトラス UV の置き場 | `instanceMatrix` に無い。結局 `instanceUvOffset` 用の `InstancedBufferAttribute` を別途足すことになる | 最初からそのアタッチメント 1 つだけ |
+
+`Matrix4` が要るのは任意回転・非一様スケールのためで、このパーティクルは
+どちらも使わない —— ビルボード回転はカメラ基底からの頂点シェーダ計算であって
+インスタンスごとの行列ではない（`domain/particle-shader.ts` 「WHY THE QUAD IS
+BILLBOARDED IN THE VERTEX STAGE」）。買えない能力に 40 バイト/インスタンスと
+毎フレームのループを払う理由が無い。しかも `instanceUvOffset` は `instanceMatrix`
+の中に場所が無いので、`InstancedMesh` に切り替えても**カスタム attribute が 1 つ
+減るわけではない** —— `instanceMatrix` の分だけ増える。
+
+`application/particle-system.ts` の「THE POOL IS NOT COPIED」はこの判断の裏面でもある:
+`setMatrixAt` ループを入れれば、そのループ自体がここで避けているコピー/マーシャリングに
+なる。
+
+### 再開の条件
+
+インスタンスごとの回転や非一様スケールが要る機能が来たとき——そのときだけ
+`InstancedMesh` への切り替えを検討する。現状はどちらも使っていない。
+
+### 回帰テスト
+
+`test/particle-system.test.ts` の `geometry.instanceCount` を読むテスト群が、
+「1 ジオメトリ・1 マテリアル・1 描画呼び出し・可変インスタンス数」という形そのものを
+固定している。「`InstancedMesh` を使っていないこと」自体を検査するテストは無い——
+使っていないのは import の不在であり、型システムがそれを保証する
+（`ThreeInstancedSurface` に `InstancedMesh` のコンストラクタが無い）。

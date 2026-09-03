@@ -542,26 +542,42 @@ DOM は**偽物**で駆動している。§5.2 の「ブラウザを要するテ
 
 ### 8.2 キーボードフォーカス（DN-16）
 
-`test/input.test.ts` に 3 describe、`test/browser-input-adapter.test.ts` に 2 describe。
-全表は [design-notes.md](./design-notes.md) DN-16 にある。**この 3 本が要**である。
+`test/input.test.ts` に focus 関連の describe、`test/browser-input-adapter.test.ts` には
+`DN-16 §5(a): resolveFocusNavigationTarget answers WHERE arrow navigation moves TO` と
+`DN-16 §5(a): arrow keys move focus within a group, through the real listener` を含む
+4 describe（§5(a) が閉じたことで 2 本増えた——下記参照）。
+全表は [design-notes.md](./design-notes.md) DN-16 にある。
 
 | テスト | 何を守るか |
 | --- | --- |
 | `REGRESSION: no focus handler EVER calls preventDefault` | Tab を奪えばキーボードトラップ（WCAG 2.1 SC 2.1.2）。実リスナ越しに、ロック中でも 0 件であることを assert する |
 | `REGRESSION: the lock MASKS the focus, it does not forget it` | ロック中に消すと、明けたときリングとブラウザのフォーカスがずれる |
 | `endFrame does NOT clear it: focus is a LEVEL, like pressed and unlike justPressed` | フレーム境界の一貫性。エッジ扱いにするとリングがリフレッシュレートで点滅する |
+| `ArrowRight calls .focus() on the next slot, and on no other slot`（と対の Left/wrap ケース） | 実リスナ越しに、`activeElement` → ロスタ照合 → 名指しされた 1 要素だけへの `.focus()` 呼び出し、という配線を固定する |
 
 `focusin` / `focusout` も偽 DOM で駆動している。フォーカスは Playwright なら実在するが、
 **ロック中の分岐は相変わらず届かない**（§3.2）ので、
 「ロック中はリングを出さない」は node 側でしか押さえられない。
 
-**このうち 1 つには意図的にテストが無い**（[design-notes.md](./design-notes.md) DN-16 §5(a)）。
-無いのは実装が無いからであり、テストの穴ではない。ここに書いておくのは、
-§8.2 の表を「フォーカスまわりは全部押さえてある」と読まれないようにするためである。
+**この表はかつて「§5(a) は意図的にテストが無い」と書いていた。もう正しくない——
+実装が入り、上の 4 本目の行がそれを固定した（DN-16 §5(a)、「(a) を閉じたが、まだ残っている 1 点」参照）。
+テーブルを直すときの注意は §1 冒頭のものと同じ: 片方だけ直すと矛盾がまたこのファイルの中で閉じる。**
 
-| 未実装 | なぜ今テストが無いか |
-| --- | --- |
-| 矢印キーでグループ**内**を移動する | `focus()` を呼ぶ主体がまだ無い。入れるには `dom-surface.ts` に動詞が 1 つ増え、DN-15 の代入可能性の証明をやり直すことになる。どのキーが移動するか、ロック中はどう振る舞うかは mx-ui と一緒に決める |
+**残っている限界（テストの穴ではなく、この設計が最初から選ばなかったもの）。**
+`ArrowRight calls .focus() on the next slot` が固定しているのは「配線が正しい要素の
+`.focus()` を呼ぶこと」であって、**その呼び出しが実ブラウザで `focusout`/`focusin` を発火させ
+`document.activeElement` を実際に動かすこと」ではない——このフェイクの `.focus()` は
+呼び出し回数を数えるだけで、ブラウザではない（テスト自身のコメントがそう書いている）。
+その事実は 2026 年 8 月末に一度、実ブラウザを CDP (Chrome DevTools Protocol) で駆動して
+手作業で確かめられた——`document.activeElement` が実際に動き、入力スナップショットがそれを
+報告した。**その確認はコミットされたチェックとして存在しない。** §5.2 の規約
+（`environment: 'node'` 固定、`jsdom` も Playwright も入れない）と、
+§8.1 の理由（アダプタが触る DOM メンバは 8 個だけで、ポインタロックはどのみち
+Playwright/SwiftShader で駆動できない——§3.2）から、この 1 点のためだけに
+ブラウザテスト一式を足すべきかは、**このリポジトリの他のどの検証判断より大きい決定**で、
+1 タスクの一存では決めない。あるとすれば、フォーカスはロックと違って
+Playwright で実際に検証可能な数少ない領域だという点が §8.1 の前提（「実ブラウザでも
+試しようがない」）と食い違う——それが再検討の理由になるなら、この段落を起点にすること。
 
 **もう 1 つ（HUD の上のクリックがロック要求になる）は閉じた**（DN-16 §5(b)）。
 `acquiresPointerLock` は `(button, state, landing)` になり、`landing` は
