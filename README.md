@@ -195,8 +195,10 @@ DOM に触るのは `window` 入力アダプタ 1 つだけで、**`tsconfig` �
   解放を実装する。タッチ入力も `browser-input-adapter.ts` と
   `test/touch-controls.test.ts` に実装済み。ブラウザの `GamepadList` 取得と毎フレームの
   `poll` 呼び出しはホストの責務で、DOM API は mc-render の型境界に入れない。
-- **グラフィックス品質プリセットの残り半分。** レンダースケール・影解像度・視界距離・
-  `bloomStrength` / `godRaysSamples`・`composerRtType`。
+- **グラフィックス品質プリセットは 6 項目中 4 項目が配線済み。** `composerRenderTarget`・
+  `bloomStrength`・`godRaysSamples`・レンダースケール（`pixelRatioCap`）は実装され、
+  ブラウザアダプタまで配線済み。残る影解像度と視界距離は「ノブが無い」のではなく
+  所有者が別にいるための保留である。詳細は [`docs/public-api.md`](./docs/public-api.md) §1.3。
 - **ビルドは実装済みだが、publish はまだ運用していない。** `pnpm build` が `dist/index.js` と宣言ファイルを生成し、
   `package.json` の `exports` はその生成物を指す。`version` は `0.x` に留める（[`docs/versioning.md`](./docs/versioning.md)）。
 - **カバレッジ閾値は全指標 100% に設定済み。** 未達時は `pnpm test:coverage` が失敗する。
