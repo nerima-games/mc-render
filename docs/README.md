@@ -62,9 +62,9 @@ mc-playground-kit は devDependency 専用で出荷ビルドに入らないた�
 | カメラのミラー（書き戻し無し） | `domain/camera-mirror.ts` | DN-06 |
 
 まだ無いもの: **mc-render 単体の fixture ビューア**、テクスチャ PNG の THREE 転送、
-テクスチャ PNG の同梱、**キーボードフォーカスの「移動」側**（観測は入った。矢印キーでグループ内を動かす
-手段は無く、閉じるには mx-ui と一緒に決める必要がある —— [design-notes.md](./design-notes.md) DN-16 §5(a)。
-なお §5(b) の「HUD の上のクリックがロック要求になる」は閉じた ——
-[public-api.md](./public-api.md) §2.11）、
-内蔵 fixture ビューア、
-グラフィックス品質プリセットの残り半分（レンダースケール・影解像度・視界距離）。
+テクスチャ PNG の同梱、内蔵 fixture ビューア、
+グラフィックス品質プリセットの残り物（影解像度は所有者違いで対象外、視界距離のチャンク基準値は
+mc-sim 所有で未公開 —— [public-api.md](./public-api.md) §1.3）。
+
+キーボードフォーカスの「移動」側（矢印キーでグループ内を動かす手段）は閉じた ——
+[public-api.md](./public-api.md) §2.10.7。
