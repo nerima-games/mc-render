@@ -1,7 +1,10 @@
+import type { Dimension } from '@nerima-games/mc-kernel'
 import { describe, expect, it } from '@effect/vitest'
 import { Effect } from 'effect'
 import {
   DAY_SKY_COLOR,
+  END_VOID_COLOR,
+  NETHER_FOG_COLOR,
   NIGHT_SKY_COLOR,
   planRenderEnvironment,
 } from '../src/domain/render-environment'
@@ -45,4 +48,73 @@ describe('render environment planning', () => {
       expect(first.fogColor.every((value) => value >= 0 && value <= 1)).toBe(true)
     }),
   )
+
+  describe('dimension-aware sky', () => {
+    it.effect('defaults to `overworld`, and an explicit `overworld` is byte-for-byte the same plan a caller got before dimensions existed', () =>
+      Effect.sync(() => {
+        const implicit = planRenderEnvironment(0.6, 200)
+        const explicit = planRenderEnvironment(0.6, 200, 'overworld')
+        expect(implicit).toStrictEqual(explicit)
+        expect(implicit.dimension).toBe('overworld')
+        expect(implicit.skyColor).toBe(planRenderEnvironment(0.6, 200).skyColor)
+        expect(planRenderEnvironment(0, 200, 'overworld').skyColor).toBe(NIGHT_SKY_COLOR)
+        expect(planRenderEnvironment(1, 200, 'overworld').skyColor).toBe(DAY_SKY_COLOR)
+      }),
+    )
+
+    it.effect('the nether has no visible sky and no day/night cycle: `daylight` does not move it', () =>
+      Effect.sync(() => {
+        const night = planRenderEnvironment(0, 200, 'nether')
+        const day = planRenderEnvironment(1, 200, 'nether')
+        // `daylight` still echoes its (clamped) input either way; every
+        // visually-relevant field ignores it entirely for this dimension.
+        expect(night.skyColor).toBe(day.skyColor)
+        expect(night.fogColor).toStrictEqual(day.fogColor)
+        expect(night.fogNear).toBe(day.fogNear)
+        expect(night.fogFar).toBe(day.fogFar)
+        expect(night.sunIntensity).toBe(day.sunIntensity)
+        expect(night.dimension).toBe('nether')
+        expect(night.skyColor).toBe(NETHER_FOG_COLOR)
+        expect(night.sunIntensity).toBe(0)
+      }),
+    )
+
+    it.effect('the end is a dark, sunless void, distinct from both overworld night and the nether', () =>
+      Effect.sync(() => {
+        const plan = planRenderEnvironment(1, 200, 'end')
+        expect(plan.dimension).toBe('end')
+        expect(plan.skyColor).toBe(END_VOID_COLOR)
+        expect(plan.sunIntensity).toBe(0)
+        expect(plan.skyColor).not.toBe(NIGHT_SKY_COLOR)
+        expect(plan.skyColor).not.toBe(NETHER_FOG_COLOR)
+      }),
+    )
+
+    it.effect('the three dimensions render three different sky colours for the same daylight and far plane', () =>
+      Effect.sync(() => {
+        const colors = new Set(
+          (['overworld', 'nether', 'end'] as const).map(
+            (dimension) => planRenderEnvironment(1, 200, dimension).skyColor,
+          ),
+        )
+        expect(colors.size).toBe(3)
+      }),
+    )
+
+    it.effect("the nether's fog is tighter than the overworld's, regardless of the far plane", () =>
+      Effect.sync(() => {
+        const overworld = planRenderEnvironment(1, 200, 'overworld')
+        const nether = planRenderEnvironment(1, 200, 'nether')
+        expect(nether.fogNear).toBeLessThan(overworld.fogNear)
+        expect(nether.fogFar).toBeLessThan(overworld.fogFar)
+      }),
+    )
+
+    it.effect('an unrecognized dimension falls back to `overworld`, the same defensive treatment this file gives NaN', () =>
+      Effect.sync(() => {
+        const invalid = 'moon' as Dimension
+        expect(planRenderEnvironment(1, 200, invalid)).toStrictEqual(planRenderEnvironment(1, 200, 'overworld'))
+      }),
+    )
+  })
 })

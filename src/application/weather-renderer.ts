@@ -10,7 +10,12 @@ import {
   type WorldWeatherSnapshot,
   planWeatherFrame,
 } from '../domain/weather-rendering.js'
-import { type RenderEnvironmentPlan, type Viewport, planRenderEnvironment } from '../domain/render-environment.js'
+import {
+  type RenderEnvironmentPlan,
+  type Viewport,
+  planRenderEnvironment,
+} from '../domain/render-environment.js'
+import type { Dimension } from '@nerima-games/mc-kernel'
 
 export type WeatherPrecipitationResource = {
   readonly update: (particles: ReadonlyArray<PrecipitationParticle>) => Effect.Effect<void>
@@ -31,8 +36,12 @@ export type WeatherRenderer = {
     camera: WeatherCameraPosition,
   ) => Effect.Effect<WeatherRenderPlan>
   readonly resize: (viewport: Viewport) => Effect.Effect<void>
-  /** Stop precipitation and restore an ordinary clear environment. Idempotent. */
-  readonly stop: (daylight?: number) => Effect.Effect<void>
+  /**
+   * Stop precipitation and restore an ordinary clear environment. Idempotent.
+   * `dimension` selects which dimension's clear sky to restore; absent means
+   * `overworld`, unchanged from before dimensions existed.
+   */
+  readonly stop: (daylight?: number, dimension?: Dimension) => Effect.Effect<void>
   readonly state: Effect.Effect<WeatherRenderState>
   readonly dispose: Effect.Effect<void>
 }
@@ -63,11 +72,11 @@ export const makeWeatherRenderer = (
       activePrecipitation = Option.none()
     })
 
-    const stop = (daylight: number = DEFAULT_STOP_DAYLIGHT): Effect.Effect<void> =>
+    const stop = (daylight: number = DEFAULT_STOP_DAYLIGHT, dimension?: Dimension): Effect.Effect<void> =>
       Effect.gen(function* stopWeatherRendererEffect() {
         yield* releaseEffect
         renderState = INITIAL_WEATHER_RENDER_STATE
-        yield* ports.setEnvironment(planRenderEnvironment(daylight, options.farPlane))
+        yield* ports.setEnvironment(planRenderEnvironment(daylight, options.farPlane, dimension))
       })
 
     /** Build a fresh resource for `kind`, releasing whatever was active first. */

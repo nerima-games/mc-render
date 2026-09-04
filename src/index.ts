@@ -69,7 +69,16 @@ export * from './domain/mob-visual.js'
 export * from './domain/particle-pool.js'
 export * from './domain/particle-shader.js'
 export * from './domain/post-processing.js'
-export { DAY_SKY_COLOR, NIGHT_SKY_COLOR, DEFAULT_ENVIRONMENT_FAR_PLANE, type RenderEnvironmentPlan } from './domain/render-environment.js'
+export {
+  DAY_SKY_COLOR,
+  DEFAULT_DIMENSION,
+  DEFAULT_ENVIRONMENT_FAR_PLANE,
+  END_VOID_COLOR,
+  NETHER_FOG_COLOR,
+  NIGHT_SKY_COLOR,
+  type RenderEnvironmentPlan,
+  planRenderEnvironment,
+} from './domain/render-environment.js'
 export * from './domain/weather-rendering.js'
 export * from './domain/texture-atlas.js'
 export * from './domain/vehicle-visual.js'
