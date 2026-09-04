@@ -982,6 +982,18 @@ uniform box は material と共有したまま更新するため GPU resource �
 resize listener と renderer/material の解放責務は従来どおり scope finalizer が所有し、
 環境更新は listener や resource を追加しない。
 
+`planRenderEnvironment` は第 3 引数に `@nerima-games/mc-kernel` の
+`Dimension`（`'overworld' | 'nether' | 'end'`）を取る。省略時は `'overworld'` で、既存の
+呼び出しはすべて出力が変わらない。`nether`（太陽も昼夜サイクルも無い、閉じた霧）と
+`end`（暗い、太陽の無い虚空）は `daylight` を無視し、`RenderEnvironmentPlan.dimension` に
+解決済みの次元を返す。`WorldRendererOptions.dimension`、`WorldWeatherSnapshot.dimension`、
+`WeatherRenderer.stop(daylight?, dimension?)` の 3 箇所がこれを配線する。`Dimension` 自体は
+再エクスポートしない — `src/index.ts` 末尾に書かれている既存方針
+（「Kernel and meshing vocabulary are not re-exported from this package」）どおり、
+呼び出し側は `@nerima-games/mc-kernel` から直接 import する。恒星（`end` の星空）は
+色の差し替えではなく新規のジオメトリなので、この変更には含めていない — 次の変更のための
+フックとして `RenderEnvironmentPlan.dimension` フィールドだけが値に残る。
+
 ### 3.1 購読先は決まった — mc-sim ではなく mc-worldgen
 
 これは長らく「購読先が設計されていないから書けない」と書かれていた。**その障害は無くなった。**

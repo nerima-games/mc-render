@@ -105,6 +105,7 @@ import {
   planWitherSkullVisual,
   planWitherVisual,
 } from '../domain/wither-visual.js'
+import type { Dimension } from '@nerima-games/mc-kernel'
 import type { MirroredCameraState } from '../domain/camera-mirror.js'
 import type { PostProcessingStep } from '../domain/post-processing.js'
 import type { WeatherFrameOptions } from '../domain/weather-rendering.js'
@@ -530,6 +531,8 @@ export type WorldRendererOptions<TMaterial extends ThreeMaterial = ThreeMaterial
   readonly clearColor?: number
   /** Initial daylight in the inclusive 0..1 range; invalid values are clamped by the planner. */
   readonly daylight?: number
+  /** Initial dimension; absent means `overworld`, the sky every caller got before dimensions existed. */
+  readonly dimension?: Dimension
   /** Port used by a shader material to receive the same plan as the canvas clear colour. */
   readonly applyMaterialEnvironment?: (environment: RenderEnvironmentPlan) => void
   /** Draw edges instead of filled faces. For diagnosing a geometry, not for play. */
@@ -967,7 +970,11 @@ export const makeWorldRenderer = <
         stencil: false,
       })
       renderer.setSize(viewport.width, viewport.height, UPDATE_CANVAS_STYLE)
-      const initialEnvironment = planRenderEnvironment(options.daylight ?? FULL_SUN_INTENSITY, settings.farPlane)
+      const initialEnvironment = planRenderEnvironment(
+        options.daylight ?? FULL_SUN_INTENSITY,
+        settings.farPlane,
+        options.dimension,
+      )
       renderer.setClearColor(options.clearColor ?? initialEnvironment.skyColor, SKY_CLEAR_ALPHA)
       options.applyMaterialEnvironment?.(initialEnvironment)
       const scene: ThreeScene = new three.Scene()

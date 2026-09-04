@@ -31,7 +31,7 @@ import {
 } from '../src/application/world-renderer'
 import { spawnBurst } from '../src/domain/particle-pool'
 import { FAKE_CANVAS, makeFakeThree } from './support/fake-three'
-import { planRenderEnvironment } from '../src/domain/render-environment'
+import { END_VOID_COLOR, planRenderEnvironment } from '../src/domain/render-environment'
 import { planMobVisual } from '../src/domain/mob-visual'
 import { buildPostProcessingChain, QUALITY_PRESETS } from '../src/domain/post-processing'
 import { planWitherSkullVisual, planWitherVisual } from '../src/domain/wither-visual'
@@ -144,6 +144,15 @@ describe('acquiring the renderer', () => {
         [SKY_CLEAR_COLOR, SKY_CLEAR_ALPHA],
         [night.skyColor, SKY_CLEAR_ALPHA],
       ])
+    }),
+  )
+
+  it.effect('honours an initial `dimension` option for the startup clear colour, without changing the default', () =>
+    Effect.gen(function* () {
+      const three = makeFakeThree()
+      yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT, { dimension: 'end' })
+
+      expect(three.renderer().clearColors()).toStrictEqual([[END_VOID_COLOR, SKY_CLEAR_ALPHA]])
     }),
   )
 

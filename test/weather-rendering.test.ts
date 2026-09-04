@@ -200,4 +200,21 @@ describe('weather frame planning', () => {
       ).toBe(0)
     }),
   )
+
+  it.effect("threads the snapshot's dimension into the planned environment, defaulting to `overworld`", () =>
+    Effect.sync(() => {
+      const clear: WorldWeatherSnapshot = { ...rain, mode: 'clear', intensity: 0 }
+      expect(
+        planWeatherFrame({ camera, previous: INITIAL_WEATHER_RENDER_STATE, snapshot: clear }).plan.environment
+          .dimension,
+      ).toBe('overworld')
+      expect(
+        planWeatherFrame({
+          camera,
+          previous: INITIAL_WEATHER_RENDER_STATE,
+          snapshot: { ...clear, dimension: 'end' },
+        }).plan.environment.dimension,
+      ).toBe('end')
+    }),
+  )
 })

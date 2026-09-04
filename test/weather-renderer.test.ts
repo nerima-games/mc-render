@@ -4,6 +4,7 @@ import {
   makeWeatherRenderer,
   type WeatherPrecipitationResource,
 } from '../src/application/weather-renderer'
+import type { RenderEnvironmentPlan } from '../src/domain/render-environment'
 import type { PrecipitationKind, WorldWeatherSnapshot } from '../src/domain/weather-rendering'
 
 const CLEAR_INTENSITY = 0
@@ -80,6 +81,26 @@ describe('weather renderer resource lifecycle', () => {
       yield* renderer.stop(0.25)
       expect(events).toStrictEqual(['dispose:rain', 'dispose:snow'])
       expect(yield* renderer.state).toMatchObject({ frame: 0, lightningFramesRemaining: 0 })
+    }),
+  )
+
+  it.effect('`stop` forwards the requested dimension to the restored environment', () =>
+    Effect.gen(function* () {
+      const environments: Array<RenderEnvironmentPlan> = []
+      const renderer = yield* makeWeatherRenderer({
+        setEnvironment: (environment) => Effect.sync(() => { environments.push(environment) }),
+        createPrecipitation: () => Effect.succeed({
+          update: () => Effect.void,
+          resize: () => Effect.void,
+          dispose: Effect.void,
+        }),
+      })
+
+      yield* renderer.stop(1, 'end')
+      expect(environments.at(-1)?.dimension).toBe('end')
+
+      yield* renderer.stop(1)
+      expect(environments.at(-1)?.dimension).toBe('overworld')
     }),
   )
 })

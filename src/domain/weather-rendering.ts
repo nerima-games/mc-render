@@ -3,6 +3,7 @@ import {
   type RenderEnvironmentPlan,
   planRenderEnvironment,
 } from './render-environment.js'
+import type { Dimension } from '@nerima-games/mc-kernel'
 
 export type WeatherMode = 'clear' | 'rain' | 'thunder' | 'snow'
 export type PrecipitationKind = 'rain' | 'snow'
@@ -16,6 +17,8 @@ export type WorldWeatherSnapshot = {
   readonly seed: number
   /** Increment for each lightning strike. Repeated snapshots do not retrigger it. */
   readonly lightningSequence?: number
+  /** Which dimension the camera is in. Absent means `overworld`. */
+  readonly dimension?: Dimension
 }
 
 /**
@@ -219,7 +222,7 @@ const weatherEnvironment = ({
   lightningFlash,
   snapshot,
 }: WeatherEnvironmentInput): RenderEnvironmentPlan => {
-  const base = planRenderEnvironment(snapshot.daylight, farPlane)
+  const base = planRenderEnvironment(snapshot.daylight, farPlane, snapshot.dimension)
   const storm = stormIntensity(snapshot.mode, intensity)
   const cover = coverIntensity(snapshot.mode, intensity)
   const darkness = clamp01(cover * DARKNESS_COVER_WEIGHT + storm * DARKNESS_STORM_WEIGHT)
@@ -232,6 +235,7 @@ const weatherEnvironment = ({
   const fogScale = UNIT_INTERVAL_MAX - cover * FOG_SCALE_COVER_WEIGHT
   return {
     daylight: base.daylight,
+    dimension: base.dimension,
     fogColor: [
       colorChannel(skyColor, RED_PLACE_VALUE) / CHANNEL_MAX,
       colorChannel(skyColor, GREEN_PLACE_VALUE) / CHANNEL_MAX,
