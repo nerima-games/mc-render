@@ -358,7 +358,10 @@ const normaliseSeed = (seed: number): number => {
  * scale collapses the quad to a point. The reference reaches the same place with
  * an explicit `ZERO_MATRIX` (particle-system-factory.ts:36).
  */
+declare const particlePoolBrand: unique symbol
+
 export type ParticlePool = {
+  readonly [particlePoolBrand]: never
   readonly capacity: number
   /** `capacity * 3` floats: x, y, z per slot. */
   readonly positions: Float32Array
@@ -376,12 +379,17 @@ export type ParticlePool = {
   readonly seed: () => number
   /** Times a live particle was displaced because the pool was full. */
   readonly evictionCount: () => number
-  readonly state: {
-    active: number
-    seedState: number
-    evictions: number
-    nextSlot: number
+}
+
+type ParticleState = { active: number; seedState: number; evictions: number; nextSlot: number }
+const particleStates = new WeakMap<object, ParticleState>()
+
+const poolState = (pool: ParticlePool): ParticleState => {
+  const state = particleStates.get(pool)
+  if (state === undefined) {
+    throw new Error('Particle pool was not created by makeParticlePool')
   }
+  return state
 }
 
 /** Construction-time options. Not on the frame path, so an object is fine here. */
@@ -402,8 +410,7 @@ export type ParticlePoolOptions = {
  * Read a float at an index constructed by the pool's bounded loops.
  *
  * `noUncheckedIndexedAccess` is on, so every typed-array read is
- * `number | undefined`. The explicit error keeps malformed public pool values
- * from becoming NaN state.
+ * `number | undefined`; pool construction guarantees the buffer bounds.
  */
 const readFloat = (buffer: Float32Array, index: number): number => {
   const value = buffer[index]
@@ -430,29 +437,39 @@ const resolvePoolCapacity = (requested: number): number => {
   return ONE_SLOT
 }
 
-export const makeParticlePool = (options?: ParticlePoolOptions): ParticlePool => {
-  const requested = options?.capacity ?? PARTICLE_POOL_CAPACITY
-  const capacity = resolvePoolCapacity(requested)
+class ParticlePoolImpl implements ParticlePool {
+  declare readonly [particlePoolBrand]: never
+  readonly capacity: number
+  readonly positions: Float32Array
+  readonly velocities: Float32Array
+  readonly lifetimesSecs: Float32Array
+  readonly scales: Float32Array
+  readonly uvOffsets: Float32Array
+  readonly activeCount = (): number => poolState(this).active
+  readonly seed = (): number => poolState(this).seedState
+  readonly evictionCount = (): number => poolState(this).evictions
 
-  const pool: ParticlePool = {
-    activeCount: () => pool.state.active,
-    capacity,
-    evictionCount: () => pool.state.evictions,
-    lifetimesSecs: new Float32Array(capacity),
-    positions: new Float32Array(capacity * PARTICLE_VECTOR_STRIDE),
-    scales: new Float32Array(capacity),
-    seed: () => pool.state.seedState,
-    state: {
+  constructor(options: ParticlePoolOptions | undefined, capacity: number) {
+    this.capacity = capacity
+    this.positions = new Float32Array(capacity * PARTICLE_VECTOR_STRIDE)
+    this.velocities = new Float32Array(capacity * PARTICLE_VECTOR_STRIDE)
+    this.lifetimesSecs = new Float32Array(capacity)
+    this.scales = new Float32Array(capacity)
+    this.uvOffsets = new Float32Array(capacity * PARTICLE_UV_STRIDE)
+    particleStates.set(this, {
       active: 0,
       evictions: 0,
       nextSlot: 0,
       seedState: normaliseSeed(options?.seed ?? DEFAULT_PARTICLE_SEED),
-    },
-    uvOffsets: new Float32Array(capacity * PARTICLE_UV_STRIDE),
-    velocities: new Float32Array(capacity * PARTICLE_VECTOR_STRIDE),
+    })
   }
+}
 
-  return pool
+export const makeParticlePool = (options?: ParticlePoolOptions): ParticlePool => {
+  const requested = options?.capacity ?? PARTICLE_POOL_CAPACITY
+  const capacity = resolvePoolCapacity(requested)
+
+  return new ParticlePoolImpl(options, capacity)
 }
 
 /**
@@ -464,8 +481,8 @@ export const makeParticlePool = (options?: ParticlePoolOptions): ParticlePool =>
  * assumes.
  */
 const nextUnitRoll = (pool: ParticlePool): number => {
-  const state = (PRNG_MULTIPLIER * normaliseSeed(pool.state.seedState)) % PRNG_MODULUS
-  pool.state.seedState = state
+  const state = (PRNG_MULTIPLIER * normaliseSeed(poolState(pool).seedState)) % PRNG_MODULUS
+  poolState(pool).seedState = state
   return (state - PRNG_OUTPUT_OFFSET) / PRNG_MODULUS
 }
 
@@ -509,12 +526,12 @@ const findOldestSlot = (pool: ParticlePool): number => {
  * that distance grow with occupancy on every single spawn.
  */
 const acquireSlot = (pool: ParticlePool): number => {
-  if (pool.state.active < pool.capacity) {
+  if (poolState(pool).active < pool.capacity) {
     for (let step = 0; step < pool.capacity; step += ONE_SLOT) {
-      const candidate = (pool.state.nextSlot + step) % pool.capacity
+      const candidate = (poolState(pool).nextSlot + step) % pool.capacity
       if (readFloat(pool.lifetimesSecs, candidate) === ZERO) {
-        pool.state.nextSlot = (candidate + ONE_SLOT) % pool.capacity
-        pool.state.active += 1
+        poolState(pool).nextSlot = (candidate + ONE_SLOT) % pool.capacity
+        poolState(pool).active += 1
         return candidate
       }
     }
@@ -524,7 +541,7 @@ const acquireSlot = (pool: ParticlePool): number => {
    * Saturated. Reuse the oldest live slot: `active` does not change, because
    * one particle replaced another rather than joining it.
    */
-  pool.state.evictions += 1
+  poolState(pool).evictions += 1
   return findOldestSlot(pool)
 }
 
@@ -836,7 +853,7 @@ export const advanceParticles = (pool: ParticlePool, dtSecs: number): number => 
     }
   }
 
-  internals.state.active = Math.max(ZERO, internals.state.active - expired)
+  poolState(internals).active = Math.max(ZERO, poolState(internals).active - expired)
 
   return expired
 }
@@ -855,8 +872,8 @@ export const clearParticles = (pool: ParticlePool): void => {
   const internals = pool
   internals.lifetimesSecs.fill(ZERO)
   internals.scales.fill(ZERO)
-  internals.state.active = 0
-  internals.state.nextSlot = 0
+  poolState(internals).active = 0
+  poolState(internals).nextSlot = 0
 }
 
 /** True when `slot` holds a live particle. */
