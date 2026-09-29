@@ -495,6 +495,23 @@ const requiredBinding = (bindings: Readonly<Record<string, string>>, action: Exc
   return code
 }
 
+const acceptBinding = (
+  source: Readonly<Record<string, string>>,
+  bindings: Record<string, InputCode>,
+  seen: Set<InputCode>,
+  action: Exclude<InputAction, 'escape'>,
+): void => {
+  const code = requiredBinding(source, action)
+  if (RESERVED_INPUT_CODES.has(code)) {
+    throw new InputSettingsDecodeError(`Input settings cannot bind reserved key '${code}'.`)
+  }
+  if (seen.has(code)) {
+    throw new InputSettingsDecodeError(`Input settings binds '${code}' more than once.`)
+  }
+  seen.add(code)
+  bindings[action] = code
+}
+
 export const decodeBindings = (input: unknown): Bindings => {
   const decoded = Schema.decodeUnknownEither(BindingsSchema)(input)
   if (Either.isLeft(decoded)) {
@@ -504,15 +521,7 @@ export const decodeBindings = (input: unknown): Bindings => {
   const seen = new Set<InputCode>()
   for (const action of INPUT_ACTIONS) {
     if (action !== 'escape') {
-      const code = requiredBinding(decoded.right, action)
-      if (RESERVED_INPUT_CODES.has(code)) {
-        throw new InputSettingsDecodeError(`Input settings cannot bind reserved key '${code}'.`)
-      }
-      if (seen.has(code)) {
-        throw new InputSettingsDecodeError(`Input settings binds '${code}' more than once.`)
-      }
-      seen.add(code)
-      bindings[action] = code
+      acceptBinding(decoded.right, bindings, seen, action)
     }
   }
   return bindings
