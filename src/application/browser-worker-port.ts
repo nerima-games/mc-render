@@ -1,6 +1,5 @@
 import type { WorkerPort } from './worker-pool.js'
-import { Data, Either, Schema } from 'effect'
-import type { ParseResult } from 'effect'
+import { Data, Either, ParseResult, Schema } from 'effect'
 
 export type BrowserWorkerMessageEvent = {
   readonly data: unknown
