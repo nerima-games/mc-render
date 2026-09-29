@@ -412,13 +412,12 @@ export type ParticlePoolOptions = {
  * Read a float at an index constructed by the pool's bounded loops.
  *
  * A DataView read preserves the public Float32Array identity while avoiding a
- * per-read bounds branch; pool construction guarantees the index exists.
+ * The opaque pool constructor guarantees the index exists. Number preserves a
+ * numeric return type under noUncheckedIndexedAccess without a per-read branch
+ * or allocation.
  */
 const readFloat = (buffer: ParticleBuffer, index: number): number =>
-  new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength).getFloat32(
-    index * Float32Array.BYTES_PER_ELEMENT,
-    true,
-  )
+  Number(buffer[index])
 
 /**
  * Allocate a pool. THE ONLY FUNCTION HERE THAT ALLOCATES.
