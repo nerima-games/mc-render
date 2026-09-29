@@ -485,6 +485,8 @@ export const BindingsSchema: Schema.Schema<Record<string, string>> = Schema.Reco
 
 const MIN_INPUT_CODE_LENGTH = 1
 
+const RESERVED_INPUT_CODES: ReadonlySet<InputCode> = new Set([ESCAPE_KEY_CODE, FOCUS_NAVIGATION_KEY_CODE])
+
 const requiredBinding = (bindings: Readonly<Record<string, string>>, action: Exclude<InputAction, 'escape'>): InputCode => {
   const code = bindings[action]
   if (typeof code !== 'string' || code.length < MIN_INPUT_CODE_LENGTH) {
@@ -499,9 +501,18 @@ export const decodeBindings = (input: unknown): Bindings => {
     throw new InputSettingsDecodeError('Input settings must be an object of string bindings.')
   }
   const bindings: Record<string, InputCode> = {}
+  const seen = new Set<InputCode>()
   for (const action of INPUT_ACTIONS) {
     if (action !== 'escape') {
-      bindings[action] = requiredBinding(decoded.right, action)
+      const code = requiredBinding(decoded.right, action)
+      if (RESERVED_INPUT_CODES.has(code)) {
+        throw new InputSettingsDecodeError(`Input settings cannot bind reserved key '${code}'.`)
+      }
+      if (seen.has(code)) {
+        throw new InputSettingsDecodeError(`Input settings binds '${code}' more than once.`)
+      }
+      seen.add(code)
+      bindings[action] = code
     }
   }
   return bindings

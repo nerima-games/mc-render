@@ -73,6 +73,8 @@ describe('input settings boundary', () => {
     expect(() => decodeBindings(null)).toThrow(InputSettingsDecodeError)
     expect(() => decodeBindings({ ...bindings, jump: '' })).toThrow(InputSettingsDecodeError)
     expect(() => decodeBindings({ ...bindings, jump: undefined })).toThrow(InputSettingsDecodeError)
+    expect(() => decodeBindings({ ...bindings, jump: 'Escape' })).toThrow(InputSettingsDecodeError)
+    expect(() => decodeBindings({ ...bindings, jump: bindings['moveForward'] })).toThrow(InputSettingsDecodeError)
   })
 })
 
