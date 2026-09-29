@@ -483,6 +483,16 @@ export class InputSettingsDecodeError extends Error {
 /** Runtime boundary for persisted input-settings JSON. */
 export const BindingsSchema: Schema.Schema<Record<string, string>> = Schema.Record({ key: Schema.String, value: Schema.String })
 
+const MIN_INPUT_CODE_LENGTH = 1
+
+const requiredBinding = (bindings: Readonly<Record<string, string>>, action: Exclude<InputAction, 'escape'>): InputCode => {
+  const code = bindings[action]
+  if (typeof code !== 'string' || code.length < MIN_INPUT_CODE_LENGTH) {
+    throw new InputSettingsDecodeError(`Input settings is missing binding '${action}'.`)
+  }
+  return code
+}
+
 export const decodeBindings = (input: unknown): Bindings => {
   const decoded = Schema.decodeUnknownEither(BindingsSchema)(input)
   if (Either.isLeft(decoded)) {
@@ -490,12 +500,9 @@ export const decodeBindings = (input: unknown): Bindings => {
   }
   const bindings: Record<string, InputCode> = {}
   for (const action of INPUT_ACTIONS) {
-    if (action === 'escape') continue
-    const code = decoded.right[action]
-    if (typeof code !== 'string' || code.length === 0) {
-      throw new InputSettingsDecodeError(`Input settings is missing binding '${action}'.`)
+    if (action !== 'escape') {
+      bindings[action] = requiredBinding(decoded.right, action)
     }
-    bindings[action] = code
   }
   return bindings
 }

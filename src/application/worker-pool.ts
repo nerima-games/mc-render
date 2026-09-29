@@ -474,7 +474,7 @@ const makeWorkerFailureHandlers = <TPayload, TResult>({
   const applyWorkerFailure = (
     current: PoolState<TPayload, TResult>,
     failure: WorkerFailure<TPayload, TResult>,
-    attachPort: WorkerFailureHandlers<TPayload, TResult>['attachPort'],
+    attach: WorkerFailureHandlers<TPayload, TResult>['attachPort'],
   ): void => {
     if (!isCurrentFailure(current, failure)) {
       return
@@ -485,35 +485,32 @@ const makeWorkerFailureHandlers = <TPayload, TResult>({
       current.deadWorkers += ONE_AFFECTED_JOB
       failQueuedWithoutWorkers(current, failure.reason, activePorts.some((candidate) => candidate !== undefined))
     } else {
-      attachPort({ ...restored, workerIndex: failure.workerIndex })
+      attach({ ...restored, workerIndex: failure.workerIndex })
     }
     pump(current, activePorts)
   }
 
-  const handleFailure = (failure: WorkerFailure<TPayload, TResult>): void => {
-    Effect.runSync(Ref.update(state, (current) => {
-      applyWorkerFailure(current, failure, attachPort)
-      return current
-    }))
-  }
-
-  const attachPort = ({ port, workerIndex, generation }: WorkerPortBinding<TPayload, TResult>): void => {
-    port.onMessage((response) => {
-      Effect.runSync(
-        Ref.update(state, (current) => {
-          if (current.shuttingDown || activePorts[workerIndex] !== port || portGenerations[workerIndex] !== generation) {
-            return current
-          }
+  const failureHandlers: WorkerFailureHandlers<TPayload, TResult> = {
+    attachPort: ({ port, workerIndex, generation }) => {
+      port.onMessage((response) => {
+        Effect.runSync(Ref.update(state, (current) => {
+          if (current.shuttingDown || activePorts[workerIndex] !== port || portGenerations[workerIndex] !== generation) { return current }
           const next = applyWorkerResponse(current, workerIndex, response)
           pump(next, activePorts)
           return next
-        }),
-      )
-    })
-    port.onError?.((reason) => handleFailure({ failedPort: port, generation, reason, workerIndex }))
+        }))
+      })
+      port.onError?.((reason) => failureHandlers.handleFailure({ failedPort: port, generation, reason, workerIndex }))
+    },
+    handleFailure: (failure) => {
+      Effect.runSync(Ref.update(state, (current) => {
+        applyWorkerFailure(current, failure, failureHandlers.attachPort)
+        return current
+      }))
+    },
   }
 
-  return { attachPort, handleFailure }
+  return failureHandlers
 }
 
 type EnqueueJobOptions<TPayload, TResult> = {

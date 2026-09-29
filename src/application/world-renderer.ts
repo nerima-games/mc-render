@@ -768,6 +768,27 @@ const planEntityVisual = (entity: RenderEntity): EntityVisualPlan => {
   return planDefaultEntityVisual(entity, facingRadians)
 }
 
+const entityPartsMatch = (entry: EntityEntry, plans: EntityVisualPlan['parts']): boolean =>
+  plans.length === entry.parts.length && plans.every((plan, index) => {
+    const previous = entry.parts[index]
+    return previous !== undefined && plan.id === previous.id &&
+      plan.color.every((component, colorIndex) => component === previous.color[colorIndex])
+  })
+
+const updateEntityParts = (
+  entry: EntityEntry,
+  visual: EntityVisualPlan,
+  apply: (mesh: TransformableThreeMesh, visual: EntityVisualPlan, plan: EntityVisualPartPlan) => void,
+): void => {
+  for (const [index, plan] of visual.parts.entries()) {
+    const part = entry.parts[index]
+    if (part === undefined) {
+      throw new Error('Entity visual plan lost a previously built part')
+    }
+    apply(part.mesh, visual, plan)
+  }
+}
+
 /** The unit cube's extent from its centre along each axis: a block is one unit wide, centred on the origin. */
 const CUBE_MIN = -0.5
 const CUBE_MAX = 0.5
@@ -1264,25 +1285,11 @@ export const makeWorldRenderer = <
       updateEntity: (entry: EntityEntry, entity: RenderEntity): EntityEntry => {
         const visual = planEntityVisual(entity)
         const plans = visual.parts
-        if (
-          plans.length !== entry.parts.length ||
-          plans.some((plan, index) => {
-            const previous = entry.parts[index]
-            return !previous ||
-              plan.id !== previous.id ||
-              plan.color.some((component, colorIndex) => component !== previous.color[colorIndex])
-          })
-        ) {
+        if (!entityPartsMatch(entry, plans)) {
           ops.releaseEntity(entry)
           return ops.buildEntity(entity)
         }
-        for (const [index, plan] of plans.entries()) {
-          const part = entry.parts[index]
-          if (part === undefined) {
-            throw new Error('Entity visual plan lost a previously built part')
-          }
-          ops.applyEntityPartTransform(part.mesh, visual, plan)
-        }
+        updateEntityParts(entry, visual, ops.applyEntityPartTransform)
         return { ...entry, entity }
       },
     }

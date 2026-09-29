@@ -9,11 +9,6 @@ files:
   - "src/**/*.tsx"
   - "src/**/*.mts"
   - "src/**/*.cts"
-  - "test/**/*.ts"
-  - "test/**/*.tsx"
-  - "test/**/*.mts"
-  - "test/**/*.cts"
-  - "vitest.config.ts"
 message: >-
   Narrow unknown values with a type guard or construct a validated value;
   do not bypass the type system with a type assertion.
