@@ -20,6 +20,8 @@ import {
   actionForKey,
   bindingFor,
   defaultBindings,
+  decodeBindings,
+  InputSettingsDecodeError,
   ESCAPE_KEY_CODE,
   ESCAPE_OWNER,
   FOCUS_NAVIGATION_KEY_CODE,
@@ -63,6 +65,16 @@ import {
   type PointerLockRequestOutcome,
 } from '../src/application/input-service'
 import { PREVENT_DEFAULT_EVENTS, mayPreventDefault } from '../src/application/browser-input-adapter'
+
+describe('input settings boundary', () => {
+  it('decodes complete JSON-shaped bindings and rejects malformed values', () => {
+    const bindings = defaultBindings()
+    expect(decodeBindings(bindings)).toStrictEqual(bindings)
+    expect(() => decodeBindings(null)).toThrow(InputSettingsDecodeError)
+    expect(() => decodeBindings({ ...bindings, jump: '' })).toThrow(InputSettingsDecodeError)
+    expect(() => decodeBindings({ ...bindings, jump: undefined })).toThrow(InputSettingsDecodeError)
+  })
+})
 
 describe('REGRESSION: Escape has exactly one owner', () => {
   it.effect('the owner is the frame-level handler, recorded as a value not a comment', () =>
