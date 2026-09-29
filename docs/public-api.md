@@ -113,6 +113,14 @@ const isCanonicalChain: (chain: ReadonlyArray<PostProcessingPass>) => boolean
 - 起動時に `validatePostProcessingChain(chainPasses(chain))` を通し、違反があれば
   開発ビルドで大声で落ちる
 
+## 1.5 ParticlePool
+
+`ParticlePool` exposes only its capacity, typed render buffers, and read-only
+operations. Generator state and eviction counters are module-private; callers
+cannot forge a pool value or mutate its invariants. Construct pools with
+`makeParticlePool(options)` and pass the returned opaque value to the particle
+operations.
+
 ## 2. InputService
 
 ### 2.1 公開するもの

@@ -197,7 +197,7 @@ const EMPTY_UPDATE_COUNT = 0
  * black is indistinguishable from a canvas that failed to draw; a canvas
  * cleared to sky blue says the context was acquired and the frame ran.
  */
-export const SKY_CLEAR_COLOR = DAY_SKY_COLOR
+export const SKY_CLEAR_COLOR: number = DAY_SKY_COLOR
 
 /** Opacity of the clear. Fully opaque: there is nothing behind the world. */
 export const SKY_CLEAR_ALPHA = 1
@@ -768,6 +768,18 @@ const planEntityVisual = (entity: RenderEntity): EntityVisualPlan => {
   return planDefaultEntityVisual(entity, facingRadians)
 }
 
+const matchingEntityParts = (entry: EntityEntry, plans: EntityVisualPlan['parts']): ReadonlyArray<readonly [EntityPartEntry, EntityVisualPartPlan]> | undefined => {
+  if (plans.length !== entry.parts.length) { return undefined }
+  const pairs: Array<readonly [EntityPartEntry, EntityVisualPartPlan]> = []
+  for (const [index, plan] of plans.entries()) {
+    const previous = entry.parts[index]
+    if (previous === undefined || plan.id !== previous.id ||
+      plan.color.some((component, colorIndex) => component !== previous.color[colorIndex])) { return undefined }
+    pairs.push([previous, plan])
+  }
+  return pairs
+}
+
 /** The unit cube's extent from its centre along each axis: a block is one unit wide, centred on the origin. */
 const CUBE_MIN = -0.5
 const CUBE_MAX = 0.5
@@ -1010,26 +1022,12 @@ export const makeWorldRenderer = <
      * and this material is shared but neither transparent nor a cutout. The
      * water material, when it exists, is the one that will need the audit.
      */
-    /**
-     * THE ONE ASSERTION IN THIS FILE, and it is confined to the branch where it
-     * is a tautology. `TUsedMaterial` DEFAULTS to `TMaterial`, so on the path
-     * where no factory was supplied the two are the same type — but that is a
-     * fact about the default, and a default is not a constraint the checker can
-     * use inside the body. There is no signature that expresses "when this
-     * optional argument is absent, these two parameters are equal"; the
-     * alternative is an overload pair whose bodies are this same expression
-     * twice.
-     *
-     * It is safe in the direction that matters: a caller who supplies a factory
-     * never reaches this branch, and a caller who does not has `TUsedMaterial =
-     * TMaterial` by construction.
-     */
-    const material: TUsedMaterial =
+    const material: TMaterial | TUsedMaterial =
       options.material?.() ??
-      (new three.MeshBasicMaterial({
+      new three.MeshBasicMaterial({
         vertexColors: true,
         wireframe: options.wireframe ?? false,
-      }) as unknown as TUsedMaterial)
+      })
 
     const [chunks, viewportAspect, entities, framesRendered, postProcessingChain] = yield* Effect.all([
       Ref.make(new Map<ChunkKey, ChunkEntry<TGeometry>>()),
@@ -1278,20 +1276,12 @@ export const makeWorldRenderer = <
       updateEntity: (entry: EntityEntry, entity: RenderEntity): EntityEntry => {
         const visual = planEntityVisual(entity)
         const plans = visual.parts
-        if (
-          plans.length !== entry.parts.length ||
-          plans.some((plan, index) => {
-            const previous = entry.parts[index]
-            return !previous ||
-              plan.id !== previous.id ||
-              plan.color.some((component, colorIndex) => component !== previous.color[colorIndex])
-          })
-        ) {
+        const matchingParts = matchingEntityParts(entry, plans)
+        if (matchingParts === undefined) {
           ops.releaseEntity(entry)
           return ops.buildEntity(entity)
         }
-        for (const [index, plan] of plans.entries()) {
-          const part = entry.parts[index]!
+        for (const [part, plan] of matchingParts) {
           ops.applyEntityPartTransform(part.mesh, visual, plan)
         }
         return { ...entry, entity }

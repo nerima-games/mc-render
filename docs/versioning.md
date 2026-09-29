@@ -4,11 +4,11 @@
 
 | 項目 | 値 |
 | --- | --- |
-| `version` | `0.2.14` |
+| `version` | `0.7.0` (`package.json`) |
 | 公開状態 | **未公開**。GitHub Packages にはまだ上げていない |
 | `main` / `types` / `exports` | `./dist/index.js` / `./dist/index.d.ts`。`exports` は ESM のビルド成果物を指す |
-| ビルドパイプライン | `pnpm build` が `dist/` を掃除し、宣言ファイルを出力して esbuild で ESM を生成する |
-| `dependencies` | `mc-kernel@0.4.0` / `mc-meshing@0.1.4` / `mc-sim@0.1.42` / `mc-worldgen@0.1.14` / `effect@^3.22.1` |
+| ビルドパイプライン | `pnpm build` が `dist/` を掃除し、`tsconfig.release.json` で宣言ファイルと ESM JavaScript を直接出力する |
+| `dependencies` | `mc-kernel@0.7.0` / `mc-meshing@0.1.6` / `mc-sim@0.4.2` / `mc-worldgen@0.3.2` / `effect@3.22.1` |
 
 ## 2. なぜ `0.x` に留めるのか
 
@@ -140,10 +140,10 @@ declaration に対して fixture をコンパイルし、この境界を検証�
 破壊的変更を入れるためである。patch は npm の型定義側の追従差を許容し、
 `test/three-surface.test.ts` が両方の minor version を検査している。
 
-現在は `three@^0.185.1` / `@types/three@^0.185.4` である。
+現在は `three@0.185.1` / `@types/three@0.185.4` である。
 THREE は minor でも破壊的変更を入れる。参照実装は `three/addons/postprocessing/*` の
 `EffectComposer` / `RenderPass` / `GTAOPass` / `UnrealBloomPass` / `BokehPass` / `SMAAPass` /
-`OutputPass` を直接使っており（`session-post-processing.ts:3-9`）、
+`OutputPass` を直接使っており（`src/browser.ts` の post-processing factory）、
 addons のパス構成は THREE のバージョンで変わったことがある。
 
 `GodRaysPass` と `CompositePass` は参照実装の**自作**で、別ライブラリではない。
@@ -204,7 +204,7 @@ Wave 0 の範囲外の決定として残っている。**
 | 依存 | 現在 | 方針 |
 | --- | --- | --- |
 | `effect` | `3.22.1`（exact） | Effect の major を揃え、Context / Layer の型を同じ系統で合成する |
-| `@nerima-games/*` | `mc-kernel 0.4.0` / `mc-meshing 0.1.4` / `mc-sim 0.1.42` / `mc-worldgen 0.1.14` | 公開後も互換性を確認し、下流 publish の順序を守る |
+| `@nerima-games/*` | `mc-kernel 0.7.0` / `mc-meshing 0.1.6` / `mc-sim 0.4.2` / `mc-worldgen 0.3.2` | 公開後も互換性を確認し、下流 publish の順序を守る |
 | `three` / `@types/three` | `0.185.1` / `0.185.4`（exact、**devDependencies**） | §5。出荷ソースは import せず、メジャー・マイナーをテストで揃える |
 | `typescript` / `vitest` | `7.0.2` / `4.1.11`（exact） | 開発ツールとして更新し、lockfile で実解決を固定する |
 | `oxlint` | **package.json devDependency ではない** | `flake.nix` の devShell が `pkgs.oxlint`（org 全体で `nix flake lock --override-input` により 624af665 に固定）を入れる。16 リポジトリが各自 npm 解決で drift するのを防ぐため、Nix 側で一本化した単一ソース |

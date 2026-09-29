@@ -225,6 +225,23 @@ const ONE_AFFECTED_JOB = 1
 const INITIAL_COUNTER = 0
 const FIRST_JOB_ID = 1
 
+type DispatchJobArgs<TPayload, TResult> = {
+  readonly current: PoolState<TPayload, TResult>
+  readonly ports: ReadonlyArray<WorkerPort<WorkerRequest<TPayload>, WorkerResponse<TResult>> | undefined>
+  readonly workerIndex: number
+  readonly job: Waiting<TPayload, TResult>
+}
+
+const dispatchJob = <TPayload, TResult>({ current, ports, workerIndex, job }: DispatchJobArgs<TPayload, TResult>): void => {
+  current.running.set(job.id, {
+    discarded: false,
+    key: job.key,
+    resume: job.resume,
+    workerIndex,
+  })
+  ports[workerIndex]?.post({ id: job.id, payload: job.payload })
+}
+
 /**
  * Move as much work onto idle workers as will fit.
  *
@@ -237,16 +254,15 @@ const pump = <TPayload, TResult>(
   current: PoolState<TPayload, TResult>,
   ports: ReadonlyArray<WorkerPort<WorkerRequest<TPayload>, WorkerResponse<TResult>> | undefined>,
 ): void => {
-  while (current.idle.length > EMPTY_LENGTH && current.queue.length > EMPTY_LENGTH && !current.shuttingDown) {
-    const workerIndex = current.idle.shift()!
-    const job = current.queue.shift()!
-    current.running.set(job.id, {
-      discarded: false,
-      key: job.key,
-      resume: job.resume,
-      workerIndex,
-    })
-    ports[workerIndex]?.post({ id: job.id, payload: job.payload })
+  while (!current.shuttingDown) {
+    const workerIndex = current.idle.shift()
+    if (workerIndex === undefined) { return }
+    const job = current.queue.shift()
+    if (job === undefined) {
+      current.idle.unshift(workerIndex)
+      return
+    }
+    dispatchJob({ current, job, ports, workerIndex })
   }
 }
 
@@ -377,8 +393,8 @@ const discardRunningOnShutdown = <TPayload, TResult>(current: PoolState<TPayload
 
 /** Drop the OLDEST waiting job, not the one just enqueued. See `maxQueued`. */
 const evictOverflow = <TPayload, TResult>(current: PoolState<TPayload, TResult>, maxQueued: number): void => {
-  while (current.queue.length > maxQueued) {
-    const dropped = current.queue.shift()!
+  const droppedJobs = current.queue.splice(ARRAY_START_INDEX, Math.max(EMPTY_LENGTH, current.queue.length - maxQueued))
+  for (const dropped of droppedJobs) {
     current.droppedForBackpressure += ONE_AFFECTED_JOB
     dropped.resume({ _tag: 'cancelled' })
   }
@@ -468,7 +484,7 @@ const makeWorkerFailureHandlers = <TPayload, TResult>({
   const applyWorkerFailure = (
     current: PoolState<TPayload, TResult>,
     failure: WorkerFailure<TPayload, TResult>,
-    attachPort: WorkerFailureHandlers<TPayload, TResult>['attachPort'],
+    attach: WorkerFailureHandlers<TPayload, TResult>['attachPort'],
   ): void => {
     if (!isCurrentFailure(current, failure)) {
       return
@@ -479,37 +495,32 @@ const makeWorkerFailureHandlers = <TPayload, TResult>({
       current.deadWorkers += ONE_AFFECTED_JOB
       failQueuedWithoutWorkers(current, failure.reason, activePorts.some((candidate) => candidate !== undefined))
     } else {
-      attachPort({ ...restored, workerIndex: failure.workerIndex })
+      attach({ ...restored, workerIndex: failure.workerIndex })
     }
     pump(current, activePorts)
   }
 
-  const handlers = {} as WorkerFailureHandlers<TPayload, TResult>
-
-  handlers.handleFailure = (failure): void => {
-    Effect.runSync(Ref.update(state, (current) => {
-      applyWorkerFailure(current, failure, handlers.attachPort)
-      return current
-    }))
-  }
-
-  handlers.attachPort = ({ port, workerIndex, generation }): void => {
-    port.onMessage((response) => {
-      Effect.runSync(
-        Ref.update(state, (current) => {
-          if (current.shuttingDown || activePorts[workerIndex] !== port || portGenerations[workerIndex] !== generation) {
-            return current
-          }
+  const failureHandlers: WorkerFailureHandlers<TPayload, TResult> = {
+    attachPort: ({ port, workerIndex, generation }) => {
+      port.onMessage((response) => {
+        Effect.runSync(Ref.update(state, (current) => {
+          if (current.shuttingDown || activePorts[workerIndex] !== port || portGenerations[workerIndex] !== generation) { return current }
           const next = applyWorkerResponse(current, workerIndex, response)
           pump(next, activePorts)
           return next
-        }),
-      )
-    })
-    port.onError?.((reason) => handlers.handleFailure({ failedPort: port, generation, reason, workerIndex }))
+        }))
+      })
+      port.onError?.((reason) => failureHandlers.handleFailure({ failedPort: port, generation, reason, workerIndex }))
+    },
+    handleFailure: (failure) => {
+      Effect.runSync(Ref.update(state, (current) => {
+        applyWorkerFailure(current, failure, failureHandlers.attachPort)
+        return current
+      }))
+    },
   }
 
-  return handlers
+  return failureHandlers
 }
 
 type EnqueueJobOptions<TPayload, TResult> = {
@@ -572,7 +583,9 @@ export const makeWorkerPool = <TPayload, TResult>(
 
     // Wired once, at construction. A handler installed per job would leak one
     // Closure per chunk meshed, which on a walked-across world is unbounded.
-    ports.forEach((port, workerIndex) => failureHandlers.attachPort({ generation: portGenerations[workerIndex]!, port, workerIndex }))
+    ports.forEach((port, workerIndex) => {
+      failureHandlers.attachPort({ generation: INITIAL_COUNTER, port, workerIndex })
+    })
 
     return {
       cancel: (key) =>

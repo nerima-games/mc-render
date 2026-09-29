@@ -67,6 +67,8 @@
  * resolution and the Escape rule be tested in Node under
  * `environment: 'node'` — no jsdom, no Playwright, no SwiftShader.
  */
+import { Either, Schema } from 'effect'
+
 
 /**
  * Every action the game can be told to perform by an input device.
@@ -235,7 +237,10 @@ export type InputCode = KeyCode | MouseButton
 
 /** True when a code names a mouse button rather than a keyboard key. */
 export const isMouseButton = (code: InputCode): code is MouseButton =>
-  (MOUSE_BUTTONS as ReadonlyArray<string>).includes(code)
+  MOUSE_BUTTONS.some((button) => button === code)
+
+const isInputAction = (value: string): value is InputAction =>
+  INPUT_ACTIONS.some((action) => action === value)
 
 /**
  * ---------------------------------------------------------------------------
@@ -466,6 +471,64 @@ export const FOCUS_NAVIGATION_KEY_CODE: KeyCode = 'Tab'
 
 export type Bindings = Readonly<Record<string, InputCode>>
 
+export class InputSettingsDecodeError extends Error {
+  readonly _tag = 'InputSettingsDecodeError'
+
+  constructor(message: string) {
+    super(message)
+    this.name = 'InputSettingsDecodeError'
+  }
+}
+
+/** Runtime boundary for persisted input-settings JSON. */
+export const BindingsSchema: Schema.Schema<Record<string, string>> = Schema.Record({ key: Schema.String, value: Schema.String })
+
+const MIN_INPUT_CODE_LENGTH = 1
+
+const RESERVED_INPUT_CODES: ReadonlySet<InputCode> = new Set([ESCAPE_KEY_CODE, FOCUS_NAVIGATION_KEY_CODE])
+
+const requiredBinding = (bindings: Readonly<Record<string, string>>, action: Exclude<InputAction, 'escape'>): InputCode => {
+  const code = bindings[action]
+  if (typeof code !== 'string' || code.length < MIN_INPUT_CODE_LENGTH) {
+    throw new InputSettingsDecodeError(`Input settings is missing binding '${action}'.`)
+  }
+  return code
+}
+
+type BindingAcceptance = {
+  readonly source: Readonly<Record<string, string>>
+  readonly bindings: Record<string, InputCode>
+  readonly seen: Set<InputCode>
+  readonly action: Exclude<InputAction, 'escape'>
+}
+
+const acceptBinding = ({ source, bindings, seen, action }: BindingAcceptance): void => {
+  const code = requiredBinding(source, action)
+  if (RESERVED_INPUT_CODES.has(code)) {
+    throw new InputSettingsDecodeError(`Input settings cannot bind reserved key '${code}'.`)
+  }
+  if (seen.has(code)) {
+    throw new InputSettingsDecodeError(`Input settings binds '${code}' more than once.`)
+  }
+  seen.add(code)
+  bindings[action] = code
+}
+
+export const decodeBindings = (input: unknown): Bindings => {
+  const decoded = Schema.decodeUnknownEither(BindingsSchema)(input)
+  if (Either.isLeft(decoded)) {
+    throw new InputSettingsDecodeError('Input settings must be an object of string bindings.')
+  }
+  const bindings: Record<string, InputCode> = {}
+  const seen = new Set<InputCode>()
+  for (const action of INPUT_ACTIONS) {
+    if (action !== 'escape') {
+      acceptBinding({ action, bindings, seen, source: decoded.right })
+    }
+  }
+  return bindings
+}
+
 export const defaultBindings = (): Bindings => ({ ...DEFAULT_BINDINGS })
 
 /**
@@ -601,10 +664,10 @@ export const actionForKey = (bindings: Bindings, key: InputCode): InputAction | 
     return
   }
   const [action] = found
-  if (!(INPUT_ACTIONS as ReadonlyArray<string>).includes(action)) {
+  if (!isInputAction(action)) {
     return
   }
-  return action as InputAction
+  return action
 }
 
 /**
@@ -1129,7 +1192,7 @@ export type TouchLookState = {
 }
 
 /** Shared "no anchor yet" value so call sites never spell the `undefined` literal. */
-const { anchor: NO_TOUCH_ANCHOR } = {} as { anchor?: TouchPoint }
+const NO_TOUCH_ANCHOR: TouchPoint | undefined = undefined
 
 /** No gesture in progress. What a host starts with, and what a release yields. */
 export const TOUCH_LOOK_IDLE: TouchLookState = { anchor: NO_TOUCH_ANCHOR }

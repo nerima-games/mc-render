@@ -75,7 +75,10 @@ export const inspectTypeScriptFixture = (
   }
 }
 
-export const parseTypeScriptConfig = (repositoryRoot: string, configPath: string) => {
+export const parseTypeScriptConfig = (
+  repositoryRoot: string,
+  configPath: string,
+): ReturnType<API['parseConfigFile']> => {
   const api = new API({ cwd: repositoryRoot })
   try {
     return api.parseConfigFile(configPath)

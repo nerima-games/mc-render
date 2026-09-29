@@ -628,6 +628,23 @@ describe('clearing', () => {
 })
 
 describe('reading slots', () => {
+  it.effect('rejects a pool-shaped value without factory identity', () =>
+    Effect.sync(() => {
+      const forged = {
+        capacity: 0,
+        positions: new Float32Array(),
+        velocities: new Float32Array(),
+        lifetimesSecs: new Float32Array(),
+        scales: new Float32Array(),
+        uvOffsets: new Float32Array(),
+        activeCount: () => 0,
+        seed: () => 1,
+        evictionCount: () => 0,
+      } as ParticlePool
+      expect(() => advanceParticles(forged, 0)).toThrow('not created by makeParticlePool')
+    }),
+  )
+
   it.effect('refuses an index that is out of range or free, rather than returning zeros', () =>
     Effect.sync(() => {
       const pool = makeParticlePool({ capacity: 4, seed: 7 })

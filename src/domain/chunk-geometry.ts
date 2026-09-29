@@ -85,13 +85,13 @@ export const AO_SHADE_BY_LEVEL: ReadonlyArray<number> = [
 ]
 
 /** Levels `AO_SHADE_BY_LEVEL` covers. Mirrors mc-meshing's `AO_LEVELS`. */
-export const AO_LEVELS = AO_SHADE_BY_LEVEL.length
+export const AO_LEVELS: number = AO_SHADE_BY_LEVEL.length
 
 /** Converts a count (here, `AO_LEVELS`) to its highest valid index. */
 const INDEX_FROM_COUNT = 1
 
 /** Highest (darkest) level. Mirrors mc-meshing's `AO_MAX`. */
-export const AO_MAX = AO_LEVELS - INDEX_FROM_COUNT
+export const AO_MAX: number = AO_LEVELS - INDEX_FROM_COUNT
 
 /** The lowest AO level: fully unoccluded. The floor `aoShade` clamps to. */
 const AO_MIN_LEVEL = 0
@@ -699,8 +699,8 @@ const processQuad = (context: ChunkBuildContext, quad: MeshQuad, quadIndex: numb
  */
 export const buildChunkGeometry = (
   quads: ReadonlyArray<MeshQuad>,
-  originX = DEFAULT_CHUNK_ORIGIN,
-  originZ = DEFAULT_CHUNK_ORIGIN,
+  originX: number = DEFAULT_CHUNK_ORIGIN,
+  originZ: number = DEFAULT_CHUNK_ORIGIN,
   color: QuadColor = AO_ONLY_COLOR,
   tile: QuadTile = UNTEXTURED_TILE,
 ): ChunkGeometryBuffers => {
@@ -773,8 +773,8 @@ const processBlockShapeQuad = (context: ChunkBuildContext, quad: BlockShapeQuad,
 /** Build the single-sided face geometry emitted for slabs, rails and other block shapes. */
 export const buildBlockShapeGeometry = (
   quads: ReadonlyArray<BlockShapeQuad>,
-  originX = DEFAULT_CHUNK_ORIGIN,
-  originZ = DEFAULT_CHUNK_ORIGIN,
+  originX: number = DEFAULT_CHUNK_ORIGIN,
+  originZ: number = DEFAULT_CHUNK_ORIGIN,
   color: QuadColor = AO_ONLY_COLOR,
   tile: QuadTile = UNTEXTURED_TILE,
 ): ChunkGeometryBuffers => {
@@ -801,8 +801,8 @@ export const buildBlockShapeGeometry = (
 /** Build the double-sided diagonal plates used by cross-rendered plants. */
 export const buildCrossPlantGeometry = (
   quads: ReadonlyArray<CrossPlantQuad>,
-  originX = DEFAULT_CHUNK_ORIGIN,
-  originZ = DEFAULT_CHUNK_ORIGIN,
+  originX: number = DEFAULT_CHUNK_ORIGIN,
+  originZ: number = DEFAULT_CHUNK_ORIGIN,
   color: QuadColor = AO_ONLY_COLOR,
   tile: QuadTile = UNTEXTURED_TILE,
 ): ChunkGeometryBuffers => {
@@ -966,8 +966,7 @@ type FluidQuadWrite = {
 /** Write every corner of one fluid quad's position, flow and falling flag. */
 const writeFluidQuadVertices = (write: FluidQuadWrite): void => {
   const { built, quad, base, origin, direction, falling } = write
-  for (let cornerIndex = 0; cornerIndex < VERTICES_PER_QUAD; cornerIndex += LOOP_STEP) {
-    const vertex = quad.vertices[cornerIndex]!
+  for (const [cornerIndex, vertex] of quad.vertices.entries()) {
     const positionAt = (base + cornerIndex) * POSITION_COMPONENTS
     const flowAt = (base + cornerIndex) * FLUID_DIRECTION_COMPONENTS
     writeFluidPositionAndFlow({ built, direction, flowAt, origin, positionAt, vertex })
@@ -1010,8 +1009,7 @@ type FluidFlowUVWrite = {
 /** Animate a flow-carrying top face's UVs so the water texture scrolls the direction it flows. */
 const writeFluidFlowUV = (write: FluidFlowUVWrite): void => {
   const { built, quad, base, cell, topFlow } = write
-  for (let cornerIndex = 0; cornerIndex < VERTICES_PER_QUAD; cornerIndex += LOOP_STEP) {
-    const vertex = quad.vertices[cornerIndex]!
+  for (const [cornerIndex, vertex] of quad.vertices.entries()) {
     const at = (base + cornerIndex) * UV_COMPONENTS
     writeFlowUVVertex({ at, built, cell, topFlow, vertex })
   }
@@ -1048,8 +1046,8 @@ const processFluidQuad = (context: FluidQuadContext, quad: FluidQuad, quadIndex:
 /** Build non-cubic fluid faces and preserve their animation metadata. */
 export const buildFluidGeometry = (
   quads: ReadonlyArray<FluidQuad>,
-  originX = DEFAULT_CHUNK_ORIGIN,
-  originZ = DEFAULT_CHUNK_ORIGIN,
+  originX: number = DEFAULT_CHUNK_ORIGIN,
+  originZ: number = DEFAULT_CHUNK_ORIGIN,
   color: QuadColor = AO_ONLY_COLOR,
   tile: QuadTile = UNTEXTURED_TILE,
 ): ChunkGeometryBuffers => {

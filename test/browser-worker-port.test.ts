@@ -2,13 +2,25 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { expect, it } from '@effect/vitest'
 import * as Effect from 'effect/Effect'
+import * as ParseResult from 'effect/ParseResult'
+import * as Schema from 'effect/Schema'
 import {
   makeBrowserWorkerPort,
+  WorkerResponseDecodeError,
   type BrowserWorkerErrorEvent,
   type BrowserWorkerLike,
   type BrowserWorkerMessageEvent,
 } from '../src/application/browser-worker-port'
 import { inspectTypeScriptFixture } from './typescript-project'
+
+const responseSchema: Schema.Schema<{ readonly ok: number }, unknown> = Schema.declare<
+  { readonly ok: number },
+  unknown,
+  []
+>([], {
+  decode: () => (input) => ParseResult.decodeUnknown(Schema.Struct({ ok: Schema.NumberFromString }))(input),
+  encode: () => (input) => Effect.succeed(input),
+})
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -65,18 +77,21 @@ const makeFakeWorker = (): FakeWorker => {
 it.effect('adapts messages, posts and termination to WorkerPort', () =>
   Effect.sync(() => {
     const worker = makeFakeWorker()
-    const port = makeBrowserWorkerPort<{ readonly id: number }, { readonly ok: boolean }, string>(worker)
-    const received: Array<{ readonly ok: boolean }> = []
+    const port = makeBrowserWorkerPort<{ readonly id: number }, { readonly ok: number }, string>(worker, {
+      responseSchema,
+      workerIndex: 0,
+    })
+    const received: Array<{ readonly ok: number }> = []
 
-    worker.emitMessage({ ok: false })
+    worker.emitMessage({ ok: '0' })
     port.onMessage((response) => {
       received.push(response)
     })
-    worker.emitMessage({ ok: true })
+    worker.emitMessage({ ok: '1' })
     port.post({ id: 7 })
     port.terminate()
 
-    expect(received).toStrictEqual([{ ok: true }])
+    expect(received).toStrictEqual([{ ok: 1 }])
     expect(worker.posted).toStrictEqual([{ message: { id: 7 }, transfer: undefined }])
     expect(worker.terminated()).toBe(true)
   }),
@@ -85,8 +100,10 @@ it.effect('adapts messages, posts and termination to WorkerPort', () =>
 it.effect('forwards transfer lists and all browser error forms', () =>
   Effect.sync(() => {
     const worker = makeFakeWorker()
-    const port = makeBrowserWorkerPort<{ readonly id: number }, { readonly ok: boolean }, string>(worker, {
+    const port = makeBrowserWorkerPort<{ readonly id: number }, { readonly ok: number }, string>(worker, {
       transfer: () => ['chunk-buffer'],
+      responseSchema,
+      workerIndex: 0,
     })
     const errors: Array<unknown> = []
     const eventError = new Error('worker failed')
@@ -103,6 +120,22 @@ it.effect('forwards transfer lists and all browser error forms', () =>
 
     expect(errors).toStrictEqual([eventError, 'worker message', fallbackEvent])
     expect(worker.posted).toStrictEqual([{ message: { id: 8 }, transfer: ['chunk-buffer'] }])
+  }),
+)
+
+it.effect('routes response decoder failures through the worker error boundary', () =>
+  Effect.sync(() => {
+    const worker = makeFakeWorker()
+    const port = makeBrowserWorkerPort<{ readonly id: number }, { readonly ok: number }>(worker, {
+      responseSchema,
+      workerIndex: 0,
+    })
+    const errors: Array<unknown> = []
+    port.onError?.((reason) => errors.push(reason))
+    worker.emitMessage({ invalid: true })
+    expect(errors).toHaveLength(1)
+    expect(errors[0]).toBeInstanceOf(WorkerResponseDecodeError)
+    expect(errors[0]).toMatchObject({ _tag: 'WorkerResponseDecodeError' })
   }),
 )
 

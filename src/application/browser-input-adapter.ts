@@ -618,7 +618,7 @@ const finiteOrUndefined = (value: number | undefined): number | undefined => {
  * `dispatch` then ignores — the policy breaks visibly instead of silently.
  */
 /** Shared "no report" value so call sites never spell the `undefined` literal. */
-const { focus: NO_FOCUS_TARGET } = {} as { focus?: FocusTarget }
+const NO_FOCUS_TARGET: FocusTarget | undefined = undefined
 
 /** The zero delta a `pointermove` reports when only one axis moved this frame. */
 const NO_POINTER_DELTA = 0
@@ -933,9 +933,8 @@ const dispatchTouchRelease = (
     return
   }
   state.touchActions.delete(contact.identifier)
-  // A tracked touch always has a count until its final release.
-  const count = state.touchActionCounts.get(action)!
-  if (count <= ONE_FINGER_HOLDING) {
+  const count = state.touchActionCounts.get(action)
+  if (count === undefined || count <= ONE_FINGER_HOLDING) {
     state.touchActionCounts.delete(action)
     Effect.runSync(state.input.dispatch({ action, kind: 'touchrelease', target }))
     return
@@ -1169,7 +1168,7 @@ type ThenableLike = {
 }
 
 const isThenable = (value: unknown): value is ThenableLike =>
-  typeof value === 'object' && value !== null && typeof (value as { then?: unknown }).then === 'function'
+  typeof value === 'object' && value !== null && 'then' in value && typeof value.then === 'function'
 
 const ignore = (): void => {
   // No-op: swallow a settled promise so it never becomes an unhandled rejection.

@@ -35,6 +35,26 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import type { Viewport } from './domain/render-environment.js'
 import { measureWaterVisibility } from './browser-water-visibility.js'
 
+const requireRenderer = (value: unknown): THREE.WebGLRenderer => {
+  if (value instanceof THREE.WebGLRenderer) { return value }
+  throw new Error('Browser surface did not provide a THREE.WebGLRenderer')
+}
+
+const requireScene = (value: unknown): THREE.Scene => {
+  if (value instanceof THREE.Scene) { return value }
+  throw new Error('Browser surface did not provide a THREE.Scene')
+}
+
+const requireCamera = (value: unknown): THREE.Camera => {
+  if (value instanceof THREE.Camera) { return value }
+  throw new Error('Browser surface did not provide a THREE.Camera')
+}
+
+const requirePerspectiveCamera = (value: unknown): THREE.PerspectiveCamera => {
+  if (value instanceof THREE.PerspectiveCamera) { return value }
+  throw new Error('Browser surface did not provide a THREE.PerspectiveCamera')
+}
+
 const DEFAULT_MAX_PIXEL_RATIO = 2
 const MIN_PIXEL_RATIO_CAP = 0.5
 const MIN_VIEWPORT_SIZE = 1
@@ -319,9 +339,9 @@ const createPostProcessingFactory = ({
 }: Omit<ComposerOptions, 'renderer'> & {
   readonly onSurface: (surface: BrowserSurface) => void
 }): PostProcessingRendererFactory => (surface) => {
-  const renderer = surface.renderer as unknown as THREE.WebGLRenderer
-  const scene = surface.scene as unknown as THREE.Scene
-  const camera = surface.camera as unknown as THREE.PerspectiveCamera
+  const renderer = requireRenderer(surface.renderer)
+  const scene = requireScene(surface.scene)
+  const camera = requirePerspectiveCamera(surface.camera)
   onSurface({ camera, renderer, scene })
   const composer = createComposer({ getPixelRatio, getViewport, quality, renderer })
   let currentKey = ''
@@ -483,7 +503,7 @@ const renderToRefractionTarget = (
 ): void => {
   renderer.setRenderTarget(target)
   renderer.clear()
-  renderer.render(context.scene as unknown as THREE.Scene, context.camera as unknown as THREE.Camera)
+  renderer.render(requireScene(context.scene), requireCamera(context.camera))
 }
 
 const renderRefractionScene = (
@@ -491,7 +511,7 @@ const renderRefractionScene = (
   target: THREE.WebGLRenderTarget,
   waterMeshes: ReadonlySet<THREE.Mesh>,
 ): boolean => {
-  const renderer = context.renderer as unknown as THREE.WebGLRenderer
+  const renderer = requireRenderer(context.renderer)
   const previousTarget = renderer.getRenderTarget()
   const visibility = captureWaterVisibility(waterMeshes)
   hideWaterMeshes(waterMeshes)
@@ -575,7 +595,7 @@ const createRefractionController = (
     }
     if (
       !shouldCaptureRefraction({
-        camera: context.camera as unknown as THREE.Camera,
+        camera: requireCamera(context.camera),
         frameNumber,
         quality,
         state,

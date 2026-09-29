@@ -73,10 +73,11 @@
  * Generic over key and value so the same mechanism serves the per-frame chunk
  * visibility set, the entity instance map, and the light-update queue.
  */
+declare const scratchBrand: unique symbol
+
 export type ScratchMap<Key, Value> = {
   readonly name: string
-  /** Type-only brand; the field is omitted from every runtime scratch value. */
-  readonly __scratchMapTypes?: readonly [Key, Value]
+  readonly [scratchBrand]: readonly [Key, Value]
   /** Frames this buffer has served. Never resets; diagnostics only. */
   readonly usageCount: () => number
   /** Nesting depth. Greater than 1 means two users are clobbering each other. */
@@ -114,30 +115,47 @@ type ScratchOwner = {
   readonly assertActive: () => void
 }
 
-class GuardedIterator<Item> implements IterableIterator<Item> {
-  constructor(
-    private readonly source: Iterator<Item>,
-    private readonly owner: ScratchOwner,
-  ) {}
+declare global {
+  interface SymbolConstructor {
+    readonly dispose: unique symbol
+  }
+}
+
+class GuardedIterator<Item> implements MapIterator<Item> {
+  private readonly source: Iterator<Item>
+  private readonly owner: ScratchOwner
+
+  constructor(source: Iterator<Item>, owner: ScratchOwner) {
+    this.source = source
+    this.owner = owner
+  }
 
   next(...args: [] | [undefined]): IteratorResult<Item> {
     this.owner.assertActive()
     return this.source.next(...args)
   }
 
-  [Symbol.iterator](): IterableIterator<Item> {
+  [Symbol.iterator](): MapIterator<Item> {
     this.owner.assertActive()
     return this
   }
+
+  [Symbol.dispose](): void {
+    this.owner.assertActive()
+  }
+
 }
 
 class GuardedMap<Key, Value> implements Map<Key, Value> {
   readonly [Symbol.toStringTag] = 'Map'
 
-  constructor(
-    private readonly source: Map<Key, Value>,
-    private readonly owner: ScratchOwner,
-  ) {}
+  private readonly source: Map<Key, Value>
+  private readonly owner: ScratchOwner
+
+  constructor(source: Map<Key, Value>, owner: ScratchOwner) {
+    this.source = source
+    this.owner = owner
+  }
 
   get size(): number {
     this.owner.assertActive()
@@ -154,11 +172,9 @@ class GuardedMap<Key, Value> implements Map<Key, Value> {
     return this.source.delete(key)
   }
 
-  entries(): ReturnType<Map<Key, Value>['entries']> {
+  entries(): MapIterator<[Key, Value]> {
     this.owner.assertActive()
-    return new GuardedIterator(this.source.entries(), this.owner) as unknown as ReturnType<
-      Map<Key, Value>['entries']
-    >
+    return new GuardedIterator(this.source.entries(), this.owner)
   }
 
   forEach(
@@ -179,9 +195,9 @@ class GuardedMap<Key, Value> implements Map<Key, Value> {
     return this.source.has(key)
   }
 
-  keys(): ReturnType<Map<Key, Value>['keys']> {
+  keys(): MapIterator<Key> {
     this.owner.assertActive()
-    return new GuardedIterator(this.source.keys(), this.owner) as unknown as ReturnType<Map<Key, Value>['keys']>
+    return new GuardedIterator(this.source.keys(), this.owner)
   }
 
   set(key: Key, value: Value): this {
@@ -190,11 +206,9 @@ class GuardedMap<Key, Value> implements Map<Key, Value> {
     return this
   }
 
-  values(): ReturnType<Map<Key, Value>['values']> {
+  values(): MapIterator<Value> {
     this.owner.assertActive()
-    return new GuardedIterator(this.source.values(), this.owner) as unknown as ReturnType<
-      Map<Key, Value>['values']
-    >
+    return new GuardedIterator(this.source.values(), this.owner)
   }
 
   [Symbol.iterator](): ReturnType<Map<Key, Value>['entries']> {
@@ -203,13 +217,16 @@ class GuardedMap<Key, Value> implements Map<Key, Value> {
 }
 
 class ScratchState<Key, Value> implements ScratchOwner {
-  readonly buffer = new Map<Key, Value>()
+  readonly buffer: Map<Key, Value> = new Map<Key, Value>()
   readonly view: Map<Key, Value>
   private active = false
   private usage = NO_ACTIVE_LEASES
   private borrowed = NO_ACTIVE_LEASES
 
-  constructor(readonly name: string) {
+  readonly name: string
+
+  constructor(name: string) {
+    this.name = name
     this.view = new GuardedMap(this.buffer, this)
   }
 
@@ -242,7 +259,10 @@ class ScratchState<Key, Value> implements ScratchOwner {
   }
 }
 
-const scratchStates = new WeakMap<object, ScratchState<unknown, unknown>>()
+const scratchStates = new WeakMap<object, unknown>()
+
+const isScratchState = <Key, Value>(value: unknown): value is ScratchState<Key, Value> =>
+  value instanceof ScratchState
 
 const stateFor = <Key, Value>(scratch: ScratchMap<Key, Value>): ScratchState<Key, Value> => {
   if (typeof scratch !== 'object' || scratch === null) {
@@ -251,15 +271,14 @@ const stateFor = <Key, Value>(scratch: ScratchMap<Key, Value>): ScratchState<Key
       rule: 'foreign-scratch',
     })
   }
-
   const state = scratchStates.get(scratch)
-  if (state === undefined) {
+  if (!isScratchState<Key, Value>(state)) {
     throw new ScratchMisuseError({
       message: 'withScratch received a ScratchMap that was not created by makeScratchMap.',
       rule: 'foreign-scratch',
     })
   }
-  return state as ScratchState<Key, Value>
+  return state
 }
 
 /**
@@ -270,15 +289,15 @@ const stateFor = <Key, Value>(scratch: ScratchMap<Key, Value>): ScratchState<Key
  * trace says which buffer is growing, which is the actionable signal — a buffer
  * that keeps rehashing has outgrown its intended contents and should be split.
  */
-export const makeScratchMap = <Key, Value>(name: string, initialCapacity?: number): ScratchMap<Key, Value> => {
+export function makeScratchMap<Key, Value>(name: string, initialCapacity?: number): ScratchMap<Key, Value>
+export function makeScratchMap<Key, Value>(name: string, initialCapacity?: number): unknown {
   const state = new ScratchState<Key, Value>(scratchDisplayName(name, initialCapacity))
-  const scratch: ScratchMap<Key, Value> = {
+  const scratch = {
     borrowedCount: () => state.borrowedCount(),
     name: state.name,
     usageCount: () => state.usageCount(),
   }
-
-  scratchStates.set(scratch, state as ScratchState<unknown, unknown>)
+  scratchStates.set(scratch, state)
   return scratch
 }
 

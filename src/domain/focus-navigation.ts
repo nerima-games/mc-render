@@ -24,7 +24,12 @@ export const focusNavigationDirectionForCode = (
   }
 }
 
-export const ARROW_FOCUS_NAVIGATION_POLICY = {
+export const ARROW_FOCUS_NAVIGATION_POLICY: Readonly<{
+  readonly codes: ReadonlyArray<string>
+  readonly disabledWhilePointerLocked: boolean
+  readonly owner: string
+  readonly preventDefault: string
+}> = {
   codes: FOCUS_NAVIGATION_CODES,
   disabledWhilePointerLocked: true,
   owner: 'host',

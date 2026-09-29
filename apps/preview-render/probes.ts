@@ -576,7 +576,7 @@ const FOOTER: ReadonlyArray<string> = [
   '   the input state machine in particular has no other home: Playwright cannot do pointer lock.',
 ]
 
-export const statsReport = Effect.gen(function* () {
+export const statsReport: Effect.Effect<ReadonlyArray<string>> = Effect.gen(function* () {
   return [
     ...HEADER,
     ...(yield* lockMachineProbe),
