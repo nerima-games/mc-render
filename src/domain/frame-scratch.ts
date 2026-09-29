@@ -73,11 +73,11 @@
  * Generic over key and value so the same mechanism serves the per-frame chunk
  * visibility set, the entity instance map, and the light-update queue.
  */
+declare const scratchBrand: unique symbol
+
 export type ScratchMap<Key, Value> = {
   readonly name: string
-  readonly state?: ScratchState<Key, Value>
-  /** Type-only brand; the field is omitted from every runtime scratch value. */
-  readonly __scratchMapTypes?: readonly [Key, Value]
+  readonly [scratchBrand]?: readonly [Key, Value]
   /** Frames this buffer has served. Never resets; diagnostics only. */
   readonly usageCount: () => number
   /** Nesting depth. Greater than 1 means two users are clobbering each other. */
@@ -216,7 +216,7 @@ class GuardedMap<Key, Value> implements Map<Key, Value> {
   }
 }
 
-export class ScratchState<Key, Value> implements ScratchOwner {
+class ScratchState<Key, Value> implements ScratchOwner {
   readonly buffer: Map<Key, Value> = new Map<Key, Value>()
   readonly view: Map<Key, Value>
   private active = false
@@ -259,6 +259,11 @@ export class ScratchState<Key, Value> implements ScratchOwner {
   }
 }
 
+const scratchStates = new WeakMap<object, unknown>()
+
+const isScratchState = <Key, Value>(value: unknown): value is ScratchState<Key, Value> =>
+  value instanceof ScratchState
+
 const stateFor = <Key, Value>(scratch: ScratchMap<Key, Value>): ScratchState<Key, Value> => {
   if (typeof scratch !== 'object' || scratch === null) {
     throw new ScratchMisuseError({
@@ -266,8 +271,8 @@ const stateFor = <Key, Value>(scratch: ScratchMap<Key, Value>): ScratchState<Key
       rule: 'foreign-scratch',
     })
   }
-  const { state } = scratch
-  if (!(state instanceof ScratchState)) {
+  const state = scratchStates.get(scratch)
+  if (!isScratchState<Key, Value>(state)) {
     throw new ScratchMisuseError({
       message: 'withScratch received a ScratchMap that was not created by makeScratchMap.',
       rule: 'foreign-scratch',
@@ -289,9 +294,9 @@ export const makeScratchMap = <Key, Value>(name: string, initialCapacity?: numbe
   const scratch: ScratchMap<Key, Value> = {
     borrowedCount: () => state.borrowedCount(),
     name: state.name,
-    state,
     usageCount: () => state.usageCount(),
   }
+  scratchStates.set(scratch, state)
   return scratch
 }
 

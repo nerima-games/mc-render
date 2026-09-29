@@ -324,6 +324,17 @@ describe('the guarded view delegates the whole Map interface, lease-checked', ()
       expect(() => withScratch(foreign, (buffer) => buffer.size)).toThrow(ScratchMisuseError)
     }),
   )
+
+  it.effect('rejects a forged scratch-shaped object without factory identity', () =>
+    Effect.sync(() => {
+      const forged: ScratchMap<string, number> = {
+        borrowedCount: () => 0,
+        name: 'forged',
+        usageCount: () => 0,
+      }
+      expect(() => withScratch(forged, (buffer) => buffer.size)).toThrow(ScratchMisuseError)
+    }),
+  )
 })
 
 describe('REGRESSION: re-entrant borrows are rejected', () => {
