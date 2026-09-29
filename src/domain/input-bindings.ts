@@ -495,12 +495,14 @@ const requiredBinding = (bindings: Readonly<Record<string, string>>, action: Exc
   return code
 }
 
-const acceptBinding = (
-  source: Readonly<Record<string, string>>,
-  bindings: Record<string, InputCode>,
-  seen: Set<InputCode>,
-  action: Exclude<InputAction, 'escape'>,
-): void => {
+type BindingAcceptance = {
+  readonly source: Readonly<Record<string, string>>
+  readonly bindings: Record<string, InputCode>
+  readonly seen: Set<InputCode>
+  readonly action: Exclude<InputAction, 'escape'>
+}
+
+const acceptBinding = ({ source, bindings, seen, action }: BindingAcceptance): void => {
   const code = requiredBinding(source, action)
   if (RESERVED_INPUT_CODES.has(code)) {
     throw new InputSettingsDecodeError(`Input settings cannot bind reserved key '${code}'.`)
@@ -521,7 +523,7 @@ export const decodeBindings = (input: unknown): Bindings => {
   const seen = new Set<InputCode>()
   for (const action of INPUT_ACTIONS) {
     if (action !== 'escape') {
-      acceptBinding(decoded.right, bindings, seen, action)
+      acceptBinding({ action, bindings, seen, source: decoded.right })
     }
   }
   return bindings
