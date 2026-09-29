@@ -67,6 +67,8 @@
  * resolution and the Escape rule be tested in Node under
  * `environment: 'node'` — no jsdom, no Playwright, no SwiftShader.
  */
+import { Either, Schema } from 'effect'
+
 
 /**
  * Every action the game can be told to perform by an input device.
@@ -468,6 +470,35 @@ export const FOCUS_NAVIGATION_OWNER = 'user-agent' as const
 export const FOCUS_NAVIGATION_KEY_CODE: KeyCode = 'Tab'
 
 export type Bindings = Readonly<Record<string, InputCode>>
+
+export class InputSettingsDecodeError extends Error {
+  readonly _tag = 'InputSettingsDecodeError'
+
+  constructor(message: string) {
+    super(message)
+    this.name = 'InputSettingsDecodeError'
+  }
+}
+
+/** Runtime boundary for persisted input-settings JSON. */
+export const BindingsSchema: Schema.Schema<Record<string, string>> = Schema.Record({ key: Schema.String, value: Schema.String })
+
+export const decodeBindings = (input: unknown): Bindings => {
+  const decoded = Schema.decodeUnknownEither(BindingsSchema)(input)
+  if (Either.isLeft(decoded)) {
+    throw new InputSettingsDecodeError('Input settings must be an object of string bindings.')
+  }
+  const bindings: Record<string, InputCode> = {}
+  for (const action of INPUT_ACTIONS) {
+    if (action === 'escape') continue
+    const code = decoded.right[action]
+    if (typeof code !== 'string' || code.length === 0) {
+      throw new InputSettingsDecodeError(`Input settings is missing binding '${action}'.`)
+    }
+    bindings[action] = code
+  }
+  return bindings
+}
 
 export const defaultBindings = (): Bindings => ({ ...DEFAULT_BINDINGS })
 
