@@ -923,6 +923,14 @@ const dispatchTouchPress = (
   }
 }
 
+const requiredTouchActionCount = (state: TouchDispatchState, action: InputAction): number => {
+  const count = state.touchActionCounts.get(action)
+  if (typeof count === 'undefined') {
+    throw new Error(`Missing touch action count for ${action}`)
+  }
+  return count
+}
+
 const dispatchTouchRelease = (
   state: TouchDispatchState,
   contact: TouchContact,
@@ -934,7 +942,7 @@ const dispatchTouchRelease = (
   }
   state.touchActions.delete(contact.identifier)
   // A tracked touch always has a count until its final release.
-  const count = state.touchActionCounts.get(action)!
+  const count = requiredTouchActionCount(state, action)
   if (count <= ONE_FINGER_HOLDING) {
     state.touchActionCounts.delete(action)
     Effect.runSync(state.input.dispatch({ action, kind: 'touchrelease', target }))
