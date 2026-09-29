@@ -411,7 +411,6 @@ export type ParticlePoolOptions = {
 /**
  * Read a float at an index constructed by the pool's bounded loops.
  *
- * A DataView read preserves the public Float32Array identity while avoiding a
  * The opaque pool constructor guarantees the index exists. Number preserves a
  * numeric return type under noUncheckedIndexedAccess without a per-read branch
  * or allocation.
