@@ -360,19 +360,7 @@ const normaliseSeed = (seed: number): number => {
  */
 declare const particlePoolBrand: unique symbol
 
-export interface ParticleBuffer extends Float32Array {
-  readonly read: (index: number) => number
-}
-
-class ParticleBufferImpl extends Float32Array {
-  readonly read = (index: number): number => this.view.getFloat32(index * Float32Array.BYTES_PER_ELEMENT, true)
-  private readonly view: DataView
-
-  constructor(length: number) {
-    super(length)
-    this.view = new DataView(this.buffer, this.byteOffset, this.byteLength)
-  }
-}
+export type ParticleBuffer = Float32Array
 
 export type ParticlePool = {
   readonly [particlePoolBrand]: never
@@ -423,10 +411,14 @@ export type ParticlePoolOptions = {
 /**
  * Read a float at an index constructed by the pool's bounded loops.
  *
- * The private buffer implementation exposes a bounds-safe read method; pool
- * construction guarantees that every index used by the bounded loops exists.
+ * A DataView read preserves the public Float32Array identity while avoiding a
+ * per-read bounds branch; pool construction guarantees the index exists.
  */
-const readFloat = (buffer: ParticleBuffer, index: number): number => buffer.read(index)
+const readFloat = (buffer: ParticleBuffer, index: number): number =>
+  new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength).getFloat32(
+    index * Float32Array.BYTES_PER_ELEMENT,
+    true,
+  )
 
 /**
  * Allocate a pool. THE ONLY FUNCTION HERE THAT ALLOCATES.
@@ -461,11 +453,11 @@ class ParticlePoolImpl implements ParticlePool {
 
   constructor(options: ParticlePoolOptions | undefined, capacity: number) {
     this.capacity = capacity
-    this.positions = new ParticleBufferImpl(capacity * PARTICLE_VECTOR_STRIDE)
-    this.velocities = new ParticleBufferImpl(capacity * PARTICLE_VECTOR_STRIDE)
-    this.lifetimesSecs = new ParticleBufferImpl(capacity)
-    this.scales = new ParticleBufferImpl(capacity)
-    this.uvOffsets = new ParticleBufferImpl(capacity * PARTICLE_UV_STRIDE)
+    this.positions = new Float32Array(capacity * PARTICLE_VECTOR_STRIDE)
+    this.velocities = new Float32Array(capacity * PARTICLE_VECTOR_STRIDE)
+    this.lifetimesSecs = new Float32Array(capacity)
+    this.scales = new Float32Array(capacity)
+    this.uvOffsets = new Float32Array(capacity * PARTICLE_UV_STRIDE)
     particleStates.set(this, {
       active: 0,
       evictions: 0,
