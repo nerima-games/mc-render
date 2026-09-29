@@ -1,4 +1,6 @@
 import type { WorkerPort } from './worker-pool.js'
+import { Data, Either, Schema } from 'effect'
+import type { ParseResult } from 'effect'
 
 export type BrowserWorkerMessageEvent = {
   readonly data: unknown
@@ -9,14 +11,13 @@ export type BrowserWorkerErrorEvent = {
   readonly message?: string
 }
 
-export class WorkerResponseDecodeError extends Error {
-  readonly _tag = 'WorkerResponseDecodeError'
+const WorkerResponseDecodeErrorBase: ReturnType<typeof Data.TaggedError<'WorkerResponseDecodeError'>> =
+  Data.TaggedError('WorkerResponseDecodeError')
 
-  constructor(cause: unknown) {
-    super('Worker response failed schema decoding.', { cause })
-    this.name = 'WorkerResponseDecodeError'
-  }
-}
+export class WorkerResponseDecodeError extends WorkerResponseDecodeErrorBase<{
+  readonly cause: ParseResult.ParseError
+  readonly workerIndex: number
+}> {}
 
 export type BrowserWorkerLike<TTransfer = unknown> = {
   postMessage(message: unknown, transfer?: Array<TTransfer>): void
@@ -27,7 +28,8 @@ export type BrowserWorkerLike<TTransfer = unknown> = {
 
 export type BrowserWorkerPortOptions<TRequest, TResponse, TTransfer = unknown> = {
   readonly transfer?: (request: TRequest) => Array<TTransfer>
-  readonly decodeResponse: (data: unknown) => TResponse
+  readonly responseSchema: Schema.Schema<TResponse>
+  readonly workerIndex: number
 }
 
 export const makeBrowserWorkerPort = <TRequest, TResponse, TTransfer = unknown>(
@@ -38,11 +40,12 @@ export const makeBrowserWorkerPort = <TRequest, TResponse, TTransfer = unknown>(
   let errorHandler: (reason: unknown) => void = () => undefined
 
   worker.addEventListener('message', (event) => {
-    try {
-      messageHandler(options.decodeResponse(event.data))
-    } catch (error) {
-      errorHandler(new WorkerResponseDecodeError(error))
+    const decoded = Schema.decodeUnknownEither(options.responseSchema)(event.data)
+    if (Either.isLeft(decoded)) {
+      errorHandler(new WorkerResponseDecodeError({ cause: decoded.left, workerIndex: options.workerIndex }))
+      return
     }
+    messageHandler(decoded.right)
   })
   worker.addEventListener('error', (event) => {
     errorHandler(event.error ?? event.message ?? event)

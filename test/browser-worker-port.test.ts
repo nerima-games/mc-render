@@ -2,6 +2,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { expect, it } from '@effect/vitest'
 import * as Effect from 'effect/Effect'
+import * as Schema from 'effect/Schema'
 import {
   makeBrowserWorkerPort,
   WorkerResponseDecodeError,
@@ -11,12 +12,7 @@ import {
 } from '../src/application/browser-worker-port'
 import { inspectTypeScriptFixture } from './typescript-project'
 
-const decodeResponse = (data: unknown): { readonly ok: boolean } => {
-  if (typeof data === 'object' && data !== null && 'ok' in data && typeof data.ok === 'boolean') {
-    return { ok: data.ok }
-  }
-  throw new Error('invalid worker response')
-}
+const responseSchema = Schema.Struct({ ok: Schema.Boolean })
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -73,7 +69,10 @@ const makeFakeWorker = (): FakeWorker => {
 it.effect('adapts messages, posts and termination to WorkerPort', () =>
   Effect.sync(() => {
     const worker = makeFakeWorker()
-    const port = makeBrowserWorkerPort<{ readonly id: number }, { readonly ok: boolean }, string>(worker, { decodeResponse })
+    const port = makeBrowserWorkerPort<{ readonly id: number }, { readonly ok: boolean }, string>(worker, {
+      responseSchema,
+      workerIndex: 0,
+    })
     const received: Array<{ readonly ok: boolean }> = []
 
     worker.emitMessage({ ok: false })
@@ -95,7 +94,8 @@ it.effect('forwards transfer lists and all browser error forms', () =>
     const worker = makeFakeWorker()
     const port = makeBrowserWorkerPort<{ readonly id: number }, { readonly ok: boolean }, string>(worker, {
       transfer: () => ['chunk-buffer'],
-      decodeResponse,
+      responseSchema,
+      workerIndex: 0,
     })
     const errors: Array<unknown> = []
     const eventError = new Error('worker failed')
@@ -118,12 +118,16 @@ it.effect('forwards transfer lists and all browser error forms', () =>
 it.effect('routes response decoder failures through the worker error boundary', () =>
   Effect.sync(() => {
     const worker = makeFakeWorker()
-    const port = makeBrowserWorkerPort<{ readonly id: number }, { readonly ok: boolean }>(worker, { decodeResponse })
+    const port = makeBrowserWorkerPort<{ readonly id: number }, { readonly ok: boolean }>(worker, {
+      responseSchema,
+      workerIndex: 0,
+    })
     const errors: Array<unknown> = []
     port.onError?.((reason) => errors.push(reason))
     worker.emitMessage({ invalid: true })
     expect(errors).toHaveLength(1)
     expect(errors[0]).toBeInstanceOf(WorkerResponseDecodeError)
+    expect(errors[0]).toMatchObject({ _tag: 'WorkerResponseDecodeError' })
   }),
 )
 
