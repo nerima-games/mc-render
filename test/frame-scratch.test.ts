@@ -14,6 +14,8 @@
  */
 import { describe, expect, it } from '@effect/vitest'
 import { Effect } from 'effect'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import {
   makeFrameScratch,
   makeScratchMap,
@@ -22,8 +24,20 @@ import {
   withScratch,
   type ScratchMap,
 } from '../src/domain/frame-scratch'
+import { inspectTypeScriptFixture } from './typescript-project'
+
+const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 
 describe('reuse', () => {
+  it.effect('requires the factory brand in the public type', () =>
+    Effect.sync(() => {
+      const fixture = `${repositoryRoot}/test/fixtures/frame-scratch-brand.ts`
+      const inspection = inspectTypeScriptFixture(repositoryRoot, fixture, ['ES2022'])
+
+      expect(inspection.errors).toStrictEqual([])
+    }),
+  )
+
   it.effect('the SAME Map object serves every frame — no allocation per frame', () =>
     Effect.sync(() => {
       const scratch = makeScratchMap<string, number>('visibleChunks', 512)
@@ -177,11 +191,7 @@ describe('REGRESSION: withScratch prevents cross-frame escapes', () => {
 
   it.effect('a foreign ScratchMap is rejected with a diagnostic error', () =>
     Effect.sync(() => {
-      const foreign: ScratchMap<string, number> = {
-        name: 'hand-built',
-        usageCount: () => 0,
-        borrowedCount: () => 0,
-      }
+      const foreign = { ...makeScratchMap<string, number>('hand-built') }
 
       expect(() => withScratch(foreign, (buffer) => buffer.size)).toThrow(ScratchMisuseError)
       try {
@@ -327,11 +337,7 @@ describe('the guarded view delegates the whole Map interface, lease-checked', ()
 
   it.effect('rejects a forged scratch-shaped object without factory identity', () =>
     Effect.sync(() => {
-      const forged: ScratchMap<string, number> = {
-        borrowedCount: () => 0,
-        name: 'forged',
-        usageCount: () => 0,
-      }
+      const forged = { ...makeScratchMap<string, number>('forged') }
       expect(() => withScratch(forged, (buffer) => buffer.size)).toThrow(ScratchMisuseError)
     }),
   )

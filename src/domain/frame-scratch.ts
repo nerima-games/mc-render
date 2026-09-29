@@ -77,7 +77,7 @@ declare const scratchBrand: unique symbol
 
 export type ScratchMap<Key, Value> = {
   readonly name: string
-  readonly [scratchBrand]?: readonly [Key, Value]
+  readonly [scratchBrand]: readonly [Key, Value]
   /** Frames this buffer has served. Never resets; diagnostics only. */
   readonly usageCount: () => number
   /** Nesting depth. Greater than 1 means two users are clobbering each other. */
@@ -289,9 +289,10 @@ const stateFor = <Key, Value>(scratch: ScratchMap<Key, Value>): ScratchState<Key
  * trace says which buffer is growing, which is the actionable signal — a buffer
  * that keeps rehashing has outgrown its intended contents and should be split.
  */
-export const makeScratchMap = <Key, Value>(name: string, initialCapacity?: number): ScratchMap<Key, Value> => {
+export function makeScratchMap<Key, Value>(name: string, initialCapacity?: number): ScratchMap<Key, Value>
+export function makeScratchMap<Key, Value>(name: string, initialCapacity?: number): unknown {
   const state = new ScratchState<Key, Value>(scratchDisplayName(name, initialCapacity))
-  const scratch: ScratchMap<Key, Value> = {
+  const scratch = {
     borrowedCount: () => state.borrowedCount(),
     name: state.name,
     usageCount: () => state.usageCount(),
