@@ -266,7 +266,7 @@ const stateFor = <Key, Value>(scratch: ScratchMap<Key, Value>): ScratchState<Key
       rule: 'foreign-scratch',
     })
   }
-  const state = scratch.state
+  const { state } = scratch
   if (!(state instanceof ScratchState)) {
     throw new ScratchMisuseError({
       message: 'withScratch received a ScratchMap that was not created by makeScratchMap.',

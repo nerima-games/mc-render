@@ -21,7 +21,7 @@ type SampledPoint = {
 
 const requiredPosition = (positions: Float32Array, index: number): number => {
   const value = positions[index]
-  if (value === undefined) throw new Error('Complete vertex buffer contained a missing component')
+  if (value === undefined) { throw new Error('Complete vertex buffer contained a missing component') }
   return value
 }
 

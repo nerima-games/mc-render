@@ -32,7 +32,7 @@ export type {
 
 const requiredQuadVertex = (vertices: ReadonlyArray<QuadVertex>, index: number): QuadVertex => {
   const vertex = vertices[index]
-  if (vertex === undefined) throw new Error('Mesh quad did not contain all four vertices')
+  if (vertex === undefined) { throw new Error('Mesh quad did not contain all four vertices') }
   return vertex
 }
 

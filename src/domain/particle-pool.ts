@@ -408,7 +408,7 @@ export type ParticlePoolOptions = {
  */
 const readFloat = (buffer: Float32Array, index: number): number => {
   const value = buffer[index]
-  if (value === undefined) throw new Error('Particle buffer index was outside its capacity')
+  if (value === undefined) { throw new Error('Particle buffer index was outside its capacity') }
   return value
 }
 

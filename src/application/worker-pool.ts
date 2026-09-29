@@ -227,7 +227,7 @@ const FIRST_JOB_ID = 1
 
 const takeFirst = <Item>(items: Array<Item>): Item => {
   const item = items.shift()
-  if (item === undefined) throw new Error('Worker pool queue invariant was violated')
+  if (item === undefined) { throw new Error('Worker pool queue invariant was violated') }
   return item
 }
 

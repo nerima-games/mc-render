@@ -36,22 +36,22 @@ import type { Viewport } from './domain/render-environment.js'
 import { measureWaterVisibility } from './browser-water-visibility.js'
 
 const requireRenderer = (value: unknown): THREE.WebGLRenderer => {
-  if (value instanceof THREE.WebGLRenderer) return value
+  if (value instanceof THREE.WebGLRenderer) { return value }
   throw new Error('Browser surface did not provide a THREE.WebGLRenderer')
 }
 
 const requireScene = (value: unknown): THREE.Scene => {
-  if (value instanceof THREE.Scene) return value
+  if (value instanceof THREE.Scene) { return value }
   throw new Error('Browser surface did not provide a THREE.Scene')
 }
 
 const requireCamera = (value: unknown): THREE.Camera => {
-  if (value instanceof THREE.Camera) return value
+  if (value instanceof THREE.Camera) { return value }
   throw new Error('Browser surface did not provide a THREE.Camera')
 }
 
 const requirePerspectiveCamera = (value: unknown): THREE.PerspectiveCamera => {
-  if (value instanceof THREE.PerspectiveCamera) return value
+  if (value instanceof THREE.PerspectiveCamera) { return value }
   throw new Error('Browser surface did not provide a THREE.PerspectiveCamera')
 }
 
