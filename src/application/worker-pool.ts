@@ -225,6 +225,23 @@ const ONE_AFFECTED_JOB = 1
 const INITIAL_COUNTER = 0
 const FIRST_JOB_ID = 1
 
+type DispatchJobArgs<TPayload, TResult> = {
+  readonly current: PoolState<TPayload, TResult>
+  readonly ports: ReadonlyArray<WorkerPort<WorkerRequest<TPayload>, WorkerResponse<TResult>> | undefined>
+  readonly workerIndex: number
+  readonly job: Waiting<TPayload, TResult>
+}
+
+const dispatchJob = <TPayload, TResult>({ current, ports, workerIndex, job }: DispatchJobArgs<TPayload, TResult>): void => {
+  current.running.set(job.id, {
+    discarded: false,
+    key: job.key,
+    resume: job.resume,
+    workerIndex,
+  })
+  ports[workerIndex]?.post({ id: job.id, payload: job.payload })
+}
+
 /**
  * Move as much work onto idle workers as will fit.
  *
@@ -239,19 +256,13 @@ const pump = <TPayload, TResult>(
 ): void => {
   while (!current.shuttingDown) {
     const workerIndex = current.idle.shift()
-    if (workerIndex === undefined) return
+    if (workerIndex === undefined) { return }
     const job = current.queue.shift()
     if (job === undefined) {
       current.idle.unshift(workerIndex)
       return
     }
-    current.running.set(job.id, {
-      discarded: false,
-      key: job.key,
-      resume: job.resume,
-      workerIndex,
-    })
-    ports[workerIndex]?.post({ id: job.id, payload: job.payload })
+    dispatchJob({ current, job, ports, workerIndex })
   }
 }
 

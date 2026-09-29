@@ -52,8 +52,23 @@ const POSITION_COMPONENTS_PER_VERTEX = 3
 const NO_REMAINDER = 0
 /** The flat buffer's y component sits one slot after its x component. */
 const Y_OFFSET = 1
+/** The flat buffer's x component sits at the start of each vertex triplet. */
+const X_OFFSET = 0
 const hasCompleteVertices = (positions: Float32Array): boolean =>
   positions.length !== EMPTY_POSITIONS_LENGTH && positions.length % POSITION_COMPONENTS_PER_VERTEX === NO_REMAINDER
+
+const accumulateAxis = (accumulator: BoundsAccumulator, axis: number, value: number): void => {
+  if (axis === X_OFFSET) {
+    accumulator.minX = Math.min(accumulator.minX, value)
+    accumulator.maxX = Math.max(accumulator.maxX, value)
+  } else if (axis === Y_OFFSET) {
+    accumulator.minY = Math.min(accumulator.minY, value)
+    accumulator.maxY = Math.max(accumulator.maxY, value)
+  } else {
+    accumulator.minZ = Math.min(accumulator.minZ, value)
+    accumulator.maxZ = Math.max(accumulator.maxZ, value)
+  }
+}
 
 type BoundsAccumulator = {
   minX: number
@@ -84,16 +99,7 @@ export const boundsFromPositions = (positions: Float32Array): AxisAlignedBounds 
     if (!Number.isFinite(value)) {
       return undefined
     }
-    if (index % POSITION_COMPONENTS_PER_VERTEX === 0) {
-      accumulator.minX = Math.min(accumulator.minX, value)
-      accumulator.maxX = Math.max(accumulator.maxX, value)
-    } else if (index % POSITION_COMPONENTS_PER_VERTEX === Y_OFFSET) {
-      accumulator.minY = Math.min(accumulator.minY, value)
-      accumulator.maxY = Math.max(accumulator.maxY, value)
-    } else {
-      accumulator.minZ = Math.min(accumulator.minZ, value)
-      accumulator.maxZ = Math.max(accumulator.maxZ, value)
-    }
+    accumulateAxis(accumulator, index % POSITION_COMPONENTS_PER_VERTEX, value)
   }
 
   return {
