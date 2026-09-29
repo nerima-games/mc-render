@@ -574,11 +574,7 @@ export const makeWorkerPool = <TPayload, TResult>(
     // Wired once, at construction. A handler installed per job would leak one
     // Closure per chunk meshed, which on a walked-across world is unbounded.
     ports.forEach((port, workerIndex) => {
-      const generation = portGenerations[workerIndex]
-      if (generation === undefined) {
-        throw new Error('Worker generation table is shorter than the port table')
-      }
-      failureHandlers.attachPort({ generation, port, workerIndex })
+      failureHandlers.attachPort({ generation: INITIAL_COUNTER, port, workerIndex })
     })
 
     return {

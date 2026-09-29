@@ -305,6 +305,15 @@ describe('the guarded view delegates the whole Map interface, lease-checked', ()
     }),
   )
 
+  it.effect('guarded iterators dispose while borrowed and reject disposal after escape', () =>
+    Effect.sync(() => {
+      const scratch = makeScratchMap<string, number>('iterator-dispose')
+      expect(() => withScratch(scratch, (buffer) => buffer.keys()[Symbol.dispose]())).not.toThrow()
+      const escaped = withScratch(scratch, (buffer) => buffer.keys())
+      expect(() => escaped[Symbol.dispose]()).toThrow(ScratchMisuseError)
+    }),
+  )
+
   it.effect('withScratch received null, which typeof reports as "object"', () =>
     Effect.sync(() => {
       // `typeof null === 'object'`, so the non-object check alone would let a

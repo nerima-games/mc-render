@@ -768,25 +768,16 @@ const planEntityVisual = (entity: RenderEntity): EntityVisualPlan => {
   return planDefaultEntityVisual(entity, facingRadians)
 }
 
-const entityPartsMatch = (entry: EntityEntry, plans: EntityVisualPlan['parts']): boolean =>
-  plans.length === entry.parts.length && plans.every((plan, index) => {
+const matchingEntityParts = (entry: EntityEntry, plans: EntityVisualPlan['parts']): ReadonlyArray<readonly [EntityPartEntry, EntityVisualPartPlan]> | undefined => {
+  if (plans.length !== entry.parts.length) return undefined
+  const pairs: Array<readonly [EntityPartEntry, EntityVisualPartPlan]> = []
+  for (const [index, plan] of plans.entries()) {
     const previous = entry.parts[index]
-    return previous !== undefined && plan.id === previous.id &&
-      plan.color.every((component, colorIndex) => component === previous.color[colorIndex])
-  })
-
-const updateEntityParts = (
-  entry: EntityEntry,
-  visual: EntityVisualPlan,
-  apply: (mesh: TransformableThreeMesh, visual: EntityVisualPlan, plan: EntityVisualPartPlan) => void,
-): void => {
-  for (const [index, plan] of visual.parts.entries()) {
-    const part = entry.parts[index]
-    if (part === undefined) {
-      throw new Error('Entity visual plan lost a previously built part')
-    }
-    apply(part.mesh, visual, plan)
+    if (previous === undefined || plan.id !== previous.id ||
+      plan.color.some((component, colorIndex) => component !== previous.color[colorIndex])) return undefined
+    pairs.push([previous, plan])
   }
+  return pairs
 }
 
 /** The unit cube's extent from its centre along each axis: a block is one unit wide, centred on the origin. */
@@ -1285,11 +1276,14 @@ export const makeWorldRenderer = <
       updateEntity: (entry: EntityEntry, entity: RenderEntity): EntityEntry => {
         const visual = planEntityVisual(entity)
         const plans = visual.parts
-        if (!entityPartsMatch(entry, plans)) {
+        const matchingParts = matchingEntityParts(entry, plans)
+        if (matchingParts === undefined) {
           ops.releaseEntity(entry)
           return ops.buildEntity(entity)
         }
-        updateEntityParts(entry, visual, ops.applyEntityPartTransform)
+        for (const [part, plan] of matchingParts) {
+          ops.applyEntityPartTransform(part.mesh, visual, plan)
+        }
         return { ...entry, entity }
       },
     }

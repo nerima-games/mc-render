@@ -628,6 +628,24 @@ describe('clearing', () => {
 })
 
 describe('reading slots', () => {
+  it.effect('rejects a public pool whose buffers are shorter than its capacity', () =>
+    Effect.sync(() => {
+      const malformed: ParticlePool = {
+        capacity: 2,
+        positions: new Float32Array([1]),
+        velocities: new Float32Array(6),
+        lifetimesSecs: new Float32Array([1, 0]),
+        scales: new Float32Array(2),
+        uvOffsets: new Float32Array(4),
+        activeCount: () => 1,
+        seed: () => 1,
+        evictionCount: () => 0,
+        state: { active: 1, seedState: 1, evictions: 0, nextSlot: 0 },
+      }
+      expect(() => readSlot(malformed, 0)).toThrow('Particle buffer index was outside its capacity')
+    }),
+  )
+
   it.effect('refuses an index that is out of range or free, rather than returning zeros', () =>
     Effect.sync(() => {
       const pool = makeParticlePool({ capacity: 4, seed: 7 })

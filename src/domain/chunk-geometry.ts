@@ -30,12 +30,6 @@ export type {
   QuadVertex,
 }
 
-const requiredQuadVertex = (vertices: ReadonlyArray<QuadVertex>, index: number): QuadVertex => {
-  const vertex = vertices[index]
-  if (vertex === undefined) { throw new Error('Mesh quad did not contain all four vertices') }
-  return vertex
-}
-
 /** Components per vertex, per attribute. */
 export const POSITION_COMPONENTS = 3
 export const NORMAL_COMPONENTS = 3
@@ -972,8 +966,7 @@ type FluidQuadWrite = {
 /** Write every corner of one fluid quad's position, flow and falling flag. */
 const writeFluidQuadVertices = (write: FluidQuadWrite): void => {
   const { built, quad, base, origin, direction, falling } = write
-  for (let cornerIndex = 0; cornerIndex < VERTICES_PER_QUAD; cornerIndex += LOOP_STEP) {
-    const vertex = requiredQuadVertex(quad.vertices, cornerIndex)
+  for (const [cornerIndex, vertex] of quad.vertices.entries()) {
     const positionAt = (base + cornerIndex) * POSITION_COMPONENTS
     const flowAt = (base + cornerIndex) * FLUID_DIRECTION_COMPONENTS
     writeFluidPositionAndFlow({ built, direction, flowAt, origin, positionAt, vertex })
@@ -1016,8 +1009,7 @@ type FluidFlowUVWrite = {
 /** Animate a flow-carrying top face's UVs so the water texture scrolls the direction it flows. */
 const writeFluidFlowUV = (write: FluidFlowUVWrite): void => {
   const { built, quad, base, cell, topFlow } = write
-  for (let cornerIndex = 0; cornerIndex < VERTICES_PER_QUAD; cornerIndex += LOOP_STEP) {
-    const vertex = requiredQuadVertex(quad.vertices, cornerIndex)
+  for (const [cornerIndex, vertex] of quad.vertices.entries()) {
     const at = (base + cornerIndex) * UV_COMPONENTS
     writeFlowUVVertex({ at, built, cell, topFlow, vertex })
   }

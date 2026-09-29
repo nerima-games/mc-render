@@ -402,9 +402,8 @@ export type ParticlePoolOptions = {
  * Read a float at an index constructed by the pool's bounded loops.
  *
  * `noUncheckedIndexedAccess` is on, so every typed-array read is
- * `number | undefined`. The non-null assertion belongs here because all calls
- * below are in bounds by construction; keeping that invariant explicit avoids
- * adding an unreachable fallback branch to every buffer read.
+ * `number | undefined`. The explicit error keeps malformed public pool values
+ * from becoming NaN state.
  */
 const readFloat = (buffer: Float32Array, index: number): number => {
   const value = buffer[index]
