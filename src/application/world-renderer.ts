@@ -197,7 +197,7 @@ const EMPTY_UPDATE_COUNT = 0
  * black is indistinguishable from a canvas that failed to draw; a canvas
  * cleared to sky blue says the context was acquired and the frame ran.
  */
-export const SKY_CLEAR_COLOR = DAY_SKY_COLOR
+export const SKY_CLEAR_COLOR: number = DAY_SKY_COLOR
 
 /** Opacity of the clear. Fully opaque: there is nothing behind the world. */
 export const SKY_CLEAR_ALPHA = 1
@@ -1010,26 +1010,12 @@ export const makeWorldRenderer = <
      * and this material is shared but neither transparent nor a cutout. The
      * water material, when it exists, is the one that will need the audit.
      */
-    /**
-     * THE ONE ASSERTION IN THIS FILE, and it is confined to the branch where it
-     * is a tautology. `TUsedMaterial` DEFAULTS to `TMaterial`, so on the path
-     * where no factory was supplied the two are the same type — but that is a
-     * fact about the default, and a default is not a constraint the checker can
-     * use inside the body. There is no signature that expresses "when this
-     * optional argument is absent, these two parameters are equal"; the
-     * alternative is an overload pair whose bodies are this same expression
-     * twice.
-     *
-     * It is safe in the direction that matters: a caller who supplies a factory
-     * never reaches this branch, and a caller who does not has `TUsedMaterial =
-     * TMaterial` by construction.
-     */
-    const material: TUsedMaterial =
+    const material: TMaterial | TUsedMaterial =
       options.material?.() ??
-      (new three.MeshBasicMaterial({
+      new three.MeshBasicMaterial({
         vertexColors: true,
         wireframe: options.wireframe ?? false,
-      }) as unknown as TUsedMaterial)
+      })
 
     const [chunks, viewportAspect, entities, framesRendered, postProcessingChain] = yield* Effect.all([
       Ref.make(new Map<ChunkKey, ChunkEntry<TGeometry>>()),
@@ -1291,7 +1277,10 @@ export const makeWorldRenderer = <
           return ops.buildEntity(entity)
         }
         for (const [index, plan] of plans.entries()) {
-          const part = entry.parts[index]!
+          const part = entry.parts[index]
+          if (part === undefined) {
+            throw new Error('Entity visual plan lost a previously built part')
+          }
           ops.applyEntityPartTransform(part.mesh, visual, plan)
         }
         return { ...entry, entity }

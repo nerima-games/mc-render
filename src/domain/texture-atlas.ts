@@ -121,10 +121,10 @@ export const ATLAS_COLUMNS = 16
 export const ATLAS_PIXELS = 512
 
 /** Tiles the atlas can hold. `16 * 16`. */
-export const ATLAS_TILE_COUNT = ATLAS_COLUMNS * ATLAS_COLUMNS
+export const ATLAS_TILE_COUNT: number = ATLAS_COLUMNS * ATLAS_COLUMNS
 
 /** One tile's edge, in pixels. `512 / 16`. */
-export const TILE_PIXELS = ATLAS_PIXELS / ATLAS_COLUMNS
+export const TILE_PIXELS: number = ATLAS_PIXELS / ATLAS_COLUMNS
 
 /** Semantic rendering treatment used by the generated terrain atlas. */
 export type TerrainTileKind = 'solid' | 'cutout' | 'water' | 'lava' | 'leaves' | 'glass'
@@ -541,13 +541,13 @@ const HALF_TEXEL_FRACTION = 0.5
  * The inset applied to every side of every tile rectangle. See the header for
  * why half and not zero, and not one.
  */
-export const HALF_TEXEL_UV = HALF_TEXEL_FRACTION / ATLAS_PIXELS
+export const HALF_TEXEL_UV: number = HALF_TEXEL_FRACTION / ATLAS_PIXELS
 
 /** The full UV range's top edge, and — separately — one whole tile's worth of the range. */
 const UV_UNIT = 1
 
 /** One tile's edge in UV units, WITHOUT the inset. `1 / 16`. */
-export const TILE_UV_PITCH = UV_UNIT / ATLAS_COLUMNS
+export const TILE_UV_PITCH: number = UV_UNIT / ATLAS_COLUMNS
 
 /** The inset is applied on both sides of a tile: this is that count. */
 const TEXEL_INSET_SIDES = 2
@@ -559,7 +559,7 @@ const TEXEL_INSET_SIDES = 2
  * may span. The reference uses `TILE_UV_PITCH` for the particle quad and
  * `TILE_UV_PITCH` minus the inset for chunk faces; see the header.
  */
-export const TILE_UV_SPAN = TILE_UV_PITCH - TEXEL_INSET_SIDES * HALF_TEXEL_UV
+export const TILE_UV_SPAN: number = TILE_UV_PITCH - TEXEL_INSET_SIDES * HALF_TEXEL_UV
 
 /** A rectangle in UV space. `u0 < u1` and `v0 < v1` for every tile. */
 export type TileUvBounds = {

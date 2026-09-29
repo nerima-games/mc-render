@@ -49,7 +49,7 @@ const NO_PARTICLES = 0
 /** Advancing the particle-write cursor by one particle slot. */
 const INDEX_STEP = 1
 
-type MutableAttribute = ThreeBufferAttribute & { needsUpdate: boolean }
+type MutableAttribute = ThreeBufferAttribute & { needsUpdate?: boolean }
 
 type WeatherThreeSurface<
   TCanvas,
@@ -173,11 +173,11 @@ const buildParticleGeometry = <TCanvas, TGeometry extends ThreeBufferGeometry, T
 ): ParticleGeometry<TGeometry> => {
   const { three, buffers } = options
   const geometry = new three.BufferGeometry()
-  const positionAttribute = new three.BufferAttribute(
+  const positionAttribute: MutableAttribute = new three.BufferAttribute(
     buffers.positions,
     POSITION_COMPONENTS,
     false,
-  ) as MutableAttribute
+  )
   geometry.setAttribute('position', positionAttribute)
   geometry.setAttribute('color', new three.BufferAttribute(buffers.colors, COLOR_COMPONENTS, true))
   geometry.setDrawRange(DRAW_RANGE_START, EMPTY_DRAW_COUNT)

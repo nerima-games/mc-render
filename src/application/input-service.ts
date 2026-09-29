@@ -564,10 +564,13 @@ export type InputServiceApi = {
   readonly resetBindings: Effect.Effect<void>
 }
 
-export class InputService extends Context.Tag('@nerima-games/mc-render/InputService')<
+type InputServiceFields = InputServiceApi
+const InputServiceBase: Context.TagClass<InputService, '@nerima-games/mc-render/InputService', InputServiceFields> = Context.Tag('@nerima-games/mc-render/InputService')<
   InputService,
-  InputServiceApi
->() {}
+  InputServiceFields
+>()
+
+export class InputService extends InputServiceBase {}
 
 type InputState = {
   readonly pressed: ReadonlySet<InputCode>
@@ -606,7 +609,7 @@ type InputState = {
 }
 
 /** Shared "nothing focused" value so call sites never spell the `undefined` literal. */
-const { value: NO_KEYBOARD_FOCUS } = {} as { value?: FocusTarget }
+const NO_KEYBOARD_FOCUS: FocusTarget | undefined = undefined
 
 const initialState = (bindings: Bindings): InputState => ({
   bindings,

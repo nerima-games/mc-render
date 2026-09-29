@@ -139,7 +139,12 @@ export const LISTENER_PLAN: ReadonlyArray<{
  * A test asserts against this, so "who closes the modal?" has a greppable
  * answer that CI checks rather than a comment that drifts.
  */
-export const ESCAPE_POLICY = {
+export const ESCAPE_POLICY: Readonly<{
+  readonly key: string
+  readonly owner: string
+  readonly rationale: string
+  readonly registeredBy: string
+}> = {
   key: ESCAPE_KEY_CODE,
   owner: ESCAPE_OWNER,
   rationale:
@@ -167,7 +172,13 @@ export const ESCAPE_POLICY = {
  * shapes: Escape names an owner INSIDE the app and forbids a second one;
  * Tab names an owner OUTSIDE it and forbids the app from becoming one.
  */
-export const FOCUS_NAVIGATION_POLICY = {
+export const FOCUS_NAVIGATION_POLICY: Readonly<{
+  readonly key: string
+  readonly owner: string
+  readonly preventDefault: boolean
+  readonly rationale: string
+  readonly registeredBy: string
+}> = {
   key: FOCUS_NAVIGATION_KEY_CODE,
   owner: FOCUS_NAVIGATION_OWNER,
   preventDefault: false,

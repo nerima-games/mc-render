@@ -58,7 +58,13 @@ import { glslFloat } from './chunk-shader.js'
  * additionally carries the stride because a particle attribute has one and
  * getting it wrong is silent.
  */
-export const PARTICLE_INSTANCE_ATTRIBUTES = {
+type ParticleInstanceAttributes = {
+  readonly position: { readonly name: string; readonly stride: number }
+  readonly scale: { readonly name: string; readonly stride: number }
+  readonly uvOffset: { readonly name: string; readonly stride: number }
+}
+
+export const PARTICLE_INSTANCE_ATTRIBUTES: ParticleInstanceAttributes = {
   /** World position of the particle's centre, in metres. */
   position: { name: 'instancePosition', stride: PARTICLE_VECTOR_STRIDE },
   /** The lifetime fade in `[0, 1]`. 0 is a free slot and is invisible. */

@@ -532,7 +532,7 @@ const WAVE_APPROX_PEAK_MAGNITUDE = 1
 /** The two ripple layers' amplitude scales (1 and 0.5) sum to this; see `RIPPLE_LAYERS_U`/`_V`. */
 const RIPPLE_LAYER_AMPLITUDE_SUM = 1.5
 
-export const MAX_RIPPLE_OFFSET_UV =
+export const MAX_RIPPLE_OFFSET_UV: number =
   RIPPLE_AMPLITUDE_UV * RIPPLE_LAYER_AMPLITUDE_SUM * (WAVE_APPROX_PEAK_MAGNITUDE + WAVE_APPROX_MAX_ERROR)
 
 // --- Sun response -----------------------------------------------------------

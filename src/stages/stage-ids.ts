@@ -75,7 +75,13 @@ import { StageId } from '@nerima-games/mc-kernel'
  * skeleton is mc-compose's alone (plan.md §2.3-3); this repository only names
  * its stages and declares what its own correctness requires.
  */
-export const RENDER_STAGE_IDS = {
+export const RENDER_STAGE_IDS: Readonly<{
+  readonly cameraMirror: StageId
+  readonly chunkSync: StageId
+  readonly draw: StageId
+  readonly input: StageId
+  readonly postFx: StageId
+}> = {
   /**
    * Copy mc-sim's authoritative camera pose into renderer state.
    *
@@ -119,7 +125,7 @@ export const RENDER_STAGE_IDS = {
  * `redstone:` stage — mc-render is not an experience module's parent and must
  * not couple its frame position to one existing.
  */
-export const UPSTREAM_STAGE_IDS = {
+export const UPSTREAM_STAGE_IDS: Readonly<{ readonly simPhysics: StageId }> = {
   simPhysics: StageId('sim:physics'),
 } as const
 

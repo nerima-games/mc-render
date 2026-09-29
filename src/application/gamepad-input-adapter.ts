@@ -22,7 +22,7 @@ const firstConnected = (pads: ReadonlyArray<GamepadSnapshot | null>): GamepadSna
   pads.find((pad): pad is GamepadSnapshot => pad !== null && pad.connected)
 
 /** Shared "no binding" result so call sites never spell the `undefined` literal. */
-const { value: NO_BOUND_GAMEPAD_ACTION } = {} as { value?: InputAction }
+const NO_BOUND_GAMEPAD_ACTION: InputAction | undefined = undefined
 
 const bindingForButtonIndex = (
   index: number,

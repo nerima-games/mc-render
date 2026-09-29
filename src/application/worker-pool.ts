@@ -225,6 +225,12 @@ const ONE_AFFECTED_JOB = 1
 const INITIAL_COUNTER = 0
 const FIRST_JOB_ID = 1
 
+const takeFirst = <Item>(items: Array<Item>): Item => {
+  const item = items.shift()
+  if (item === undefined) throw new Error('Worker pool queue invariant was violated')
+  return item
+}
+
 /**
  * Move as much work onto idle workers as will fit.
  *
@@ -238,8 +244,8 @@ const pump = <TPayload, TResult>(
   ports: ReadonlyArray<WorkerPort<WorkerRequest<TPayload>, WorkerResponse<TResult>> | undefined>,
 ): void => {
   while (current.idle.length > EMPTY_LENGTH && current.queue.length > EMPTY_LENGTH && !current.shuttingDown) {
-    const workerIndex = current.idle.shift()!
-    const job = current.queue.shift()!
+    const workerIndex = takeFirst(current.idle)
+    const job = takeFirst(current.queue)
     current.running.set(job.id, {
       discarded: false,
       key: job.key,
@@ -378,7 +384,7 @@ const discardRunningOnShutdown = <TPayload, TResult>(current: PoolState<TPayload
 /** Drop the OLDEST waiting job, not the one just enqueued. See `maxQueued`. */
 const evictOverflow = <TPayload, TResult>(current: PoolState<TPayload, TResult>, maxQueued: number): void => {
   while (current.queue.length > maxQueued) {
-    const dropped = current.queue.shift()!
+    const dropped = takeFirst(current.queue)
     current.droppedForBackpressure += ONE_AFFECTED_JOB
     dropped.resume({ _tag: 'cancelled' })
   }
@@ -484,16 +490,14 @@ const makeWorkerFailureHandlers = <TPayload, TResult>({
     pump(current, activePorts)
   }
 
-  const handlers = {} as WorkerFailureHandlers<TPayload, TResult>
-
-  handlers.handleFailure = (failure): void => {
+  const handleFailure = (failure: WorkerFailure<TPayload, TResult>): void => {
     Effect.runSync(Ref.update(state, (current) => {
-      applyWorkerFailure(current, failure, handlers.attachPort)
+      applyWorkerFailure(current, failure, attachPort)
       return current
     }))
   }
 
-  handlers.attachPort = ({ port, workerIndex, generation }): void => {
+  const attachPort = ({ port, workerIndex, generation }: WorkerPortBinding<TPayload, TResult>): void => {
     port.onMessage((response) => {
       Effect.runSync(
         Ref.update(state, (current) => {
@@ -506,10 +510,10 @@ const makeWorkerFailureHandlers = <TPayload, TResult>({
         }),
       )
     })
-    port.onError?.((reason) => handlers.handleFailure({ failedPort: port, generation, reason, workerIndex }))
+    port.onError?.((reason) => handleFailure({ failedPort: port, generation, reason, workerIndex }))
   }
 
-  return handlers
+  return { attachPort, handleFailure }
 }
 
 type EnqueueJobOptions<TPayload, TResult> = {
@@ -572,7 +576,13 @@ export const makeWorkerPool = <TPayload, TResult>(
 
     // Wired once, at construction. A handler installed per job would leak one
     // Closure per chunk meshed, which on a walked-across world is unbounded.
-    ports.forEach((port, workerIndex) => failureHandlers.attachPort({ generation: portGenerations[workerIndex]!, port, workerIndex }))
+    ports.forEach((port, workerIndex) => {
+      const generation = portGenerations[workerIndex]
+      if (generation === undefined) {
+        throw new Error('Worker generation table is shorter than the port table')
+      }
+      failureHandlers.attachPort({ generation, port, workerIndex })
+    })
 
     return {
       cancel: (key) =>

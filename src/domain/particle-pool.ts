@@ -282,7 +282,7 @@ export const PARTICLE_UV_STRIDE = 2
  * particle-system-factory.ts:17 — and the restatement is where the half-texel
  * inset gets lost. That file's header has the derivation.
  */
-export const PARTICLE_UV_SPAN = TILE_UV_SPAN
+export const PARTICLE_UV_SPAN: number = TILE_UV_SPAN
 
 /**
  * A statement of the assumption the eviction order rests on.
@@ -376,9 +376,6 @@ export type ParticlePool = {
   readonly seed: () => number
   /** Times a live particle was displaced because the pool was full. */
   readonly evictionCount: () => number
-}
-
-type PoolInternals = ParticlePool & {
   readonly state: {
     active: number
     seedState: number
@@ -409,7 +406,11 @@ export type ParticlePoolOptions = {
  * below are in bounds by construction; keeping that invariant explicit avoids
  * adding an unreachable fallback branch to every buffer read.
  */
-const readFloat = (buffer: Float32Array, index: number): number => buffer[index]!
+const readFloat = (buffer: Float32Array, index: number): number => {
+  const value = buffer[index]
+  if (value === undefined) throw new Error('Particle buffer index was outside its capacity')
+  return value
+}
 
 /**
  * Allocate a pool. THE ONLY FUNCTION HERE THAT ALLOCATES.
@@ -434,7 +435,7 @@ export const makeParticlePool = (options?: ParticlePoolOptions): ParticlePool =>
   const requested = options?.capacity ?? PARTICLE_POOL_CAPACITY
   const capacity = resolvePoolCapacity(requested)
 
-  const pool: PoolInternals = {
+  const pool: ParticlePool = {
     activeCount: () => pool.state.active,
     capacity,
     evictionCount: () => pool.state.evictions,
@@ -463,14 +464,14 @@ export const makeParticlePool = (options?: ParticlePoolOptions): ParticlePool =>
  * exactly 1 on the largest state — outside the half-open interval every caller
  * assumes.
  */
-const nextUnitRoll = (pool: PoolInternals): number => {
+const nextUnitRoll = (pool: ParticlePool): number => {
   const state = (PRNG_MULTIPLIER * normaliseSeed(pool.state.seedState)) % PRNG_MODULUS
   pool.state.seedState = state
   return (state - PRNG_OUTPUT_OFFSET) / PRNG_MODULUS
 }
 
 /** Draw uniformly from `[min, max)`. */
-const nextInRange = (pool: PoolInternals, min: number, max: number): number =>
+const nextInRange = (pool: ParticlePool, min: number, max: number): number =>
   min + nextUnitRoll(pool) * (max - min)
 
 /**
@@ -508,7 +509,7 @@ const findOldestSlot = (pool: ParticlePool): number => {
  * cost is "distance to the next free slot", and always restarting from 0 makes
  * that distance grow with occupancy on every single spawn.
  */
-const acquireSlot = (pool: PoolInternals): number => {
+const acquireSlot = (pool: ParticlePool): number => {
   if (pool.state.active < pool.capacity) {
     for (let step = 0; step < pool.capacity; step += ONE_SLOT) {
       const candidate = (pool.state.nextSlot + step) % pool.capacity
@@ -552,7 +553,7 @@ const resolveFiniteOr = (value: number, fallback: number): number => {
  * to avoid.
  */
 const writeParticlePosition = (
-  internals: PoolInternals,
+  internals: ParticlePool,
   vectorBase: number,
   positionX: number,
   positionY: number,
@@ -564,7 +565,7 @@ const writeParticlePosition = (
 }
 
 /** Jittered velocity write for one particle. See `writeParticlePosition` for the spread. */
-const writeParticleVelocity = (internals: PoolInternals, vectorBase: number): void => {
+const writeParticleVelocity = (internals: ParticlePool, vectorBase: number): void => {
   internals.velocities[vectorBase] = nextInRange(
     internals,
     -PARTICLE_SPREAD_HORIZONTAL_M_PER_S,
@@ -589,7 +590,7 @@ const writeParticleVelocity = (internals: PoolInternals, vectorBase: number): vo
  * allocating options object here too).
  */
 const writeParticle = (
-  internals: PoolInternals,
+  internals: ParticlePool,
   slot: number,
   positionX: number,
   positionY: number,
@@ -658,7 +659,7 @@ const resolveSpawnRequest = (
  * object would meaningfully clarify.
  */
 const spawnRequestedParticles = (
-  internals: PoolInternals,
+  internals: ParticlePool,
   requested: number,
   positionX: number,
   positionY: number,
@@ -694,7 +695,7 @@ export const spawnBurst = (
   uvV: number,
   count: number = DEFAULT_BURST_PARTICLES,
 ): number => {
-  const internals = pool as PoolInternals
+  const internals = pool
   const requested = resolveSpawnRequest(pool, count, positionX, positionY, positionZ)
   if (requested === ZERO) {
     return ZERO
@@ -740,7 +741,7 @@ export const spawnBlockBurst = (
  * left alone because the next spawn overwrites both, and clearing them
  * would be six writes per expiry that nothing reads.
  */
-const expireSlot = (internals: PoolInternals, slot: number): void => {
+const expireSlot = (internals: ParticlePool, slot: number): void => {
   internals.lifetimesSecs[slot] = 0
   internals.scales[slot] = 0
 }
@@ -756,7 +757,7 @@ const expireSlot = (internals: PoolInternals, slot: number): void => {
  * `writeParticle`: this runs once per live particle per frame, and an object
  * per particle per frame is the allocation this file exists to avoid.
  */
-const integrateSlot = (internals: PoolInternals, slot: number, nextRemaining: number, dt: number): void => {
+const integrateSlot = (internals: ParticlePool, slot: number, nextRemaining: number, dt: number): void => {
   internals.lifetimesSecs[slot] = nextRemaining
 
   const vectorBase = slot * PARTICLE_VECTOR_STRIDE
@@ -789,7 +790,7 @@ const integrateSlot = (internals: PoolInternals, slot: number, nextRemaining: nu
  * Extracted from `advanceParticles` so the per-slot early-outs (an inactive
  * slot, an expiring slot) are ordinary returns rather than loop `continue`s.
  */
-const advanceSlot = (internals: PoolInternals, slot: number, dt: number): boolean => {
+const advanceSlot = (internals: ParticlePool, slot: number, dt: number): boolean => {
   const remaining = readFloat(internals.lifetimesSecs, slot)
   if (remaining <= ZERO) {
     return false
@@ -827,7 +828,7 @@ export const advanceParticles = (pool: ParticlePool, dtSecs: number): number => 
   }
   const dt = Math.max(ZERO, Math.min(dtSecs, MAX_PARTICLE_STEP_SECS))
 
-  const internals = pool as PoolInternals
+  const internals = pool
   let expired = 0
 
   for (let slot = 0; slot < pool.capacity; slot += ONE_SLOT) {
@@ -852,7 +853,7 @@ export const advanceParticles = (pool: ParticlePool, dtSecs: number): number => 
  * not belonging in a save file.
  */
 export const clearParticles = (pool: ParticlePool): void => {
-  const internals = pool as PoolInternals
+  const internals = pool
   internals.lifetimesSecs.fill(ZERO)
   internals.scales.fill(ZERO)
   internals.state.active = 0

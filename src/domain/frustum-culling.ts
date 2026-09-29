@@ -19,6 +19,12 @@ type SampledPoint = {
   readonly worldZ: number
 }
 
+const requiredPosition = (positions: Float32Array, index: number): number => {
+  const value = positions[index]
+  if (value === undefined) throw new Error('Complete vertex buffer contained a missing component')
+  return value
+}
+
 export type PerspectiveFrustum = {
   readonly camera: MirroredCameraState
   readonly verticalFovDegrees: number
@@ -97,9 +103,9 @@ export const boundsFromPositions = (positions: Float32Array): AxisAlignedBounds 
 
   const accumulator = initialBoundsAccumulator()
   for (let index = 0; index < positions.length; index += POSITION_COMPONENTS_PER_VERTEX) {
-    const worldX = positions[index]!
-    const worldY = positions[index + Y_OFFSET]!
-    const worldZ = positions[index + Z_OFFSET]!
+    const worldX = requiredPosition(positions, index)
+    const worldY = requiredPosition(positions, index + Y_OFFSET)
+    const worldZ = requiredPosition(positions, index + Z_OFFSET)
     if (!accumulateVertex(accumulator, { worldX, worldY, worldZ })) {
       return undefined
     }

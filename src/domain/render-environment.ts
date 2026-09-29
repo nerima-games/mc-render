@@ -189,4 +189,4 @@ export const planRenderEnvironment = (
   }
 }
 
-export const DEFAULT_RENDER_ENVIRONMENT = planRenderEnvironment(FULL_DAYLIGHT)
+export const DEFAULT_RENDER_ENVIRONMENT: RenderEnvironmentPlan = planRenderEnvironment(FULL_DAYLIGHT)

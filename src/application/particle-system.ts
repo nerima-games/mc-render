@@ -103,7 +103,7 @@ import {
  * every other constant in this repository is: the value a material is built
  * with should be traceable to the file that decided it.
  */
-export const PARTICLE_DEPTH_WRITE = PARTICLE_WRITES_DEPTH
+export const PARTICLE_DEPTH_WRITE: boolean = PARTICLE_WRITES_DEPTH
 
 /* Two literal quantities that are genuinely just numbers, not vectors: three's
  * index buffer holds one value per entry (`itemSize` 1, unlike the 2- and

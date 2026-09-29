@@ -470,7 +470,10 @@ const main = async (): Promise<number> => {
 // them here keeps the import list honest about what this module depends on. An
 // exported binding rather than a bare reference: this module has no other
 // caller to read a plain statement's "I depend on this" as intentional.
-export const MACHINE_DESCRIPTION_HELPERS = { describeEvent, describeCommand } as const
+export const MACHINE_DESCRIPTION_HELPERS: Readonly<{
+  readonly describeEvent: typeof describeEvent
+  readonly describeCommand: typeof describeCommand
+}> = { describeEvent, describeCommand }
 
 main()
   .then((exitCode) => {

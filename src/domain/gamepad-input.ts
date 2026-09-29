@@ -43,30 +43,14 @@ export type GamepadBindings = Readonly<Record<GamepadButton, InputAction | undef
    Gamepad API's standard mapping button names and must match `GamepadButton`
    exactly; they are carried as tuple values rather than object keys purely
    so the short ones don't read as short identifiers. */
-const { unbound: NO_DEFAULT_BINDING } = {} as { unbound?: InputAction }
+const NO_DEFAULT_BINDING: InputAction | undefined = undefined
 
-const DEFAULT_GAMEPAD_BINDING_ENTRIES: ReadonlyArray<
-  readonly [GamepadButton, InputAction | undefined]
-> = [
-  ['a', 'jump'],
-  ['b', 'sneak'],
-  ['back', 'openInventory'],
-  ['dpadDown', 'moveBackward'],
-  ['dpadLeft', 'moveLeft'],
-  ['dpadRight', 'moveRight'],
-  ['dpadUp', 'moveForward'],
-  ['leftShoulder', 'hotbarSlot9'],
-  ['leftStick', 'sprint'],
-  ['rightShoulder', 'hotbarSlot1'],
-  ['rightStick', NO_DEFAULT_BINDING],
-  ['start', 'escape'],
-  ['x', 'attack'],
-  ['y', 'use'],
-]
-
-export const DEFAULT_GAMEPAD_BINDINGS: GamepadBindings = Object.fromEntries(
-  DEFAULT_GAMEPAD_BINDING_ENTRIES,
-) as GamepadBindings
+export const DEFAULT_GAMEPAD_BINDINGS: GamepadBindings = {
+  a: 'jump', b: 'sneak', back: 'openInventory', dpadDown: 'moveBackward',
+  dpadLeft: 'moveLeft', dpadRight: 'moveRight', dpadUp: 'moveForward',
+  leftShoulder: 'hotbarSlot9', leftStick: 'sprint', rightShoulder: 'hotbarSlot1',
+  rightStick: NO_DEFAULT_BINDING, start: 'escape', x: 'attack', y: 'use',
+}
 
 /** Clamp bounds for a normalized joystick axis value. */
 const AXIS_CLAMP_MIN = -1
@@ -84,8 +68,8 @@ const RIGHT_STICK_Y_AXIS_INDEX = 3
 const GAMEPAD_PRESSED_VALUE_THRESHOLD = 0.5
 
 const axis = (value: number | undefined): number => {
-  if (Number.isFinite(value)) {
-    return Math.max(AXIS_CLAMP_MIN, Math.min(AXIS_CLAMP_MAX, value as number))
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return Math.max(AXIS_CLAMP_MIN, Math.min(AXIS_CLAMP_MAX, value))
   }
   return NEUTRAL_AXIS_VALUE
 }
@@ -100,7 +84,7 @@ const applyDeadzone = (value: number, deadzone: number): number => {
 
 export const normalizeGamepadAxes = (
   axes: ReadonlyArray<number>,
-  deadzone = DEFAULT_GAMEPAD_DEADZONE,
+  deadzone: number = DEFAULT_GAMEPAD_DEADZONE,
 ): GamepadAxes => ({
   leftX: applyDeadzone(axis(axes[LEFT_STICK_X_AXIS_INDEX]), deadzone),
   leftY: applyDeadzone(axis(axes[LEFT_STICK_Y_AXIS_INDEX]), deadzone),

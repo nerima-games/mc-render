@@ -16,7 +16,7 @@
  * response to keystrokes.
  */
 
-export const ESC = String.fromCharCode(27)
+export const ESC: string = String.fromCharCode(27)
 
 export type Screen = {
   readonly columns: number
@@ -30,7 +30,7 @@ export const screenSize = (): Screen => ({
   rows: process.stdout.rows ?? FALLBACK_SCREEN.rows,
 })
 
-export const NEWLINE = String.fromCharCode(10)
+export const NEWLINE: string = String.fromCharCode(10)
 
 export const write = (text: string): void => {
   process.stdout.write(text)
