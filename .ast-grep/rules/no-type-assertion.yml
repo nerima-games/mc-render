@@ -3,7 +3,7 @@ language: TypeScript
 # Wave 0 installs at warning; W3-mc-render removes the assertions and raises
 # to error (114 pre-existing hits as of chore/wave0-toolchain — see the PR
 # report for the exact command and count).
-severity: warning
+severity: error
 files:
   - "src/**/*.ts"
   - "src/**/*.tsx"

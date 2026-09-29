@@ -235,7 +235,10 @@ export type InputCode = KeyCode | MouseButton
 
 /** True when a code names a mouse button rather than a keyboard key. */
 export const isMouseButton = (code: InputCode): code is MouseButton =>
-  (MOUSE_BUTTONS as ReadonlyArray<string>).includes(code)
+  MOUSE_BUTTONS.some((button) => button === code)
+
+const isInputAction = (value: string): value is InputAction =>
+  INPUT_ACTIONS.some((action) => action === value)
 
 /**
  * ---------------------------------------------------------------------------
@@ -601,10 +604,10 @@ export const actionForKey = (bindings: Bindings, key: InputCode): InputAction | 
     return
   }
   const [action] = found
-  if (!(INPUT_ACTIONS as ReadonlyArray<string>).includes(action)) {
+  if (!isInputAction(action)) {
     return
   }
-  return action as InputAction
+  return action
 }
 
 /**
@@ -1129,7 +1132,7 @@ export type TouchLookState = {
 }
 
 /** Shared "no anchor yet" value so call sites never spell the `undefined` literal. */
-const { anchor: NO_TOUCH_ANCHOR } = {} as { anchor?: TouchPoint }
+const NO_TOUCH_ANCHOR: TouchPoint | undefined = undefined
 
 /** No gesture in progress. What a host starts with, and what a release yields. */
 export const TOUCH_LOOK_IDLE: TouchLookState = { anchor: NO_TOUCH_ANCHOR }

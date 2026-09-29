@@ -954,10 +954,11 @@ export const UNKNOWN_MOB_VISUAL: MobVisualDescriptor = {
 }
 
 const knownKinds = new Set<string>(MOB_VISUAL_KINDS)
+const isMobVisualKind = (kind: string): kind is MobVisualKind => knownKinds.has(kind)
 
 export const mobVisualDescriptor = (kind: string): MobVisualDescriptor => {
-  if (knownKinds.has(kind)) {
-    return descriptors[kind as MobVisualKind]
+  if (isMobVisualKind(kind)) {
+    return descriptors[kind]
   }
   return UNKNOWN_MOB_VISUAL
 }

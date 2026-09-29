@@ -16,19 +16,20 @@ export type BrowserWorkerLike<TTransfer = unknown> = {
   terminate(): void
 }
 
-export type BrowserWorkerPortOptions<TRequest, TTransfer = unknown> = {
+export type BrowserWorkerPortOptions<TRequest, TResponse, TTransfer = unknown> = {
   readonly transfer?: (request: TRequest) => Array<TTransfer>
+  readonly decodeResponse: (data: unknown) => TResponse
 }
 
 export const makeBrowserWorkerPort = <TRequest, TResponse, TTransfer = unknown>(
   worker: BrowserWorkerLike<TTransfer>,
-  options: BrowserWorkerPortOptions<TRequest, TTransfer> = {},
+  options: BrowserWorkerPortOptions<TRequest, TResponse, TTransfer>,
 ): WorkerPort<TRequest, TResponse> => {
   let messageHandler: (response: TResponse) => void = () => undefined
   let errorHandler: (reason: unknown) => void = () => undefined
 
   worker.addEventListener('message', (event) => {
-    messageHandler(event.data as TResponse)
+    messageHandler(options.decodeResponse(event.data))
   })
   worker.addEventListener('error', (event) => {
     errorHandler(event.error ?? event.message ?? event)

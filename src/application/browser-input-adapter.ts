@@ -618,7 +618,7 @@ const finiteOrUndefined = (value: number | undefined): number | undefined => {
  * `dispatch` then ignores — the policy breaks visibly instead of silently.
  */
 /** Shared "no report" value so call sites never spell the `undefined` literal. */
-const { focus: NO_FOCUS_TARGET } = {} as { focus?: FocusTarget }
+const NO_FOCUS_TARGET: FocusTarget | undefined = undefined
 
 /** The zero delta a `pointermove` reports when only one axis moved this frame. */
 const NO_POINTER_DELTA = 0
@@ -1169,7 +1169,7 @@ type ThenableLike = {
 }
 
 const isThenable = (value: unknown): value is ThenableLike =>
-  typeof value === 'object' && value !== null && typeof (value as { then?: unknown }).then === 'function'
+  typeof value === 'object' && value !== null && 'then' in value && typeof value.then === 'function'
 
 const ignore = (): void => {
   // No-op: swallow a settled promise so it never becomes an unhandled rejection.

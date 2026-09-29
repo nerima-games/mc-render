@@ -10,6 +10,13 @@ import {
 } from '../src/application/browser-worker-port'
 import { inspectTypeScriptFixture } from './typescript-project'
 
+const decodeResponse = (data: unknown): { readonly ok: boolean } => {
+  if (typeof data === 'object' && data !== null && 'ok' in data && typeof data.ok === 'boolean') {
+    return { ok: data.ok }
+  }
+  throw new Error('invalid worker response')
+}
+
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 
 type PostedMessage = {
@@ -65,7 +72,7 @@ const makeFakeWorker = (): FakeWorker => {
 it.effect('adapts messages, posts and termination to WorkerPort', () =>
   Effect.sync(() => {
     const worker = makeFakeWorker()
-    const port = makeBrowserWorkerPort<{ readonly id: number }, { readonly ok: boolean }, string>(worker)
+    const port = makeBrowserWorkerPort<{ readonly id: number }, { readonly ok: boolean }, string>(worker, { decodeResponse })
     const received: Array<{ readonly ok: boolean }> = []
 
     worker.emitMessage({ ok: false })
@@ -87,6 +94,7 @@ it.effect('forwards transfer lists and all browser error forms', () =>
     const worker = makeFakeWorker()
     const port = makeBrowserWorkerPort<{ readonly id: number }, { readonly ok: boolean }, string>(worker, {
       transfer: () => ['chunk-buffer'],
+      decodeResponse,
     })
     const errors: Array<unknown> = []
     const eventError = new Error('worker failed')
