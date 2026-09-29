@@ -27,7 +27,7 @@ export type BrowserWorkerLike<TTransfer = unknown> = {
 
 export type BrowserWorkerPortOptions<TRequest, TResponse, TTransfer = unknown> = {
   readonly transfer?: (request: TRequest) => Array<TTransfer>
-  readonly responseSchema: Schema.Schema<TResponse>
+  readonly responseSchema: Schema.Schema<TResponse, unknown>
   readonly workerIndex: number
 }
 
