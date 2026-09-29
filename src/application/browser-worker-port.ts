@@ -9,6 +9,15 @@ export type BrowserWorkerErrorEvent = {
   readonly message?: string
 }
 
+export class WorkerResponseDecodeError extends Error {
+  readonly _tag = 'WorkerResponseDecodeError'
+
+  constructor(cause: unknown) {
+    super('Worker response failed schema decoding.', { cause })
+    this.name = 'WorkerResponseDecodeError'
+  }
+}
+
 export type BrowserWorkerLike<TTransfer = unknown> = {
   postMessage(message: unknown, transfer?: Array<TTransfer>): void
   addEventListener(type: 'message', listener: (event: BrowserWorkerMessageEvent) => void): void
@@ -29,7 +38,11 @@ export const makeBrowserWorkerPort = <TRequest, TResponse, TTransfer = unknown>(
   let errorHandler: (reason: unknown) => void = () => undefined
 
   worker.addEventListener('message', (event) => {
-    messageHandler(options.decodeResponse(event.data))
+    try {
+      messageHandler(options.decodeResponse(event.data))
+    } catch (error) {
+      errorHandler(new WorkerResponseDecodeError(error))
+    }
   })
   worker.addEventListener('error', (event) => {
     errorHandler(event.error ?? event.message ?? event)

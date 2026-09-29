@@ -4,6 +4,7 @@ import { expect, it } from '@effect/vitest'
 import * as Effect from 'effect/Effect'
 import {
   makeBrowserWorkerPort,
+  WorkerResponseDecodeError,
   type BrowserWorkerErrorEvent,
   type BrowserWorkerLike,
   type BrowserWorkerMessageEvent,
@@ -111,6 +112,18 @@ it.effect('forwards transfer lists and all browser error forms', () =>
 
     expect(errors).toStrictEqual([eventError, 'worker message', fallbackEvent])
     expect(worker.posted).toStrictEqual([{ message: { id: 8 }, transfer: ['chunk-buffer'] }])
+  }),
+)
+
+it.effect('routes response decoder failures through the worker error boundary', () =>
+  Effect.sync(() => {
+    const worker = makeFakeWorker()
+    const port = makeBrowserWorkerPort<{ readonly id: number }, { readonly ok: boolean }>(worker, { decodeResponse })
+    const errors: Array<unknown> = []
+    port.onError?.((reason) => errors.push(reason))
+    worker.emitMessage({ invalid: true })
+    expect(errors).toHaveLength(1)
+    expect(errors[0]).toBeInstanceOf(WorkerResponseDecodeError)
   }),
 )
 
