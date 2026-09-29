@@ -360,19 +360,33 @@ const normaliseSeed = (seed: number): number => {
  */
 declare const particlePoolBrand: unique symbol
 
+export interface ParticleBuffer extends Float32Array {
+  readonly read: (index: number) => number
+}
+
+class ParticleBufferImpl extends Float32Array {
+  readonly read = (index: number): number => this.view.getFloat32(index * Float32Array.BYTES_PER_ELEMENT, true)
+  private readonly view: DataView
+
+  constructor(length: number) {
+    super(length)
+    this.view = new DataView(this.buffer, this.byteOffset, this.byteLength)
+  }
+}
+
 export type ParticlePool = {
   readonly [particlePoolBrand]: never
   readonly capacity: number
   /** `capacity * 3` floats: x, y, z per slot. */
-  readonly positions: Float32Array
+  readonly positions: ParticleBuffer
   /** `capacity * 3` floats: x, y, z per slot, in m/s. */
-  readonly velocities: Float32Array
+  readonly velocities: ParticleBuffer
   /** `capacity` floats. Seconds remaining. ZERO MEANS FREE. */
-  readonly lifetimesSecs: Float32Array
+  readonly lifetimesSecs: ParticleBuffer
   /** `capacity` floats in `[0, 1]`. The lifetime fade, and 0 for a free slot. */
-  readonly scales: Float32Array
+  readonly scales: ParticleBuffer
   /** `capacity * 2` floats: the atlas tile origin this particle samples. */
-  readonly uvOffsets: Float32Array
+  readonly uvOffsets: ParticleBuffer
   /** Live slots. Never exceeds `capacity`. */
   readonly activeCount: () => number
   /** The generator's current state. Diagnostics and determinism tests. */
@@ -409,14 +423,10 @@ export type ParticlePoolOptions = {
 /**
  * Read a float at an index constructed by the pool's bounded loops.
  *
- * `noUncheckedIndexedAccess` is on, so every typed-array read is
- * `number | undefined`; pool construction guarantees the buffer bounds.
+ * The private buffer implementation exposes a bounds-safe read method; pool
+ * construction guarantees that every index used by the bounded loops exists.
  */
-const readFloat = (buffer: Float32Array, index: number): number => {
-  const value = buffer[index]
-  if (value === undefined) { throw new Error('Particle buffer index was outside its capacity') }
-  return value
-}
+const readFloat = (buffer: ParticleBuffer, index: number): number => buffer.read(index)
 
 /**
  * Allocate a pool. THE ONLY FUNCTION HERE THAT ALLOCATES.
@@ -440,22 +450,22 @@ const resolvePoolCapacity = (requested: number): number => {
 class ParticlePoolImpl implements ParticlePool {
   declare readonly [particlePoolBrand]: never
   readonly capacity: number
-  readonly positions: Float32Array
-  readonly velocities: Float32Array
-  readonly lifetimesSecs: Float32Array
-  readonly scales: Float32Array
-  readonly uvOffsets: Float32Array
+  readonly positions: ParticleBuffer
+  readonly velocities: ParticleBuffer
+  readonly lifetimesSecs: ParticleBuffer
+  readonly scales: ParticleBuffer
+  readonly uvOffsets: ParticleBuffer
   readonly activeCount = (): number => poolState(this).active
   readonly seed = (): number => poolState(this).seedState
   readonly evictionCount = (): number => poolState(this).evictions
 
   constructor(options: ParticlePoolOptions | undefined, capacity: number) {
     this.capacity = capacity
-    this.positions = new Float32Array(capacity * PARTICLE_VECTOR_STRIDE)
-    this.velocities = new Float32Array(capacity * PARTICLE_VECTOR_STRIDE)
-    this.lifetimesSecs = new Float32Array(capacity)
-    this.scales = new Float32Array(capacity)
-    this.uvOffsets = new Float32Array(capacity * PARTICLE_UV_STRIDE)
+    this.positions = new ParticleBufferImpl(capacity * PARTICLE_VECTOR_STRIDE)
+    this.velocities = new ParticleBufferImpl(capacity * PARTICLE_VECTOR_STRIDE)
+    this.lifetimesSecs = new ParticleBufferImpl(capacity)
+    this.scales = new ParticleBufferImpl(capacity)
+    this.uvOffsets = new ParticleBufferImpl(capacity * PARTICLE_UV_STRIDE)
     particleStates.set(this, {
       active: 0,
       evictions: 0,
