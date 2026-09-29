@@ -225,12 +225,6 @@ const ONE_AFFECTED_JOB = 1
 const INITIAL_COUNTER = 0
 const FIRST_JOB_ID = 1
 
-const takeFirst = <Item>(items: Array<Item>): Item => {
-  const item = items.shift()
-  if (item === undefined) { throw new Error('Worker pool queue invariant was violated') }
-  return item
-}
-
 /**
  * Move as much work onto idle workers as will fit.
  *
@@ -243,9 +237,14 @@ const pump = <TPayload, TResult>(
   current: PoolState<TPayload, TResult>,
   ports: ReadonlyArray<WorkerPort<WorkerRequest<TPayload>, WorkerResponse<TResult>> | undefined>,
 ): void => {
-  while (current.idle.length > EMPTY_LENGTH && current.queue.length > EMPTY_LENGTH && !current.shuttingDown) {
-    const workerIndex = takeFirst(current.idle)
-    const job = takeFirst(current.queue)
+  while (!current.shuttingDown) {
+    const workerIndex = current.idle.shift()
+    if (workerIndex === undefined) return
+    const job = current.queue.shift()
+    if (job === undefined) {
+      current.idle.unshift(workerIndex)
+      return
+    }
     current.running.set(job.id, {
       discarded: false,
       key: job.key,
@@ -383,8 +382,8 @@ const discardRunningOnShutdown = <TPayload, TResult>(current: PoolState<TPayload
 
 /** Drop the OLDEST waiting job, not the one just enqueued. See `maxQueued`. */
 const evictOverflow = <TPayload, TResult>(current: PoolState<TPayload, TResult>, maxQueued: number): void => {
-  while (current.queue.length > maxQueued) {
-    const dropped = takeFirst(current.queue)
+  const droppedJobs = current.queue.splice(ARRAY_START_INDEX, Math.max(EMPTY_LENGTH, current.queue.length - maxQueued))
+  for (const dropped of droppedJobs) {
     current.droppedForBackpressure += ONE_AFFECTED_JOB
     dropped.resume({ _tag: 'cancelled' })
   }

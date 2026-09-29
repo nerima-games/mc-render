@@ -1,5 +1,11 @@
 import type { MirroredCameraState } from './camera-mirror.js'
 
+type SampledPoint = {
+  readonly worldX: number
+  readonly worldY: number
+  readonly worldZ: number
+}
+
 export type AxisAlignedBounds = {
   readonly min: Readonly<{ x: number; y: number; z: number }>
   readonly max: Readonly<{ x: number; y: number; z: number }>
@@ -13,18 +19,6 @@ export type AxisAlignedBounds = {
  * shape: nothing outside this file constructs one, so its fields are named for
  * what the consuming code does with them rather than for brevity.
  */
-type SampledPoint = {
-  readonly worldX: number
-  readonly worldY: number
-  readonly worldZ: number
-}
-
-const requiredPosition = (positions: Float32Array, index: number): number => {
-  const value = positions[index]
-  if (value === undefined) { throw new Error('Complete vertex buffer contained a missing component') }
-  return value
-}
-
 export type PerspectiveFrustum = {
   readonly camera: MirroredCameraState
   readonly verticalFovDegrees: number
@@ -58,9 +52,6 @@ const POSITION_COMPONENTS_PER_VERTEX = 3
 const NO_REMAINDER = 0
 /** The flat buffer's y component sits one slot after its x component. */
 const Y_OFFSET = 1
-/** The flat buffer's z component sits two slots after its x component. */
-const Z_OFFSET = 2
-
 const hasCompleteVertices = (positions: Float32Array): boolean =>
   positions.length !== EMPTY_POSITIONS_LENGTH && positions.length % POSITION_COMPONENTS_PER_VERTEX === NO_REMAINDER
 
@@ -83,31 +74,25 @@ const initialBoundsAccumulator = (): BoundsAccumulator => ({
 })
 
 /** Absorb one sample into the accumulator; reports `false` (rather than throwing) on a non-finite sample so the caller can fail closed. */
-const accumulateVertex = (accumulator: BoundsAccumulator, sample: SampledPoint): boolean => {
-  if (!Number.isFinite(sample.worldX) || !Number.isFinite(sample.worldY) || !Number.isFinite(sample.worldZ)) {
-    return false
-  }
-  accumulator.minX = Math.min(accumulator.minX, sample.worldX)
-  accumulator.minY = Math.min(accumulator.minY, sample.worldY)
-  accumulator.minZ = Math.min(accumulator.minZ, sample.worldZ)
-  accumulator.maxX = Math.max(accumulator.maxX, sample.worldX)
-  accumulator.maxY = Math.max(accumulator.maxY, sample.worldY)
-  accumulator.maxZ = Math.max(accumulator.maxZ, sample.worldZ)
-  return true
-}
-
 export const boundsFromPositions = (positions: Float32Array): AxisAlignedBounds | undefined => {
   if (!hasCompleteVertices(positions)) {
     return undefined
   }
 
   const accumulator = initialBoundsAccumulator()
-  for (let index = 0; index < positions.length; index += POSITION_COMPONENTS_PER_VERTEX) {
-    const worldX = requiredPosition(positions, index)
-    const worldY = requiredPosition(positions, index + Y_OFFSET)
-    const worldZ = requiredPosition(positions, index + Z_OFFSET)
-    if (!accumulateVertex(accumulator, { worldX, worldY, worldZ })) {
+  for (const [index, value] of positions.entries()) {
+    if (!Number.isFinite(value)) {
       return undefined
+    }
+    if (index % POSITION_COMPONENTS_PER_VERTEX === 0) {
+      accumulator.minX = Math.min(accumulator.minX, value)
+      accumulator.maxX = Math.max(accumulator.maxX, value)
+    } else if (index % POSITION_COMPONENTS_PER_VERTEX === Y_OFFSET) {
+      accumulator.minY = Math.min(accumulator.minY, value)
+      accumulator.maxY = Math.max(accumulator.maxY, value)
+    } else {
+      accumulator.minZ = Math.min(accumulator.minZ, value)
+      accumulator.maxZ = Math.max(accumulator.maxZ, value)
     }
   }
 

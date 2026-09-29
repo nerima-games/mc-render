@@ -769,12 +769,12 @@ const planEntityVisual = (entity: RenderEntity): EntityVisualPlan => {
 }
 
 const matchingEntityParts = (entry: EntityEntry, plans: EntityVisualPlan['parts']): ReadonlyArray<readonly [EntityPartEntry, EntityVisualPartPlan]> | undefined => {
-  if (plans.length !== entry.parts.length) return undefined
+  if (plans.length !== entry.parts.length) { return undefined }
   const pairs: Array<readonly [EntityPartEntry, EntityVisualPartPlan]> = []
   for (const [index, plan] of plans.entries()) {
     const previous = entry.parts[index]
     if (previous === undefined || plan.id !== previous.id ||
-      plan.color.some((component, colorIndex) => component !== previous.color[colorIndex])) return undefined
+      plan.color.some((component, colorIndex) => component !== previous.color[colorIndex])) { return undefined }
     pairs.push([previous, plan])
   }
   return pairs
