@@ -17,7 +17,7 @@ import { describe, expect, it } from '@effect/vitest'
 import { Effect } from 'effect'
 import { mirroredCameraState } from '../src/domain/camera-mirror'
 import { buildChunkGeometry, type MeshQuad } from '../src/domain/chunk-geometry'
-import { MonotonicTimeSecs, position, type CameraPoseSnapshot } from '@nerima-games/mc-kernel'
+import { chunkCoord, chunkKeyOf, MonotonicTimeSecs, position, type CameraPoseSnapshot } from '@nerima-games/mc-kernel'
 import {
   applyChunkShaderEnvironment,
   CAMERA_FAR_PLANE,
@@ -198,8 +198,8 @@ describe('acquiring the renderer', () => {
       const three = makeFakeThree()
       const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT)
 
-      yield* renderer.setChunk('0,0', buildChunkGeometry([quad()]))
-      yield* renderer.setChunk('1,0', buildChunkGeometry([quad()]))
+      yield* renderer.setChunk(chunkKeyOf(chunkCoord(0, 0)), buildChunkGeometry([quad()]))
+      yield* renderer.setChunk(chunkKeyOf(chunkCoord(1, 0)), buildChunkGeometry([quad()]))
 
       expect(three.materials()).toHaveLength(1)
       expect(three.materials()[0]?.vertexColors).toBe(true)
@@ -219,9 +219,9 @@ describe('chunk geometry in the scene', () => {
       const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT)
 
       yield* renderer.setChunks([
-        { key: '0,0', buffers: buildChunkGeometry([quad()]) },
-        { key: '1,0', buffers: buildChunkGeometry([quad()]) },
-        { key: '0,0', buffers: buildChunkGeometry([quad({ ao: 2 })]) },
+        { key: chunkKeyOf(chunkCoord(0, 0)), buffers: buildChunkGeometry([quad()]) },
+        { key: chunkKeyOf(chunkCoord(1, 0)), buffers: buildChunkGeometry([quad()]) },
+        { key: chunkKeyOf(chunkCoord(0, 0)), buffers: buildChunkGeometry([quad({ ao: 2 })]) },
       ])
 
       expect(yield* renderer.chunkKeys).toStrictEqual(['0,0', '1,0'])
@@ -238,7 +238,7 @@ describe('chunk geometry in the scene', () => {
       const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT)
       const buffers = buildChunkGeometry([quad()])
 
-      yield* renderer.setChunk('0,0', buffers)
+      yield* renderer.setChunk(chunkKeyOf(chunkCoord(0, 0)), buffers)
 
       const [geometry] = three.geometries()
       expect([...(geometry?.attributes.keys() ?? [])]).toStrictEqual([
@@ -302,7 +302,7 @@ describe('chunk geometry in the scene', () => {
       const three = makeFakeThree()
       const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT)
 
-      yield* renderer.setChunk('0,0', buildChunkGeometry([]))
+      yield* renderer.setChunk(chunkKeyOf(chunkCoord(0, 0)), buildChunkGeometry([]))
 
       expect(three.geometries()[0]?.boundingSphereComputations()).toBe(1)
       expect(three.renderer().renderCalls()).toBe(0)
@@ -320,9 +320,9 @@ describe('chunk geometry in the scene', () => {
       const three = makeFakeThree()
       const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT)
 
-      yield* renderer.setChunk('0,0', buildChunkGeometry([quad()]))
+      yield* renderer.setChunk(chunkKeyOf(chunkCoord(0, 0)), buildChunkGeometry([quad()]))
       const [first] = three.geometries()
-      yield* renderer.setChunk('0,0', buildChunkGeometry([quad({ ao: 2 })]))
+      yield* renderer.setChunk(chunkKeyOf(chunkCoord(0, 0)), buildChunkGeometry([quad({ ao: 2 })]))
 
       expect(three.scene().members()).toHaveLength(1)
       expect(yield* renderer.chunkKeys).toStrictEqual(['0,0'])
@@ -341,8 +341,8 @@ describe('chunk geometry in the scene', () => {
       const three = makeFakeThree()
       const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT)
 
-      yield* renderer.setChunk('0,0', buildChunkGeometry([quad()]))
-      yield* renderer.removeChunk('0,0')
+      yield* renderer.setChunk(chunkKeyOf(chunkCoord(0, 0)), buildChunkGeometry([quad()]))
+      yield* renderer.removeChunk(chunkKeyOf(chunkCoord(0, 0)))
 
       expect(three.scene().members()).toStrictEqual([])
       expect(yield* renderer.chunkKeys).toStrictEqual([])
@@ -359,8 +359,8 @@ describe('chunk geometry in the scene', () => {
       const three = makeFakeThree()
       const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT)
 
-      yield* renderer.setChunk('0,0', buildChunkGeometry([quad()]))
-      yield* renderer.removeChunk('9,9')
+      yield* renderer.setChunk(chunkKeyOf(chunkCoord(0, 0)), buildChunkGeometry([quad()]))
+      yield* renderer.removeChunk(chunkKeyOf(chunkCoord(9, 9)))
 
       expect(three.scene().members()).toHaveLength(1)
       expect(yield* renderer.chunkKeys).toStrictEqual(['0,0'])
@@ -373,9 +373,9 @@ describe('chunk geometry in the scene', () => {
       const three = makeFakeThree()
       const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT)
 
-      yield* renderer.setChunk('0,0', buildChunkGeometry([quad()]))
-      yield* renderer.setChunk('1,0', buildChunkGeometry([quad()]))
-      yield* renderer.setChunk('0,1', buildChunkGeometry([quad()]))
+      yield* renderer.setChunk(chunkKeyOf(chunkCoord(0, 0)), buildChunkGeometry([quad()]))
+      yield* renderer.setChunk(chunkKeyOf(chunkCoord(1, 0)), buildChunkGeometry([quad()]))
+      yield* renderer.setChunk(chunkKeyOf(chunkCoord(0, 1)), buildChunkGeometry([quad()]))
 
       expect(three.scene().members()).toHaveLength(3)
       expect((yield* renderer.chunkKeys).toSorted()).toStrictEqual(['0,0', '0,1', '1,0'])
@@ -451,7 +451,7 @@ describe('entity meshes in the scene', () => {
       const three = makeFakeThree()
       const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT)
 
-      yield* renderer.setChunk('0,0', buildChunkGeometry([quad()]))
+      yield* renderer.setChunk(chunkKeyOf(chunkCoord(0, 0)), buildChunkGeometry([quad()]))
       yield* renderer.syncEntities([
         { id: 'z', kind: 'zombie', feetPosition: { x: 0, y: 64, z: 0 } },
       ])
@@ -735,9 +735,9 @@ describe('drawing', () => {
       const three = makeFakeThree()
       const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, { width: 100, height: 100 })
 
-      yield* renderer.setChunk('front', buildChunkGeometry([quad({ lz: -10 })]))
-      yield* renderer.setChunk('behind', buildChunkGeometry([quad({ lz: 10 })]))
-      yield* renderer.setChunk('side', buildChunkGeometry([quad({ lx: 20, lz: -10 })]))
+      yield* renderer.setChunk(chunkKeyOf(chunkCoord(0, 0)), buildChunkGeometry([quad({ lz: -10 })]))
+      yield* renderer.setChunk(chunkKeyOf(chunkCoord(1, 0)), buildChunkGeometry([quad({ lz: 10 })]))
+      yield* renderer.setChunk(chunkKeyOf(chunkCoord(2, 0)), buildChunkGeometry([quad({ lx: 20, lz: -10 })]))
       yield* renderer.draw(mirroredCameraState(poseAt(0, 0, 0, 0, 0)))
 
       expect(three.meshes().map(({ frustumCulled }) => frustumCulled)).toStrictEqual([
@@ -755,8 +755,8 @@ describe('drawing', () => {
       const three = makeFakeThree()
       const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, { width: 100, height: 100 })
 
-      yield* renderer.setChunk('edge', buildChunkGeometry([quad({ lx: 10, lz: -10 })]))
-      yield* renderer.setChunk('empty', buildChunkGeometry([]))
+      yield* renderer.setChunk(chunkKeyOf(chunkCoord(0, 0)), buildChunkGeometry([quad({ lx: 10, lz: -10 })]))
+      yield* renderer.setChunk(chunkKeyOf(chunkCoord(1, 0)), buildChunkGeometry([]))
       yield* renderer.draw(mirroredCameraState(poseAt(0, 0, 0, 0, 0)))
       expect(three.meshes().map(({ visible }) => visible)).toStrictEqual([false, false])
 
@@ -1088,8 +1088,8 @@ describe('teardown', () => {
       const three = makeFakeThree()
       const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT)
 
-      yield* renderer.setChunk('0,0', buildChunkGeometry([quad()]))
-      yield* renderer.setChunk('1,0', buildChunkGeometry([quad()]))
+      yield* renderer.setChunk(chunkKeyOf(chunkCoord(0, 0)), buildChunkGeometry([quad()]))
+      yield* renderer.setChunk(chunkKeyOf(chunkCoord(1, 0)), buildChunkGeometry([quad()]))
       yield* renderer.dispose
 
       expect(three.geometries().map((geometry) => geometry.disposed())).toStrictEqual([true, true])
@@ -1126,7 +1126,7 @@ describe('teardown', () => {
       const three = makeFakeThree()
       const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT)
 
-      yield* renderer.setChunk('0,0', buildChunkGeometry([quad()]))
+      yield* renderer.setChunk(chunkKeyOf(chunkCoord(0, 0)), buildChunkGeometry([quad()]))
       yield* renderer.dispose
       yield* renderer.dispose
 

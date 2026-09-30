@@ -49,6 +49,8 @@ import {
 import type { ChunkGeometryUpdate, ChunkKey, WorldRenderer } from './world-renderer.js'
 import { Effect, Ref } from 'effect'
 import { CHUNK_SIZE } from '@nerima-games/mc-meshing'
+import { chunkCoord } from '@nerima-games/mc-kernel'
+import { chunkKeyOf as worldgenChunkKeyOf } from '@nerima-games/mc-worldgen'
 
 /**
  * Which chunk, in chunk coordinates.
@@ -112,7 +114,8 @@ export type ChunkMesh = ReadonlyArray<MeshQuad> & {
 export type ChunkMesher = (chunk: ChunkRef) => Effect.Effect<ChunkMesh | undefined>
 
 /** How a chunk coordinate becomes the renderer's key. */
-export const chunkKeyOf = (chunk: ChunkRef): ChunkKey => `${chunk.cx},${chunk.cz}`
+export const chunkKeyOf = (chunk: ChunkRef): ChunkKey =>
+  worldgenChunkKeyOf(chunkCoord(chunk.cx, chunk.cz))
 
 /**
  * The world-space corner of a chunk.

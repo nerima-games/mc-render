@@ -45,6 +45,7 @@
  */
 import * as THREE from 'three'
 import { Context, Effect, Layer, Scope } from 'effect'
+import { ChunkKey } from '@nerima-games/mc-kernel'
 import {
   ATLAS_COLUMNS,
   browserInputLayer,
@@ -231,7 +232,7 @@ const main = async (): Promise<void> => {
     Effect.sync(() => quadsByKey.get(chunkKeyOf(chunk)))
 
   /** Chunks currently in the scene, so a batch can be a DIFFERENCE. */
-  const loaded = new Set<string>()
+  const loaded = new Set<ChunkKey>()
 
   /** Chunks within `STREAM_RADIUS_CHUNKS` of a world position. */
   const desiredAround = (x: number, z: number): ReadonlyArray<ChunkRef> => {
@@ -261,7 +262,7 @@ const main = async (): Promise<void> => {
       const wantedKeys = new Set(wanted.map(chunkKeyOf))
       const changed = wanted.filter((chunk) => !loaded.has(chunkKeyOf(chunk)))
       const removed = [...loaded]
-        .filter((key) => !wantedKeys.has(key))
+        .filter((key) => !wantedKeys.has(ChunkKey(key)))
         .map((key) => {
           const [cx, cz] = key.split(',')
           return { cx: Number(cx), cz: Number(cz) }
