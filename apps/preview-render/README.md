@@ -216,8 +216,8 @@ GPU 無しで確かめられる半分であり、入力状態機械にいたっ�
 
 ## 依存
 
-**このリポジトリ自身のモジュールと `effect` だけ。**
-`effect` は既に `dependencies` にある。org パッケージも新規 npm 依存も THREE も無い。
+**このリポジトリ自身のモジュール、`effect`、`mc-kernel`、`mc-sim`。**
+`effect` と org パッケージは既存の依存であり、新規 npm 依存も THREE も無い。
 `tsconfig.preview.json` と `pnpm lint` がアプリの import / 型境界を検証し、package の公開面は
 `src/index.ts` からのみ構成する。
 

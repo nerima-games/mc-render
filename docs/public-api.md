@@ -1128,7 +1128,7 @@ const RENDER_STAGE_IDS: {
 }
 
 const renderModule: (quality?) => GameModule<InputService, never, never, InputService | PlayerService>
-const renderStages: (state, input, player) => ReadonlyArray<StageRegistration>
+const renderStages: (options: RenderStagesOptions) => ReadonlyArray<StageRegistration>
 const makeRenderFrameState: (quality?) => Effect<RenderFrameState>
 const makeRenderStagesForPreview: (quality?) => Effect<{state, stages}, never, InputService | PlayerService>
 ```

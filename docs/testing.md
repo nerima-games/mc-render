@@ -602,7 +602,7 @@ DOM 型を名指しするのが目的のファイルであり、DOM の無いプ
 出荷プロジェクトに入れれば `"DOM"` が裏口から入ったのと同じになる。
 
 API ロックの生成器・ロックファイル・専用コマンドはこのパッケージには置かない。
-公開面は `package.json` の `exports` と `tsconfig.build.json` の declaration 出力で定義し、
+公開面は `package.json` の `exports` と `tsconfig.release.json` の declaration 出力で定義し、
 `pnpm typecheck`、`pnpm build`、`pnpm pack --dry-run` と実行時 import で検証する。
 詳細は [public-api.md](./public-api.md) の「公開 API と package 検証」を参照する。
 
