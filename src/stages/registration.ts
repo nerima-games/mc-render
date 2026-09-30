@@ -491,7 +491,7 @@ export const makeRenderStagesForPreview = ({
  *
  *   export const RenderRegistrationLayer: Layer.Layer<InputService> = InputServiceLayer()
  *
- * FIRST, it took no arguments, so it built a service with `defaultBindings()`
+ * First, it took no arguments, so it built a service with `defaultBindings()`
  * and `UNAVAILABLE_POINTER_LOCK` while `renderModule(quality, pointerLock)`
  * builds `InputServiceLayer(defaultBindings(), pointerLock)`. A host following
  * the doc registered its five stages against a DIFFERENT `InputService` from
