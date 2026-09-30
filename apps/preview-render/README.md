@@ -89,7 +89,7 @@ plan.md §3.10 は **Playwright が SwiftShader 上で動き、ポインタロ�
 | RND-1 | **`requested` は吸収状態だった。** `blur` が保存し、`requestPointerLock` は再送しない。セッション中もう二度とマウスルックに入れない | **修正** |
 | RND-2 | **`endFrame` が、どのフレームにも報告していないホイール段を消費していた。** `Math.trunc` を 2 回別々の瞬間に取っていた | **修正** |
 | RND-3 | **`blur` が `pointerLocked` を残していた。** タブに戻るためのクリックが `attack` になる | **修正** |
-| RND-4 | ミラーの初期状態が自己矛盾。最初の pose が届く前を `undefined` で表さず、`UNSET_CAMERA_POSE`（`capturedAtSecs` 0）を新鮮と表示していた | **修正** |
+| RND-4 | ミラーが render 所有の初期 pose を正としていた | **修正** |
 | RND-5 | `MIRROR_LAG_WARNING_SECS` の doc が「Milliseconds」と書いていた。名前は `_SECS`、値は `0.1`、比較対象は秒 | **修正** |
 | RND-6 | **`RenderRegistrationLayer` が `renderModule` の引数を捨てていた。** ステージが別インスタンスに結び付く | **修正（削除）** |
 | RND-7 | `withScratch` が捕まえるのは同一性エスケープだけ。包んで返す / クロージャ / 遅延コールバック / 直接読みはすべて素通り | **修正** |
@@ -189,8 +189,8 @@ provide し、`frameStages` はその中から取る。
 ### RND-4 / RND-7 —— lease と未初期化状態を機構化した
 
 - **RND-4**: `MirroredCameraState.sourceCapturedAtSecs`、`mirrorLagSecs`、
-  `RenderFrameState.authoritativePose` を optional にし、mc-sim の最初の pose が届くまでを
-  「未初期化」として表現する。時計を読むステージの責務は変わらない。
+  `render:camera-mirror` が登録時要求の `PlayerService.cameraPose` を読み、render の
+  `RenderFrameState` に authoritative pose を保持しない。時計は compose が供給する。
 - **RND-7**: `withScratch` は native `Map` を公開せず、scratch ごとに一度だけ作る
   lease-checked view を渡す。view / wrapper / closure / iterator / deferred Effect の
   lease 後アクセスを `ScratchMisuseError` にし、持ち出しは `snapshotScratch` に限定する。

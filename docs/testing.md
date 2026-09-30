@@ -115,9 +115,8 @@ DN-02 §「数値の出所」は**コミットメッセージを見なかった�
 
 保留分はない。RND-4 と RND-7 は実装と回帰テストで閉じた。
 
- - **RND-4**: `MirroredCameraState.sourceCapturedAtSecs`、`mirrorLagSecs`、
-   `RenderFrameState.authoritativePose` を optional にし、mc-sim の最初の pose が届くまでを
-   「未初期化」として表現する。時計を読むステージの責務は変わらない。
+ - **RND-4**: `render:camera-mirror` が登録時要求の `PlayerService.cameraPose` を読み、
+   `RenderFrameState` に authoritative pose を保持しない。時計を読むステージの責務は変わらない。
  - **RND-7**: `withScratch` は native `Map` を公開せず、scratch ごとに一度だけ作る
    lease-checked view を渡す。view / wrapper / closure / iterator / deferred Effect の
    lease 後アクセスを `ScratchMisuseError` にし、持ち出しは `snapshotScratch` に限定する。
