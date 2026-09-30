@@ -133,7 +133,7 @@ export type MachineView = {
 
   readonly clockSecs: number
   /** The latest mc-sim pose, or pending before the first publish. */
-  readonly authoritativePose: CameraPoseSnapshot | undefined
+  readonly playerPose: CameraPoseSnapshot | undefined
   readonly mirrored: MirroredCameraState
   readonly viewOffset: ViewOffset
   readonly mirrorLag: number | undefined
@@ -153,7 +153,7 @@ type Book = {
   step: number
   lastThing: string
   clockSecs: number
-  authoritativePose: CameraPoseSnapshot | undefined
+  playerPose: CameraPoseSnapshot | undefined
   viewOffset: ViewOffset
   poseNeverPublished: boolean
   lastFrameSnapshot: InputSnapshot | undefined
@@ -259,7 +259,7 @@ export const makeMachine = async (config: MachineConfig): Promise<Machine> => {
     step: 0,
     lastThing: '(nothing yet)',
     clockSecs: 0,
-    authoritativePose: undefined,
+    playerPose: undefined,
     viewOffset: NO_VIEW_OFFSET,
     poseNeverPublished: true,
     lastFrameSnapshot: undefined,
@@ -392,8 +392,8 @@ export const makeMachine = async (config: MachineConfig): Promise<Machine> => {
 
       case 'publishPose':
         return Effect.sync(() => {
-          const previous = book.authoritativePose
-          book.authoritativePose = {
+          const previous = book.playerPose
+          book.playerPose = {
             position: position(command.x, command.y, command.z),
             yawRadians: previous?.yawRadians ?? 0,
             pitchRadians: previous?.pitchRadians ?? 0,
@@ -464,7 +464,7 @@ export const makeMachine = async (config: MachineConfig): Promise<Machine> => {
         const snapshot = yield* service.snapshot
         const bindings = yield* service.bindings
         const now = MonotonicTimeSecs(book.clockSecs)
-        const mirrored = mirroredCameraState(book.authoritativePose, book.viewOffset)
+        const mirrored = mirroredCameraState(book.playerPose, book.viewOffset)
 
         const actions: Array<ActionRow> = []
         for (const action of INPUT_ACTIONS) {
@@ -504,7 +504,7 @@ export const makeMachine = async (config: MachineConfig): Promise<Machine> => {
           ),
           wouldAcquireOnHudClick: acquiresPointerLock('MouseLeft', snapshot.pointerLockState, 'ui'),
           clockSecs: book.clockSecs,
-          authoritativePose: book.authoritativePose,
+          playerPose: book.playerPose,
           mirrored,
           viewOffset: book.viewOffset,
           mirrorLag: mirrorLagSecs(mirrored, now),

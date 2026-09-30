@@ -36,33 +36,21 @@
  * something else supplies what it itself ships.
  *
  * ---------------------------------------------------------------------------
- * What is FIRST CUT here, and what is not
+ * What is settled here, and what is not
  * ---------------------------------------------------------------------------
  *
  * The frame POSITIONS and the ordering edges are settled — that is what
  * mc-compose needs and it does not change when the bodies fill in.
  *
- * The bodies that need a service this repository cannot yet reach are marked
- * FIRST CUT and do the minimum, exactly as `mx-gameplay/stages/registration.ts`
- * does. Nothing here invents a cross-repository dependency: mc-sim and
- * mc-meshing are declared parents of mc-render but nothing is published yet
- * (plan.md §6 Step 3 is bottom-up publish-then-pin), so where a stage would
- * read one it reads a `Ref` that a preview or a test fills instead. An invented
- * local port would be a second answer to "who owns the camera pose", which is
- * the inversion plan.md §3.8 records as the reference's worst structural bug.
+ * The camera stage reads the authoritative pose from mc-sim's PlayerService.
+ * The service is requested while frame stages are registered; the compose host
+ * supplies it, and the frame's ClockPort remains the host's responsibility.
  */
-import {
-  type CameraPoseSnapshot,
-  type GameModule,
-  MonotonicTimeSecs,
-  type StageRegistration,
-  monotonicSecs,
-  position,
-} from '@nerima-games/mc-kernel'
 import { type ChunkSyncPort, NO_CHUNK_SYNC } from '../application/world-sync.js'
 import { type DrawPort, NO_DRAW_TARGET } from '../application/world-renderer.js'
 import { Effect, Ref } from 'effect'
 import { type FrameScratch, makeFrameScratch } from '../domain/frame-scratch.js'
+import { type GameModule, type StageRegistration, monotonicSecs } from '@nerima-games/mc-kernel'
 import {
   type GraphicsQuality,
   type PostProcessingStep,
@@ -86,31 +74,15 @@ import {
 } from '../domain/camera-mirror.js'
 import { type MouseButton, acquiresPointerLock, defaultBindings } from '../domain/input-bindings.js'
 import { NO_PLAYER_CONTROL, type PlayerControlPort } from '../domain/player-control.js'
+import { PlayerService, type PlayerServiceApi } from '@nerima-games/mc-sim'
 import { RENDER_STAGE_IDS, UPSTREAM_STAGE_IDS } from './stage-ids.js'
 
 /* Shared numeric building blocks for the explicit display/test fixture and
  * frame-local diagnostics. Each name is the specific domain quantity zero
  * represents here, not a bare literal repeated for its own sake. */
-const UNSET_POSE_CAPTURED_AT_SECS = 0
-const WORLD_ORIGIN_AXIS = 0
 const INITIAL_VISIBLE_CHUNK_COUNT = 0
 const INITIAL_FRAMES_DRAWN = 0
 const FRAMES_DRAWN_INCREMENT = 1
-
-/**
- * An explicit display/test fixture for a renderer before mc-sim has said
- * anything. It is not the default frame state.
- *
- * Deliberately the origin looking down -Z rather than a plausible spawn point.
- * A renderer that draws this is drawing "no pose has arrived yet", and making
- * that visibly wrong is better than making it plausibly wrong.
- */
-export const UNSET_CAMERA_POSE: CameraPoseSnapshot = {
-  capturedAtSecs: MonotonicTimeSecs(UNSET_POSE_CAPTURED_AT_SECS),
-  pitchRadians: 0,
-  position: position(WORLD_ORIGIN_AXIS, WORLD_ORIGIN_AXIS, WORLD_ORIGIN_AXIS),
-  yawRadians: 0,
-}
 
 /**
  * Frame-local renderer state.
@@ -124,16 +96,6 @@ export const UNSET_CAMERA_POSE: CameraPoseSnapshot = {
 export type RenderFrameState = {
   /** Pre-allocated per-frame buffers. See `domain/frame-scratch.ts` on why. */
   readonly scratch: FrameScratch
-  /**
-   * The authoritative pose, as most recently handed over.
-   *
-   * FIRST CUT: written by whoever drives the frame. When mc-sim is published
-   * this is read from `PlayerService.cameraPose` at registration time and this
-   * `Ref` becomes an implementation detail of the previews. It is a COPY, never
-   * a live handle — mc-render reads the pose and must never hold a mutable
-   * reference to somebody else's state (plan.md §5.1-2).
-   */
-  readonly authoritativePose: Ref.Ref<CameraPoseSnapshot | undefined>
   /** Cosmetic displacement applied at mirror time. Never fed back. */
   readonly viewOffset: Ref.Ref<ViewOffset>
   /** What a THREE camera would be set to. Derived; never read by anything else. */
@@ -204,20 +166,10 @@ const makeQualityState = (
  */
 export const makeRenderFrameState = (
   quality: GraphicsQuality = QUALITY_PRESETS.high,
-  /**
-   * Where the camera starts.
-   *
-   * `undefined` means mc-sim has not published a pose yet. The mirrored camera
-   * keeps that pending state, with no synthetic timestamp or lag measurement.
-   * An explicit pose is useful for deterministic host and test setup; choosing
-   * a player's spawn point remains mc-sim's responsibility.
-   */
-  initialPose: CameraPoseSnapshot | undefined = undefined,
 ): Effect.Effect<RenderFrameState> =>
   Effect.gen(function* () {
-    const authoritativePose = yield* Ref.make(initialPose)
     const viewOffset = yield* Ref.make(NO_VIEW_OFFSET)
-    const mirroredCamera = yield* Ref.make(mirroredCameraState(initialPose))
+    const mirroredCamera = yield* Ref.make(mirroredCameraState(undefined))
     const lag = yield* Ref.make<number | undefined>(undefined)
     const input = yield* Ref.make<InputSnapshot>({
       gamepadAxes: { leftX: 0, leftY: 0, rightX: 0, rightY: 0 },
@@ -240,7 +192,6 @@ export const makeRenderFrameState = (
     const framesDrawn = yield* Ref.make(INITIAL_FRAMES_DRAWN)
 
     return {
-      authoritativePose,
       framesDrawn,
       input,
       mirrorLagSecs: lag,
@@ -267,6 +218,7 @@ export const makeRenderFrameState = (
 export type RenderStagesOptions = {
   readonly state: RenderFrameState
   readonly input: InputServiceApi
+  readonly player: PlayerServiceApi
   /**
    * Where `render:draw` draws. Defaults to "this platform has no GPU", which is
    * the common case: every Node test, `apps/preview-render`, and any consumer
@@ -284,6 +236,7 @@ export type RenderStagesOptions = {
 export const renderStages = ({
   state,
   input,
+  player,
   draw = NO_DRAW_TARGET,
   control = NO_PLAYER_CONTROL,
   chunkSync = NO_CHUNK_SYNC,
@@ -368,12 +321,7 @@ export const renderStages = ({
     // Thing nobody files.
     run: () =>
       Effect.gen(function* () {
-        // FIRST CUT: the snapshot comes from a Ref. When mc-sim is published,
-        // `PlayerService` is acquired in `renderModule` below and this reads
-        // `player.cameraPose` — which is an `Effect<_, never, ClockPort>`, and
-        // `ClockPort` is exactly what `FrameServices` already provides. That is
-        // The measurement that let `FrameServices` freeze at `ClockPort`.
-        const pose = yield* Ref.get(state.authoritativePose)
+        const pose = yield* player.cameraPose
         const offset = yield* Ref.get(state.viewOffset)
         const mirrored = mirroredCameraState(pose, offset)
         yield* Ref.set(state.mirroredCamera, mirrored)
@@ -399,7 +347,7 @@ export const renderStages = ({
   {
     after: [RENDER_STAGE_IDS.chunkSync],
     id: RENDER_STAGE_IDS.draw,
-    // THE THREE.js RENDERER CALL, and it is no longer a FIRST CUT: `draw` is a
+    // THE THREE.js RENDERER CALL: `draw` is a
     // `DrawPort`, and in a browser it is `application/world-renderer.ts`'s,
     // Which acquires a WebGL2 context and submits a frame.
     //
@@ -412,8 +360,8 @@ export const renderStages = ({
     // Here. The port's `draw` takes that value and cannot hand a camera back.
     run: () =>
       Effect.gen(function* () {
-        // `state.mirroredCamera` and NOT `state.authoritativePose`: the pose is
-        // Mc-sim's and the mirror is this repository's view of it, and drawing
+        // `state.mirroredCamera`: the pose is mc-sim's and the mirror is this
+        // Repository's view of it, and drawing
         // The pose directly would skip the cosmetic offset — i.e. the view bob
         // Would stop working and nothing would fail.
         const camera = yield* Ref.get(state.mirroredCamera)
@@ -463,9 +411,10 @@ export const renderStages = ({
  *
  *   ROut      = InputService   — mc-render provides it
  *   RIn       = never          — nothing has to be given for that Layer to build
- *   RRegister = InputService   — but registering `render:input` needs it
+ *   RRegister = InputService | PlayerService — registration needs both
  *
- * `InputService` is in `ROut` AND in `RRegister`, and in neither case in `RIn`.
+ * `InputService` is in `ROut` AND in `RRegister`, and `PlayerService` is in
+ * `RRegister`; neither is in `RIn`.
  * Collapsing `RRegister` into `RIn` would demand that a host supply the very
  * service this module ships.
  */
@@ -491,15 +440,14 @@ export const renderModule = (
    * host owns what there is to draw ON.
    */
   draw: DrawPort = NO_DRAW_TARGET,
-  /** Where the camera starts. `undefined` remains pending until mc-sim publishes a pose. */
-  initialPose: CameraPoseSnapshot | undefined = undefined,
   control: PlayerControlPort = NO_PLAYER_CONTROL,
   chunkSync: ChunkSyncPort = NO_CHUNK_SYNC,
-): GameModule<InputService, never, never, InputService> => ({
+): GameModule<InputService, never, never, InputService | PlayerService> => ({
   frameStages: Effect.gen(function* () {
     const input = yield* InputService
-    const state = yield* makeRenderFrameState(quality, initialPose)
-    return renderStages({ chunkSync, control, draw, input, state })
+    const player = yield* PlayerService
+    const state = yield* makeRenderFrameState(quality)
+    return renderStages({ chunkSync, control, draw, input, player, state })
   }),
   layers: InputServiceLayer(defaultBindings(), pointerLock),
 })
@@ -527,12 +475,13 @@ export const makeRenderStagesForPreview = ({
 }: MakeRenderStagesForPreviewOptions = {}): Effect.Effect<
   { readonly state: RenderFrameState; readonly stages: ReadonlyArray<StageRegistration> },
   never,
-  InputService
+  InputService | PlayerService
 > =>
   Effect.gen(function* () {
     const input = yield* InputService
+    const player = yield* PlayerService
     const state = yield* makeRenderFrameState(quality)
-    return { stages: renderStages({ chunkSync, control, draw, input, state }), state }
+    return { stages: renderStages({ chunkSync, control, draw, input, player, state }), state }
   })
 
 /**
