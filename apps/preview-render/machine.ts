@@ -32,7 +32,7 @@
  * `MIRROR_LAG_WARNING_SECS` can be crossed on purpose rather than waited for.
  * No `Date.now()`, no `performance.now()`, no escape hatch.
  */
-import { Effect } from 'effect'
+import { Effect, Layer, Ref } from 'effect'
 import {
   makeInputService,
   type InputEvent,
@@ -43,9 +43,6 @@ import {
 } from '../../src/application/input-service'
 import {
   isMirrorStale,
-  mirroredCameraState,
-  mirrorLagSecs,
-  NO_VIEW_OFFSET,
   type MirroredCameraState,
   type ViewOffset,
 } from '../../src/domain/camera-mirror'
@@ -60,7 +57,29 @@ import {
   type InputCode,
   type PointerLockState,
 } from '../../src/domain/input-bindings'
-import { MonotonicTimeSecs, position, type CameraPoseSnapshot } from '@nerima-games/mc-kernel'
+import {
+  DeltaTimeSecs,
+  EpochMillis,
+  FixedClockLayer,
+  MonotonicTimeSecs,
+  monotonicSecs,
+  type CameraPoseSnapshot,
+  type Dimension,
+  type StageRegistration,
+  position,
+} from '@nerima-games/mc-kernel'
+import {
+  INITIAL_PLAYER_DIMENSION,
+  INITIAL_PLAYER_POSE,
+  PlayerService,
+  applyLook,
+  cameraPoseOf,
+  type PlayerPose,
+  type PlayerServiceApi,
+  withFeetPosition,
+} from '@nerima-games/mc-sim'
+import { makeRenderFrameState, renderStages, type RenderFrameState } from '../../src/stages/registration'
+import { RENDER_STAGE_IDS } from '../../src/stages/stage-ids'
 import { scenarioFor, stepAt, type Command, type ScenarioName, type ScriptedStep } from './script'
 
 /**
@@ -153,8 +172,9 @@ type Book = {
   step: number
   lastThing: string
   clockSecs: number
-  playerPose: CameraPoseSnapshot | undefined
-  viewOffset: ViewOffset
+  readonly player: PlayerServiceApi
+  readonly renderState: RenderFrameState
+  readonly cameraMirrorStage: StageRegistration
   poseNeverPublished: boolean
   lastFrameSnapshot: InputSnapshot | undefined
   lastFrameSnapshotAtStep: number | undefined
@@ -164,6 +184,31 @@ type Book = {
   notchesConsumed: number
   log: Array<LogLine>
 }
+
+const makePreviewPlayerService = (
+  pose: Ref.Ref<PlayerPose>,
+  dimension: Ref.Ref<Dimension>,
+): PlayerServiceApi => ({
+  pose: Ref.get(pose),
+  dimension: Ref.get(dimension),
+  look: (deltaYaw, deltaPitch) =>
+    Ref.modify(pose, (current) => {
+      const next = applyLook(current, deltaYaw, deltaPitch)
+      return [next, next]
+    }),
+  moveTo: (feetPosition) => Ref.update(pose, (current) => withFeetPosition(current, feetPosition)),
+  setDimension: (next) => Ref.set(dimension, next),
+  cameraPose: Effect.gen(function* () {
+    const current = yield* Ref.get(pose)
+    return cameraPoseOf(current, yield* monotonicSecs)
+  }),
+  restore: (nextPose, nextDimension) =>
+    Effect.all([Ref.set(pose, nextPose), Ref.set(dimension, nextDimension)]).pipe(Effect.asVoid),
+  reset: Effect.all([
+    Ref.set(pose, INITIAL_PLAYER_POSE),
+    Ref.set(dimension, INITIAL_PLAYER_DIMENSION),
+  ]).pipe(Effect.asVoid),
+})
 
 export type Machine = {
   readonly config: MachineConfig
@@ -255,12 +300,31 @@ const INPUT_EVENT_KINDS: ReadonlySet<string> = new Set([
 const isInputEventKind = (kind: string): boolean => INPUT_EVENT_KINDS.has(kind)
 
 export const makeMachine = async (config: MachineConfig): Promise<Machine> => {
+  const playerPoseRef = await Effect.runPromise(Ref.make(INITIAL_PLAYER_POSE))
+  const dimensionRef = await Effect.runPromise(Ref.make(INITIAL_PLAYER_DIMENSION))
+  const playerLayer = Layer.succeed(
+    PlayerService,
+    makePreviewPlayerService(playerPoseRef, dimensionRef),
+  )
+  const player = await Effect.runPromise(PlayerService.pipe(Effect.provide(playerLayer)))
+
+  const service: InputServiceApi = await Effect.runPromise(
+    makeInputService(defaultBindings(), portFor(config.lockPort)),
+  )
+  const renderState = await Effect.runPromise(makeRenderFrameState())
+  const stages = renderStages({ input: service, player, state: renderState })
+  const cameraMirrorStage = stages.find(({ id }) => id === RENDER_STAGE_IDS.cameraMirror)
+  if (cameraMirrorStage === undefined) {
+    throw new Error('preview render stages did not register render:camera-mirror')
+  }
+
   const book: Book = {
     step: 0,
     lastThing: '(nothing yet)',
     clockSecs: 0,
-    playerPose: undefined,
-    viewOffset: NO_VIEW_OFFSET,
+    player,
+    renderState,
+    cameraMirrorStage,
     poseNeverPublished: true,
     lastFrameSnapshot: undefined,
     lastFrameSnapshotAtStep: undefined,
@@ -269,10 +333,6 @@ export const makeMachine = async (config: MachineConfig): Promise<Machine> => {
     notchesConsumed: 0,
     log: [],
   }
-
-  const service: InputServiceApi = await Effect.runPromise(
-    makeInputService(defaultBindings(), portFor(config.lockPort)),
-  )
 
   const scenario = scenarioFor(config.scenario)
 
@@ -391,14 +451,16 @@ export const makeMachine = async (config: MachineConfig): Promise<Machine> => {
         })
 
       case 'publishPose':
-        return Effect.sync(() => {
-          const previous = book.playerPose
-          book.playerPose = {
-            position: position(command.x, command.y, command.z),
-            yawRadians: previous?.yawRadians ?? 0,
-            pitchRadians: previous?.pitchRadians ?? 0,
-            capturedAtSecs: MonotonicTimeSecs(book.clockSecs),
-          }
+        return Effect.gen(function* () {
+          const previous = yield* book.player.pose
+          yield* book.player.restore(
+            {
+              feetPosition: position(command.x, command.y, command.z),
+              yawRadians: previous.yawRadians,
+              pitchRadians: previous.pitchRadians,
+            },
+            INITIAL_PLAYER_DIMENSION,
+          )
           book.poseNeverPublished = false
           push(book, `mc-sim published a pose stamped ${book.clockSecs.toFixed(3)} s`, 'command')
         })
@@ -464,7 +526,17 @@ export const makeMachine = async (config: MachineConfig): Promise<Machine> => {
         const snapshot = yield* service.snapshot
         const bindings = yield* service.bindings
         const now = MonotonicTimeSecs(book.clockSecs)
-        const mirrored = mirroredCameraState(book.playerPose, book.viewOffset)
+        const clockLayer = FixedClockLayer({
+          monotonicSecs: now,
+          wallClockEpochMillis: EpochMillis(0),
+        })
+        yield* book.cameraMirrorStage.run(DeltaTimeSecs(0)).pipe(Effect.provide(clockLayer))
+        const mirrored = yield* Ref.get(book.renderState.mirroredCamera)
+        const viewOffset = yield* Ref.get(book.renderState.viewOffset)
+        const mirrorLag = yield* Ref.get(book.renderState.mirrorLagSecs)
+        const playerPose = book.poseNeverPublished
+          ? undefined
+          : yield* book.player.cameraPose.pipe(Effect.provide(clockLayer))
 
         const actions: Array<ActionRow> = []
         for (const action of INPUT_ACTIONS) {
@@ -504,10 +576,10 @@ export const makeMachine = async (config: MachineConfig): Promise<Machine> => {
           ),
           wouldAcquireOnHudClick: acquiresPointerLock('MouseLeft', snapshot.pointerLockState, 'ui'),
           clockSecs: book.clockSecs,
-          playerPose: book.playerPose,
+          playerPose,
           mirrored,
-          viewOffset: book.viewOffset,
-          mirrorLag: mirrorLagSecs(mirrored, now),
+          viewOffset,
+          mirrorLag,
           mirrorStale: isMirrorStale(mirrored, now),
           poseNeverPublished: book.poseNeverPublished,
           log: [...book.log],
