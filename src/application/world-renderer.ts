@@ -71,6 +71,8 @@ import {
   type RenderEnvironmentPlan,
   planRenderEnvironment,
 } from '../domain/render-environment.js'
+import { type Dimension, type ChunkKey as KernelChunkKey } from '@nerima-games/mc-kernel'
+export type ChunkKey = KernelChunkKey
 import { Effect, Ref } from 'effect'
 import {
   type MobAnimationInput,
@@ -105,7 +107,6 @@ import {
   planWitherSkullVisual,
   planWitherVisual,
 } from '../domain/wither-visual.js'
-import type { Dimension } from '@nerima-games/mc-kernel'
 import type { MirroredCameraState } from '../domain/camera-mirror.js'
 import type { PostProcessingStep } from '../domain/post-processing.js'
 import type { WeatherFrameOptions } from '../domain/weather-rendering.js'
@@ -407,9 +408,6 @@ export const makeWaterMaterial = <
     uniforms,
   }
 }
-
-/** How a chunk's geometry is keyed while it is in the scene. */
-export type ChunkKey = string
 
 /** One chunk replacement in an atomic renderer registry update. */
 export type ChunkGeometryUpdate = {

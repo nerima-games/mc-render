@@ -1,5 +1,5 @@
 import { describe, expect, it } from '@effect/vitest'
-import { Effect, Ref } from 'effect'
+import { Effect, Layer, Ref } from 'effect'
 import { isMirrorStale, type MirroredCameraState } from '../src/domain/camera-mirror'
 import { type ChunkSyncPort } from '../src/application/world-sync'
 import { NO_DRAW_TARGET, type DrawPort } from '../src/application/world-renderer'
@@ -19,6 +19,7 @@ import {
   type StageRegistration,
 } from '@nerima-games/mc-kernel'
 import { chainPasses, QUALITY_PRESETS } from '../src/domain/post-processing'
+import { PlayerService, type PlayerServiceApi } from '@nerima-games/mc-sim'
 import {
   InputService,
   InputServiceLayer,
@@ -28,7 +29,6 @@ import {
 import {
   makeRenderStagesForPreview,
   renderModule,
-  UNSET_CAMERA_POSE,
   type RenderFrameState,
 } from '../src/stages/registration'
 import {
@@ -45,6 +45,27 @@ const FRAME_SERVICES = FixedClockLayer({
 
 const dt = DeltaTimeSecs(0.016)
 
+const PLAYER_POSE: CameraPoseSnapshot = {
+  position: position(8, 65, -12),
+  yawRadians: 0.5,
+  pitchRadians: -0.25,
+  capturedAtSecs: MonotonicTimeSecs(99.5),
+}
+
+const FAKE_PLAYER_SERVICE: PlayerServiceApi = {
+  pose: Effect.succeed({ feetPosition: position(8, 63.38, -12), yawRadians: 0.5, pitchRadians: -0.25 }),
+  dimension: Effect.succeed('overworld'),
+  look: () => Effect.succeed({ feetPosition: position(8, 63.38, -12), yawRadians: 0.5, pitchRadians: -0.25 }),
+  moveTo: () => Effect.void,
+  setDimension: () => Effect.void,
+  cameraPose: Effect.succeed(PLAYER_POSE),
+  restore: () => Effect.void,
+  reset: Effect.void,
+}
+
+const PLAYER_LAYER = Layer.succeed(PlayerService, FAKE_PLAYER_SERVICE)
+const TEST_SERVICES = Layer.merge(InputServiceLayer(), PLAYER_LAYER)
+
 /** Build the stages and hand back the state they close over. */
 const withStages = <A>(
   use: (
@@ -57,7 +78,7 @@ const withStages = <A>(
     const input = yield* InputService
     const { state, stages } = yield* makeRenderStagesForPreview()
     return yield* use(stages, state, input)
-  }).pipe(Effect.provide(InputServiceLayer()))
+  }).pipe(Effect.provide(TEST_SERVICES))
 
 /**
  * The same, with a pointer-lock port whose asks are counted.
@@ -85,7 +106,7 @@ const withStagesUsingPointerLock = <A>(
       const input = yield* InputService
       const { state, stages } = yield* makeRenderStagesForPreview()
       return yield* use(stages, state, input, asked)
-    }).pipe(Effect.provide(InputServiceLayer(undefined, port)))
+  }).pipe(Effect.provide(Layer.merge(InputServiceLayer(undefined, port), PLAYER_LAYER)))
   })
 
 const stageById = (
@@ -213,7 +234,7 @@ describe('render:input', () => {
 
       yield* stageById(stages, RENDER_STAGE_IDS.input).run(dt).pipe(Effect.provide(FRAME_SERVICES))
       expect(yield* Ref.get(jump)).toBe(false)
-    }).pipe(Effect.provide(InputServiceLayer())),
+    }).pipe(Effect.provide(TEST_SERVICES)),
   )
 
   // REGRESSION: the whole reason the stage exists. `justPressed` is an EDGE;
@@ -444,17 +465,11 @@ describe('render:input', () => {
 })
 
 describe('render:camera-mirror', () => {
-  const pose: CameraPoseSnapshot = {
-    position: position(8, 65, -12),
-    yawRadians: 0.5,
-    pitchRadians: -0.25,
-    capturedAtSecs: MonotonicTimeSecs(99.5),
-  }
+  const pose = PLAYER_POSE
 
   it.effect('copies the authoritative pose into renderer state, one direction only', () =>
     withStages((stages, state) =>
       Effect.gen(function* () {
-        yield* Ref.set(state.authoritativePose, pose)
         yield* stageById(stages, RENDER_STAGE_IDS.cameraMirror)
           .run(dt)
           .pipe(Effect.provide(FRAME_SERVICES))
@@ -463,11 +478,8 @@ describe('render:camera-mirror', () => {
         expect(mirrored.position).toStrictEqual(pose.position)
         expect(mirrored.rotation).toStrictEqual({ x: -0.25, y: 0.5, z: 0, order: 'YXZ' })
 
-        // The authoritative value is UNTOUCHED. plan.md §3.8: the reference had
-        // this inverted and the simulation read its view direction back out of
-        // the renderer. There is no path from output to input here, and this is
-        // the assertion that says so.
-        expect(yield* Ref.get(state.authoritativePose)).toStrictEqual(pose)
+        // The pose is read from the supplied PlayerService and never written by
+        // the renderer.
       }),
     ),
   )
@@ -478,7 +490,6 @@ describe('render:camera-mirror', () => {
   it.effect('measures how stale the mirrored pose is, from the injected clock', () =>
     withStages((stages, state) =>
       Effect.gen(function* () {
-        yield* Ref.set(state.authoritativePose, pose)
         yield* stageById(stages, RENDER_STAGE_IDS.cameraMirror)
           .run(dt)
           .pipe(Effect.provide(FRAME_SERVICES))
@@ -489,30 +500,17 @@ describe('render:camera-mirror', () => {
     ),
   )
 
-  it.effect('starts from a visibly-unset pose rather than a plausible one', () =>
-    Effect.sync(() => {
-      expect(UNSET_CAMERA_POSE.position).toStrictEqual(position(0, 0, 0))
-      expect(UNSET_CAMERA_POSE.capturedAtSecs).toBe(0)
-    }),
-  )
-
-  it.effect('represents an unpublished pose as pending rather than fresh', () =>
+  it.effect('reads the non-optional pose supplied by PlayerService', () =>
     withStages((stages, state) =>
       Effect.gen(function* () {
-        expect(yield* Ref.get(state.authoritativePose)).toBeUndefined()
-        const initialMirror = yield* Ref.get(state.mirroredCamera)
-        expect(initialMirror.sourceCapturedAtSecs).toBeUndefined()
-        expect(yield* Ref.get(state.mirrorLagSecs)).toBeUndefined()
-        expect(isMirrorStale(initialMirror, MonotonicTimeSecs(100))).toBe(false)
-
         yield* stageById(stages, RENDER_STAGE_IDS.cameraMirror)
           .run(dt)
           .pipe(Effect.provide(FRAME_SERVICES))
 
         const mirrored = yield* Ref.get(state.mirroredCamera)
-        expect(mirrored.sourceCapturedAtSecs).toBeUndefined()
-        expect(yield* Ref.get(state.mirrorLagSecs)).toBeUndefined()
-        expect(isMirrorStale(mirrored, MonotonicTimeSecs(100))).toBe(false)
+        expect(mirrored.sourceCapturedAtSecs).toBe(PLAYER_POSE.capturedAtSecs)
+        expect(yield* Ref.get(state.mirrorLagSecs)).toBeCloseTo(0.5, 10)
+        expect(isMirrorStale(mirrored, MonotonicTimeSecs(100))).toBe(true)
       }),
     ),
   )
@@ -534,7 +532,7 @@ describe('render:chunk-sync, render:draw and render:post-fx', () => {
 
         yield* stage.run(dt).pipe(Effect.provide(FRAME_SERVICES))
         expect(yield* Ref.get(updates)).toBe(1)
-      }).pipe(Effect.provide(InputServiceLayer()))
+      }).pipe(Effect.provide(TEST_SERVICES))
     }),
   )
 
@@ -586,7 +584,7 @@ describe('render:chunk-sync, render:draw and render:post-fx', () => {
 
         expect(yield* Ref.get(drawn)).toHaveLength(2)
         expect(yield* Ref.get(state.framesDrawn)).toBe(2)
-      }).pipe(Effect.provide(InputServiceLayer()))
+      }).pipe(Effect.provide(TEST_SERVICES))
     }),
   )
 
@@ -607,12 +605,6 @@ describe('render:chunk-sync, render:draw and render:post-fx', () => {
       yield* Effect.gen(function* () {
         const { state, stages } = yield* makeRenderStagesForPreview({ draw: port })
 
-        yield* Ref.set(state.authoritativePose, {
-          position: position(0, 64, 0),
-          yawRadians: 0,
-          pitchRadians: 0,
-          capturedAtSecs: MonotonicTimeSecs(1),
-        })
         yield* Ref.set(state.viewOffset, { right: 0, up: 0.5, rollRadians: 0 })
 
         // The mirror stage is what composes the two; draw must read its output.
@@ -624,9 +616,9 @@ describe('render:chunk-sync, render:draw and render:post-fx', () => {
           .pipe(Effect.provide(FRAME_SERVICES))
 
         const seen = yield* Ref.get(drawn)
-        expect(seen[0]?.position.y).toBe(64.5)
+        expect(seen[0]?.position.y).toBe(65.5)
         expect(seen[0]).toStrictEqual(yield* Ref.get(state.mirroredCamera))
-      }).pipe(Effect.provide(InputServiceLayer()))
+      }).pipe(Effect.provide(TEST_SERVICES))
     }),
   )
 
@@ -684,7 +676,7 @@ describe('render:chunk-sync, render:draw and render:post-fx', () => {
           Ref.set(received, chain.map((step) => step.pass)),
       }
       const { stages } = yield* makeRenderStagesForPreview({ draw }).pipe(
-        Effect.provide(InputServiceLayer()),
+        Effect.provide(TEST_SERVICES),
       )
 
       yield* stageById(stages, RENDER_STAGE_IDS.postFx)
@@ -713,7 +705,9 @@ describe('renderModule is a real GameModule', () => {
   it.effect('registers its stages against the InputService it itself provides', () =>
     Effect.gen(function* () {
       const module = renderModule()
-      const stages = yield* module.frameStages.pipe(Effect.provide(module.layers))
+      const stages = yield* module.frameStages.pipe(
+        Effect.provide(Layer.merge(module.layers, PLAYER_LAYER)),
+      )
 
       expect(stages.map((stage) => stage.id)).toContain(RENDER_STAGE_IDS.input)
       expect(stages).toHaveLength(5)
@@ -726,8 +720,8 @@ describe('renderModule is a real GameModule', () => {
       // sources — a second world load inherited the first's refs and deadlocked.
       // A renderer is the component most likely to be started twice, because
       // every per-screen preview starts one.
-      const first = yield* makeRenderStagesForPreview().pipe(Effect.provide(InputServiceLayer()))
-      const second = yield* makeRenderStagesForPreview().pipe(Effect.provide(InputServiceLayer()))
+      const first = yield* makeRenderStagesForPreview().pipe(Effect.provide(TEST_SERVICES))
+      const second = yield* makeRenderStagesForPreview().pipe(Effect.provide(TEST_SERVICES))
 
       yield* stageById(first.stages, RENDER_STAGE_IDS.draw)
         .run(dt)

@@ -446,9 +446,9 @@ const xyz = (point: { readonly x: number; readonly y: number; readonly z: number
 
 export const mirrorView = (view: MachineView, style: Style, width: number): ReadonlyArray<string> => {
   const authoritative =
-    view.authoritativePose === undefined
+  view.playerPose === undefined
       ? style.paint('pending — mc-sim has not published a pose', WARN)
-      : `${style.paint(xyz(view.authoritativePose.position), VALUE)}   stamped ${style.paint(`${fixed(view.authoritativePose.capturedAtSecs, 3)} s`, VALUE)}`
+      : `${style.paint(xyz(view.playerPose.position), VALUE)}   stamped ${style.paint(`${fixed(view.playerPose.capturedAtSecs, 3)} s`, VALUE)}`
   const lag =
     view.mirrorLag === undefined
       ? `${style.paint('pending', WARN)} ${style.dim('no captured pose yet')}   threshold ${style.paint(`${String(MIRROR_LAG_WARNING_SECS)} s`, VALUE)}   ${style.paint('not stale', GOOD)}`

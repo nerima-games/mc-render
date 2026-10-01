@@ -990,6 +990,10 @@ uniform box は material と共有したまま更新するため GPU resource �
 resize listener と renderer/material の解放責務は従来どおり scope finalizer が所有し、
 環境更新は listener や resource を追加しない。
 
+チャンクの scene key は `@nerima-games/mc-kernel` の branded `ChunkKey` である。
+`ChunkGeometryUpdate.key`、`WorldRenderer.setChunk`、`removeChunk`、`chunkKeys` はこの型を
+共有し、文字列を直接渡す API ではない。worldgen の `chunkKeyOf` が返す key をそのまま使う。
+
 `planRenderEnvironment` は第 3 引数に `@nerima-games/mc-kernel` の
 `Dimension`（`'overworld' | 'nether' | 'end'`）を取る。省略時は `'overworld'` で、既存の
 呼び出しはすべて出力が変わらない。`nether`（太陽も昼夜サイクルも無い、閉じた霧）と
@@ -1123,10 +1127,10 @@ const RENDER_STAGE_IDS: {
   postFx: StageId         // 'render:post-fx'
 }
 
-const renderModule: (quality?) => GameModule<InputService, never, never, InputService>
-const renderStages: (state, input) => ReadonlyArray<StageRegistration>
+const renderModule: (quality?) => GameModule<InputService, never, never, InputService | PlayerService>
+const renderStages: (options: RenderStagesOptions) => ReadonlyArray<StageRegistration>
 const makeRenderFrameState: (quality?) => Effect<RenderFrameState>
-const makeRenderStagesForPreview: (quality?) => Effect<{state, stages}, never, InputService>
+const makeRenderStagesForPreview: (quality?) => Effect<{state, stages}, never, InputService | PlayerService>
 ```
 
 ### なぜここに置いたのか
@@ -1167,24 +1171,23 @@ mc-compose の phase membership は id の**名前側**（最後のコロン以�
 ```
 ROut      = InputService   — mc-render が提供する
 RIn       = never          — その Layer を組むのに与えられる必要のあるものは無い
-RRegister = InputService   — しかし render:input を登録するには必要
+RRegister = InputService | PlayerService — render の登録に必要
 ```
 
-`InputService` は `ROut` にあり `RRegister` にもあり、**どちらの場合も `RIn` には無い**。
+`InputService` は `ROut` と `RRegister` にあり、`PlayerService` は `RRegister` にある。
+どちらも `RIn` には無い。
 `RRegister` を `RIn` に畳むと「自分が出荷するサービスをホストが供給しろ」と言うことになる。
 経緯は mc-kernel `docs/freeze-checklist.md` (b)。
 
-### FIRST CUT の範囲
+### カメラ姿勢の所有権
 
 **フレーム位置と順序制約は確定**である。mc-compose が必要とするのはそれであり、
 本体が埋まっても変わらない。
 
-本体のうち、まだ到達できないサービスを要するものは FIRST CUT として最小限のことをする
-（`mx-gameplay/stages/registration.ts` と同じ書き方）。
-mc-sim と mc-meshing は mc-render の宣言済みの親だが未 publish なので、
-それらを読むはずの箇所はプレビューやテストが埋める `Ref` を読む。
-ローカルポートを発明していないのは、それが「カメラ姿勢を所有するのは誰か」への 2 つ目の答えになり、
-plan.md §3.8 が参照実装の最悪の構造バグとして記録している逆転そのものだからである。
+`render:camera-mirror` は登録時に要求した `PlayerService` の
+`cameraPose: Effect<CameraPoseSnapshot, never, ClockPort>` を読み、
+`RenderFrameState` に pose を保存しない。`authoritativePose` と `initialPose` は公開 API に無く、
+時計は compose 側が `FrameServices` として供給する。
 
 ## 7. まだ設計していない公開API
 

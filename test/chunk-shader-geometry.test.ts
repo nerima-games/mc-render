@@ -29,6 +29,7 @@
  */
 import { describe, expect, it } from '@effect/vitest'
 import { Effect } from 'effect'
+import { chunkCoord, chunkKeyOf } from '@nerima-games/mc-kernel'
 import { buildChunkGeometry, TILE_INDEX_COMPONENTS, VERTICES_PER_QUAD, type MeshQuad } from '../src/domain/chunk-geometry'
 import { chunkShaderSource, CHUNK_SHADER_UNIFORMS } from '../src/domain/chunk-shader'
 import { MISSING_TILE, quadTileForLookup, tileIndexForBlockName } from '../src/domain/block-texture-map'
@@ -73,7 +74,7 @@ describe('the geometry supplies every attribute the shader declares', () => {
       const three = makeFakeThree()
       const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT)
 
-      yield* renderer.setChunk('0,0', buildChunkGeometry([quad()]))
+      yield* renderer.setChunk(chunkKeyOf(chunkCoord(0, 0)), buildChunkGeometry([quad()]))
 
       const bound = new Set(three.geometries()[0]?.attributes.keys() ?? [])
       // Derived from the shader, not typed out. This is the assertion whose
@@ -230,8 +231,8 @@ describe('the shader material the renderer can be given', () => {
       const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT, {
         material: () => material,
       })
-      yield* renderer.setChunk('0,0', buildChunkGeometry([quad()]))
-      yield* renderer.setChunk('1,0', buildChunkGeometry([quad()]))
+      yield* renderer.setChunk(chunkKeyOf(chunkCoord(0, 0)), buildChunkGeometry([quad()]))
+      yield* renderer.setChunk(chunkKeyOf(chunkCoord(1, 0)), buildChunkGeometry([quad()]))
 
       expect(three.materials()).toHaveLength(0)
       expect(three.shaderMaterials()).toHaveLength(1)

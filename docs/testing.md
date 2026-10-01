@@ -115,9 +115,8 @@ DN-02 §「数値の出所」は**コミットメッセージを見なかった�
 
 保留分はない。RND-4 と RND-7 は実装と回帰テストで閉じた。
 
- - **RND-4**: `MirroredCameraState.sourceCapturedAtSecs`、`mirrorLagSecs`、
-   `RenderFrameState.authoritativePose` を optional にし、mc-sim の最初の pose が届くまでを
-   「未初期化」として表現する。時計を読むステージの責務は変わらない。
+ - **RND-4**: `render:camera-mirror` が登録時要求の `PlayerService.cameraPose` を読み、
+   `RenderFrameState` に authoritative pose を保持しない。時計を読むステージの責務は変わらない。
  - **RND-7**: `withScratch` は native `Map` を公開せず、scratch ごとに一度だけ作る
    lease-checked view を渡す。view / wrapper / closure / iterator / deferred Effect の
    lease 後アクセスを `ScratchMisuseError` にし、持ち出しは `snapshotScratch` に限定する。
@@ -133,8 +132,9 @@ GPU 無しで確かめられる半分であり、入力状態機械にいたっ�
 
 ### 2.4 プレビューの依存
 
-`apps/preview-render/` は**このリポジトリ自身のモジュールと `effect` しか import しない**。
-org パッケージも THREE も持たず、`tsconfig.preview.json` と `pnpm lint` で検証する。
+`apps/preview-render/` は**このリポジトリ自身のモジュール、`effect`、
+`@nerima-games/mc-kernel`、`@nerima-games/mc-sim` を import する**。
+他の org パッケージも THREE も持たず、`tsconfig.preview.json` と `pnpm lint` で検証する。
 ミラーの陳腐化は注入した `MonotonicTimeSecs` を操作者が動かして測るため、
 ランタイムがグローバルな時計を直接読む設計にもしていない。
 
@@ -603,7 +603,7 @@ DOM 型を名指しするのが目的のファイルであり、DOM の無いプ
 出荷プロジェクトに入れれば `"DOM"` が裏口から入ったのと同じになる。
 
 API ロックの生成器・ロックファイル・専用コマンドはこのパッケージには置かない。
-公開面は `package.json` の `exports` と `tsconfig.build.json` の declaration 出力で定義し、
+公開面は `package.json` の `exports` と `tsconfig.release.json` の declaration 出力で定義し、
 `pnpm typecheck`、`pnpm build`、`pnpm pack --dry-run` と実行時 import で検証する。
 詳細は [public-api.md](./public-api.md) の「公開 API と package 検証」を参照する。
 

@@ -40,6 +40,7 @@ import {
   type PointerLockState,
 } from '../../src/domain/input-bindings'
 import { MonotonicTimeSecs } from '@nerima-games/mc-kernel'
+import { PlayerServiceLayer } from '@nerima-games/mc-sim'
 import { buildPostProcessingChain, QUALITY_PRESETS } from '../../src/domain/post-processing'
 import { makeRenderFrameState, renderModule } from '../../src/stages/registration'
 import { RENDER_STAGE_IDS } from '../../src/stages/stage-ids'
@@ -293,7 +294,7 @@ const mirrorProbe = Effect.gen(function* () {
       'What does the mirror say before mc-sim has published anything?',
     ),
     `   makeRenderFrameState() starts:`,
-    `   ${cell('authoritativePose', 26)}undefined — no mc-sim pose published`,
+    `   ${cell('playerPose', 26)}undefined — no simulated pose published`,
     `   ${cell('mirroredCamera', 26)}sourceCapturedAtSecs ${String(pendingMirror.sourceCapturedAtSecs)}`,
     `   ${cell('mirrorLagSecs', 26)}pending`,
     '',
@@ -305,8 +306,8 @@ const mirrorProbe = Effect.gen(function* () {
     '   RND-4 is fixed. Before the first pose, the authoritative and mirrored state are',
     '   explicitly pending: there is no source timestamp, mirrorLagSecs() returns undefined,',
     '   and isMirrorStale() is false. A published pose supplies its simulation timestamp;',
-    '   only that published state can later become stale. `UNSET_CAMERA_POSE` remains an',
-    '   explicit display/test fixture and is not used as a runtime default.',
+    '   only that published state can later become stale. The preview command supplies',
+    '   a test PlayerService pose rather than constructing a render-owned default.',
     '',
     '   Watch it: pnpm preview --view mirror --scenario mirror-staleness --at 4 --once --ascii',
     '',
@@ -588,4 +589,4 @@ export const statsReport: Effect.Effect<ReadonlyArray<string>> = Effect.gen(func
     ...postFxProbe(),
     ...FOOTER,
   ]
-})
+}).pipe(Effect.provide(PlayerServiceLayer()))

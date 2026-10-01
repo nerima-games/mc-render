@@ -199,7 +199,7 @@ export const makeChunkStoreLightColor = (
 /**
  * `@nerima-games/mc-worldgen`'s `Chunk` has no `height` field — it is a fixed-height column
  * baked into its own constants (`CHUNK_VOLUME = CHUNK_SIZE_XZ * CHUNK_SIZE_XZ
- * * CHUNK_HEIGHT`), not a per-chunk value. mc-meshing 0.1.5's `ChunkView`
+ * * CHUNK_HEIGHT`), not a per-chunk value. mc-meshing 0.3.0's `ChunkView`
  * added an explicit, required per-chunk `height` for its own variable-height
  * support. This repository is the adapter between the two: every mc-worldgen
  * chunk it hands to mc-meshing today is exactly `CHUNK_HEIGHT` tall, so that

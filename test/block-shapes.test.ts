@@ -33,7 +33,7 @@ const SHAPE_PLACEMENTS: ReadonlyArray<readonly [BlockShapeKind, number, number, 
 const chunkWithBlocks = (
   entries: ReadonlyArray<readonly [number, number, number, number]>,
 ): ChunkView => {
-  const blocks = new Uint8Array(CHUNK_SIZE * CHUNK_HEIGHT * CHUNK_SIZE)
+  const blocks = new Uint16Array(CHUNK_SIZE * CHUNK_HEIGHT * CHUNK_SIZE)
   for (const [lx, y, lz, blockId] of entries) {
     blocks[blockIndex(lx, y, lz)] = blockId
   }
@@ -122,7 +122,7 @@ describe('block shape meshing', () => {
 
   it.effect('treats missing block storage entries as air', () =>
     Effect.sync(() => {
-      const incompleteChunk: ChunkView = { blocks: new Uint8Array(0), coord: chunkCoord(0, 0), height: CHUNK_HEIGHT }
+      const incompleteChunk: ChunkView = { blocks: new Uint16Array(0), coord: chunkCoord(0, 0), height: CHUNK_HEIGHT }
 
       expect(
         meshBlockShapes(incompleteChunk, {}, new Map<number, BlockShapeKind>([[101, 'slab']])),
