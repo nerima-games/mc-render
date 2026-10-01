@@ -132,8 +132,9 @@ GPU 無しで確かめられる半分であり、入力状態機械にいたっ�
 
 ### 2.4 プレビューの依存
 
-`apps/preview-render/` は**このリポジトリ自身のモジュールと `effect` しか import しない**。
-org パッケージも THREE も持たず、`tsconfig.preview.json` と `pnpm lint` で検証する。
+`apps/preview-render/` は**このリポジトリ自身のモジュール、`effect`、
+`@nerima-games/mc-kernel`、`@nerima-games/mc-sim` を import する**。
+他の org パッケージも THREE も持たず、`tsconfig.preview.json` と `pnpm lint` で検証する。
 ミラーの陳腐化は注入した `MonotonicTimeSecs` を操作者が動かして測るため、
 ランタイムがグローバルな時計を直接読む設計にもしていない。
 

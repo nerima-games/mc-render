@@ -54,7 +54,14 @@ export type Command =
   /** Move the injected monotonic clock, for the camera-mirror view. */
   | { readonly kind: 'advanceClock'; readonly seconds: number }
   /** Publish a pose from "mc-sim", as the authority would. */
-  | { readonly kind: 'publishPose'; readonly x: number; readonly y: number; readonly z: number }
+  | {
+      readonly kind: 'publishPose'
+      readonly x: number
+      readonly y: number
+      readonly z: number
+      readonly yawRadians?: number
+      readonly pitchRadians?: number
+    }
   | { readonly kind: 'note'; readonly text: string }
 
 export type ScriptedThing = { readonly event: InputEvent } | { readonly command: Command }
