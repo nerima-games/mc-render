@@ -1,5 +1,13 @@
 # @nerima-games/mc-render
 
+## 0.8.0
+
+### Minor Changes
+
+- [#42](https://github.com/nerima-games/mc-render/pull/42) [`5cd99c8`](https://github.com/nerima-games/mc-render/commit/5cd99c887480dd8773086c67d046d9a72682f5df) Thanks [@takeokunn](https://github.com/takeokunn)! - Follow mc-kernel 0.8.0, mc-meshing 0.3.0, mc-worldgen 0.5.0, and mc-sim 0.5.0. The renderer now requires the published versions and reads the authoritative camera pose from mc-sim's `PlayerService.cameraPose`; the `authoritativePose` and `initialPose` render inputs are removed. Chunk keys and chunk block storage now use the kernel and meshing contracts, and the fixed-step simulation quantities remain owned by their upstream packages.
+
+- [#41](https://github.com/nerima-games/mc-render/pull/41) [`18a597c`](https://github.com/nerima-games/mc-render/commit/18a597c799ab702f9ce92b90ab8a12d5a8dc5497) Thanks [@takeokunn](https://github.com/takeokunn)! - Harden the renderer's strict TypeScript and browser input boundaries, including runtime decoding for persisted input settings and worker responses. ScratchMap and ParticlePool construction now use opaque brands, so hand-built values are rejected by the public types.
+
 ## 0.7.0
 
 ### Minor Changes
