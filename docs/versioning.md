@@ -4,7 +4,7 @@
 
 | 項目 | 値 |
 | --- | --- |
-| `version` | `0.7.0` (`package.json`) |
+| `version` | `0.8.0` (`package.json`) |
 | 公開状態 | **未公開**。GitHub Packages にはまだ上げていない |
 | `main` / `types` / `exports` | `./dist/index.js` / `./dist/index.d.ts`。`exports` は ESM のビルド成果物を指す |
 | ビルドパイプライン | `pnpm build` が `dist/` を掃除し、`tsconfig.release.json` で宣言ファイルと ESM JavaScript を直接出力する |
