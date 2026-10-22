@@ -1,12 +1,17 @@
 name: Set up Nix
 description: >-
-  Install Nix and, when a cache name is supplied, configure Cachix. With a
-  cache configured, the exact pull_request event is pull-only; other event
-  types can push when an auth token is present.
+  Install Nix and, when a cache name is provided, configure the Cachix binary
+  cache. Pushes require an auth token and an event other than pull_request;
+  pull_request runs, including fork pull requests, are pull-only.
 
-# This reusable action is the local source for Nix setup in mc-render. The SHAs
-# here control every workflow in this repository that calls it. Its devShells
-# use nixpkgs packages only, so their store paths can use a shared cache.
+# Copy this directory to <repo>/.github/actions/nix-setup/ verbatim.
+# This mirrors nerima-lisp/.github/templates/actions/nix-setup. Update the
+# nix-installer and cachix-action pins here; they apply to workflows that
+# call this local action.
+# Unlike the template's one-cache-per-repo convention, nerima-games callers
+# pass one shared Cachix cache (`takeokunn-nerima-games`). Org convention keeps
+# devShells nixpkgs-only, so package store paths are shared without
+# repository-specific build outputs.
 
 # NOTE: `actions/checkout` intentionally lives in the caller, not here: a
 # local composite action cannot check the repository out, because its own
@@ -20,7 +25,8 @@ inputs:
   cachix-auth-token:
     description: >-
       Cachix auth token (pass secrets.CACHIX_AUTH_TOKEN). With a cache name,
-      this enables pushes on event types other than pull_request.
+      this enables pushes on event types other than pull_request. The exact
+      pull_request event, including fork pull requests, remains pull-only.
     required: false
     default: ""
 
