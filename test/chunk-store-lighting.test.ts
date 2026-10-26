@@ -1,12 +1,13 @@
 import { describe, expect, it } from '@effect/vitest'
-import { blockPosition, type BlockPosition } from '@nerima-games/mc-kernel'
+import type { BlockPosition } from '@nerima-games/mc-kernel'
 import type { LightReading } from '@nerima-games/mc-worldgen'
 import { Effect } from 'effect'
+import { blockId, blockPosition } from './support/kernel-brands'
 import { makeChunkStoreLightColor } from '../src/application/chunk-store-mesher'
 import type { MeshQuad } from '../src/domain/chunk-geometry'
 
 const quad = (overrides: Partial<MeshQuad> = {}): MeshQuad => ({
-  blockId: 1,
+  blockId: blockId(1),
   direction: 'yPos',
   role: 'top',
   lx: 0,

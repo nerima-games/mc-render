@@ -44,8 +44,8 @@
  * make a tile-index bug look like a texture.
  */
 import * as THREE from 'three'
-import { Context, Effect, Layer, Scope } from 'effect'
-import { ChunkKey } from '@nerima-games/mc-kernel'
+import { Context, Effect, Layer, Result, Scope } from 'effect'
+import { ChunkAxis, ChunkKey, chunkCoord, chunkCoordOfKey } from '@nerima-games/mc-kernel'
 import {
   ATLAS_COLUMNS,
   browserInputLayer,
@@ -215,7 +215,10 @@ const main = async (): Promise<void> => {
   const fixture = (await (await fetch(fixtureUrl)).json()) as TerrainFixture
 
   const quadsByKey = new Map<string, ReadonlyArray<FixtureQuad>>(
-    fixture.chunks.map((chunk) => [chunkKeyOf(chunk), chunk.quads]),
+    fixture.chunks.map((chunk) => [
+      chunkKeyOf(chunkCoord(ChunkAxis(chunk.cx), ChunkAxis(chunk.cz))),
+      chunk.quads,
+    ]),
   )
 
   /**
@@ -241,7 +244,7 @@ const main = async (): Promise<void> => {
     const wanted: Array<ChunkRef> = []
     for (let cx = cx0 - STREAM_RADIUS_CHUNKS; cx <= cx0 + STREAM_RADIUS_CHUNKS; cx += 1) {
       for (let cz = cz0 - STREAM_RADIUS_CHUNKS; cz <= cz0 + STREAM_RADIUS_CHUNKS; cz += 1) {
-        wanted.push({ cx, cz })
+        wanted.push(chunkCoord(ChunkAxis(cx), ChunkAxis(cz)))
       }
     }
     return wanted
@@ -262,11 +265,8 @@ const main = async (): Promise<void> => {
       const wantedKeys = new Set(wanted.map(chunkKeyOf))
       const changed = wanted.filter((chunk) => !loaded.has(chunkKeyOf(chunk)))
       const removed = [...loaded]
-        .filter((key) => !wantedKeys.has(ChunkKey(key)))
-        .map((key) => {
-          const [cx, cz] = key.split(',')
-          return { cx: Number(cx), cz: Number(cz) }
-        })
+        .filter((key) => !wantedKeys.has(key))
+        .map((key) => Result.getOrThrow(chunkCoordOfKey(key)))
       for (const chunk of changed) {
         if (quadsByKey.has(chunkKeyOf(chunk))) {
           loaded.add(chunkKeyOf(chunk))

@@ -1,3 +1,5 @@
+import type { BlockId } from '@nerima-games/mc-kernel'
+
 /** A direction and normal for one axis-aligned cube face. */
 export type FaceDirection = 'xPos' | 'xNeg' | 'yPos' | 'yNeg' | 'zPos' | 'zNeg'
 
@@ -33,7 +35,7 @@ export type QuadCorners = readonly [QuadVertex, QuadVertex, QuadVertex, QuadVert
 
 /** The portable opaque or transparent-solid quad representation. */
 export type MeshQuad = {
-  readonly blockId: number
+  readonly blockId: BlockId
   readonly direction: FaceDirection
   readonly role: FaceRole
   readonly lx: number
@@ -47,7 +49,7 @@ export type MeshQuad = {
 export type PlantVertex = QuadVertex
 
 export type CrossPlantQuad = {
-  readonly blockId: number
+  readonly blockId: BlockId
   readonly role: FaceRole
   readonly vertices: readonly [PlantVertex, PlantVertex, PlantVertex, PlantVertex]
   readonly nx: number
@@ -60,7 +62,7 @@ export type CrossPlantQuad = {
 export type BlockShapeKind = 'slab' | 'pressurePlate' | 'cactus' | 'rail' | 'lilyPad'
 
 export type BlockShapeQuad = {
-  readonly blockId: number
+  readonly blockId: BlockId
   readonly shape: BlockShapeKind
   readonly direction: FaceDirection
   readonly role: FaceRole
@@ -92,7 +94,7 @@ export type FluidFlow = {
 
 /** A fluid surface or side skirt emitted by the mesher. */
 export type FluidQuad = {
-  readonly blockId: number
+  readonly blockId: BlockId
   readonly direction: FaceDirection
   readonly vertices: readonly [FluidVertex, FluidVertex, FluidVertex, FluidVertex]
   readonly flow?: FluidFlow

@@ -121,7 +121,7 @@ describe('makeProductionWorldRenderer (the shipped composition)', () => {
 
         expect(Exit.isFailure(exit)).toBe(true)
         if (Exit.isFailure(exit)) {
-          expect(Cause.isDie(exit.cause)).toBe(true)
+          expect(Cause.hasDies(exit.cause)).toBe(true)
         }
       }),
   )

@@ -17,7 +17,8 @@
  *   7. the canonical vocabulary agrees with `world-renderer.ts`
  */
 import { describe, expect, it } from '@effect/vitest'
-import { Effect, FastCheck } from 'effect'
+import { Effect } from 'effect'
+import * as FastCheck from 'fast-check'
 import {
   LOD1_DISTANCE_CHUNKS,
   LOD2_DISTANCE_CHUNKS,

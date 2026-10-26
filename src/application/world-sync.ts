@@ -47,9 +47,9 @@ import {
   combineChunkGeometry,
 } from '../domain/chunk-geometry.js'
 import type { ChunkGeometryUpdate, ChunkKey, WorldRenderer } from './world-renderer.js'
-import { Effect, Ref } from 'effect'
+import { Effect, Ref, Semaphore } from 'effect'
 import { CHUNK_SIZE } from '@nerima-games/mc-meshing'
-import { chunkCoord } from '@nerima-games/mc-kernel'
+import { type ChunkCoord, chunkCoord } from '@nerima-games/mc-kernel'
 import { chunkKeyOf as worldgenChunkKeyOf } from '@nerima-games/mc-worldgen'
 
 /**
@@ -60,10 +60,7 @@ import { chunkKeyOf as worldgenChunkKeyOf } from '@nerima-games/mc-worldgen'
  * and this is not, because nothing here validates a coordinate and a brand this
  * file could mint would be a brand that means nothing.
  */
-export type ChunkRef = {
-  readonly cx: number
-  readonly cz: number
-}
+export type ChunkRef = ChunkCoord
 
 /** What changed since the last drain. Structurally mc-worldgen's `ChunkDirtyBatch`. */
 export type DirtyBatch = {
@@ -337,7 +334,7 @@ export const attachWorldRenderer = (
   Effect.gen(function* () {
     const subscription = yield* store.subscribeDirty
     const isAttached = yield* Ref.make(true)
-    const mutex = yield* Effect.makeSemaphore(MUTEX_PERMITS)
+    const mutex = yield* Semaphore.make(MUTEX_PERMITS)
 
     const updateIfAttached = (active: boolean): Effect.Effect<SyncReport> => {
       if (active) {

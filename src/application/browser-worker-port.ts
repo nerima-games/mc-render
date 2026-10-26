@@ -1,4 +1,4 @@
-import { Data, Either, ParseResult, Schema } from 'effect'
+import { Data, Result, Schema } from 'effect'
 import type { WorkerPort } from './worker-pool.js'
 
 export type BrowserWorkerMessageEvent = {
@@ -14,7 +14,7 @@ const WorkerResponseDecodeErrorBase: ReturnType<typeof Data.TaggedError<'WorkerR
   Data.TaggedError('WorkerResponseDecodeError')
 
 export class WorkerResponseDecodeError extends WorkerResponseDecodeErrorBase<{
-  readonly cause: ParseResult.ParseError
+  readonly cause: Schema.SchemaError
   readonly workerIndex: number
 }> {}
 
@@ -27,7 +27,7 @@ export type BrowserWorkerLike<TTransfer = unknown> = {
 
 export type BrowserWorkerPortOptions<TRequest, TResponse, TTransfer = unknown> = {
   readonly transfer?: (request: TRequest) => Array<TTransfer>
-  readonly responseSchema: Schema.Schema<TResponse, unknown>
+  readonly responseSchema: Schema.ConstraintDecoder<TResponse, never>
   readonly workerIndex: number
 }
 
@@ -39,12 +39,12 @@ export const makeBrowserWorkerPort = <TRequest, TResponse, TTransfer = unknown>(
   let errorHandler: (reason: unknown) => void = () => undefined
 
   worker.addEventListener('message', (event) => {
-    const decoded = Schema.decodeUnknownEither(options.responseSchema)(event.data)
-    if (Either.isLeft(decoded)) {
-      errorHandler(new WorkerResponseDecodeError({ cause: decoded.left, workerIndex: options.workerIndex }))
+    const decoded = Schema.decodeUnknownResult(options.responseSchema)(event.data)
+    if (Result.isFailure(decoded)) {
+      errorHandler(new WorkerResponseDecodeError({ cause: decoded.failure, workerIndex: options.workerIndex }))
       return
     }
-    messageHandler(decoded.right)
+    messageHandler(decoded.success)
   })
   worker.addEventListener('error', (event) => {
     errorHandler(event.error ?? event.message ?? event)

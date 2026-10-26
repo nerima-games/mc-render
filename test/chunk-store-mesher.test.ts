@@ -1,7 +1,8 @@
 import { describe, expect, it } from '@effect/vitest'
-import { BLOCK_IDS, BlockId, chunkCoord, propertyOfBlockId, type ChunkCoord } from '@nerima-games/mc-kernel'
-import { emptyBlocks, setBlockAt, type Chunk, type SubscriberId } from '@nerima-games/mc-worldgen'
-import { Effect, Ref } from 'effect'
+import { BLOCK_IDS, BlockAxis, BlockId, LocalAxis, propertyOfBlockId, type ChunkCoord } from '@nerima-games/mc-kernel'
+import type { Chunk } from '@nerima-games/mc-worldgen'
+import { emptyBlocks, setBlockAt, type SubscriberId } from '@nerima-games/mc-worldgen/testing'
+import { Effect, Ref, Result } from 'effect'
 import {
   attachChunkStoreRenderer,
   blockNameFromKernel,
@@ -13,13 +14,14 @@ import {
 } from '../src/application/chunk-store-mesher'
 import { makeWorldRenderer } from '../src/application/world-renderer'
 import { FAKE_CANVAS, makeFakeThree } from './support/fake-three'
+import { chunkCoord } from './support/kernel-brands'
 
 const VIEWPORT = { width: 640, height: 360 }
 
 const chunk = (cx: number, cz: number, blocks: ReadonlyArray<readonly [number, number, number, number]>): Chunk => {
   const data = emptyBlocks()
   for (const [lx, y, lz, blockId] of blocks) {
-    setBlockAt(data, lx, y, lz, BlockId(blockId))
+    setBlockAt(data, LocalAxis(lx), BlockAxis(y), LocalAxis(lz), BlockId(blockId))
   }
   return {
     coord: chunkCoord(cx, cz),
@@ -67,9 +69,9 @@ describe('makeChunkStoreMesher', () => {
 
   it.effect('derives fluid and cross-plant routing from kernel properties', () =>
     Effect.gen(function* () {
-      const waterId = BLOCK_IDS.find((blockId) => propertyOfBlockId(blockId, 'fluid') === 'water')
-      const lavaId = BLOCK_IDS.find((blockId) => propertyOfBlockId(blockId, 'fluid') === 'lava')
-      const plantId = BLOCK_IDS.find((blockId) => propertyOfBlockId(blockId, 'renderKind') === 'cross')
+      const waterId = BLOCK_IDS.find((blockId) => Result.getOrThrow(propertyOfBlockId(blockId, 'fluid')) === 'water')
+      const lavaId = BLOCK_IDS.find((blockId) => Result.getOrThrow(propertyOfBlockId(blockId, 'fluid')) === 'lava')
+      const plantId = BLOCK_IDS.find((blockId) => Result.getOrThrow(propertyOfBlockId(blockId, 'renderKind')) === 'cross')
       if (waterId === undefined || lavaId === undefined || plantId === undefined) {
         throw new Error('mc-kernel must expose water, lava, and cross-plant block IDs')
       }
@@ -120,8 +122,8 @@ describe('makeChunkStoreMesher', () => {
 
 describe('blockNameFromKernel', () => {
   it('resolves canonical texture names and safely falls back for unknown ids', () => {
-    expect(blockNameFromKernel(4)).toBe('grass_block')
-    expect(blockNameFromKernel(255)).toBe('unknown')
+    expect(blockNameFromKernel(BlockId(4))).toBe('grass_block')
+    expect(blockNameFromKernel(BlockId(255))).toBe('unknown')
   })
 })
 
@@ -153,7 +155,7 @@ describe('attachChunkStoreRenderer', () => {
       yield* attachment.update
 
       expect(yield* renderer.chunkKeys).toStrictEqual(['0,0'])
-      expect(yield* getLightCalls).toBeGreaterThan(0)
+      expect(yield* Ref.get(getLightCalls)).toBeGreaterThan(0)
     }),
   )
 
@@ -186,7 +188,7 @@ describe('attachChunkStoreRenderer', () => {
       yield* attachment.update
 
       expect(yield* renderer.chunkKeys).toStrictEqual(['0,0'])
-      expect(yield* getLightCalls).toBe(0)
+      expect(yield* Ref.get(getLightCalls)).toBe(0)
     }),
   )
 

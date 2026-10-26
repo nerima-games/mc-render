@@ -17,7 +17,7 @@ import { describe, expect, it } from '@effect/vitest'
 import { Effect } from 'effect'
 import { mirroredCameraState } from '../src/domain/camera-mirror'
 import { buildChunkGeometry, type MeshQuad } from '../src/domain/chunk-geometry'
-import { chunkCoord, chunkKeyOf, MonotonicTimeSecs, position, type CameraPoseSnapshot } from '@nerima-games/mc-kernel'
+import { chunkKeyOf, MonotonicTimeSecs, type CameraPoseSnapshot } from '@nerima-games/mc-kernel'
 import {
   applyChunkShaderEnvironment,
   CAMERA_FAR_PLANE,
@@ -37,11 +37,12 @@ import { buildPostProcessingChain, QUALITY_PRESETS } from '../src/domain/post-pr
 import { planWitherSkullVisual, planWitherVisual } from '../src/domain/wither-visual'
 import { makeThreeWeatherPrecipitation } from '../src/application/three-weather-runtime'
 import type { ThreeScene } from '../src/application/three-surface'
+import { angleRadians, blockId, chunkCoord, position } from './support/kernel-brands'
 
 const VIEWPORT = { width: 1280, height: 720 }
 
 const quad = (overrides: Partial<MeshQuad> = {}): MeshQuad => ({
-  blockId: 1,
+  blockId: blockId(1),
   direction: 'yPos',
   role: 'top',
   lx: 0,
@@ -55,8 +56,8 @@ const quad = (overrides: Partial<MeshQuad> = {}): MeshQuad => ({
 
 const poseAt = (x: number, y: number, z: number, yaw: number, pitch: number): CameraPoseSnapshot => ({
   position: position(x, y, z),
-  yawRadians: yaw,
-  pitchRadians: pitch,
+  yawRadians: angleRadians(yaw),
+  pitchRadians: angleRadians(pitch),
   capturedAtSecs: MonotonicTimeSecs(1),
 })
 

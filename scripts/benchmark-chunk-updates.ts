@@ -1,6 +1,6 @@
 import { performance } from 'node:perf_hooks'
 import { Effect } from 'effect'
-import { chunkCoord, chunkKeyOf } from '@nerima-games/mc-kernel'
+import { BlockId, ChunkAxis, chunkCoord, chunkKeyOf } from '@nerima-games/mc-kernel'
 import { makeWorldRenderer, type ChunkGeometryUpdate } from '../src/application/world-renderer'
 import { buildChunkGeometry, type MeshQuad } from '../src/domain/chunk-geometry'
 import { FAKE_CANVAS, makeFakeThree } from '../test/support/fake-three'
@@ -11,7 +11,7 @@ const RUNS = 7
 
 const buffers = buildChunkGeometry([
   {
-    blockId: 1,
+    blockId: BlockId(1),
     direction: 'yPos',
     role: 'top',
     lx: 0,
@@ -33,7 +33,7 @@ const measureSequential = (count: number): Effect.Effect<number> =>
     const renderer = yield* makeWorldRenderer(makeFakeThree(), FAKE_CANVAS, VIEWPORT)
     const started = performance.now()
     for (let index = 0; index < count; index += 1) {
-      yield* renderer.setChunk(chunkKeyOf(chunkCoord(index, 0)), buffers)
+      yield* renderer.setChunk(chunkKeyOf(chunkCoord(ChunkAxis(index), ChunkAxis(0))), buffers)
     }
     const elapsed = performance.now() - started
     yield* renderer.dispose
@@ -45,7 +45,7 @@ const measureBatch = (count: number): Effect.Effect<number> =>
     const renderer = yield* makeWorldRenderer(makeFakeThree(), FAKE_CANVAS, VIEWPORT)
     const updates: Array<ChunkGeometryUpdate> = []
     for (let index = 0; index < count; index += 1) {
-      updates.push({ key: chunkKeyOf(chunkCoord(index, 0)), buffers })
+      updates.push({ key: chunkKeyOf(chunkCoord(ChunkAxis(index), ChunkAxis(0))), buffers })
     }
     const started = performance.now()
     yield* renderer.setChunks(updates)

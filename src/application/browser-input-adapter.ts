@@ -1300,7 +1300,7 @@ const pointerLockPortFor = (options: BrowserInputOptions): PointerLockPort => {
  * the same tag.
  */
 export const browserInputLayer = (options: BrowserInputOptions): Layer.Layer<InputService> =>
-  Layer.scoped(
+  Layer.effect(
     InputService,
     Effect.gen(function* makeBrowserInputService() {
       const input = yield* makeInputService(

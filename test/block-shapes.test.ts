@@ -5,8 +5,8 @@ import {
   CHUNK_SIZE,
   type ChunkView,
 } from '@nerima-games/mc-meshing'
-import { BLOCK_IDS, chunkCoord, propertyOfBlockId } from '@nerima-games/mc-kernel'
-import { Effect } from 'effect'
+import { BLOCK_IDS, propertyOfBlockId, type BlockId } from '@nerima-games/mc-kernel'
+import { Effect, Result } from 'effect'
 import {
   buildBlockShapeGeometry,
   type CrossPlantQuad,
@@ -21,6 +21,7 @@ import {
   type BlockShapeQuad,
 } from '../src/domain/meshing-vocabulary'
 import { lightSampleForGeometryQuad } from '../src/domain/voxel-lighting'
+import { blockId, chunkCoord } from './support/kernel-brands'
 
 const SHAPE_PLACEMENTS: ReadonlyArray<readonly [BlockShapeKind, number, number, number, number]> = [
   ['slab', 4, 20, 4, 101],
@@ -40,10 +41,10 @@ const chunkWithBlocks = (
   return { blocks, coord: chunkCoord(0, 0), height: CHUNK_HEIGHT }
 }
 
-const shapeKindsForPlacements = (): ReadonlyMap<number, BlockShapeKind> =>
-  new Map(SHAPE_PLACEMENTS.map(([shape, , , , blockId]) => [blockId, shape]))
+const shapeKindsForPlacements = (): ReadonlyMap<BlockId, BlockShapeKind> =>
+  new Map(SHAPE_PLACEMENTS.map(([shape, , , , numericId]) => [blockId(numericId), shape]))
 
-const findBlockId = (predicate: (blockId: number) => boolean, description: string): number => {
+const findBlockId = (predicate: (blockId: BlockId) => boolean, description: string): BlockId => {
   const blockId = BLOCK_IDS.find(predicate)
   if (blockId === undefined) {
     throw new Error(`mc-kernel must expose ${description}`)
@@ -51,21 +52,21 @@ const findBlockId = (predicate: (blockId: number) => boolean, description: strin
   return blockId
 }
 
-const fullOpaqueBlockId = (): number =>
+const fullOpaqueBlockId = (): BlockId =>
   findBlockId(
     (blockId) =>
-      propertyOfBlockId(blockId, 'opacity') === 'opaque' &&
-      propertyOfBlockId(blockId, 'collisionShape') === 'full' &&
-      propertyOfBlockId(blockId, 'renderKind') === 'cube',
+      Result.getOrThrow(propertyOfBlockId(blockId, 'opacity')) === 'opaque' &&
+      Result.getOrThrow(propertyOfBlockId(blockId, 'collisionShape')) === 'full' &&
+      Result.getOrThrow(propertyOfBlockId(blockId, 'renderKind')) === 'cube',
     'a full opaque cube',
   )
 
-const partialBlockId = (): number =>
-  findBlockId((blockId) => propertyOfBlockId(blockId, 'renderKind') === 'cactus', 'a non-cubic block',)
+const partialBlockId = (): BlockId =>
+  findBlockId((blockId) => Result.getOrThrow(propertyOfBlockId(blockId, 'renderKind')) === 'cactus', 'a non-cubic block',)
 
 const crossPlantQuad = (): CrossPlantQuad => ({
   ao: 0,
-  blockId: 21,
+  blockId: blockId(21),
   nx: 0,
   ny: 0,
   nz: 1,
@@ -80,7 +81,7 @@ const crossPlantQuad = (): CrossPlantQuad => ({
 
 const cubeQuad = (): MeshQuad => ({
   ao: 0,
-  blockId: 1,
+  blockId: blockId(1),
   direction: 'zNeg',
   height: 1,
   lx: 2,
@@ -125,15 +126,15 @@ describe('block shape meshing', () => {
       const incompleteChunk: ChunkView = { blocks: new Uint16Array(0), coord: chunkCoord(0, 0), height: CHUNK_HEIGHT }
 
       expect(
-        meshBlockShapes(incompleteChunk, {}, new Map<number, BlockShapeKind>([[101, 'slab']])),
+        meshBlockShapes(incompleteChunk, {}, new Map<BlockId, BlockShapeKind>([[blockId(101), 'slab']])),
       ).toStrictEqual([])
     }),
   )
 
   it.effect('culls a boundary face only against a full opaque cube', () =>
     Effect.sync(() => {
-      const shapeId = 201
-      const shapeKinds = new Map<number, BlockShapeKind>([[shapeId, 'slab']])
+      const shapeId = blockId(201)
+      const shapeKinds = new Map<BlockId, BlockShapeKind>([[shapeId, 'slab']])
       const center = chunkWithBlocks([[0, 20, 0, shapeId]])
       const fullNeighbour = chunkWithBlocks([[15, 20, 0, fullOpaqueBlockId()]])
       const partialNeighbour = chunkWithBlocks([[15, 20, 0, partialBlockId()]])
@@ -154,7 +155,7 @@ describe('block shape geometry and lighting', () => {
   it.effect('builds single-sided explicit vertices and samples their centre', () =>
     Effect.sync(() => {
       const chunk = chunkWithBlocks([[4, 20, 4, 101]])
-      const shapeKinds = new Map<number, BlockShapeKind>([[101, 'slab']])
+      const shapeKinds = new Map<BlockId, BlockShapeKind>([[blockId(101), 'slab']])
       const quads = meshBlockShapes(chunk, {}, shapeKinds)
       const top = quads.find(({ direction }) => direction === 'yPos')
       if (top === undefined) {
@@ -196,7 +197,7 @@ describe('block shape geometry and lighting', () => {
     Effect.sync(() => {
       const shape: BlockShapeQuad = {
         ao: 0,
-        blockId: 101,
+        blockId: blockId(101),
         direction: 'xPos',
         height: 1,
         lx: 0,

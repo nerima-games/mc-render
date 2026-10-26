@@ -109,6 +109,7 @@
  */
 import type { FaceRole } from './meshing-vocabulary.js'
 import type { QuadTile } from './chunk-geometry.js'
+import type { BlockId } from '@nerima-games/mc-kernel'
 
 /** The three tiles a block shows: one per texturing role. */
 export type TileAssignment = Readonly<Record<FaceRole, number>>
@@ -290,7 +291,7 @@ export const tileIndexForBlockName = (blockName: string, role: FaceRole): number
  * needs the union — it reasons about which blocks are which — and this one does
  * not; it needs a key for a table lookup.
  */
-export type BlockNameLookup = (blockId: number) => string
+export type BlockNameLookup = (blockId: BlockId) => string
 
 /**
  * Bind a name lookup into the `blockId -> tile` resolver a mesher wants.
@@ -301,7 +302,7 @@ export type BlockNameLookup = (blockId: number) => string
  */
 export const tileIndexResolver =
   (blockNameOf: BlockNameLookup) =>
-  (blockId: number, role: FaceRole): number =>
+  (blockId: BlockId, role: FaceRole): number =>
     tileIndexForBlockName(blockNameOf(blockId), role)
 
 /**
@@ -321,7 +322,7 @@ export const tileIndexResolver =
  * beside the type would make it a cycle.
  */
 export const quadTileFromResolver =
-  (resolve: (blockId: number, role: FaceRole) => number): QuadTile =>
+  (resolve: (blockId: BlockId, role: FaceRole) => number): QuadTile =>
   (quad) =>
     resolve(quad.blockId, quad.role)
 

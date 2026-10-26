@@ -56,6 +56,7 @@ import {
   type CameraPoseSnapshot,
   type MonotonicTimeSecs,
   type Position,
+  PositionAxis,
   position,
   snapshotAgeSecs,
 } from '@nerima-games/mc-kernel'
@@ -151,7 +152,11 @@ export const mirroredCameraState = (
 ): MirroredCameraState => {
   const cameraPosition =
     snapshot?.position ??
-    position(UNPUBLISHED_COORDINATE, UNPUBLISHED_COORDINATE, UNPUBLISHED_COORDINATE)
+    position(
+      PositionAxis(UNPUBLISHED_COORDINATE),
+      PositionAxis(UNPUBLISHED_COORDINATE),
+      PositionAxis(UNPUBLISHED_COORDINATE),
+    )
   const pitchRadians = snapshot?.pitchRadians ?? UNPUBLISHED_ANGLE_RADIANS
   const yawRadians = snapshot?.yawRadians ?? UNPUBLISHED_ANGLE_RADIANS
   const cosYaw = Math.cos(yawRadians)
@@ -159,9 +164,9 @@ export const mirroredCameraState = (
 
   return {
     position: position(
-      cameraPosition.x + offset.right * cosYaw,
-      cameraPosition.y + offset.up,
-      cameraPosition.z - offset.right * sinYaw,
+      PositionAxis(cameraPosition.x + offset.right * cosYaw),
+      PositionAxis(cameraPosition.y + offset.up),
+      PositionAxis(cameraPosition.z - offset.right * sinYaw),
     ),
     rotation: eulerRotation(pitchRadians, yawRadians, offset.rollRadians),
     sourceCapturedAtSecs: snapshot?.capturedAtSecs,
@@ -201,9 +206,9 @@ export const uninitializedMirroredCameraState = (snapshot: CameraPoseSnapshot): 
 export const forwardVector = (snapshot: CameraPoseSnapshot): Position => {
   const cosPitch = Math.cos(snapshot.pitchRadians)
   return position(
-    -Math.sin(snapshot.yawRadians) * cosPitch,
-    Math.sin(snapshot.pitchRadians),
-    -Math.cos(snapshot.yawRadians) * cosPitch,
+    PositionAxis(-Math.sin(snapshot.yawRadians) * cosPitch),
+    PositionAxis(Math.sin(snapshot.pitchRadians)),
+    PositionAxis(-Math.cos(snapshot.yawRadians) * cosPitch),
   )
 }
 

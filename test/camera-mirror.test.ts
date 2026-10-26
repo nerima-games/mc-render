@@ -25,12 +25,13 @@ import {
   snapshotAgeSecs,
   type ViewOffset,
 } from '../src/domain/camera-mirror'
-import { MonotonicTimeSecs, position, type CameraPoseSnapshot } from '@nerima-games/mc-kernel'
+import { MonotonicTimeSecs, type CameraPoseSnapshot } from '@nerima-games/mc-kernel'
+import { angleRadians, position } from './support/kernel-brands'
 
 const AUTHORITATIVE: CameraPoseSnapshot = {
   position: position(8, 65.62, -12),
-  yawRadians: 0,
-  pitchRadians: 0,
+  yawRadians: angleRadians(0),
+  pitchRadians: angleRadians(0),
   capturedAtSecs: MonotonicTimeSecs(100),
 }
 
@@ -105,7 +106,7 @@ describe('the view offset is applied in the camera local basis', () => {
 
   it.effect('the same bob follows the yaw: facing -X, right moves along -Z', () =>
     Effect.sync(() => {
-      const turned = { ...AUTHORITATIVE, yawRadians: Math.PI / 2 }
+      const turned = { ...AUTHORITATIVE, yawRadians: angleRadians(Math.PI / 2) }
       const mirrored = mirroredCameraState(turned, { right: 1, up: 0, rollRadians: 0 })
 
       expect(mirrored.position.x).toBeCloseTo(turned.position.x, 12)
@@ -115,7 +116,7 @@ describe('the view offset is applied in the camera local basis', () => {
 
   it.effect('a vertical bob stays vertical whatever the pitch, so it never swings through the world', () =>
     Effect.sync(() => {
-      const looking = { ...AUTHORITATIVE, pitchRadians: -1.2 }
+      const looking = { ...AUTHORITATIVE, pitchRadians: angleRadians(-1.2) }
       const mirrored = mirroredCameraState(looking, { right: 0, up: 0.5, rollRadians: 0 })
 
       expect(mirrored.position.y).toBeCloseTo(looking.position.y + 0.5, 12)
@@ -138,7 +139,11 @@ describe('forwardVector — no camera.getWorldDirection() anywhere', () => {
   it.effect('is a unit vector at every pitch, so a raycast needs no renormalisation', () =>
     Effect.sync(() => {
       for (const pitch of [-1.5, -0.7, 0, 0.7, 1.5]) {
-        const forward = forwardVector({ ...AUTHORITATIVE, yawRadians: 2.1, pitchRadians: pitch })
+        const forward = forwardVector({
+          ...AUTHORITATIVE,
+          yawRadians: angleRadians(2.1),
+          pitchRadians: angleRadians(pitch),
+        })
         expect(Math.hypot(forward.x, forward.y, forward.z)).toBeCloseTo(1, 12)
       }
     }),

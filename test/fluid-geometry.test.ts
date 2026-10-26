@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { blockId } from './support/kernel-brands'
 import {
   buildFluidGeometry,
   combineChunkGeometry,
@@ -9,7 +10,7 @@ import {
 
 const top = (flow?: FluidQuad['flow']): FluidQuad => {
   const base = {
-    blockId: 6,
+    blockId: blockId(6),
     direction: 'yPos' as const,
     vertices: [[0, 0.8, 0], [0, 0.8, 1], [1, 0.8, 1], [1, 0.8, 0]] as FluidQuad['vertices'],
     ao: 0,
@@ -21,7 +22,7 @@ const top = (flow?: FluidQuad['flow']): FluidQuad => {
 }
 
 const side = (direction: FaceDirection): FluidQuad => ({
-  blockId: 6,
+  blockId: blockId(6),
   direction,
   vertices: [[1, 0, 0], [1, 1, 0], [1, 1, 1], [1, 0, 1]],
   ao: 0,

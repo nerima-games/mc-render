@@ -15,7 +15,8 @@
  * graphics settings, which nobody reports.
  */
 import { describe, expect, it } from '@effect/vitest'
-import { Effect, FastCheck } from 'effect'
+import { Effect } from 'effect'
+import * as FastCheck from 'fast-check'
 import {
   CHUNK_SHADER_ATTRIBUTES,
   CHUNK_SHADER_UNIFORMS,

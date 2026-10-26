@@ -67,7 +67,7 @@
  * resolution and the Escape rule be tested in Node under
  * `environment: 'node'` — no jsdom, no Playwright, no SwiftShader.
  */
-import { Either, Schema } from 'effect'
+import { Result, Schema } from 'effect'
 
 
 /**
@@ -481,7 +481,12 @@ export class InputSettingsDecodeError extends Error {
 }
 
 /** Runtime boundary for persisted input-settings JSON. */
-export const BindingsSchema: Schema.Schema<Record<string, string>> = Schema.Record({ key: Schema.String, value: Schema.String })
+export const BindingsSchema: Schema.Codec<
+  Record<string, string>,
+  Record<string, string>,
+  never,
+  never
+> = Schema.Record(Schema.String, Schema.String)
 
 const MIN_INPUT_CODE_LENGTH = 1
 
@@ -515,15 +520,15 @@ const acceptBinding = ({ source, bindings, seen, action }: BindingAcceptance): v
 }
 
 export const decodeBindings = (input: unknown): Bindings => {
-  const decoded = Schema.decodeUnknownEither(BindingsSchema)(input)
-  if (Either.isLeft(decoded)) {
+  const decoded = Schema.decodeUnknownResult(BindingsSchema)(input)
+  if (Result.isFailure(decoded)) {
     throw new InputSettingsDecodeError('Input settings must be an object of string bindings.')
   }
   const bindings: Record<string, InputCode> = {}
   const seen = new Set<InputCode>()
   for (const action of INPUT_ACTIONS) {
     if (action !== 'escape') {
-      acceptBinding({ action, bindings, seen, source: decoded.right })
+      acceptBinding({ action, bindings, seen, source: decoded.success })
     }
   }
   return bindings

@@ -620,7 +620,7 @@ export const makeWorkerPool = <TPayload, TResult>(
       ),
 
       submit: (key, payload) =>
-        Effect.async<JobOutcome<TResult>>((resume) => {
+        Effect.callback<JobOutcome<TResult>>((resume) => {
           Effect.runSync(
             Ref.update(state, (current) => {
               if (current.shuttingDown) {

@@ -1108,7 +1108,7 @@ describe('multi-touch dispatch: per-finger guards', () => {
       const spying: InputServiceApi = {
         ...input,
         dispatch: (event) =>
-          Effect.zipRight(
+          Effect.andThen(
             Effect.sync(() => {
               dispatched.push(event)
             }),

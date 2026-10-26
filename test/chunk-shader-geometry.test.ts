@@ -29,7 +29,7 @@
  */
 import { describe, expect, it } from '@effect/vitest'
 import { Effect } from 'effect'
-import { chunkCoord, chunkKeyOf } from '@nerima-games/mc-kernel'
+import { chunkKeyOf } from '@nerima-games/mc-kernel'
 import { buildChunkGeometry, TILE_INDEX_COMPONENTS, VERTICES_PER_QUAD, type MeshQuad } from '../src/domain/chunk-geometry'
 import { chunkShaderSource, CHUNK_SHADER_UNIFORMS } from '../src/domain/chunk-shader'
 import { MISSING_TILE, quadTileForLookup, tileIndexForBlockName } from '../src/domain/block-texture-map'
@@ -43,11 +43,12 @@ import {
 } from '../src/application/world-renderer'
 import { planRenderEnvironment } from '../src/domain/render-environment'
 import { FAKE_CANVAS, makeFakeThree } from './support/fake-three'
+import { blockId, chunkCoord } from './support/kernel-brands'
 
 const VIEWPORT = { width: 1280, height: 720 }
 
 const quad = (overrides: Partial<MeshQuad> = {}): MeshQuad => ({
-  blockId: 1,
+  blockId: blockId(1),
   direction: 'yPos',
   role: 'top',
   lx: 0,
@@ -118,7 +119,7 @@ describe('the tile a quad draws', () => {
       // The fragment stage rounds the interpolated varying back with
       // `floor(vTileIndex + 0.5)`, which is only sound because the four corners
       // agree — interpolating between two different tiles would sample a third.
-      const buffers = buildChunkGeometry([quad({ blockId: 7 })], 0, 0, undefined, () => 42)
+      const buffers = buildChunkGeometry([quad({ blockId: blockId(7) })], 0, 0, undefined, () => 42)
 
       expect([...buffers.tileIndices]).toStrictEqual([42, 42, 42, 42])
     }),

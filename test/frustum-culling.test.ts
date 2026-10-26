@@ -7,13 +7,14 @@ import {
   preparePerspectiveFrustum,
   type AxisAlignedBounds,
 } from '../src/domain/frustum-culling'
-import { MonotonicTimeSecs, position } from '@nerima-games/mc-kernel'
+import { MonotonicTimeSecs } from '@nerima-games/mc-kernel'
+import { angleRadians, position } from './support/kernel-brands'
 
 const camera = (yaw = 0, pitch = 0, roll = 0) => ({
   ...mirroredCameraState({
     position: position(0, 0, 0),
-    yawRadians: yaw,
-    pitchRadians: pitch,
+    yawRadians: angleRadians(yaw),
+    pitchRadians: angleRadians(pitch),
     capturedAtSecs: MonotonicTimeSecs(0),
   }),
   rotation: { x: pitch, y: yaw, z: roll, order: 'YXZ' as const },

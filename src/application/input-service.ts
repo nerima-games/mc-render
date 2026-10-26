@@ -564,11 +564,11 @@ export type InputServiceApi = {
   readonly resetBindings: Effect.Effect<void>
 }
 
-type InputServiceFields = InputServiceApi
-const InputServiceBase: Context.TagClass<InputService, '@nerima-games/mc-render/InputService', InputServiceFields> = Context.Tag('@nerima-games/mc-render/InputService')<
+const InputServiceBase: Context.ServiceClass<
   InputService,
-  InputServiceFields
->()
+  '@nerima-games/mc-render/InputService',
+  InputServiceApi
+> = Context.Service<InputService, InputServiceApi>()('@nerima-games/mc-render/InputService')
 
 export class InputService extends InputServiceBase {}
 

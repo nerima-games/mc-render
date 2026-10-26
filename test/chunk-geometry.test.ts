@@ -21,6 +21,7 @@
  */
 import { describe, expect, it } from '@effect/vitest'
 import { Effect } from 'effect'
+import { blockId } from './support/kernel-brands'
 import {
   AO_MAX,
   AO_SHADE_BY_LEVEL,
@@ -53,7 +54,7 @@ const DIRECTIONS: ReadonlyArray<FaceDirection> = ['xPos', 'xNeg', 'yPos', 'yNeg'
  * makes it invisible twice over.
  */
 const quad = (overrides: Partial<MeshQuad> = {}): MeshQuad => ({
-  blockId: 1,
+  blockId: blockId(1),
   direction: 'yPos',
   role: 'top',
   lx: 0,
@@ -66,7 +67,7 @@ const quad = (overrides: Partial<MeshQuad> = {}): MeshQuad => ({
 })
 
 const crossPlantQuad = (overrides: Partial<CrossPlantQuad> = {}): CrossPlantQuad => ({
-  blockId: 21,
+  blockId: blockId(21),
   role: 'side',
   vertices: [
     [1, 10, 2],
@@ -507,7 +508,7 @@ describe('GOLDEN: one merged top face, every byte', () => {
       // This is mc-render's, written out rather than hashed: a hash tells you
       // that something moved and this tells you what.
       const built = buildChunkGeometry(
-        [{ blockId: 3, direction: 'yPos', role: 'top', lx: 1, y: 4, lz: 2, width: 2, height: 3, ao: 1 }],
+        [{ blockId: blockId(3), direction: 'yPos', role: 'top', lx: 1, y: 4, lz: 2, width: 2, height: 3, ao: 1 }],
         0,
         0,
       )

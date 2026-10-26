@@ -78,13 +78,13 @@ const workers = (count: number): ReadonlyArray<FakeWorker> =>
 /**
  * Let forked fibers reach their `Effect.async` body.
  *
- * `Effect.fork` SCHEDULES a fiber; it does not run it. Without this the
+ * `Effect.forkChild` SCHEDULES a fiber; it does not run it. Without this the
  * assertions below inspect the fake worker before the pool has posted
  * anything, and every one of them reads zero — which looks exactly like a pool
  * that never dispatches. The first cut of this file had nine failures for that
  * reason and none of them were about the pool.
  */
-const settle = Effect.yieldNow()
+const settle = Effect.yieldNow
 
 describe('dispatch', () => {
   it.effect('a job goes straight to an idle worker', () =>
@@ -93,7 +93,7 @@ describe('dispatch', () => {
       if (worker === undefined) {throw new Error('no worker')}
       const pool = yield* makeWorkerPool([worker])
 
-      const fiber = yield* Effect.fork(pool.submit('0,0', { chunk: '0,0' }))
+      const fiber = yield* Effect.forkChild(pool.submit('0,0', { chunk: '0,0' }))
 
       yield* settle
       expect(worker.received()).toHaveLength(1)
@@ -113,7 +113,7 @@ describe('dispatch', () => {
       const pool = yield* makeWorkerPool(pool_workers)
 
       for (const key of ['a', 'b', 'c']) {
-        yield* Effect.fork(pool.submit(key, { chunk: key }))
+        yield* Effect.forkChild(pool.submit(key, { chunk: key }))
       }
       yield* settle
 
@@ -130,7 +130,7 @@ describe('dispatch', () => {
       const pool = yield* makeWorkerPool(pool_workers)
 
       for (const key of ['a', 'b', 'c', 'd']) {
-        yield* Effect.fork(pool.submit(key, { chunk: key }))
+        yield* Effect.forkChild(pool.submit(key, { chunk: key }))
       }
       yield* settle
 
@@ -147,10 +147,10 @@ describe('dispatch', () => {
       if (worker === undefined) {throw new Error('no worker')}
       const pool = yield* makeWorkerPool([worker])
 
-      const first = yield* Effect.fork(pool.submit('a', { chunk: 'a' }))
+      const first = yield* Effect.forkChild(pool.submit('a', { chunk: 'a' }))
 
       yield* settle
-      yield* Effect.fork(pool.submit('b', { chunk: 'b' }))
+      yield* Effect.forkChild(pool.submit('b', { chunk: 'b' }))
       yield* settle
 
       expect(worker.received()).toHaveLength(1)
@@ -174,10 +174,10 @@ describe('cancellation', () => {
       if (worker === undefined) {throw new Error('no worker')}
       const pool = yield* makeWorkerPool([worker])
 
-      yield* Effect.fork(pool.submit('a', { chunk: 'a' }))
+      yield* Effect.forkChild(pool.submit('a', { chunk: 'a' }))
 
       yield* settle
-      const doomed = yield* Effect.fork(pool.submit('b', { chunk: 'b' }))
+      const doomed = yield* Effect.forkChild(pool.submit('b', { chunk: 'b' }))
       yield* settle
 
       const affected = yield* pool.cancel('b')
@@ -200,7 +200,7 @@ describe('cancellation', () => {
       if (worker === undefined) {throw new Error('no worker')}
       const pool = yield* makeWorkerPool([worker])
 
-      const running = yield* Effect.fork(pool.submit('a', { chunk: 'a' }))
+      const running = yield* Effect.forkChild(pool.submit('a', { chunk: 'a' }))
 
       yield* settle
       expect(worker.received()).toHaveLength(1)
@@ -231,14 +231,14 @@ describe('cancellation', () => {
       if (worker === undefined) {throw new Error('no worker')}
       const pool = yield* makeWorkerPool([worker])
 
-      yield* Effect.fork(pool.submit('a', { chunk: 'a' }))
+      yield* Effect.forkChild(pool.submit('a', { chunk: 'a' }))
 
       yield* settle
       yield* pool.cancel('a')
       worker.reply(0, 1)
       yield* settle
 
-      const next = yield* Effect.fork(pool.submit('b', { chunk: 'b' }))
+      const next = yield* Effect.forkChild(pool.submit('b', { chunk: 'b' }))
 
       yield* settle
       expect(worker.received()).toHaveLength(2)
@@ -266,9 +266,9 @@ describe('cancellation', () => {
       if (worker === undefined) {throw new Error('no worker')}
       const pool = yield* makeWorkerPool([worker])
 
-      const running = yield* Effect.fork(pool.submit('running', { chunk: 'running' }))
+      const running = yield* Effect.forkChild(pool.submit('running', { chunk: 'running' }))
       yield* settle
-      const queued = yield* Effect.fork(pool.submit('queued', { chunk: 'queued' }))
+      const queued = yield* Effect.forkChild(pool.submit('queued', { chunk: 'queued' }))
       yield* settle
 
       expect(yield* pool.cancel('other')).toBe(0)
@@ -287,10 +287,10 @@ describe('cancellation', () => {
       if (worker === undefined) {throw new Error('no worker')}
       const pool = yield* makeWorkerPool([worker])
 
-      const first = yield* Effect.fork(pool.submit('a', { chunk: 'a' }))
+      const first = yield* Effect.forkChild(pool.submit('a', { chunk: 'a' }))
 
       yield* settle
-      const second = yield* Effect.fork(pool.submit('a', { chunk: 'a' }))
+      const second = yield* Effect.forkChild(pool.submit('a', { chunk: 'a' }))
       yield* settle
 
       // One running, one queued — and `cancel` is about the KEY, so it must
@@ -313,14 +313,14 @@ describe('backpressure', () => {
       if (worker === undefined) {throw new Error('no worker')}
       const pool = yield* makeWorkerPool([worker], { maxQueued: 2 })
 
-      yield* Effect.fork(pool.submit('running', { chunk: 'running' }))
+      yield* Effect.forkChild(pool.submit('running', { chunk: 'running' }))
 
       yield* settle
-      const oldest = yield* Effect.fork(pool.submit('oldest', { chunk: 'oldest' }))
+      const oldest = yield* Effect.forkChild(pool.submit('oldest', { chunk: 'oldest' }))
       yield* settle
-      yield* Effect.fork(pool.submit('middle', { chunk: 'middle' }))
+      yield* Effect.forkChild(pool.submit('middle', { chunk: 'middle' }))
       yield* settle
-      yield* Effect.fork(pool.submit('newest', { chunk: 'newest' }))
+      yield* Effect.forkChild(pool.submit('newest', { chunk: 'newest' }))
 
       expect(yield* Fiber.join(oldest)).toStrictEqual({ _tag: 'cancelled' })
 
@@ -352,7 +352,7 @@ describe('worker failure', () => {
         replaceWorker: () => replacement,
       })
 
-      const failed = yield* Effect.fork(pool.submit('a', { chunk: 'a' }))
+      const failed = yield* Effect.forkChild(pool.submit('a', { chunk: 'a' }))
       yield* settle
       failedWorker.fail(new Error('worker exited'))
       yield* settle
@@ -368,7 +368,7 @@ describe('worker failure', () => {
       yield* settle
       expect(yield* pool.stats).toMatchObject({ failed: 1, restarted: 1, deadWorkers: 0 })
 
-      const next = yield* Effect.fork(pool.submit('b', { chunk: 'b' }))
+      const next = yield* Effect.forkChild(pool.submit('b', { chunk: 'b' }))
       yield* settle
       expect(replacement.received()).toHaveLength(1)
       replacement.reply(0, 11)
@@ -385,7 +385,7 @@ describe('worker failure', () => {
         throw new Error('no worker')
       }
       const pool = yield* makeWorkerPool([worker], { replaceWorker: () => worker })
-      const failed = yield* Effect.fork(pool.submit('same-worker', { chunk: 'same-worker' }))
+      const failed = yield* Effect.forkChild(pool.submit('same-worker', { chunk: 'same-worker' }))
       yield* settle
 
       worker.fail(new Error('replacement is the failed worker'))
@@ -407,7 +407,7 @@ describe('worker failure', () => {
           throw new Error('replacement factory failed')
         },
       })
-      const failed = yield* Effect.fork(pool.submit('factory-error', { chunk: 'factory-error' }))
+      const failed = yield* Effect.forkChild(pool.submit('factory-error', { chunk: 'factory-error' }))
       yield* settle
 
       worker.fail(new Error('worker exited'))
@@ -424,9 +424,9 @@ describe('worker failure', () => {
       if (worker === undefined) {throw new Error('no worker')}
       const pool = yield* makeWorkerPool([worker])
 
-      const running = yield* Effect.fork(pool.submit('running', { chunk: 'running' }))
+      const running = yield* Effect.forkChild(pool.submit('running', { chunk: 'running' }))
       yield* settle
-      const queued = yield* Effect.fork(pool.submit('queued', { chunk: 'queued' }))
+      const queued = yield* Effect.forkChild(pool.submit('queued', { chunk: 'queued' }))
       yield* settle
 
       worker.fail(new Error('worker exited'))
@@ -452,9 +452,9 @@ describe('worker failure', () => {
         replaceWorker: () => replacement,
       })
 
-      const onFailedWorker = yield* Effect.fork(pool.submit('on-failed-worker', { chunk: 'on-failed-worker' }))
+      const onFailedWorker = yield* Effect.forkChild(pool.submit('on-failed-worker', { chunk: 'on-failed-worker' }))
       yield* settle
-      const onOtherWorker = yield* Effect.fork(pool.submit('on-other-worker', { chunk: 'on-other-worker' }))
+      const onOtherWorker = yield* Effect.forkChild(pool.submit('on-other-worker', { chunk: 'on-other-worker' }))
       yield* settle
 
       failedWorker.fail(new Error('worker exited'))
@@ -497,7 +497,7 @@ describe('late worker replies', () => {
         throw new Error('no worker')
       }
       const pool = yield* makeWorkerPool([worker])
-      const completed = yield* Effect.fork(pool.submit('late', { chunk: 'late' }))
+      const completed = yield* Effect.forkChild(pool.submit('late', { chunk: 'late' }))
       yield* settle
 
       worker.reply(0, 1)
@@ -517,11 +517,11 @@ describe('shutdown', () => {
       const pool_workers = workers(2)
       const pool = yield* makeWorkerPool(pool_workers)
 
-      const running = yield* Effect.fork(pool.submit('a', { chunk: 'a' }))
+      const running = yield* Effect.forkChild(pool.submit('a', { chunk: 'a' }))
 
       yield* settle
-      const queued = yield* Effect.fork(pool.submit('b', { chunk: 'b' }))
-      const alsoQueued = yield* Effect.fork(pool.submit('c', { chunk: 'c' }))
+      const queued = yield* Effect.forkChild(pool.submit('b', { chunk: 'b' }))
+      const alsoQueued = yield* Effect.forkChild(pool.submit('c', { chunk: 'c' }))
       yield* settle
 
       yield* pool.shutdown
@@ -539,7 +539,7 @@ describe('shutdown', () => {
       if (worker === undefined) {throw new Error('no worker')}
       const pool = yield* makeWorkerPool([worker])
 
-      const running = yield* Effect.fork(pool.submit('a', { chunk: 'a' }))
+      const running = yield* Effect.forkChild(pool.submit('a', { chunk: 'a' }))
       yield* settle
       expect(yield* pool.cancel('a')).toBe(1)
       expect(yield* Fiber.join(running)).toStrictEqual({ _tag: 'cancelled' })
@@ -573,7 +573,7 @@ describe('shutdown', () => {
       if (worker === undefined) {throw new Error('no worker')}
       const pool = yield* makeWorkerPool([worker])
 
-      yield* Effect.fork(pool.submit('a', { chunk: 'a' }))
+      yield* Effect.forkChild(pool.submit('a', { chunk: 'a' }))
 
       yield* settle
       yield* pool.shutdown

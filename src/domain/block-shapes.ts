@@ -17,7 +17,8 @@ import {
   type QuadCorners,
   tangentAxes,
 } from './meshing-vocabulary.js'
-import { propertyOfBlockId } from '@nerima-games/mc-kernel'
+import { BlockId as makeBlockId, type BlockId, propertyOfBlockId } from '@nerima-games/mc-kernel'
+import { Result } from 'effect'
 
 const ZERO = 0
 const UNIT = 1
@@ -100,7 +101,7 @@ type BlockLocation = {
 type ShapeCell = {
   readonly chunk: ChunkView
   readonly neighbours: ChunkNeighbours
-  readonly blockId: number
+  readonly blockId: BlockId
   readonly shape: BlockShapeKind
   readonly location: BlockLocation
 }
@@ -112,7 +113,7 @@ type ShapeQuadInput = ShapeCell & {
 type BlockShapeMeshContext = {
   readonly chunk: ChunkView
   readonly neighbours: ChunkNeighbours
-  readonly shapeKinds: ReadonlyMap<number, BlockShapeKind>
+  readonly shapeKinds: ReadonlyMap<BlockId, BlockShapeKind>
 }
 
 const NEGATIVE = -1
@@ -231,11 +232,11 @@ const cellBoundaryFor = (boundary: FaceBoundary): number => {
 const isAtCellBoundary = (bounds: BlockShapeBounds, boundary: FaceBoundary): boolean =>
   boundaryCoordinateFor(bounds, boundary) === cellBoundaryFor(boundary)
 
-const isFullOpaqueCube = (blockId: number): boolean =>
+const isFullOpaqueCube = (blockId: BlockId): boolean =>
   blockId !== AIR &&
-  propertyOfBlockId(blockId, 'opacity') === 'opaque' &&
-  propertyOfBlockId(blockId, 'collisionShape') === 'full' &&
-  propertyOfBlockId(blockId, 'renderKind') === 'cube'
+  Result.getOrThrow(propertyOfBlockId(blockId, 'opacity')) === 'opaque' &&
+  Result.getOrThrow(propertyOfBlockId(blockId, 'collisionShape')) === 'full' &&
+  Result.getOrThrow(propertyOfBlockId(blockId, 'renderKind')) === 'cube'
 
 const isFaceOccluded = (
   cell: Pick<ShapeCell, 'chunk' | 'neighbours' | 'location'>,
@@ -248,13 +249,13 @@ const isFaceOccluded = (
   const { chunk, location, neighbours } = cell
   const { lx, y, lz } = location
   const [normalX, normalY, normalZ] = face.normal
-  const blockId = getBlockAcrossBoundary(
+  const blockId = makeBlockId(getBlockAcrossBoundary(
     chunk,
     neighbours,
     lx + normalX,
     y + normalY,
     lz + normalZ,
-  )
+  ))
   return isFullOpaqueCube(blockId)
 }
 
@@ -286,7 +287,7 @@ const shapeQuadsForBlock = (
 ): ReadonlyArray<BlockShapeQuad> => {
   const { chunk, neighbours, shapeKinds } = context
   const { lx, y, lz } = location
-  const blockId = chunk.blocks[blockIndex(lx, y, lz)] ?? AIR
+  const blockId = makeBlockId(chunk.blocks[blockIndex(lx, y, lz)] ?? AIR)
   const shape = shapeKinds.get(blockId)
   if (shape === undefined) {
     return []
@@ -317,7 +318,7 @@ const meshConfiguredBlockShapes = (context: BlockShapeMeshContext): ReadonlyArra
 export const meshBlockShapes = (
   chunk: ChunkView,
   neighbours: ChunkNeighbours,
-  shapeKinds: ReadonlyMap<number, BlockShapeKind>,
+  shapeKinds: ReadonlyMap<BlockId, BlockShapeKind>,
 ): ReadonlyArray<BlockShapeQuad> => {
   if (shapeKinds.size === ZERO) {
     return []
