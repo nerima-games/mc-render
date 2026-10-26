@@ -905,30 +905,25 @@ export const acquiresPointerLock = (
 
 /**
  * ---------------------------------------------------------------------------
- * Keyboard focus: the browser MOVES it, this repository only OBSERVES it
+ * Keyboard focus crosses a DTO boundary owned by mc-render
  * ---------------------------------------------------------------------------
  *
- * mx-ui built the other half of this and then stopped, for a reason it states
- * exactly (mx-ui/docs/design-notes.md DN-UI-13i): making a slot focusable needs
- * `setAttribute` and styling the ring needs `setProperty`, both of which are in
- * its DOM vocabulary — but MOVING focus (`focus()`) and OBSERVING it
- * (`addEventListener`) are input, and input is this repository's (plan.md
- * §2.3-2). So mx-ui made the hotbar a roving-`tabindex` group with ONE native
- * tab stop and a dedicated ring element per slot, and left
- * `HudView.setKeyboardFocus(index | undefined)` for the input owner to call.
+ * W4-R5 assigns DOM membership and focus resolution to mx-ui. mc-render owns
+ * the small `FocusTarget` DTO carried by `InputServiceApi` and converts arrow
+ * key codes to navigation intent. The host resolves DOM elements to the DTO
+ * and handles movement within its own focus groups; mc-render does not inspect
+ * the host's DOM or call `.focus()`.
  *
  * The shape of what is left is decided by a choice mx-ui made deliberately:
  * **the tab stop and the ring are the same slot.** So the element the browser
  * focuses when the player presses Tab is, by construction, the element mx-ui
- * drew the ring on. Nothing here has to implement Tab, choose where focus goes,
- * or keep an order — the platform already does all three, correctly, including
- * for the screen reader and the on-screen keyboard.
+ * drew the ring on. The browser owns Tab order and native focus movement;
+ * mx-ui owns membership and focus resolution, while mc-render observes the
+ * resulting scalar DTO.
  *
- * What is left is exactly one thing: **NOTICING**. Until something observes the
- * focus change and reports it, mx-ui does not know the keyboard arrived, so the
- * player sees the user agent's default ring instead of the palette's. That is
- * the whole of mc-render's half, and it is why the model below adds an
- * observation and not a navigation.
+ * mc-render's adapter translates focus arrivals to the DTO supplied by the
+ * host. It also translates arrow key codes to direction intent, which mx-ui
+ * resolves and applies using its own membership information.
  *
  * ---------------------------------------------------------------------------
  * Why `preventDefault()` appears nowhere in this feature
@@ -957,7 +952,7 @@ export const acquiresPointerLock = (
  */
 
 /**
- * Where the keyboard is, when it is on UI this repository was told about.
+ * Keyboard focus location carried across the mc-render input boundary.
  *
  * `group` names a roving-`tabindex` group — one native tab stop, many
  * programmatically focusable members. `HOTBAR_FOCUS_GROUP` is the first and
@@ -972,9 +967,8 @@ export const acquiresPointerLock = (
  * `INPUT_ACTIONS` on why nine is a fact about the digit row and not about the
  * hotbar.
  *
- * There is no `element` field, and that is the point of the design: this module
- * is pure, and the adapter resolves the DOM element to a group and an index at
- * the boundary, exactly as `mouseButtonForIndex` resolves a number to a name.
+ * There is no `element` field: this is a wire DTO, not a DOM reference. mx-ui
+ * owns DOM membership and creates this value before dispatching `focuschange`.
  */
 export type FocusTarget = {
   readonly group: string
@@ -985,10 +979,9 @@ export type FocusTarget = {
  * The group name mx-ui's hotbar is reported under.
  *
  * A value here rather than a string literal in a host, so that the two
- * repositories agree by import rather than by spelling. mx-ui's own DOM marker
- * is `data-mx-ui="hotbar"`; nothing in this repository reads that attribute —
- * see `resolveFocusTarget` in `application/browser-input-adapter.ts` on why the
- * roster is by identity and not by attribute.
+ * repositories agree by import rather than by spelling. mx-ui maps its own
+ * focus roster to this DTO group; mc-render does not inspect the DOM marker
+ * `data-mx-ui="hotbar"`.
  */
 export const HOTBAR_FOCUS_GROUP = 'hotbar'
 

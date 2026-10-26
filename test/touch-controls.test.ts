@@ -107,15 +107,12 @@ import type { DomInputEvent, DomListener, DomListenerOptions } from '../src/appl
  * operation on it is `===`. A test that gave these `getAttribute` would be
  * testing an adapter this repository refused to write.
  *
- * `inventoryButton` and `pauseButton` carry a `focus()` nobody calls, purely so
- * they can ALSO stand in for a `FocusGroupTargets` roster member below
- * ("the synthesised mousedown..." — DN-16 §5(a) made `.focus()` a required
- * member) — added rather than reusing a spread copy, because `resolveClickLanding`
- * compares by IDENTITY and a copy would not be the SAME object the test later
- * passes as the click target.
+ * `inventoryButton` and `pauseButton` are the same opaque targets used by click
+ * and touch tests. The adapter compares those identities but does not inspect
+ * focus membership or move DOM focus.
  */
-const inventoryButton = { name: 'inventory-button', focus: () => undefined }
-const pauseButton = { name: 'pause-button', focus: () => undefined }
+const inventoryButton = { name: 'inventory-button' }
+const pauseButton = { name: 'pause-button' }
 const jumpButton = { name: 'jump-button' }
 const attackButton = { name: 'attack-button' }
 const undeclaredDecoration = { name: 'a-thing-the-host-never-declared' }
@@ -347,7 +344,6 @@ describe('PORTED #35: the same claim through the browser adapter', () => {
     Effect.sync(() => {
       const translated = translateDomEvent(planned('touchstart'), domEvent(inventoryButton), {
         pointerLockHeld: false,
-        focusGroups: [],
         touchControls: MOBILE_CONTROLS,
       })
       expect(translated).toStrictEqual({
@@ -368,7 +364,6 @@ describe('PORTED #35: the same claim through the browser adapter', () => {
         expect(
           translateDomEvent(planned(event), domEvent(jumpButton), {
             pointerLockHeld: false,
-            focusGroups: [],
             touchControls: MOBILE_CONTROLS,
           }),
         ).toStrictEqual({ kind: 'touchrelease', action: 'jump', target: GAMEPLAY_LISTENER_TARGET })
@@ -389,7 +384,6 @@ describe('PORTED #35: the same claim through the browser adapter', () => {
       expect(
         translateDomEvent(planned('touchstart'), domEvent(undeclaredDecoration), {
           pointerLockHeld: false,
-          focusGroups: [],
           touchControls: MOBILE_CONTROLS,
         }),
       ).toBeUndefined()
@@ -643,10 +637,11 @@ describe('REGRESSION: a tap can NOT reach pointer-lock acquisition', () => {
       // `landing !== 'ui'` an undeclared control would read "not UI" and every
       // tap would grab the pointer; under `=== 'lock-target'` the worst case is
       // that mouselook does not engage, which is visible on the first try.
-      const groups = [{ group: 'touch', targets: [inventoryButton, pauseButton] }]
-      expect(resolveClickLanding(canvas, groups, inventoryButton)).toBe('ui')
-      expect(resolveClickLanding(canvas, [], inventoryButton)).toBe('elsewhere')
-      expect(resolveClickLanding(canvas, [], undeclaredDecoration)).toBe('elsewhere')
+      const clickLandingForTarget = (target: unknown) =>
+        target === inventoryButton || target === pauseButton ? 'ui' as const : 'elsewhere' as const
+      expect(resolveClickLanding(canvas, inventoryButton, clickLandingForTarget)).toBe('ui')
+      expect(resolveClickLanding(canvas, inventoryButton)).toBe('elsewhere')
+      expect(resolveClickLanding(canvas, undeclaredDecoration, clickLandingForTarget)).toBe('elsewhere')
 
       for (const landing of ['ui', 'elsewhere'] as const) {
         expect(acquiresPointerLock('MouseLeft', 'unlocked', landing)).toBe(false)
@@ -671,10 +666,7 @@ describe('REGRESSION: a tap can NOT reach pointer-lock acquisition', () => {
       // two controls in different regions are equal by shape and are not the
       // same button — and reading an attribute would put `getAttribute` in
       // `dom-surface.ts`, which breaks the proof outright.
-      // Carries the same `focus()` `inventoryButton` was given for DN-16 §5(a)
-      // (see its declaration), or this "same SHAPE" assertion would fail for a
-      // reason that has nothing to do with the identity check it exists to prove.
-      const lookalike = { name: 'inventory-button', focus: inventoryButton.focus }
+      const lookalike = { name: 'inventory-button' }
       expect(lookalike).toStrictEqual(inventoryButton)
       expect(resolveTouchControl(MOBILE_CONTROLS, lookalike)).toBeUndefined()
       expect(resolveTouchControl(MOBILE_CONTROLS, inventoryButton)).toBe('openInventory')
@@ -683,7 +675,6 @@ describe('REGRESSION: a tap can NOT reach pointer-lock acquisition', () => {
       expect(
         translateDomEvent(planned('touchstart'), event, {
           pointerLockHeld: false,
-          focusGroups: [],
           touchControls: MOBILE_CONTROLS,
         }),
       ).toBeUndefined()
