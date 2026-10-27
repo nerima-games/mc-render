@@ -575,9 +575,9 @@ const findOldestSlot = (pool: ParticlePool): number => {
       continue
     }
     // Each live slot was written through writeParticle, and the private sequence
-    // array is allocated to the pool capacity. BigInt preserves a fail-closed
-    // runtime error if that internal invariant is ever broken.
-    const sequence = BigInt(poolState(pool).spawnSequences[slot]!)
+    // array is allocated to the pool capacity. String keeps BigInt's fail-closed
+    // error for missing metadata without a type assertion.
+    const sequence = BigInt(String(poolState(pool).spawnSequences[slot]))
     if (oldestSequence === undefined || sequence < oldestSequence) {
       oldestSequence = sequence
       oldest = slot
