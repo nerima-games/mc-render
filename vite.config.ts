@@ -28,6 +28,19 @@ const config: ReturnType<typeof defineConfig> = defineConfig({
     // reason mc-compose's config dedupes it.
     dedupe: ['effect'],
   },
+  optimizeDeps: {
+    // The preview app imports the root barrel, which reaches the deferred
+    // mc-sim 0.5 Effect 3 exports. Optimize the browser test's direct runtime
+    // dependencies without crawling that unrelated entry.
+    include: [
+      'effect',
+      'three',
+      '@nerima-games/mc-kernel',
+      '@nerima-games/mc-meshing',
+      '@nerima-games/mc-worldgen',
+    ],
+    noDiscovery: true,
+  },
   build: {
     target: 'es2024',
     outDir: 'build',

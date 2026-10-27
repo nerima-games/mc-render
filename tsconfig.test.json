@@ -16,8 +16,18 @@
   "include": [
     "src/**/*.ts",
     "test/**/*.ts",
+    "e2e/**/*.ts",
     "scripts/**/*.ts",
-    "vitest.config.ts"
+    "vitest.config.ts",
+    "playwright.config.ts"
   ],
-  "exclude": ["node_modules", "coverage", "dist", "test/fixtures/**", "src/browser.ts"]
+  "exclude": [
+    "node_modules",
+    "coverage",
+    "dist",
+    "test/fixtures/**",
+    // Browser entry tests are typechecked with DOM libs in tsconfig.browser.json.
+    "test/browser-runtime.test.ts",
+    "src/browser.ts"
+  ]
 }

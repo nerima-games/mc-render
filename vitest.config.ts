@@ -39,28 +39,17 @@ const vitestConfig: Parameters<typeof defineConfig>[0] = {
         // compile it against the real `three/index.d.ts` — not by vitest
         // coverage.
         'src/application/three-surface.ts',
-        // NOT_SHIPPED (Wave 0 toolchain freeze, chore/wave0-toolchain): this
-        // is the package's optional browser entry point. It was previously
-        // built by tsdown (dist/browser.js) but never actually reachable
-        // through package.json#exports (no "./browser" subpath was ever
-        // declared, and docs/public-api.md §8 names src/index.ts as the sole
-        // source of truth for the public surface). The org-standard build
-        // (`tsc -p tsconfig.release.json`) only emits src/index.ts plus
-        // domain/application/stages, so this file is no longer part of the
-        // shipped dist/ output either — nothing in this repository imports
-        // it (verified: no src/, test/, or apps/ file references
-        // './browser' or 'src/browser'). Excluded here rather than silently
-        // dropped from the coverage.include glob, so the gap stays visible.
-        // See the Wave 0 PR report for the open question this leaves: either
-        // restore a "./browser" export + release-build target in a later
-        // wave, or formally reclassify this file as non-shipped.
+        // BROWSER_RUNTIME: Vitest's V8 provider observes the Node process, while
+        // the published browser entry executes in Chromium. Its WebGL behavior
+        // is exercised by the Playwright browser regression job; excluding it
+        // here avoids treating browser-process code as unexecuted Node code.
         'src/browser.ts',
       ],
       reporter: ['text', 'json', 'html', 'lcov'],
       reportsDirectory: './coverage',
       // TEST_STANDARD.md §3: every executable source metric must remain at 100%.
-      // Type-only adapters use compile-time fixture tests instead of V8 coverage;
-      // all executable source remains subject to this threshold.
+      // Type-only adapters use compile-time fixtures; executable source in the
+      // Node coverage scope remains subject to this threshold.
       thresholds: { branches: 100, functions: 100, lines: 100, statements: 100 },
     },
   },
