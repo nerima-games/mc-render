@@ -170,15 +170,16 @@ diagnostics. The generator state, eviction sequence, and follow offsets remain
 internal. Use the pool operations for low-level rendering; game code should
 request particles through `ParticleService`.
 
-### 1.6 C3 DomainEvent particle mapping
+### 1.6 Kernel DomainEvent particle mapping
 
 `particleRequestForDomainEvent(event, context?)` is a pure mapper from the
 mc-kernel 0.10.0 `DomainEvent` vocabulary to a `ParticleRequest`. It returns
 `undefined` when a known event has no render particle or its entity position
-cannot be resolved. It returns `UnhandledParticleEvent` if a newer runtime
-event tag reaches this version of the mapper. The mc-kernel 0.10.0 vocabulary
-is handled explicitly. The mapper does not subscribe to the mc-sim event bus;
-the host owns that subscription and passes each event to this mapper.
+cannot be resolved. It returns `UnhandledParticleEvent` only if a value from a
+newer runtime carries an event tag outside mc-kernel 0.10.0's typed vocabulary.
+The mc-kernel 0.10.0 `DomainEvent` union is handled exhaustively across all 20
+tags. The mapper does not subscribe to the mc-sim event bus; the host owns that
+subscription and passes each event to this mapper.
 
 ```typescript
 export type ParticleEventContext = Readonly<{
@@ -198,16 +199,16 @@ export const particleRequestForDomainEvent: (
 ) => ParticleEventResult
 ```
 
-The table lists all 20 C3 event tags. The mapper handles each tag explicitly;
-the three `WeatherGameplayEffect` subtypes are listed together. Block addresses
-become requests at the block center. Events without a captured position use
+The table lists all 20 kernel event tags. The mapper handles each tag
+explicitly; the three `WeatherGameplayEffect` subtypes are listed together.
+Block addresses become requests at the block center. Events without a captured position use
 `ParticleEventContext.positionOfEntity` to resolve their actor or entity. If
 that lookup has no position, the mapper returns `undefined` instead of
 inventing a world coordinate. Requests for a resolved entity follow that entity
 through `ParticleService`. Callers should treat `UnhandledParticleEvent` as an
 unrecognized runtime tag that needs handling when the kernel vocabulary grows.
 
-| C3 tag | C6 mapping |
+| Kernel event tag | ParticleRequest mapping |
 | --- | --- |
 | `EntityDamaged` | `entity-hit` at the event position, following the damaged entity |
 | `BlockBroken` | `block-break` at the block center |
@@ -228,10 +229,8 @@ unrecognized runtime tag that needs handling when the kernel vocabulary grows.
 | `ProjectileImpacted` | `entity-hit` at the impact position; entity hits follow the target |
 | `ShieldBlocked` | Yellow-tinted `entity-hit` at the shield position, following the defender |
 | `ExperienceCollected` | `level-up` at the resolved player position |
-| `VehicleTransition` | No particle; C6 has no mount-transition effect |
+| `VehicleTransition` | No particle; mc-render has no mount-transition effect |
 
-`WeatherGameplayEffect` contains `LightningStrike`, `CreeperCharged`, and
-`EntityTransformed` subtypes. The mapper also handles each subtype explicitly.
 The public package entry exports `particleRequestForDomainEvent` and the
 `ParticleEventContext` type:
 
