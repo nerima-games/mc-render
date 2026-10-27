@@ -128,9 +128,10 @@ build creates one `ParticlePool`. A request returns `1` when accepted and `0`
 when its dimension does not match the active render dimension or its followed
 entity is unavailable.
 When the pool is full, it evicts the oldest live particles and still accepts the
-request. A followed particle tracks the entity each frame; if the entity
-disappears or changes dimension, the particle detaches at its last position and
-continues for its remaining lifetime.
+request. A followed particle tracks the entity each frame. A frame from another
+dimension hides the particle while retaining its follow target. If the entity
+disappears from a matching-dimension frame, the particle detaches at its last
+position and continues for its remaining lifetime.
 
 `direction`, when supplied, is multiplied by the kind's base speed without
 normalization. Without it, particles keep the pool's randomized burst velocity.
