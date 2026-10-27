@@ -173,8 +173,8 @@ importers:
   .:
     dependencies:
       '@nerima-games/mc-kernel':
-        specifier: 0.9.0
-        version: 0.9.0
+        specifier: 0.10.0
+        version: 0.10.0
       '@nerima-games/mc-meshing':
         specifier: 0.4.0
         version: 0.4.0
@@ -536,6 +536,10 @@ packages:
     peerDependencies:
       '@emnapi/core': ^1.7.1 || ^2.0.0-alpha.4
       '@emnapi/runtime': ^1.7.1 || ^2.0.0-alpha.4
+
+  '@nerima-games/mc-kernel@0.10.0':
+    resolution: {integrity: sha512-V8woH1DOe3srXGp73dZoGNLCWJxhCYbWszjrnjbv3lU25oIyC56IZi0jZ5PBypT02PohQSsv5ZvUCw9Pg5Y6Bw==, tarball: https://npm.pkg.github.com/download/@nerima-games/mc-kernel/0.10.0/7ea828b6e0b7197b0113ad8129ff74f56358267f}
+    engines: {node: '>=24.0.0', pnpm: '>=11.24.0'}
 
   '@nerima-games/mc-kernel@0.8.0':
     resolution: {integrity: sha512-qBokXIEUoxaIequphJ8XSzI3fDDGCHgbzbms8PyTucWQ45+DL5wA1FAPtIU0OHvVEU4Jf2JJngErf4hIrZbFsA==, tarball: https://npm.pkg.github.com/download/@nerima-games/mc-kernel/0.8.0/8b20dd2bef6e1ab2344ea3be1b1cc393114616c7}
@@ -1802,6 +1806,10 @@ snapshots:
       '@emnapi/runtime': 1.11.2
       '@tybys/wasm-util': 0.10.3
     optional: true
+
+  '@nerima-games/mc-kernel@0.10.0':
+    dependencies:
+      effect: 4.0.5
 
   '@nerima-games/mc-kernel@0.8.0':
     dependencies:
