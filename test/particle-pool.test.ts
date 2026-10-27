@@ -39,9 +39,13 @@ import {
   PARTICLE_VECTOR_STRIDE,
   PARTICLE_WRITES_DEPTH,
   readSlot,
+  spawnParticle,
   spawnBlockBurst,
   spawnBurst,
+  type ParticleFrameSnapshot,
   type ParticlePool,
+  type ParticleSpawnSpec,
+  visibleParticleCount,
 } from '../src/domain/particle-pool'
 import { TILE_UV_SPAN, tileUvOrigin } from '../src/domain/texture-atlas'
 
@@ -110,8 +114,10 @@ describe('a fresh pool', () => {
       expect(pool.positions.length).toBe(PARTICLE_POOL_CAPACITY * 3)
       expect(pool.velocities.length).toBe(PARTICLE_POOL_CAPACITY * 3)
       expect(pool.lifetimesSecs.length).toBe(PARTICLE_POOL_CAPACITY)
+      expect(pool.initialLifetimesSecs.length).toBe(PARTICLE_POOL_CAPACITY)
       expect(pool.scales.length).toBe(PARTICLE_POOL_CAPACITY)
       expect(pool.uvOffsets.length).toBe(PARTICLE_POOL_CAPACITY * 2)
+      expect(pool.colors.length).toBe(PARTICLE_POOL_CAPACITY * 3)
     }),
   )
 
@@ -440,10 +446,8 @@ describe('integration', () => {
 // when it is reached. Asserted in both directions per docs/testing.md §5.5.
 // ---------------------------------------------------------------------------
 describe('eviction, when the pool is full', () => {
-  it.effect('states the assumption its ordering rests on', () =>
+  it.effect('keeps the public spawn-order marker enabled', () =>
     Effect.sync(() => {
-      // Remaining lifetime orders by spawn time ONLY while lifetime is one
-      // shared constant. See domain/particle-pool.ts.
       expect(evictionOrderIsSpawnOrder).toBe(true)
     }),
   )
@@ -483,6 +487,20 @@ describe('eviction, when the pool is full', () => {
       expect(spawnBurst(pool, 0, 0, 0, 0, 0, 1)).toBe(1)
       expect(pool.evictionCount()).toBe(1)
       expect(pool.lifetimesSecs[0]).toBeCloseTo(PARTICLE_LIFETIME_SECS, 6)
+    }),
+  )
+
+  it.effect('skips a cleared public slot while scanning for the oldest live particle', () =>
+    Effect.sync(() => {
+      const pool = makeParticlePool({ capacity: 2, seed: 7 })
+      spawnBurst(pool, 1, 0, 0, 0, 0, 2)
+      pool.lifetimesSecs[0] = 0
+
+      expect(spawnBurst(pool, 9, 0, 0, 0, 0, 1)).toBe(1)
+      expect(pool.evictionCount()).toBe(1)
+      expect(pool.lifetimesSecs[0]).toBe(0)
+      expect(readSlot(pool, 0)?.positionX).toBeUndefined()
+      expect(readSlot(pool, 1)?.positionX).toBe(9)
     }),
   )
 
@@ -532,19 +550,31 @@ describe('eviction, when the pool is full', () => {
 
   it.effect('the pool NEVER grows: every buffer keeps its identity and its length', () =>
     Effect.sync(() => {
-      // Growing would reallocate five typed arrays and the InstancedMesh behind
+      // Growing would reallocate the pool buffers and the InstancedMesh behind
       // them, in the frame that is already busiest.
       const pool = makeParticlePool({ capacity: 4, seed: 7 })
-      const {positions} = pool
-      const lifetimes = pool.lifetimesSecs
+      const buffers = {
+        positions: pool.positions,
+        velocities: pool.velocities,
+        lifetimesSecs: pool.lifetimesSecs,
+        initialLifetimesSecs: pool.initialLifetimesSecs,
+        scales: pool.scales,
+        uvOffsets: pool.uvOffsets,
+        colors: pool.colors,
+      }
 
       for (let burst = 0; burst < 50; burst += 1) {
         spawnBurst(pool, burst, 0, 0, 0, 0, 6)
         advanceParticles(pool, 0.016)
       }
 
-      expect(pool.positions).toBe(positions)
-      expect(pool.lifetimesSecs).toBe(lifetimes)
+      expect(pool.positions).toBe(buffers.positions)
+      expect(pool.velocities).toBe(buffers.velocities)
+      expect(pool.lifetimesSecs).toBe(buffers.lifetimesSecs)
+      expect(pool.initialLifetimesSecs).toBe(buffers.initialLifetimesSecs)
+      expect(pool.scales).toBe(buffers.scales)
+      expect(pool.uvOffsets).toBe(buffers.uvOffsets)
+      expect(pool.colors).toBe(buffers.colors)
       expect(pool.positions.length).toBe(4 * 3)
       expect(pool.activeCount()).toBeLessThanOrEqual(4)
     }),
@@ -628,19 +658,9 @@ describe('clearing', () => {
 })
 
 describe('reading slots', () => {
-  it.effect('rejects a pool-shaped value without factory identity', () =>
+  it.effect('rejects a proxy without registered factory identity', () =>
     Effect.sync(() => {
-      const forged = {
-        capacity: 0,
-        positions: new Float32Array(),
-        velocities: new Float32Array(),
-        lifetimesSecs: new Float32Array(),
-        scales: new Float32Array(),
-        uvOffsets: new Float32Array(),
-        activeCount: () => 0,
-        seed: () => 1,
-        evictionCount: () => 0,
-      } as ParticlePool
+      const forged = new Proxy(makeParticlePool({ capacity: 1 }), {})
       expect(() => advanceParticles(forged, 0)).toThrow('not created by makeParticlePool')
     }),
   )
@@ -677,6 +697,103 @@ describe('reading slots', () => {
         expect(particle?.uvU).toBe(pool.uvOffsets[uvBase])
         expect(particle?.uvV).toBe(pool.uvOffsets[uvBase + 1])
       }
+    }),
+  )
+})
+
+const particleSpawn = (overrides: Partial<ParticleSpawnSpec> = {}): ParticleSpawnSpec => ({
+  dimension: 'overworld',
+  lifetimeSecs: 0.4,
+  positionX: 1,
+  positionY: 2,
+  positionZ: 3,
+  tint: { blue: 0.3, green: 0.2, red: 0.1 },
+  uvU: 0.25,
+  uvV: 0.5,
+  ...overrides,
+})
+
+describe('C6 particle spawn state', () => {
+  it.effect('fades against the requested lifetime and preserves tint and dimension', () =>
+    Effect.sync(() => {
+      const pool = makeParticlePool({ capacity: 2 })
+      expect(spawnParticle(pool, particleSpawn({ lifetimeSecs: 0.4, dimension: 'nether' }))).toBe(true)
+
+      advanceParticles(pool, 0.1, { dimension: 'overworld', entities: [] })
+      expect(readSlot(pool, 0)?.scale).toBe(0)
+      expect(visibleParticleCount(pool)).toBe(0)
+
+      advanceParticles(pool, 0.1, { dimension: 'nether', entities: [] })
+      expect(readSlot(pool, 0)?.remainingSecs).toBeCloseTo(0.2, 8)
+      expect(readSlot(pool, 0)?.initialLifetimeSecs).toBeCloseTo(0.4, 8)
+      expect(readSlot(pool, 0)?.scale).toBeCloseTo(0.5, 8)
+      expect(readSlot(pool, 0)?.colorRed).toBeCloseTo(0.1, 7)
+      expect(readSlot(pool, 0)?.colorGreen).toBeCloseTo(0.2, 7)
+      expect(readSlot(pool, 0)?.colorBlue).toBeCloseTo(0.3, 7)
+      expect(readSlot(pool, 0)?.dimension).toBe('nether')
+      expect(visibleParticleCount(pool)).toBe(1)
+    }),
+  )
+
+  it.effect('evicts by spawn sequence when custom lifetimes disagree with age', () =>
+    Effect.sync(() => {
+      const pool = makeParticlePool({ capacity: 2 })
+      spawnParticle(pool, particleSpawn({
+        lifetimeSecs: 0.4,
+        positionX: 1,
+        velocity: { x: 0, y: 0, z: 0 },
+      }))
+      advanceParticles(pool, 0.05)
+      spawnParticle(pool, particleSpawn({
+        lifetimeSecs: 0.1,
+        positionX: 2,
+        velocity: { x: 0, y: 0, z: 0 },
+      }))
+      advanceParticles(pool, 0.02)
+
+      expect(readSlot(pool, 0)?.remainingSecs).toBeCloseTo(0.33, 8)
+      expect(readSlot(pool, 1)?.remainingSecs).toBeCloseTo(0.08, 8)
+      expect(spawnParticle(pool, particleSpawn({ lifetimeSecs: 0.2, positionX: 3 }))).toBe(true)
+
+      expect(readSlot(pool, 0)?.positionX).toBe(3)
+      expect(readSlot(pool, 1)?.positionX).toBe(2)
+      expect(pool.evictionCount()).toBe(1)
+      expect(pool.activeCount()).toBe(2)
+    }),
+  )
+
+  it.effect('follows the current entity and detaches on its last resolved position when removed', () =>
+    Effect.sync(() => {
+      const pool = makeParticlePool({ capacity: 2 })
+      const firstFrame: ParticleFrameSnapshot = {
+        dimension: 'overworld',
+        entities: [{ id: 'mob-1', feetPosition: { x: 10, y: 20, z: 30 } }],
+      }
+      spawnParticle(pool, particleSpawn({
+        follow: { id: 'mob-1', x: 10, y: 20, z: 30 },
+        positionX: 12,
+        positionY: 22,
+        positionZ: 32,
+        velocity: { x: 1, y: 0, z: 0 },
+      }))
+
+      advanceParticles(pool, 0.1, {
+        ...firstFrame,
+        entities: [
+          { id: 'mob-2', feetPosition: { x: 1, y: 2, z: 3 } },
+          { id: 'mob-1', feetPosition: { x: 11, y: 21, z: 31 } },
+        ],
+      })
+      expect(readSlot(pool, 0)?.positionX).toBe(13)
+      expect(readSlot(pool, 0)?.positionY).toBe(23)
+      expect(readSlot(pool, 0)?.positionZ).toBe(33)
+
+      advanceParticles(pool, 0.1, { dimension: 'overworld', entities: [] })
+      expect(readSlot(pool, 0)?.followEntity).toBeUndefined()
+      expect(readSlot(pool, 0)?.positionX).toBe(13)
+      advanceParticles(pool, 0.1, { dimension: 'overworld', entities: [] })
+      expect(readSlot(pool, 0)?.positionX).toBeCloseTo(13.1, 6)
+      expect(readSlot(pool, 0)?.remainingSecs).toBeCloseTo(0.1, 8)
     }),
   )
 })

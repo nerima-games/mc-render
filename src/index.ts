@@ -96,6 +96,28 @@ export * from './domain/water-surface.js'
 
 // --- Application: Effect services ------------------------------------------
 export * from './application/input-service.js'
+export {
+  PARTICLE_KIND_DEFAULTS,
+  ParticleColorChannelSchema,
+  ParticleColorSchema,
+  ParticleDirectionSchema,
+  ParticleKindSchema,
+  ParticleLifetimeSecondsSchema,
+  ParticleRequestSchema,
+  ParticleService,
+  ParticleServiceLive,
+} from './application/particle-service.js'
+export type {
+  ParticleColor,
+  ParticleColorChannel,
+  ParticleDirection,
+  ParticleKind,
+  ParticleKindDefaults,
+  ParticleLifetimeSeconds,
+  ParticleRequest,
+  ParticleServiceApi,
+  ParticleServiceLiveOptions,
+} from './application/particle-service.js'
 
 // --- Application: the browser adapter for the input service ------------------
 // The ONLY files in this repository that know what an `addEventListener` is.

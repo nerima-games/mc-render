@@ -1,3 +1,5 @@
+import type { Dimension } from '@nerima-games/mc-kernel'
+import { ParticleService, ParticleServiceLive, ParticleServicePoolAccess } from './particle-service.js'
 /**
  * Production renderer composition.
  *
@@ -5,7 +7,12 @@
  * assembles the atlas shader, animated water and instanced particles that a
  * browser-facing world uses on top of that protocol.
  */
-import { type ParticlePool, type ParticlePoolOptions, advanceParticles, makeParticlePool } from '../domain/particle-pool.js'
+import {
+  type ParticleFrameSnapshot,
+  type ParticlePool,
+  type ParticlePoolOptions,
+  advanceParticles,
+} from '../domain/particle-pool.js'
 import { type ParticleSystem, makeParticleSystem } from './particle-system.js'
 import type {
   ThreeBufferGeometry,
@@ -31,6 +38,7 @@ import {
   makeWorldRenderer,
 } from './world-renderer.js'
 import { Effect } from 'effect'
+import { DEFAULT_DIMENSION, type RenderEnvironmentPlan } from '../domain/render-environment.js'
 
 type TransformableThreeMesh = ThreeMesh & {
   readonly position: ThreeVector3
@@ -42,6 +50,8 @@ export type ProductionFrame = {
   readonly elapsedSecs: number
   readonly deltaSecs: number
   readonly cameraPosition: Readonly<{ worldX: number; worldY: number; worldZ: number }>
+  /** Defaults to the renderer's current dimension, initially `overworld`. */
+  readonly dimension?: Dimension | undefined
 }
 
 export type ProductionWorldRenderer<TShaderMaterial extends ThreeMaterial> = WorldRenderer & {
@@ -49,7 +59,9 @@ export type ProductionWorldRenderer<TShaderMaterial extends ThreeMaterial> = Wor
   readonly waterMaterial: TShaderMaterial
   readonly waterUniforms: Record<string, ThreeUniform>
   readonly particlePool: ParticlePool
+  readonly particleService: ParticleService['Service']
   readonly particles: ParticleSystem<TShaderMaterial>
+  readonly setEnvironment: (environment: RenderEnvironmentPlan) => Effect.Effect<void>
   readonly advanceFrame: (frame: ProductionFrame) => Effect.Effect<void>
 }
 
@@ -79,11 +91,14 @@ export const makeProductionWorldRenderer = <
   viewport: Viewport,
   atlasTexture: unknown,
   options: ProductionWorldRendererOptions = {},
-): Effect.Effect<ProductionWorldRenderer<TShaderMaterial>> =>
-  Effect.gen(function* buildProductionRenderer() {
+): Effect.Effect<ProductionWorldRenderer<TShaderMaterial>> => {
+  let activeDimension = options.dimension ?? DEFAULT_DIMENSION
+  let particleFrame: ParticleFrameSnapshot = { dimension: activeDimension, entities: [] }
+  const buildRenderer = Effect.gen(function* buildProductionRenderer() {
     const chunk = makeChunkShaderMaterial(three, atlasTexture)
     const water = makeWaterMaterial(three, viewport)
-    const particlePool = makeParticlePool(options.particles)
+    const particleService = yield* ParticleService
+    const particlePool = yield* ParticleServicePoolAccess
     const particles = yield* makeParticleSystem(three, particlePool, atlasTexture)
     assertRendererMaterialPolicies(water.material, particles.material)
     const { particles: _particles, ...rendererOptions } = options
@@ -100,8 +115,14 @@ export const makeProductionWorldRenderer = <
 
     return {
       ...renderer,
-      advanceFrame: (frame) => Effect.sync(() => {
-        advanceParticles(particlePool, frame.deltaSecs)
+      advanceFrame: (frame: ProductionFrame) => Effect.gen(function* advanceProductionFrame() {
+        activeDimension = frame.dimension ?? activeDimension
+        const entities = yield* renderer.entitySnapshot
+        particleFrame = {
+          dimension: activeDimension,
+          entities: entities.map(({ id, feetPosition }) => ({ id, feetPosition })),
+        }
+        advanceParticles(particlePool, frame.deltaSecs, particleFrame)
         const time = water.uniforms['uTime']
         const cameraPosition = water.uniforms['uCameraPosition']
         if (time) {time.value = frame.elapsedSecs}
@@ -116,13 +137,22 @@ export const makeProductionWorldRenderer = <
         Effect.andThen(Effect.sync(() => water.material.dispose())),
       ),
       particlePool,
+      particleService,
       particles,
-      resize: (width, height) => renderer.resize(width, height).pipe(Effect.tap(() => Effect.sync(() => {
+      resize: (width: number, height: number) => renderer.resize(width, height).pipe(Effect.tap(() => Effect.sync(() => {
         const resolution = water.uniforms['uResolution']
         if (resolution) {resolution.value = [width, height]}
       }))),
+      setEnvironment: (environment: RenderEnvironmentPlan) => renderer.setEnvironment(environment).pipe(
+        Effect.tap(() => Effect.sync(() => { activeDimension = environment.dimension })),
+      ),
       waterMaterial: water.material,
       waterUniforms: water.uniforms,
     }
   })
+  return buildRenderer.pipe(Effect.provide(ParticleServiceLive({
+    pool: options.particles,
+    renderContext: () => particleFrame,
+  })))
+}
 // oxlint-enable max-params

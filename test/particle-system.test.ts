@@ -23,6 +23,7 @@ import {
   particleShaderSource,
 } from '../src/domain/particle-shader'
 import {
+  PARTICLE_COLOR_STRIDE,
   PARTICLE_UV_STRIDE,
   PARTICLE_VECTOR_STRIDE,
   makeParticlePool,
@@ -86,10 +87,13 @@ describe('the geometry binds every attribute the shader declares', () => {
       expect(
         instancedAttribute(geometry, PARTICLE_INSTANCE_ATTRIBUTES.uvOffset.name).itemSize,
       ).toBe(PARTICLE_UV_STRIDE)
+      expect(
+        instancedAttribute(geometry, PARTICLE_INSTANCE_ATTRIBUTES.color.name).itemSize,
+      ).toBe(PARTICLE_COLOR_STRIDE)
 
       // And that they are not all equal, which is what makes the three
       // assertions above independent rather than one assertion written thrice.
-      expect(new Set([PARTICLE_VECTOR_STRIDE, 1, PARTICLE_UV_STRIDE]).size).toBe(3)
+      expect(new Set([PARTICLE_VECTOR_STRIDE, 1, PARTICLE_UV_STRIDE, PARTICLE_COLOR_STRIDE]).size).toBe(3)
     }),
   )
 })
@@ -118,6 +122,9 @@ describe('the pool is aliased, not copied', () => {
       )
       expect(instancedAttribute(geometry, PARTICLE_INSTANCE_ATTRIBUTES.uvOffset.name).array).toBe(
         pool.uvOffsets,
+      )
+      expect(instancedAttribute(geometry, PARTICLE_INSTANCE_ATTRIBUTES.color.name).array).toBe(
+        pool.colors,
       )
     }),
   )
@@ -175,7 +182,7 @@ describe('sync', () => {
   it.effect('flags every instance attribute for re-upload', () =>
     Effect.gen(function* () {
       // Three has no way to notice that a Float32Array it already uploaded has
-      // different bytes now. Missing one of the three would pin that quantity
+      // different bytes now. Missing one of the four would pin that quantity
       // at its first-frame value — particles that fade but never move, or move
       // but never fade.
       const three = makeFakeThree()
@@ -186,11 +193,12 @@ describe('sync', () => {
         false,
         false,
         false,
+        false,
       ])
 
       yield* system.sync
 
-      expect(three.instancedAttributes().map((a) => a.needsUpdate)).toStrictEqual([true, true, true])
+      expect(three.instancedAttributes().map((a) => a.needsUpdate)).toStrictEqual([true, true, true, true])
     }),
   )
 })

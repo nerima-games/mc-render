@@ -10,20 +10,97 @@
  * actually running on this path.
  */
 import { describe, expect, it } from '@effect/vitest'
-import { Cause, Effect, Exit } from 'effect'
+import { Cause, Effect, Exit, Schema } from 'effect'
+import { ParticleRequestSchema } from '../src/application/particle-service'
 import { makeProductionWorldRenderer } from '../src/application/world-renderer-production'
 import {
   applyChunkShaderEnvironment,
   makeChunkShaderMaterial,
   makeWaterMaterial,
 } from '../src/application/world-renderer-materials'
-import { spawnBurst } from '../src/domain/particle-pool'
+import { readSlot, spawnBurst } from '../src/domain/particle-pool'
 import { planRenderEnvironment } from '../src/domain/render-environment'
 import { FAKE_CANVAS, makeFakeThree } from './support/fake-three'
 
 const VIEWPORT = { width: 1280, height: 720 }
 
 describe('makeProductionWorldRenderer (the shipped composition)', () => {
+  it.effect('uses the layer service pool for both accepted requests and rendered instances', () =>
+    Effect.gen(function* () {
+      const three = makeFakeThree()
+      const renderer = yield* makeProductionWorldRenderer(
+        three,
+        FAKE_CANVAS,
+        VIEWPORT,
+        { name: 'terrain-atlas' },
+        { particles: { capacity: 4 } },
+      )
+      const request = Schema.decodeUnknownSync(ParticleRequestSchema)({
+        kind: 'block-break',
+        position: { dimension: 'overworld', x: 1, y: 2, z: 3 },
+      })
+
+      expect(yield* renderer.particleService.spawn(request)).toBe(1)
+      expect(renderer.particlePool.activeCount()).toBe(4)
+      yield* renderer.particles.sync
+      expect(yield* renderer.particles.drawnInstances).toBe(4)
+      expect(three.instancedGeometries()[0]?.instanceCount).toBe(4)
+
+      yield* renderer.dispose
+    }),
+  )
+
+  it.effect('resolves followed entities from the renderer snapshot and the current frame dimension', () =>
+    Effect.gen(function* () {
+      const three = makeFakeThree()
+      const renderer = yield* makeProductionWorldRenderer(
+        three,
+        FAKE_CANVAS,
+        VIEWPORT,
+        { name: 'terrain-atlas' },
+        { particles: { capacity: 8 } },
+      )
+      const request = Schema.decodeUnknownSync(ParticleRequestSchema)({
+        kind: 'entity-hit',
+        position: { dimension: 'overworld', x: 12, y: 22, z: 32 },
+        direction: { x: 1, y: 0, z: 0 },
+        followEntity: 'mob-1',
+      })
+
+      yield* renderer.syncEntities([{ id: 'mob-1', kind: 'zombie', feetPosition: { x: 10, y: 20, z: 30 } }])
+      yield* renderer.advanceFrame({
+        elapsedSecs: 0,
+        deltaSecs: 0,
+        cameraPosition: { worldX: 0, worldY: 0, worldZ: 0 },
+      })
+      expect(yield* renderer.particleService.spawn(request)).toBe(1)
+
+      yield* renderer.syncEntities([{ id: 'mob-1', kind: 'zombie', feetPosition: { x: 11, y: 21, z: 31 } }])
+      yield* renderer.advanceFrame({
+        elapsedSecs: 0.1,
+        deltaSecs: 0.1,
+        cameraPosition: { worldX: 0, worldY: 0, worldZ: 0 },
+      })
+      expect(readSlot(renderer.particlePool, 0)).toMatchObject({
+        positionX: 13,
+        positionY: 23,
+        positionZ: 33,
+      })
+
+      yield* renderer.advanceFrame({
+        elapsedSecs: 0.2,
+        deltaSecs: 0.1,
+        cameraPosition: { worldX: 0, worldY: 0, worldZ: 0 },
+        dimension: 'nether',
+      })
+      expect(readSlot(renderer.particlePool, 0)?.positionX).toBe(13)
+      expect(readSlot(renderer.particlePool, 0)?.scale).toBe(0)
+      expect(yield* renderer.particles.drawnInstances).toBe(0)
+
+      yield* renderer.dispose
+    }),
+  )
+
   it.effect('owns the atlas shaders, animated water, and shared particle system', () =>
     Effect.gen(function* () {
       const three = makeFakeThree()

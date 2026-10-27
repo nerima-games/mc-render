@@ -113,13 +113,61 @@ const isCanonicalChain: (chain: ReadonlyArray<PostProcessingPass>) => boolean
 - 起動時に `validatePostProcessingChain(chainPasses(chain))` を通し、違反があれば
   開発ビルドで大声で落ちる
 
-## 1.5 ParticlePool
+## 1.5 Particle requests and pools
 
-`ParticlePool` exposes only its capacity, typed render buffers, and read-only
-operations. Generator state and eviction counters are module-private; callers
-cannot forge a pool value or mutate its invariants. Construct pools with
-`makeParticlePool(options)` and pass the returned opaque value to the particle
-operations.
+`ParticleService` accepts typed render-space requests through
+`spawn(request): Effect.Effect<0 | 1>`. `ParticleRequestSchema` validates the
+kind, dimension-aware world position, optional RGB color, lifetime, direction,
+and followed entity. Color channels are finite values in `[0, 1]`; lifetime is
+finite and positive. Decode untrusted values at the host boundary before calling
+the service.
+
+The supported kinds are `block-break`, `entity-hit`, `explosion`, and
+`level-up`. Provide `ParticleService` with `ParticleServiceLive`; each layer
+build creates one `ParticlePool`. A request returns `1` when accepted and `0`
+when its dimension does not match the active render dimension or its followed
+entity is unavailable.
+When the pool is full, it evicts the oldest live particles and still accepts the
+request. A followed particle tracks the entity each frame; if the entity
+disappears or changes dimension, the particle detaches at its last position and
+continues for its remaining lifetime.
+
+`direction`, when supplied, is multiplied by the kind's base speed without
+normalization. Without it, particles keep the pool's randomized burst velocity.
+The following defaults apply when a request omits its color or lifetime:
+
+| Kind | Count | Base speed (m/s) | RGB tint | Lifetime (s) |
+| --- | ---: | ---: | --- | ---: |
+| `block-break` | 6 | 2 | `(1, 1, 1)` | 0.5 |
+| `entity-hit` | 4 | 1.5 | `(1, 0.35, 0.25)` | 0.5 |
+| `explosion` | 16 | 3 | `(1, 0.55, 0.2)` | 0.5 |
+| `level-up` | 8 | 1 | `(0.45, 1, 0.4)` | 0.5 |
+
+```typescript
+import { Effect } from 'effect'
+import {
+  PARTICLE_KIND_DEFAULTS,
+  ParticleRequestSchema,
+  ParticleService,
+  ParticleServiceLive,
+  makeParticlePool,
+  type ParticleRequest,
+} from '@nerima-games/mc-render'
+```
+
+`ParticleServiceApi` has this service shape:
+
+```typescript
+type ParticleServiceApi = {
+  readonly spawn: (request: ParticleRequest) => Effect.Effect<0 | 1>
+}
+```
+
+`ParticlePool` is a branded value built by `makeParticlePool`. It exposes fixed
+typed render buffers and read-only `activeCount`, `seed`, and `evictionCount`
+diagnostics. The generator state, eviction sequence, and follow offsets remain
+internal. Use the pool operations for low-level rendering; game code should
+request particles through `ParticleService`.
 
 ## 2. InputService
 
