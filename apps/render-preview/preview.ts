@@ -1,11 +1,9 @@
 /**
  * Draw a fixture chunk through mc-render's textured path, and count the pixels.
  *
- * Lowered from mc-compose's `apps/render-preview`. The only
- * change from the compose original is the import below: it now reads
- * `../../src/index.js`, this package's own source, rather than
- * `@nerima-games/mc-render` — the app lives beside the code it draws now,
- * instead of consuming it through the published package graph.
+ * Lowered from mc-compose's `apps/render-preview`. It imports the source
+ * modules it exercises directly so this fixture stays independent of the
+ * package root's deferred simulation entry points.
  *
  * ---------------------------------------------------------------------------
  * WHAT THIS PROVES, AND WHAT IT DOES NOT
@@ -47,19 +45,14 @@ import * as THREE from 'three'
 import { Context, Effect, Layer, Result, Scope } from 'effect'
 import { ChunkAxis, ChunkKey, chunkCoord, chunkCoordOfKey } from '@nerima-games/mc-kernel'
 import {
-  ATLAS_COLUMNS,
   browserInputLayer,
-  InputService,
-  chunkKeyOf,
-  makeChunkShaderMaterial,
-  makeWorldRenderer,
-  SKY_CLEAR_COLOR,
-  syncWorld,
-  type ChunkRef,
-  type GeometryQuad,
-  type MeshQuad,
-  type MirroredCameraState,
-} from '../../src/index.js'
+} from '../../src/application/browser-input-adapter.js'
+import { InputService } from '../../src/application/input-service.js'
+import { makeChunkShaderMaterial, makeWorldRenderer, SKY_CLEAR_COLOR } from '../../src/application/world-renderer.js'
+import { chunkKeyOf, syncWorld, type ChunkRef } from '../../src/application/world-sync.js'
+import { ATLAS_COLUMNS } from '../../src/domain/texture-atlas.js'
+import type { GeometryQuad, MeshQuad } from '../../src/domain/meshing-vocabulary.js'
+import type { MirroredCameraState } from '../../src/domain/camera-mirror.js'
 
 const VIEWPORT = { width: 640, height: 360 }
 

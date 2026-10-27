@@ -56,17 +56,16 @@
 import * as THREE from 'three'
 import { Effect, Result } from 'effect'
 import { BlockId, ChunkKey } from '@nerima-games/mc-kernel'
+import { makeParticleSystem } from '../../src/application/particle-system.js'
 import {
-  buildChunkGeometry,
   makeChunkShaderMaterial,
-  makeParticlePool,
-  makeParticleSystem,
   makeWaterMaterial,
   makeWorldRenderer,
-  spawnBurst,
-  type MeshQuad,
-  type MirroredCameraState,
-} from '../../src/index.js'
+} from '../../src/application/world-renderer.js'
+import { buildChunkGeometry } from '../../src/domain/chunk-geometry.js'
+import type { MirroredCameraState } from '../../src/domain/camera-mirror.js'
+import { makeParticlePool, spawnBurst } from '../../src/domain/particle-pool.js'
+import type { MeshQuad } from '../../src/domain/meshing-vocabulary.js'
 
 const VIEWPORT = { width: 320, height: 180 }
 
