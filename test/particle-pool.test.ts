@@ -735,6 +735,34 @@ describe('C6 particle spawn state', () => {
     }),
   )
 
+  it.effect('accepts Float32 max and rejects out-of-range spawn data before acquiring slots', () =>
+    Effect.sync(() => {
+      const maximum = 3.4028234663852886e38
+      const justAbove = maximum * (1 + Number.EPSILON)
+      const pool = makeParticlePool({ capacity: 4 })
+
+      expect(spawnParticle(pool, particleSpawn({
+        positionX: maximum,
+        velocity: { x: 0, y: 0, z: 0 },
+      }))).toBe(true)
+      expect(pool.positions[0]).toBe(maximum)
+      expect(spawnParticle(pool, particleSpawn({ positionX: justAbove }))).toBe(false)
+      expect(spawnParticle(pool, particleSpawn({ positionX: 1e39 }))).toBe(false)
+      expect(spawnParticle(pool, particleSpawn({ velocity: { x: 1e39, y: 0, z: 0 } }))).toBe(false)
+      expect(spawnParticle(pool, particleSpawn({ uvU: 1e39 }))).toBe(false)
+      expect(spawnParticle(pool, particleSpawn({
+        positionX: maximum,
+        follow: { id: 'mob-1', x: -maximum, y: 2, z: 3 },
+      }))).toBe(false)
+      expect(spawnBurst(pool, justAbove, 0, 0, 0, 0, 1)).toBe(0)
+
+      expect(pool.activeCount()).toBe(1)
+      expect(pool.evictionCount()).toBe(0)
+      expect(Array.from(pool.positions).every(Number.isFinite)).toBe(true)
+      expect(Array.from(pool.velocities).every(Number.isFinite)).toBe(true)
+    }),
+  )
+
   it.effect('evicts by spawn sequence when custom lifetimes disagree with age', () =>
     Effect.sync(() => {
       const pool = makeParticlePool({ capacity: 2 })

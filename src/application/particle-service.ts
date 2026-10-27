@@ -21,6 +21,10 @@ const MINIMUM_PARTICLE_LIFETIME_SECONDS = 0
 const PARTICLE_REQUEST_REJECTED = 0
 const PARTICLE_REQUEST_ACCEPTED = 1
 const PARTICLE_LOOP_STEP = 1
+const MAX_PARTICLE_FLOAT32_VALUE = 3.4028234663852886e38
+
+const isParticleFloat32Vector = (x: number, y: number, z: number): boolean =>
+  Math.max(Math.abs(x), Math.abs(y), Math.abs(z)) <= MAX_PARTICLE_FLOAT32_VALUE
 
 export const ParticleKindSchema: Schema.Codec<ParticleKind> = Schema.Literals([
   'block-break',
@@ -91,15 +95,6 @@ type ParticleRequestEncoded = Readonly<{
   readonly followEntity?: Schema.Codec.Encoded<typeof EntityIdSchema> | undefined
 }>
 
-export const ParticleRequestSchema: Schema.Codec<ParticleRequest, ParticleRequestEncoded> = Schema.Struct({
-  color: Schema.optional(ParticleColorSchema),
-  direction: Schema.optional(ParticleDirectionSchema),
-  followEntity: Schema.optional(EntityIdSchema),
-  kind: ParticleKindSchema,
-  lifetimeSeconds: Schema.optional(ParticleLifetimeSecondsSchema),
-  position: WorldPositionSchema,
-})
-
 export type ParticleKindDefaults = Readonly<{
   readonly color: Readonly<{ readonly red: number; readonly green: number; readonly blue: number }>
   readonly baseSpeedMPerSecond: number
@@ -160,6 +155,30 @@ export type ParticleServiceLiveOptions = Readonly<{
   readonly renderContext?: (() => ParticleFrameSnapshot) | undefined
 }>
 
+const isParticleRequestFloat32Safe = (request: ParticleRequest): boolean => {
+  const { direction, position } = request
+  if (!isParticleFloat32Vector(position.x, position.y, position.z)) {
+    return false
+  }
+  if (direction === undefined) {
+    return true
+  }
+  const speed = PARTICLE_KIND_DEFAULTS[request.kind].baseSpeedMPerSecond
+  return isParticleFloat32Vector(direction.x, direction.y, direction.z) &&
+    isParticleFloat32Vector(direction.x * speed, direction.y * speed, direction.z * speed)
+}
+
+export const ParticleRequestSchema: Schema.Codec<ParticleRequest, ParticleRequestEncoded> = Schema.Struct({
+  color: Schema.optional(ParticleColorSchema),
+  direction: Schema.optional(ParticleDirectionSchema),
+  followEntity: Schema.optional(EntityIdSchema),
+  kind: ParticleKindSchema,
+  lifetimeSeconds: Schema.optional(ParticleLifetimeSecondsSchema),
+  position: WorldPositionSchema,
+}).check(Schema.makeFilter<ParticleRequest>((request) =>
+  isParticleRequestFloat32Safe(request) || 'Particle positions and velocities must fit Float32 buffers'
+))
+
 const EMPTY_RENDER_CONTEXT: ParticleFrameSnapshot = { dimension: 'overworld', entities: [] }
 
 const followLinkFor = (
@@ -218,6 +237,17 @@ const particleSpawnSpecFor = (
   }
 }
 
+const isParticleSpawnFloat32Safe = (spawn: ParticleSpawnSpec): boolean => {
+  const { follow, positionX, positionY, positionZ, velocity } = spawn
+  return isParticleFloat32Vector(positionX, positionY, positionZ) &&
+    (velocity === undefined || isParticleFloat32Vector(velocity.x, velocity.y, velocity.z)) &&
+    (follow === undefined || isParticleFloat32Vector(
+      positionX - follow.x,
+      positionY - follow.y,
+      positionZ - follow.z,
+    ))
+}
+
 const spawnParticles = (
   pool: ParticlePool,
   spawn: ParticleSpawnSpec,
@@ -234,25 +264,35 @@ const spawnParticles = (
   return PARTICLE_REQUEST_ACCEPTED
 }
 
+const spawnParticleRequest = (
+  pool: ParticlePool,
+  request: ParticleRequest,
+  context: ParticleFrameSnapshot,
+): typeof PARTICLE_REQUEST_REJECTED | typeof PARTICLE_REQUEST_ACCEPTED => {
+  if (request.position.dimension !== context.dimension) {
+    return PARTICLE_REQUEST_REJECTED
+  }
+
+  const follow = followLinkFor(request, context)
+  if (request.followEntity !== undefined && follow === undefined) {
+    return PARTICLE_REQUEST_REJECTED
+  }
+
+  const defaults = PARTICLE_KIND_DEFAULTS[request.kind]
+  const spawn = particleSpawnSpecFor(request, defaults, follow)
+  if (!isParticleSpawnFloat32Safe(spawn)) {
+    return PARTICLE_REQUEST_REJECTED
+  }
+  return spawnParticles(pool, spawn, defaults.particleCount)
+}
+
 const makeParticleService = (
   pool: ParticlePool,
   readRenderContext: () => ParticleFrameSnapshot,
 ): ParticleServiceApi => ({
-  spawn: (request) => Effect.sync(() => {
-    const context = readRenderContext()
-    if (request.position.dimension !== context.dimension) {
-      return PARTICLE_REQUEST_REJECTED
-    }
-
-    const follow = followLinkFor(request, context)
-    if (request.followEntity !== undefined && follow === undefined) {
-      return PARTICLE_REQUEST_REJECTED
-    }
-
-    const defaults = PARTICLE_KIND_DEFAULTS[request.kind]
-    const spawn = particleSpawnSpecFor(request, defaults, follow)
-    return spawnParticles(pool, spawn, defaults.particleCount)
-  }),
+  spawn: (request) => Effect.sync(() =>
+    spawnParticleRequest(pool, request, readRenderContext())
+  ),
 })
 
 export const ParticleServiceLive = (

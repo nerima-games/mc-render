@@ -763,9 +763,23 @@ const writeParticle = (internals: ParticlePool, slot: number, spawn: ParticleSpa
   writeParticleLifetime(internals, slot, spawn)
 }
 
+const MAX_PARTICLE_FLOAT32_VALUE = 3.4028234663852886e38
+
+const isParticleFloat32Value = (value: number): boolean =>
+  Math.abs(value) <= MAX_PARTICLE_FLOAT32_VALUE
+
+const isParticleFloat32Vector = (x: number, y: number, z: number): boolean =>
+  Math.max(Math.abs(x), Math.abs(y), Math.abs(z)) <= MAX_PARTICLE_FLOAT32_VALUE
+
+const isParticleVectorFloat32Safe = (vector: ParticleVelocity | undefined): boolean =>
+  vector === undefined || isParticleFloat32Vector(vector.x, vector.y, vector.z)
+
+const isParticlePositionFloat32Safe = (spawn: ParticleSpawnSpec): boolean =>
+  isParticleFloat32Vector(spawn.positionX, spawn.positionY, spawn.positionZ)
+
 /**
  * Resolve how many particles a burst should spawn, or `0` if the request is
- * invalid (a non-finite/too-small `count`, or a non-finite spawn point).
+ * invalid (a non-finite/too-small `count`, or a position outside Float32 range).
  *
  * COUNT HANDLING DIVERGES FROM THE REFERENCE, deliberately. It clamps with
  * `Math.max(1, Math.min(MAX_PARTICLES, Math.floor(count)))` (particle-system.ts:129),
@@ -775,10 +789,10 @@ const writeParticle = (internals: ParticlePool, slot: number, spawn: ParticleSpa
  * hit the zero case and get a stray fleck. Here, a count that is zero, negative
  * or not a number spawns nothing and returns 0.
  *
- * A spawn point that is not a point would write NaN into the position buffer,
- * and NaN propagates through every subsequent integration step and into the
- * instance matrix, where it silently removes the whole InstancedMesh from the
- * screen rather than one particle. Refuse the burst instead.
+ * A non-finite or out-of-range spawn point would write NaN or Infinity into the
+ * position buffer. That value propagates through later integration and into the
+ * instance matrix, removing the whole InstancedMesh from the screen. Refuse the
+ * burst instead.
  *
  * A burst larger than the pool would evict its own earlier particles and end
  * with `capacity` of them, so clamping here makes the return value honest
@@ -794,21 +808,12 @@ const resolveSpawnRequest = (
   if (!Number.isFinite(count) || count < MIN_BURST_COUNT) {
     return ZERO
   }
-  if (!Number.isFinite(positionX) || !Number.isFinite(positionY) || !Number.isFinite(positionZ)) {
+  if (!isParticleFloat32Vector(positionX, positionY, positionZ)) {
     return ZERO
   }
   return Math.min(Math.floor(count), pool.capacity)
 }
 
-
-const isFiniteParticleVector = (vector: ParticleVelocity | undefined): boolean =>
-  vector === undefined ||
-  (Number.isFinite(vector.x) && Number.isFinite(vector.y) && Number.isFinite(vector.z))
-
-const isFiniteParticlePosition = (spawn: ParticleSpawnSpec): boolean =>
-  Number.isFinite(spawn.positionX) &&
-  Number.isFinite(spawn.positionY) &&
-  Number.isFinite(spawn.positionZ)
 
 const isValidParticleTintChannel = (channel: number): boolean =>
   Number.isFinite(channel) && channel >= ZERO && channel <= MAX_PARTICLE_TINT_CHANNEL
@@ -823,22 +828,22 @@ const isValidParticleFollow = (spawn: ParticleSpawnSpec): boolean => {
   if (follow === undefined) {
     return true
   }
-  return Number.isFinite(follow.x) &&
-    Number.isFinite(follow.y) &&
-    Number.isFinite(follow.z) &&
-    Number.isFinite(spawn.positionX - follow.x) &&
-    Number.isFinite(spawn.positionY - follow.y) &&
-    Number.isFinite(spawn.positionZ - follow.z)
+  return isParticleFloat32Vector(follow.x, follow.y, follow.z) &&
+    isParticleFloat32Vector(
+      spawn.positionX - follow.x,
+      spawn.positionY - follow.y,
+      spawn.positionZ - follow.z,
+    )
 }
 
 const isValidParticleSpawn = (spawn: ParticleSpawnSpec): boolean =>
-  isFiniteParticlePosition(spawn) &&
-  Number.isFinite(spawn.uvU) &&
-  Number.isFinite(spawn.uvV) &&
+  isParticlePositionFloat32Safe(spawn) &&
+  isParticleFloat32Value(spawn.uvU) &&
+  isParticleFloat32Value(spawn.uvV) &&
   Number.isFinite(spawn.lifetimeSecs) &&
   spawn.lifetimeSecs > ZERO &&
   isValidParticleTint(spawn) &&
-  isFiniteParticleVector(spawn.velocity) &&
+  isParticleVectorFloat32Safe(spawn.velocity) &&
   isValidParticleFollow(spawn)
 
 export const spawnParticle = (pool: ParticlePool, spawn: ParticleSpawnSpec): boolean => {

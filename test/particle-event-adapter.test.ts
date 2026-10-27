@@ -216,6 +216,19 @@ describe('particleRequestForDomainEvent', () => {
     expect(tnt?.color?.red).toBeGreaterThan(creeper?.color?.red ?? 1)
   })
 
+  it('uses the cyan tint for shield blocks', () => {
+    const shield = event({
+      _tag: 'ShieldBlocked',
+      tick: 1,
+      defender: 'player-1',
+      position: { dimension: 'overworld', x: 1, y: 2, z: 3 },
+      blockedAmount: 2,
+    })
+    const request = expectParticleRequest(particleRequestForDomainEvent(shield, entityContext))
+
+    expect(request?.color).toStrictEqual({ red: 0.25, green: 0.9, blue: 1 })
+  })
+
   it('preserves projectile launch direction', () => {
     const request = expectParticleRequest(particleRequestForDomainEvent(event(mappedEvents[17]?.value), entityContext))
 

@@ -199,8 +199,6 @@ export const particleRequestForDomainEvent: (
 ) => ParticleEventResult
 ```
 
-The table lists all 20 kernel event tags. The mapper handles each tag
-explicitly; the three `WeatherGameplayEffect` subtypes are listed together.
 Block addresses become requests at the block center. Events without a captured position use
 `ParticleEventContext.positionOfEntity` to resolve their actor or entity. If
 that lookup has no position, the mapper returns `undefined` instead of
@@ -227,7 +225,7 @@ unrecognized runtime tag that needs handling when the kernel vocabulary grows.
 | `WeatherGameplayEffect` | Lightning uses a pale explosion tint; creeper charge uses the creeper tint; transformation uses a magenta `level-up` tint. Entity effects require a resolved position. |
 | `ProjectileLaunched` | `entity-hit` at the origin, directed by the initial velocity and following the shooter |
 | `ProjectileImpacted` | `entity-hit` at the impact position; entity hits follow the target |
-| `ShieldBlocked` | Yellow-tinted `entity-hit` at the shield position, following the defender |
+| `ShieldBlocked` | Cyan-tinted `entity-hit` at the shield position, following the defender |
 | `ExperienceCollected` | `level-up` at the resolved player position |
 | `VehicleTransition` | No particle; mc-render has no mount-transition effect |
 

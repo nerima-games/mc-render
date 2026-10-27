@@ -52,6 +52,48 @@ describe('ParticleRequestSchema', () => {
       expect(Result.isFailure(decodeRequest({ kind: 'block-break', position: { x: 1, y: 2, z: 3 } }))).toBe(true)
     }),
   )
+
+  it.effect('accepts Float32 max and rejects positions or computed velocities above it', () =>
+    Effect.sync(() => {
+      const maximum = 3.4028234663852886e38
+      const justAbove = maximum * (1 + Number.EPSILON)
+      const decodeRequest = Schema.decodeUnknownResult(ParticleRequestSchema)
+      const base = { dimension: 'overworld', y: 0, z: 0 }
+
+      expect(Result.isSuccess(decodeRequest({
+        kind: 'block-break',
+        position: { ...base, x: maximum },
+        direction: { x: maximum / 2, y: 0, z: 0 },
+      }))).toBe(true)
+      expect(Result.isFailure(decodeRequest({
+        kind: 'block-break',
+        position: { ...base, x: justAbove },
+      }))).toBe(true)
+      expect(Result.isFailure(decodeRequest({
+        kind: 'block-break',
+        position: { ...base, x: Number.MAX_VALUE },
+      }))).toBe(true)
+      expect(Result.isFailure(decodeRequest({
+        kind: 'block-break',
+        position: { ...base, x: 1e39 },
+      }))).toBe(true)
+      expect(Result.isFailure(decodeRequest({
+        kind: 'block-break',
+        position: { ...base, x: 0 },
+        direction: { x: justAbove, y: 0, z: 0 },
+      }))).toBe(true)
+      expect(Result.isFailure(decodeRequest({
+        kind: 'block-break',
+        position: { ...base, x: 0 },
+        direction: { x: 1e39, y: 0, z: 0 },
+      }))).toBe(true)
+      expect(Result.isFailure(decodeRequest({
+        kind: 'explosion',
+        position: { ...base, x: 0 },
+        direction: { x: 1.2e38, y: 0, z: 0 },
+      }))).toBe(true)
+    }),
+  )
 })
 
 describe('ParticleServiceLive', () => {
@@ -130,11 +172,62 @@ describe('ParticleServiceLive', () => {
     }).pipe(Effect.provide(ParticleServiceLive({ pool: { capacity: 8 } }))),
   )
 
-  it.effect('returns zero when finite followed positions produce an overflowing offset', () =>
+  it.effect('rejects out-of-range positions and computed velocities before writing buffers', () =>
     Effect.gen(function* () {
       const service = yield* ParticleService
       const pool = yield* ParticleServicePoolAccess
-      const maximum = Number.MAX_VALUE
+      const maximum = 3.4028234663852886e38
+      const justAbove = maximum * (1 + Number.EPSILON)
+      const accepted = yield* service.spawn(particleRequest({
+        position: position('overworld', maximum, 0, 0),
+      }))
+      expect(accepted).toBe(1)
+      expect(pool.positions[0]).toBe(maximum)
+      const activeBeforeRejectedRequests = pool.activeCount()
+
+      expect(yield* service.spawn(particleRequest({
+        position: position('overworld', justAbove, 0, 0),
+      }))).toBe(0)
+      expect(yield* service.spawn(particleRequest({
+        position: position('overworld', Number.MAX_VALUE, 0, 0),
+      }))).toBe(0)
+      expect(yield* service.spawn(particleRequest({
+        position: position('overworld', 1e39, 0, 0),
+      }))).toBe(0)
+      expect(yield* service.spawn(particleRequest({
+        kind: 'explosion',
+        direction: Schema.decodeUnknownSync(ParticleDirectionSchema)({ x: 1e39, y: 0, z: 0 }),
+      }))).toBe(0)
+      expect(yield* service.spawn(particleRequest({
+        kind: 'explosion',
+        direction: Schema.decodeUnknownSync(ParticleDirectionSchema)({ x: 1.2e38, y: 0, z: 0 }),
+      }))).toBe(0)
+
+      expect(pool.activeCount()).toBe(activeBeforeRejectedRequests)
+      expect(Array.from(pool.positions).every(Number.isFinite)).toBe(true)
+      expect(Array.from(pool.velocities).every(Number.isFinite)).toBe(true)
+    }).pipe(Effect.provide(ParticleServiceLive({ pool: { capacity: 32 } }))),
+  )
+
+  it.effect('returns zero when the particle pool rejects every spawn', () =>
+    Effect.gen(function* () {
+      const service = yield* ParticleService
+      const pool = yield* ParticleServicePoolAccess
+      const request = particleRequest({
+        color: Schema.decodeUnknownSync(ParticleColorSchema)({ red: 1, green: 0, blue: 0 }),
+      })
+      expect(Reflect.set(request, 'color', { red: 2, green: 0, blue: 0 })).toBe(true)
+
+      expect(yield* service.spawn(request)).toBe(0)
+      expect(pool.activeCount()).toBe(0)
+    }).pipe(Effect.provide(ParticleServiceLive({ pool: { capacity: 4 } }))),
+  )
+
+  it.effect('returns zero when finite followed positions produce an out-of-range Float32 offset', () =>
+    Effect.gen(function* () {
+      const service = yield* ParticleService
+      const pool = yield* ParticleServicePoolAccess
+      const maximum = 3.4028234663852886e38
       const request = Schema.decodeUnknownSync(ParticleRequestSchema)({
         kind: 'entity-hit',
         position: { dimension: 'overworld', x: maximum, y: 0, z: 0 },
@@ -144,14 +237,15 @@ describe('ParticleServiceLive', () => {
 
       expect(Number.isFinite(request.position.x)).toBe(true)
       expect(Number.isFinite(target.x)).toBe(true)
-      expect(Number.isFinite(request.position.x - target.x)).toBe(false)
+      expect(Number.isFinite(request.position.x - target.x)).toBe(true)
+      expect(Math.abs(request.position.x - target.x)).toBeGreaterThan(maximum)
       expect(yield* service.spawn(request)).toBe(0)
       expect(pool.activeCount()).toBe(0)
     }).pipe(Effect.provide(ParticleServiceLive({
       pool: { capacity: 4 },
       renderContext: () => ({
         dimension: 'overworld',
-        entities: [{ id: 'mob-1', feetPosition: { x: -Number.MAX_VALUE, y: 0, z: 0 } }],
+        entities: [{ id: 'mob-1', feetPosition: { x: -3.4028234663852886e38, y: 0, z: 0 } }],
       }),
     }))),
   )
