@@ -1,5 +1,6 @@
 import { describe, expect, it } from '@effect/vitest'
 import { Effect, Schema } from 'effect'
+import { DomainEventSchema, WorldPositionSchema } from '@nerima-games/mc-kernel'
 import {
   PARTICLE_KIND_DEFAULTS,
   ParticleColorSchema,
@@ -9,6 +10,7 @@ import {
   ParticleRequestSchema,
   ParticleService,
   ParticleServiceLive,
+  particleRequestForDomainEvent,
   focusNavigationDirectionForCode,
   type BrowserInputOptions,
   type ClickLandingForTarget,
@@ -21,8 +23,10 @@ import {
   type ParticleKind,
   type ParticleLifetimeSeconds,
   type ParticleRequest,
+  type ParticleEventResult,
   type ParticleServiceApi,
   type ParticleServiceLiveOptions,
+  type ParticleEventContext,
 } from '../src/index.js'
 
 describe('public focus navigation and input DTO exports', () => {
@@ -81,5 +85,31 @@ describe('public particle request API', () => {
     expect(PARTICLE_KIND_DEFAULTS[kind].particleCount).toBeGreaterThan(0)
     expect(Effect.runSync(api.spawn(request))).toBe(1)
     expect(accepted).toBe(1)
+  })
+
+  it('exports the exhaustive C3 event mapper and entity-position context', () => {
+    const pickedUp = Schema.decodeUnknownSync(DomainEventSchema)({
+      _tag: 'ItemPickedUp',
+      tick: 1,
+      actor: 'player-1',
+      source: { _tag: 'DroppedItem', id: 'drop-1' },
+      item: 1,
+      count: 1,
+    })
+    const position = Schema.decodeUnknownSync(WorldPositionSchema)({
+      dimension: 'overworld',
+      x: 1,
+      y: 2,
+      z: 3,
+    })
+    const context: ParticleEventContext = { positionOfEntity: () => position }
+
+    const result: ParticleEventResult = particleRequestForDomainEvent(pickedUp, context)
+
+    expect(result).toMatchObject({
+      kind: 'level-up',
+      position,
+      followEntity: 'player-1',
+    })
   })
 })

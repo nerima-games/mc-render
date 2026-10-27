@@ -170,6 +170,80 @@ diagnostics. The generator state, eviction sequence, and follow offsets remain
 internal. Use the pool operations for low-level rendering; game code should
 request particles through `ParticleService`.
 
+### 1.6 C3 DomainEvent particle mapping
+
+`particleRequestForDomainEvent(event, context?)` is a pure mapper from the
+mc-kernel 0.10.0 `DomainEvent` vocabulary to a `ParticleRequest`. It returns
+`undefined` when a known event has no render particle or its entity position
+cannot be resolved. It returns `UnhandledParticleEvent` if a newer runtime
+event tag reaches this version of the mapper. The mc-kernel 0.10.0 vocabulary
+is handled explicitly. The mapper does not subscribe to the mc-sim event bus;
+the host owns that subscription and passes each event to this mapper.
+
+```typescript
+export type ParticleEventContext = Readonly<{
+  readonly positionOfEntity?: (entity: EntityId) => WorldPosition | undefined
+}>
+
+export type UnhandledParticleEvent = Readonly<{
+  readonly _tag: 'UnhandledParticleEvent'
+  readonly eventTag: string
+}>
+
+export type ParticleEventResult = ParticleRequest | UnhandledParticleEvent | undefined
+
+export const particleRequestForDomainEvent: (
+  event: DomainEvent,
+  context?: ParticleEventContext,
+) => ParticleEventResult
+```
+
+The table lists all 20 C3 event tags. The mapper handles each tag explicitly;
+the three `WeatherGameplayEffect` subtypes are listed together. Block addresses
+become requests at the block center. Events without a captured position use
+`ParticleEventContext.positionOfEntity` to resolve their actor or entity. If
+that lookup has no position, the mapper returns `undefined` instead of
+inventing a world coordinate. Requests for a resolved entity follow that entity
+through `ParticleService`. Callers should treat `UnhandledParticleEvent` as an
+unrecognized runtime tag that needs handling when the kernel vocabulary grows.
+
+| C3 tag | C6 mapping |
+| --- | --- |
+| `EntityDamaged` | `entity-hit` at the event position, following the damaged entity |
+| `BlockBroken` | `block-break` at the block center |
+| `Explosion` | `explosion` at the event position; creeper uses green tint and TNT uses red tint |
+| `LevelUp` | `level-up` at the captured entity position, following the entity |
+| `AchievementUnlocked` | No particle; achievement feedback belongs to the UI notification surface |
+| `BlockPlaced` | Cyan-tinted `level-up` at the block center |
+| `BlockChangedByWorld` | `block-break` at the block center |
+| `EntityDied` | `entity-hit` at the captured death position |
+| `EntityHealed` | `level-up` at the resolved entity position |
+| `EntitySpawned` | `level-up` at the captured spawn position, following the entity |
+| `EntityTeleported` | `level-up` at the destination position, following the entity |
+| `ItemDropped` | `block-break` at the dropped item's position |
+| `ItemPickedUp` | `level-up` at the resolved actor position |
+| `ItemConsumed` | `level-up` at the resolved actor position |
+| `WeatherGameplayEffect` | Lightning uses a pale explosion tint; creeper charge uses the creeper tint; transformation uses a magenta `level-up` tint. Entity effects require a resolved position. |
+| `ProjectileLaunched` | `entity-hit` at the origin, directed by the initial velocity and following the shooter |
+| `ProjectileImpacted` | `entity-hit` at the impact position; entity hits follow the target |
+| `ShieldBlocked` | Yellow-tinted `entity-hit` at the shield position, following the defender |
+| `ExperienceCollected` | `level-up` at the resolved player position |
+| `VehicleTransition` | No particle; C6 has no mount-transition effect |
+
+`WeatherGameplayEffect` contains `LightningStrike`, `CreeperCharged`, and
+`EntityTransformed` subtypes. The mapper also handles each subtype explicitly.
+The public package entry exports `particleRequestForDomainEvent` and the
+`ParticleEventContext` type:
+
+```typescript
+import {
+  particleRequestForDomainEvent,
+  type ParticleEventContext,
+  type ParticleEventResult,
+  type UnhandledParticleEvent,
+} from '@nerima-games/mc-render'
+```
+
 ## 2. InputService
 
 ### 2.1 公開するもの

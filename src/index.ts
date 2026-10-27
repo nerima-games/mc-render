@@ -118,6 +118,7 @@ export type {
   ParticleServiceApi,
   ParticleServiceLiveOptions,
 } from './application/particle-service.js'
+export * from './application/particle-event-adapter.js'
 
 // --- Application: the browser adapter for the input service ------------------
 // The ONLY files in this repository that know what an `addEventListener` is.
