@@ -275,7 +275,7 @@ const ESCAPE_POLICY
 | `contextmenu` | 無条件 `preventDefault`（:140-142） | ロック中のみ抑止。`suppressesBrowserContextMenu`。§2.6 |
 | ゲームパッド | `domain/gamepad-input.ts` + `application/gamepad-input-adapter.ts` | 実装済み。ホストが `GamepadSource` を注入し、毎フレーム `poll` する |
 | タッチ / 仮想入力 | `domain/input-bindings.ts` + `application/browser-input-adapter.ts` | 実装済み。DOM のタッチイベントを `InputEvent` に変換する |
-| スクリーンショット | `screenshot-service.ts`（50 LOC） | 未実装。**mc-render に置くか要検討**（QA API は mc-compose の責務） |
+| スクリーンショット | `screenshot-service.ts`（50 LOC） | Browser entry は canvas の PNG capture と F2 download を提供する。QA workflow の管理は host の責務 |
 | キーリマッピング | 参照実装では UI 側（`packages/presentation/settings`） | `remap`。**規則（Escape 不可・重複不可）をここに持つ**のが差分 |
 
 ### 2.3 拒否を throw ではなく値で返す
@@ -541,10 +541,17 @@ type BrowserInputTargets = { readonly window: DomEventTarget; readonly document:
 type PlannedListener = { readonly event: string; readonly target: ListenerTarget }
 type ListenerRegistration = { event; target; listener; options }
 type InstalledInputListeners = { registrations: ReadonlyArray<ListenerRegistration>; remove: () => void }
+type FocusTargetForElement = (target: unknown) => FocusTarget | undefined
+type ClickLandingForTarget = (target: unknown) => ClickLanding
+type FocusNavigationHandler = (direction: FocusNavigationDirection) => void
+
 type DomEventContext = {
   readonly pointerLockHeld: boolean
-  readonly focusGroups: ReadonlyArray<FocusGroupTargets>
-  readonly pointerLockTarget?: unknown          // ロック対象。**比較するだけ**（§2.11）
+  readonly focusTargetForElement?: FocusTargetForElement
+  readonly clickLandingForTarget?: ClickLandingForTarget
+  readonly pointerLockTarget?: unknown
+  readonly onFocusNavigationDirection?: FocusNavigationHandler
+  readonly touchControls?: ReadonlyArray<TouchControlTarget>
 }
 
 const PREVENT_DEFAULT_EVENTS: ReadonlyArray<string>   // ['wheel', 'contextmenu']
@@ -553,22 +560,26 @@ const listenerOptionsFor: (eventName: string) => DomListenerOptions
 const TRANSLATED_DOM_EVENTS: ReadonlyArray<string>
 
 const translateDomEvent: (planned, event: DomInputEvent, context) => InputEvent | undefined
-// 第 3 引数はフォーカスロスタ、第 4 引数は**ロック対象**（= canvas）。どちらも省略可
-const installInputListeners: (targets, input: InputServiceApi, focusGroups?, pointerLockTarget?) => InstalledInputListeners
-const scopedInputListeners: (targets, input, focusGroups?, pointerLockTarget?) => Effect<InstalledInputListeners, never, Scope>
+const installInputListeners: (targets, input: InputServiceApi, options?) => InstalledInputListeners
+const scopedInputListeners: (targets, input, options?) => Effect<InstalledInputListeners, never, Scope>
 
 type BrowserPointerLockOptions = { canvas: PointerLockTarget; allowsPointerLock?: () => boolean }
 const makeBrowserPointerLockPort: (options) => PointerLockPort
 
-type BrowserInputOptions = { targets; canvas?; allowsPointerLock?; bindings?; focusGroups? }
+type BrowserInputOptions = {
+  targets; canvas?; allowsPointerLock?; bindings?
+  focusTargetForElement?; clickLandingForTarget?; onFocusNavigationDirection?
+  touchControls?
+}
 const browserInputLayer: (options: BrowserInputOptions) => Layer<InputService>
 
-// キーボードフォーカス（§2.10）
-type FocusGroupTargets = { readonly group: string; readonly targets: ReadonlyArray<unknown> }
-const resolveFocusTarget: (groups, target: unknown) => FocusTarget | undefined
-
-// クリックの着地（§2.11）。同じ `===` 照合。要素は 1 つも読まない
-const resolveClickLanding: (pointerLockTarget: unknown, groups, target: unknown) => ClickLanding
+// The renderer compares the target with the canvas and delegates UI membership
+// classification to the host.
+const resolveClickLanding: (
+  pointerLockTarget: unknown,
+  target: unknown,
+  clickLandingForTarget?: ClickLandingForTarget
+) => ClickLanding
 ```
 
 ### 2.9.2 `lib` に `"DOM"` を入れなかった理由
@@ -643,266 +654,70 @@ plan.md §3.10（Playwright は SwiftShader でポインタロック不可）に
 「既定を抑止しうる」と「非 passive で登録する」の両方を表しており、
 既に非 passive なものに `passive: false` を明示しても挙動もフレーム時間も変わらないからである。
 
-## 2.10 キーボードフォーカスは**観測**であり、グループ**内**の移動も入った（DN-16 §5(a)）
+## 2.10 Keyboard focus boundary
 
-mx-ui が半分だけ作って止めた穴（mx-ui/docs/design-notes.md DN-UI-13i）。
-向こうはホットバーを roving-`tabindex` グループにし（**ネイティブなタブストップは 1 つ**）、
-スロットごとに専用のリング要素を置き、`HudView.setKeyboardFocus(index | undefined)` を用意した。
-そこで止めた理由が所有権である:
+mc-render owns the focus DTO and the key-to-intent vocabulary. mx-ui owns DOM
+membership and resolves a focused element to that DTO. The dependency points
+from mx-ui to mc-render; mc-render does not import mx-ui or inspect its DOM.
 
-| 事柄 | 必要な動詞 | 所有者 |
-| --- | --- | --- |
-| スロットがフォーカスを持てる | `setAttribute` | mx-ui |
-| フォーカスが**どう見えるか** | `style.setProperty` | mx-ui |
-| フォーカスを**動かす**キーストローク | `addEventListener` | **mc-render** |
-| 動いたことを mx-ui に**伝える** | — | **mc-render** |
-
-### 2.10.1 公開するもの
+### Public DTO
 
 ```typescript
 // domain/input-bindings.ts
-type FocusTarget = { readonly group: string; readonly index: number }  // index は 0 起点
-const HOTBAR_FOCUS_GROUP: string                       // 'hotbar'
-const FOCUS_NAVIGATION_KEY_CODE: KeyCode               // 'Tab'
-const FOCUS_NAVIGATION_OWNER: 'user-agent'
-const reportsKeyboardFocus: (state: PointerLockState) => boolean
+export type FocusTarget = {
+  readonly group: string
+  readonly index: number // zero-based within the group
+}
 
 // application/input-service.ts
-type InputEvent = ... | { kind: 'focuschange'; focus: FocusTarget | undefined }
-type InputSnapshot = { ...; readonly keyboardFocus: FocusTarget | undefined }
-type InputServiceApi = { ...; readonly keyboardFocus: Effect<FocusTarget | undefined> }
-const FOCUS_NAVIGATION_POLICY: { key; owner; preventDefault: false; registeredBy; rationale }
+type InputEvent =
+  | { readonly kind: 'focuschange'; readonly focus: FocusTarget | undefined }
+
+type InputSnapshot = {
+  readonly keyboardFocus: FocusTarget | undefined
+}
+
+type InputServiceApi = {
+  readonly dispatch: (event: InputEvent) => Effect.Effect<void>
+  readonly keyboardFocus: Effect.Effect<FocusTarget | undefined>
+}
 ```
 
-### 2.10.2 Tab は**実装しない**。ブラウザが既にやっている
+The root entry exports `FocusTarget`, `InputEvent`, `InputSnapshot`, and
+`InputServiceApi`. When using `browserInputLayer`, mx-ui provides a
+`focusTargetForElement` callback; the adapter dispatches its result as a
+`focuschange` event. The DTO contains only the group name and its zero-based member index. It carries
+no element, selector, or mx-ui-specific type. `undefined` means that focus is
+outside the managed groups; index `0` remains a valid focused member.
 
-mx-ui は**リングとタブストップを同じスロットに置いた**。
-だから Tab でブラウザがネイティブにフォーカスする要素は、
-mx-ui がリングを描いた要素と**構成上一致する**。
-順序も、Shift+Tab も、スクリーンリーダーも、画面キーボードも、プラットフォームが既に正しくやる。
+### Reading focus
 
-**足りなかったのは「気づくこと」だけである。** だから追加したのは
-`focusin` / `focusout` の 2 リスナと、それを運ぶ 1 ケースだけで、
-`keydown` の Tab ハンドラも `focus()` 呼び出しも**無い**。
+`InputServiceApi.keyboardFocus` and `InputSnapshot.keyboardFocus` expose the
+same retained focus value. They return `undefined` while pointer lock is held,
+so gameplay keys do not leave a UI focus indicator active. Releasing pointer
+lock reveals the retained value again. A consumer can read the service directly
+or use the snapshot.
 
-`focus` / `blur` ではなく `focusin` / `focusout` なのは、**後者だけがバブルする**からである。
-前者なら mx-ui が作るスロット 1 つ 1 つにリスナを付けることになり、
-このリポジトリが所有しない要素を知り、HUD が組み直されるたびに登録し直す必要がある。
-`document` の 1 本は、まだ存在しないスロットも覆う。
+### Keyboard intent
 
-### 2.10.3 `preventDefault` は**どのロック状態でも**しない
+The root entry also exports `FocusNavigationDirection`,
+`focusNavigationDirectionForCode`, `FocusStep`,
+`focusStepForDirection`, and `focusNavigationStepForCode`. These map keyboard
+codes to navigation intent and an index step. Focus-group lookup, DOM membership,
+and moving focus between mx-ui elements belong to mx-ui. The adapter emits arrow
+intent only while pointer lock is not held. It still dispatches the raw key to
+the input service, and it does not suppress the browser default.
 
-`suppressesBrowserContextMenu` / `suppressesBrowserScroll` は「ロック中だけ」という
-**擁護できる絞り込み**を持つ（§2.6 / §2.7）。Tab にはそれが**無い**。程度の差ではない:
+Tab remains owned by the browser. mc-render does not prevent its default action
+or move DOM focus. `FOCUS_NAVIGATION_POLICY.preventDefault` is `false`;
+keyboard intent conversion does not change that policy.
 
-- コンテキストメニューを飲むと、チャット行の「コピー」が消える
-- スクロールを飲むと、設定画面の下端に届かなくなる
-- **Tab を飲むと、出口が全部消える**。ブラウザのクロムにも、次のコントロールにも、
-  「縛り直して脱出する」ための設定画面にすら届かない。キーボードトラップであり
-  WCAG 2.1 SC 2.1.2 違反である
+## 2.11 Click landing and pointer-lock acquisition
 
-だから対になる述語 `suppressesBrowserFocusNavigation` は**作っていない**。
-述語は議論を再開する場所であり、この答えは全ロック状態で不変だからである。
-代わりに `FOCUS_NAVIGATION_POLICY.preventDefault === false` を値として置き、テストが見張る。
-
-同じ理由で **Tab は縛れない**（`remap` は `key-reserved-by-user-agent` で拒否する）。
-Escape の所有者はこちらが選んだフレームハンドラで、動かそうと思えば動かせる。
-Tab の所有者はユーザーエージェントで、**動かせない——上書きできるだけ**で、
-その上書きがトラップそのものである。除去できない所有者に 2 人目を足さない。
-
-（バニラの Tab はプレイヤーリストである。ブラウザはバニラではない。
-プレイヤーリストは他のどのキーにでも縛れる。両方の意味を持つ Tab は縛れない。）
-
-### 2.10.4 ロック中は**報告しない**。ただし**忘れない**
-
-`reportsKeyboardFocus(state)` は `locked` のときだけ false。
-§2.5 が「ロック中のクリックはゲーム操作、非ロック中のクリックは UI 操作」と引いた継ぎ目と同じものを、
-キーボードに当てている——ロック中はキーがアバターを動かしており、
-そのときホットバーに光るリングは**次のキーが何をするかについての嘘**である。
-
-重要なのは**マスクであって消去ではない**こと。ポインタロックはキーボードに触らないので、
-フォーカスは**まだそこにある**。消してしまうと、
-「スロット 3 に Tab → クリックして視点操作 → Escape」で
-リングがどこにも無いまま Space がスロット 3 を叩く、という状態になる。
-サービスは生の観測を保持し、読み出しでマスクする。
-
-`blur` と `clearHeld` も `keyboardFocus` だけは**保持する**。
-ウィンドウがフォーカスを失っても、その中の DOM フォーカスは動かない——
-ブラウザは同じ要素を覚えていて戻ってきたら復帰させ、たいてい再通知しない。
-ここで消すと、タブを切り替えただけでリングが消えて二度と戻らない。
-
-### 2.10.5 要素は**同一性でしか**見ない
-
-ホストが `focusGroups: [{ group: HOTBAR_FOCUS_GROUP, targets: [...9 要素] }]` を渡し、
-アダプタは `event.target` をその配列と `===` で照合して**位置**を返す。
-`targets` が `ReadonlyArray<unknown>` なのは、**中を読まないから**である
-（`DomDocument.pointerLockElement` が `unknown` なのと同じ理由）。
-
-mx-ui の `data-slot-index` を読む案は 3 つの理由で採らなかった:
-
-1. `data-slot-index` は**領域ローカル**である。ホットバーのスロット 0 とインベントリのスロット 0 は
-   同じ値を持ち、区別には祖先を辿る必要がある。セレクタをこちらに書けば、
-   それは**実物と突き合わせられないリポジトリに置かれた mx-ui の DOM 構造の写し**になる
-2. `getAttribute` を `dom-surface.ts` に入れることになり、**代入可能性の証明が壊れる**。
-   実物の `Event.target` は `EventTarget | null` で `getAttribute` を持たず、
-   全省略可能なオブジェクト型は weak type なので TypeScript が即座に拒否する。
-   `Window` が `DomEventTarget` に代入できなくなり、`pnpm typecheck` は何も言わない（DN-15）
-3. mx-ui を唯一のフォーカス可能 UI 源として焼き付けることになる。
-   自前の設定画面を描くホストにもグループはある
-
-DOM 面が増えたのは `DomInputEvent.target?: unknown` の**1 フィールドだけ**である。
-`application/dom-surface.ts` の型宣言も述語も 1 つも増えておらず、
-`index.ts` から出るエントリは 7 つのまま（`DomListenerOptions` / `DomInputEvent` / `DomListener` /
-`DomEventTarget` / `DomDocument` / `PointerLockTarget` / `isPointerLockHeld`）である。
-`test/fixtures/dom-surface.ts` に `event.target` を読むハンドラと `focusin` / `focusout` の
-登録・解除を足してあるので、**部分集合の証明はこの 1 フィールドを含んだ状態で緑である**——
-`export const windowIsAnEventTarget: DomEventTarget = browserWindow` が本物の
-`lib.dom.d.ts` に対して通ることが、`target` を足しても反変性が壊れていないことの本体である。
-
-### 2.10.6 ホストがやること —— リングを点けるための呼び出し列
-
-**mx-ui は何も呼ばない。** 向こうはリスナを 1 本も持たず（`mx-ui/application/dom-surface.ts` に
-`addEventListener` も `focus()` も無い）、`HudView.setKeyboardFocus` を**呼ばれる側**として持つだけである。
-呼ぶのは**両方をページに載せているホスト**（プレビュー、またはゲーム本体）である。
-mc-sim の §7-5 と同じ立場——「2 つのリポジトリを同時に知っている唯一の場所」がホストだからである。
-
-順序に意味があるのは 1 箇所だけで、そこが唯一の落とし穴である。
-
-```typescript
-// ── 1. HUD を先に建てる。ロスタは実在する要素の配列でなければならない ────────
-//    `parent` はホストが所有する本物の要素で、mx-ui には渡すだけ。
-const hud = createHudView(factory, parent, motion)
-
-// ── 2. ロスタを集める。mx-ui はスロット要素を配らないので、ホストが自分の
-//        `parent` から引く。`HudView.root` は mx-ui の狭い `DomElement` で
-//        `querySelectorAll` を持たないため、引くのは `parent` の側である。
-const slots: ReadonlyArray<Element> = [
-  ...parent.querySelectorAll('[data-mx-ui="hotbar"] [data-mx-ui="slot"]'),
-]
-//    9 個。DOM 文書順 = スロット index 順（`createHudView` が index 順に append する）。
-//    `tabindex` は slot の ROOT に載っている（`data-mx-ui="slot"` を持つ要素そのもの）ので、
-//    `focusin` の `event.target` はこの配列の要素と `===` で一致する。
-
-// ── 3. 入力 Layer を建てる。ロスタとロック対象はここで**閉じ込められる** ─────
-//    ブラウザホストは `renderModule().layers`（= `InputServiceLayer`）の代わりに
-//    これを provide する。タグは同じ `InputService` なので、
-//    `renderModule().frameStages` はこの provide の**中で**取る。
-//    （理由は `stages/registration.ts` 末尾の「NO RenderRegistrationLayer」:
-//      Layer を別々に provide すると、登録した stage が握るサービスと
-//      DOM イベントが届くサービスが**別インスタンス**になる。）
-const inputLayer = browserInputLayer({
-  targets: { window, document },
-  //    `canvas` は 2 つの意味を持つ。ロックを要求する**宛先**であり、
-  //    かつ「クリックがここに落ちたときだけ要求してよい」という**スコープ**である（§2.11）。
-  //    ホストが書くのは 1 回で、両方が決まる。**新しく渡すものは無い。**
-  canvas,
-  bindings: savedBindings ?? defaultBindings(),
-  focusGroups: [{ group: HOTBAR_FOCUS_GROUP, targets: slots }],
-})
-
-// ── 4. 毎フレーム、`render:input` の**後**に 1 回。上の provide の中 ────────
-//        `render:input` が snapshot → （必要なら）requestPointerLock → endFrame を
-//        済ませている。読むのは snapshot でも service 直でもよく、
-//        両者は同じマスクを通るので食い違わない。
-const input = yield* InputService
-const focus = yield* input.keyboardFocus                   // FocusTarget | undefined
-hud.setKeyboardFocus(
-  focus?.group === HOTBAR_FOCUS_GROUP ? focus.index : undefined,
-)
-```
-
-**1 → 2 → 3 の順序は守らなければならない。** `installInputListeners` はロスタを
-**インストール時にクロージャで捕まえる**。3 を先にやると `targets` は空配列のままで、
-リスナは登録され、イベントは届き、`resolveFocusTarget` は毎回 `undefined` を返す——
-**壊れ方が「静かに何も起きない」なので、テストが無ければ気づかない。**
-逆に HudView を捨てて建て直すホストは、**入力 Layer のスコープも建て直す**必要がある
-（古いロスタは死んだ要素を指す）。`createHudView` は 9 スロットを 1 度だけ作って
-以後は使い回す（`renderIconRow` と違い、ホットバーは長さが変わらない）ので、
-**1 つの HudView が生きている間ロスタは安定している。**
-
-**4 は毎フレームでよく、条件を付ける必要は無い。** `keyboardFocus` は**レベルであってエッジではない**——
-`endFrame` は触らないので、フレーム境界で消えることはない。フォーカスは「起きる」ものではなく
-「そこに在る」ものであり、フレーム境界で消すリングはリフレッシュレートで点滅する。
-「変わったフレーム」のエッジを足さなかったのは、mx-ui 側が既に冪等
-（`writeAttribute` が差分書きなので、同じ値の再指定で DOM を 1 バイトも書かない）だからで、
-足せば**消費者のいない 2 つ目の機構**になり、読み損ねたフレームで食い違う。
-
-`undefined` と `0` は**違う**。mx-ui は `undefined` で全リングを消し、`0` でスロット 0 を光らせる。
-だから「グループの外に出た」を `0` に丸めてはならない
-（`resolveFocusTarget` が `indexOf` の `-1` を index にしない理由）。
-`group` を見てから `index` を渡すのも同じ理由で、
-`{ group: 'settings', index: 2 }` をそのまま渡せばホットバーのスロット 2 が光る。
-
-ロック中は `keyboardFocus` が `undefined` を返すので、上の 1 行は自動的に
-`setKeyboardFocus(undefined)` になり、mx-ui はリングを消してタブストップを既定
-（スロット 0）に戻す。**ブラウザの実フォーカスは動かない**（`tabindex="-1"` を書いても
-フォーカス中の要素は blur しない）ので、ロックが明ければ mc-render が同じ index を再び報告し、
-同じ 1 行がリングを元に戻す。往復するために mx-ui 側に状態は要らない。
-
-**ホストがやってはいけないこと。** `focus()` を呼ばない、Tab を `preventDefault` しない、
-`tabindex` を自分で書かない。3 つとも所有者が別に居り、最初の 2 つは §2.10.2 / §2.10.3、
-3 つ目は mx-ui の `setSlotTabStop` である。
-
-**`canvas` を渡し忘れると 2 つ同時に壊れる。** ロックの要求先が無くなり
-（`UNAVAILABLE_POINTER_LOCK` になる）、同時にどのクリックも `lock-target` に解決されない。
-どちらも「マウスルックに入れない」として現れるので、症状は 1 つで原因は 1 つである。
-逆に **canvas をフォーカスグループに入れてはならない**——`resolveClickLanding` は
-ロック対象を先に見るので害は無いが、その 2 つは別の問い（§2.11）である。
-
-**グループ内をキーボードで移動する手段が無かった点（§5(a)）は閉じた。** §2.10.7 がその決定で、
-mx-ui 側のコード変更は要らない——`HudView.setKeyboardFocus` を呼ぶ**回数**が増えるだけである。
-**HUD の上のクリックがポインタロック要求になる問題（§5(b)）も閉じた。** 下の §2.11 がその決定である。
-
-### 2.10.7 グループ内の移動 —— 矢印キー、循環、ロック中は動かない
-
-**ホストが何かを呼ぶ必要は無い。** §2.10.6 の呼び出し列がそのまま、矢印キーでも動く。
-`installInputListeners`（`browserInputLayer` 経由）が `keydown` ごとに:
-
-1. `code` を `domain/focus-navigation.ts` の `focusNavigationStepForCode` に通す。
-   `ArrowLeft` / `ArrowUp` は -1、`ArrowRight` / `ArrowDown` は +1。ホットバーは 1 行なので
-   `up`/`down` は `left`/`right` と同じ意味——将来グリッド状のグループが増えたら、この関数の
-   呼び出し側（`resolveFocusNavigationTarget`）だけが行幅を知ればよく、この関数自身は変わらない。
-2. `document.activeElement` を §2.10.5 と同じ同一性照合でグループへ解決する。
-3. `domain/input-bindings.ts` の `wrapHotbarSelection`（マウスホイールの巡回と同じ関数）で
-   次の index を求め、**循環する**——ホイールでの既存の巡回と挙動を揃えるための再利用であり、
-   新しい巻き込みの罠を増やさないためでもある。
-4. その index の要素へ `.focus()` を呼ぶ。
-
-`.focus()` は `focusin`/`focusout` を**同期的に**発生させるので、§2.10.6 の手順 4 が
-そのまま新しい index を拾う——mx-ui へ新しい経路は増えていない。
-
-**`event.preventDefault()` は呼ばない。** `PREVENT_DEFAULT_EVENTS` に `keydown` は無く、
-これからも無い——足せば Tab も対象になる（§2.10.3 と同じ理由）。矢印キーの既定動作
-（何であれ）を抑止したいホストは、自分の `keydown` リスナで判断する。
-`domain/focus-navigation.ts` の `ARROW_FOCUS_NAVIGATION_POLICY.owner` が `'host'` なのは
-この境界を記録するためである。
-
-**ロック中は動かない。** `resolveFocusNavigationTarget` は `pointerLockHeld` を最初に見て、
-真なら何も返さない——`reportsKeyboardFocus` が読み出し側に掛けているのと同じマスクを、
-書き込み側にも掛けている。ロック中の矢印キーは§2.10.4のとおりプレイヤーを動かしうるので、
-同じキーがリングも動かしてしまう事故を防ぐ。
-
-**mx-ui とまだ確認していない 1 点。** `dom-surface.ts` に `focus()` を足すこと、どのキーが
-動くか、ロック中に動かないことは、いずれもこのリポジトリだけで決められることだったので
-決めて閉じた。決められなかったのは「mx-ui 側がこの挙動自体を望むかどうか」で、これは
-コードの依存ではなく UX 合意の問題である。
-
-## 2.11 クリックは**どこに落ちたか**で意味が変わる
-
-DN-16 §5(b) が「3 案あってどれも境界をまたぐ」と保留していた穴。**閉じた。**
-判断の全文と、3 案を採らなかった理由は
-[design-notes.md](./design-notes.md) DN-16 §5(b) にある。ここには決定だけを書く。
-
-### 穴
-
-非ロック中、プレイヤーがホットバーのスロットをクリックする。
-`tabindex="-1"` の要素は**クリックでフォーカスされる**のでリングが点く（正しい）。
-同じ `mousedown` が `window` までバブルして `uiClicks` に入り、
-`render:input` が `acquiresPointerLock('MouseLeft', 'unlocked')` を `true` と読む。
-ロックが許可されると `reportsKeyboardFocus` が `false` になり、
-**たった今点いたリングが消え、プレイヤーは視点操作に放り込まれる。**
-
-### 決定: 述語は「ロック対象に落ちた」
+An unlocked click can both activate UI and reach the input service. Pointer lock
+must be requested only when the click lands on the canvas that will receive the
+lock. `acquiresPointerLock` requires the configured mouse button, an unlocked or
+refused state, and the `lock-target` landing:
 
 ```typescript
 type ClickLanding = 'lock-target' | 'ui' | 'elsewhere'
@@ -913,59 +728,25 @@ const acquiresPointerLock = (button, state, landing) =>
   (state === 'unlocked' || state === 'refused')
 ```
 
-| 着地 | 何か | 要求するか |
+The browser adapter identifies the configured canvas by object identity. For
+other targets it calls the optional mx-ui-owned `clickLandingForTarget` mapper,
+which returns `ui` or `elsewhere`. If no mapper is supplied, non-canvas clicks
+are `elsewhere`. mc-render does not maintain or inspect a UI element roster.
+
+| Landing | Meaning | Requests pointer lock |
 | --- | --- | --- |
-| `lock-target` | ホストが `BrowserInputOptions.canvas` として名指しした要素。`requestPointerLock()` を呼ぶ当のもの | **する** |
-| `ui` | ホストが名指ししたフォーカスグループの要素（ホットバーのスロット、設定ボタン） | しない |
-| `elsewhere` | どちらでもない。canvas 脇のレターボックス、ページ背景、宣言されていないヘッダ | しない |
+| `lock-target` | The canvas passed to `BrowserInputOptions.canvas` | Yes |
+| `ui` | The host classifies the target as UI | No |
+| `elsewhere` | Any other target | No |
 
-**「UI に落ちなかった」ではない。** 2 つは第 3 の場合で分岐し、そこが要点である:
+A click's landing does not remove it from `uiClicks`. The snapshot keeps the
+button set and ordered `uiClickLandings` so a menu can react to clicks while
+pointer-lock acquisition uses the landing.
 
-- 「UI ではない」は**開世界**——ホストが列挙し忘れたもの全部にポインタを与える。
-  宣言忘れの代償が「リンクをクリックしたらマウスルック」になる。
-- 「ロック対象である」は**閉世界**——名指しされた 1 要素にだけ与える。
-  宣言忘れの代償は「マウスルックに入れない」であり、最初の 1 回で見え、混乱もさせない。
-- しかも**ホストの宣言が 1 つも増えない**。ロック対象とはロックの宛先そのもので、
-  ロックできるホストは既に名指ししており、名指ししていないホストは元からロックできない。
-  規則は 1 行: **「ロックを受け取る要素が、ロックを要求するために押すべき要素である」**。
-- 「UI」はロスタの語彙では言えない。ロスタは**フォーカス**のために在るので、
-  `onclick` だけの `<div>` もレターボックスも入っていない。
-
-`ui` と `elsewhere` は判定が同じでも**2 つの名前のまま**にしてある。
-ロック対象の同一性が壊れたとき全クリックが `elsewhere` になり、
-マウスルックが静かに動かなくなる——boolean だとそのバグと正しい拒否が同じ値になる。
-
-### 着地は `uiClicks` を減らさない
-
-HUD へのクリックも `uiClicks` に**入る**。そのスロットを描いたメニューが読むからである。
-変わったのは、フレームが**どこに落ちたか**を見られるようになったことだけである。
-
-```typescript
-readonly uiClicks: ReadonlySet<MouseButton>          // 「クリックされたか」——メニューの問い
-readonly uiClickLandings: ReadonlyArray<UiClick>     // 「どこに落ちたか」——ロックの問い
-```
-
-`uiClicks` は `uiClickLandings` の**射影**（snapshot 時に計算）である。
-2 つの真理を並べて持てば食い違うので、`pointerLocked` / `pointerLockState` と同じ扱いにした。
-対の列であって集合ではないのは、**1 フレームの中でスロットと canvas を続けてクリックできる**からで、
-対応が消えると片方の着地がもう片方の答えになる——それは穴が 1 段深くなっただけである。
-
-### DOM 面は増えていない
-
-`event.target` は**ヒットテストが見つけた最も深い要素**なので、
-canvas の上に描かれた DOM HUD はそこへのクリックの `target` そのものになる。
-`contains` も `composedPath` も要らず、`dom-surface.ts` は 1 メンバも増えていない
-（`target?: unknown` は §2.10 で既に在る）。
-`test/fixtures/dom-surface.ts` に証明を 1 つ足してある。
-
-限界: ホストが canvas ではなく**コンテナ要素**をロック対象にすると、その子へのクリックは
-`elsewhere` になる。そのホストは canvas を名指しすること。
-
-### 誰が変わるか —— **誰も**
-
-mx-ui はリスナも `stopPropagation()` も持たないまま（DN-UI-4 は無傷）。
-ホストは `browserInputLayer` に既に渡している `canvas` 以外を渡さない。
-`installInputListeners` を直に呼ぶホストだけが、第 4 引数で canvas をもう一度渡す。
+`resolveClickLanding(pointerLockTarget, target, clickLandingForTarget?)` is
+exported for hosts and tests. A missing or null target resolves to `elsewhere`;
+a target identical to the non-null canvas resolves to `lock-target` before the
+host mapper is consulted.
 
 ## 3. WorldRenderer — **実装済**
 
@@ -1189,9 +970,12 @@ RRegister = InputService | PlayerService — render の登録に必要
 `RenderFrameState` に pose を保存しない。`authoritativePose` と `initialPose` は公開 API に無く、
 時計は compose 側が `FrameServices` として供給する。
 
-## 7. まだ設計していない公開API
+## 7. 参照実装の API 棚卸し（初期設計時の履歴）
 
-**着手前に本書へ追記すること。**
+This is the original pre-implementation inventory, retained as historical context.
+It is not a list of current API gaps: several rows, including `WorldRenderer`,
+are implemented and documented above. The shipped root and browser entries are
+listed in §§8–9.
 
 | 領域 | 参照実装 | LOC | 主な消費者 |
 | --- | --- | ---: | --- |
@@ -1214,16 +998,64 @@ RRegister = InputService | PlayerService — render の登録に必要
 
 ## 8. 公開 API と package 検証
 
-公開面の source of truth は `src/index.ts` である。package として出荷する境界は
-生成された declaration と `package.json` の `exports` で確認する。
+The public package surface is defined by the entry points listed in
+`package.json#exports`. The root entry is `src/index.ts`; the browser entry is
+`src/browser.ts`. Review the emitted declarations and both package export paths
+when changing the public API.
 
 | 検査 | 保証するもの |
 | --- | --- |
-| `pnpm typecheck` | build / test / preview の TypeScript プロジェクトが解決できること |
-| `pnpm build` | stale な `dist/` を残さず、declaration と ESM bundle を生成すること |
+| `pnpm typecheck` | build / test / preview / browser TypeScript projects resolve successfully |
+| `pnpm build` | Removes stale `dist/` output and emits declarations and ESM for both entries |
 | `pnpm pack --dry-run` | `package.json#files` に従った package 内容になること |
-| `pnpm test` / `pnpm test:coverage` | 挙動と 100% の statements / branches / functions / lines ゲート |
+| `pnpm test` | Behavior tests |
+| `pnpm test:coverage` | Behavior tests and 100% statements / branches / functions / lines for Node coverage scope; browser runtime behavior is checked by `pnpm test:browser` |
 
-このリポジトリには `api-lock.md`、API lock 生成器、`api:check`、`api:update` は置かない。
-公開 API の変更は `src/index.ts` と declaration の差分を PR でレビューし、実行時の描画挙動は
-テストおよびブラウザ fixture の責務とする。
+This repository does not maintain an API lock file or API lock commands. Review
+the source entry points and declaration diffs in pull requests. Tests and the
+browser fixtures verify runtime rendering behavior.
+
+## 9. Browser entry
+
+Import `@nerima-games/mc-render/browser` in a browser host that owns a canvas.
+This entry depends on Three.js and is built with DOM types; the root entry stays
+portable and DOM-free.
+
+```typescript
+import {
+  GpuTimerService,
+  GpuTimerServiceLayer,
+  makeBrowserWorldRuntime,
+  makeGpuTimerService,
+  type BrowserFrame,
+  type BrowserWorldRuntime,
+  type BrowserWorldRuntimeOptions,
+  type GpuTimerServiceApi,
+  type GpuTimerServiceFailure,
+} from '@nerima-games/mc-render/browser'
+```
+
+`makeBrowserWorldRuntime(options)` asynchronously creates a runtime for the
+provided `HTMLCanvasElement`. The returned runtime exposes its Three.js
+renderer, scene, perspective camera, world renderer, resize and frame
+operations, water surface attachment, screenshot capture, animation controls,
+and disposal. Its live `quality` and `qualityPreset` values reflect adaptive
+quality changes; `latestGpuTimeMs`, `gpuTimingSupported`, and `latestSsim`
+expose the most recent measurements.
+
+`BrowserWorldRuntimeOptions` accepts an optional texture atlas, quality preset
+or custom quality, pixel ratio limit, resize behavior, water geometry, and world
+renderer options. `BrowserFrame` combines mirrored camera state with an
+optional production frame.
+
+`GpuTimerService` measures elapsed GPU time through the WebGL timer query
+extension. `GpuTimerServiceLayer(gl)` provides it as an Effect service, and
+`makeGpuTimerService(gl)` creates its API directly. A poll returns elapsed
+milliseconds when a query is available and valid; unsupported, pending, or
+disjoint queries return `undefined`. GPU failures use
+`GpuTimerServiceFailure`.
+
+This entry uses the package's pinned Three.js dependency. Applications must
+provide a WebGL2-capable browser for rendering. The browser test job exercises
+shader compilation, the composite and refraction paths, GPU timer support and
+fallback, adaptive quality, and rendered pixels on Chromium with software WebGL.

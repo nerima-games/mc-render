@@ -6,9 +6,9 @@
 | --- | --- |
 | `version` | `0.8.0` (`package.json`) |
 | 公開状態 | **未公開**。GitHub Packages にはまだ上げていない |
-| `main` / `types` / `exports` | `./dist/index.js` / `./dist/index.d.ts`。`exports` は ESM のビルド成果物を指す |
-| ビルドパイプライン | `pnpm build` が `dist/` を掃除し、`tsconfig.release.json` で宣言ファイルと ESM JavaScript を直接出力する |
-| `dependencies` | `mc-kernel@0.8.0` / `mc-meshing@0.3.0` / `mc-sim@0.5.0` / `mc-worldgen@0.5.0` / `effect@3.22.1` |
+| `main` / `types` / `exports` | root entry は `./dist/index.js` / `./dist/index.d.ts`。`exports` は root と `./browser` を公開する |
+| ビルドパイプライン | `pnpm build` が `dist/` を掃除し、DOM-free root と browser entry を各 release tsconfig で出力する |
+| `dependencies` | `mc-kernel@0.9.0` / `mc-meshing@0.4.0` / `mc-sim@0.5.0` / `mc-worldgen@0.6.0` / `effect@4.0.5` / `three@0.186.1` |
 
 ## 2. なぜ `0.x` に留めるのか
 
@@ -24,9 +24,9 @@ mc-render の実行時依存元は mc-playground-kit だけだが、**mc-render 
 `@nerima-games/*` パッケージに依存する**。したがって publish 時には、それらの公開版と
 互換性を確認する必要がある（plan.md §6 Step 3 の bottom-up）。
 
-Three.js の実行時依存は出荷ソースから分離されており、構造的な `ThreeSurface` 境界として
-実装済みである。残る検証上の課題は、固定ワールドデータを読み込むブラウザ fixture と
-スクリーンショット比較である。
+root entry は Three.js を import せず、構造的な `ThreeSurface` 境界を保つ。
+公開する `./browser` entry は Three.js を依存に持ち、canvas runtime を提供する。
+固定ワールドデータのブラウザ fixture とスクリーンショット比較を、browser entry の検証に含める。
 
 開発中は `mc-dev-meta` workspace が 16 リポジトリの clone を `repos/` に並べ、
 `workspace:*` 解決でモノレポ同等の DX を提供する（plan.md §6 Step 0-2）。
@@ -35,11 +35,12 @@ Three.js の実行時依存は出荷ソースから分離されており、構�
 ## 3. `0.x` → `1.0.0` の条件
 
 `1.0.0` は「完成した」の意味ではなく「**この界面を壊さないと約束する**」の意味である。
-mc-sim が `1.0.0` を出せるのは、以下がすべて満たされたとき。
+mc-render が `1.0.0` を出せるのは、以下がすべて満たされたとき。
 
 1. **[testing.md](./testing.md) §2 の完了条件を満たしている。**
    テスト green **かつ**内蔵 fixture ビューアが操作可能。
-   ビューアには THREE.js アダプタが要るので、これが最大の関門である。
+   `apps/preview-render/` は入力状態と描画ポリシーを調べる terminal preview である。
+   browser entry の fixture 描画と screenshot comparison は別の browser job で検証する。
 2. **maintainer(take)が昇格させてよいと裁量判断する**（[RELEASE_STANDARD.md §4.2](https://github.com/nerima-games/.github/blob/main/RELEASE_STANDARD.md#42-新しい昇格ポリシー人間による裁量判断)）。
    旧・日数計測ベースの自動ゲート（「APIロックファイルが4週間変更されていない」）は org 全体で
    廃止された（[API_STANDARD.md §4](https://github.com/nerima-games/.github/blob/main/API_STANDARD.md)）。
@@ -47,9 +48,9 @@ mc-sim が `1.0.0` を出せるのは、以下がすべて満たされたとき�
    実際に消費し動作確認したかどうかなど、都度異なってよい。
 3. **mc-playground-kit が実際に消費して契約を確認している。**
    使われていない界面に「壊さない」と約束しても意味がない。
-4. **[public-api.md](./public-api.md) §7 の未設計 API が埋まっている。**
-   `WorldRenderer` と dirty chunk の同期は実装済みである。残る完了条件は、固定チャンクを
-   ブラウザで描画して目視できる fixture とスクリーンショット比較である。
+4. **[public-api.md](./public-api.md) §§8–9 の package entry と declaration が一致する。**
+   root と browser の両方を build / package 検証し、固定 fixture の描画と screenshot comparison を
+   [testing.md](./testing.md) の browser job で確認する。
 5. `@nerima-games/mc-kernel` を `dependencies` から直接参照し、kernel の語彙を
    再定義しない。render 固有の LOD / meshing 語彙は `src/domain/` の portable definitions
    として管理する（§6 参照）。
@@ -79,18 +80,15 @@ mc-worldgen の ChunkStore.subscribeDirty（決定済み）
 現在の連鎖:
 
 ```
-mc-worldgen / mc-meshing が publish される（または vite alias に入る）
-  → ワールドデータが mc-render に届く
-    → 内蔵 fixture ビューアが動く / ライトグリッドの適用が書ける
-      → 完了条件を満たす
-        → maintainer の裁量判断
-          → 1.0.0
+mc-render の公開 package が consumer に届く
+  → mc-playground-kit が package を消費して契約を確認する
+    → maintainer の裁量判断
+      → 1.0.0
 ```
 
-**最上流は「未設計」ではなく「未 publish」である。** これは設計待ちではなく順序待ちで、
-plan.md §6 Step 3 のボトムアップ publish がそのまま解く。
-それとは独立に進む作業がシーム側に残っている（[responsibility.md](./responsibility.md) §2.3 の
-`InstancedMesh` / `ShaderMaterial` / `EffectComposer` / `TextureLoader`）。
+world data の取り込み、`WorldRenderer` の dirty subscription と lighting、
+Three.js browser runtime、固定 fixture の描画と screenshot comparison は実装済みである。
+したがって、現在の 1.0.0 readiness に残るのは公開 package の consumer 確認と maintainer の裁量判断である。
 
 ### 3.1 `0.x` の間の運用
 
@@ -120,28 +118,27 @@ mc-dev-meta workspace で開発している間は問題にならないが、publ
   `//npm.pkg.github.com/:_authToken=...` が要る。この repo 自身の `.npmrc` には
   すでに前者を書いてある。
 
-## 5. `three` / `@types/three` —— `devDependencies`、`"DOM"` 無し
+## 5. `three` / `@types/three` and the browser entry
 
-現行 package は `three@^0.185.1` / `@types/three@^0.185.4` を開発時だけ使用する。
-出荷ソースは THREE.js を直接 import せず、`src/application/three-surface.ts` が
-構造的な型でホストの実装を受け取る。`test/three-surface.test.ts` は本物の THREE の
-declaration に対して fixture をコンパイルし、この境界を検証する。
+The root entry keeps the structural `ThreeSurface` adapter. The published
+`./browser` entry imports Three.js directly, so `three` is a production
+dependency. `@types/three` remains a development dependency; the browser release
+build resolves its declarations with DOM types scoped to that entry.
 
-`tsconfig.base.json` の `lib` に `"DOM"` は入っていない。公開 declaration は
-`tsconfig.build.json` で生成し、GPU に依存する surface の型シームは Vitest のコードカバレッジ
-から除外する代わりに、fixture の診断と解決済みソースを検査する。
+The root release build still compiles without DOM types. The browser entry has
+its own release tsconfig, so browser types do not leak into the root declarations.
 
-`types` に `"three"` は追加しない。package の公開面に THREE の型を漏らさず、ホスト側の
-実装を構造的に受け取るためである。
+The browser API intentionally exposes Three.js types. Keep `three` and
+`@types/three` on the same minor version.
 
 ### 5.2 バージョンを一致させること
 
-`three` と `@types/three` は**メジャー・マイナーを揃える**。Three.js は minor でも
-破壊的変更を入れるためである。patch は npm の型定義側の追従差を許容し、
-`test/three-surface.test.ts` が両方の minor version を検査している。
+`three` and `@types/three` must use the same major and minor version because
+Three.js can introduce breaking changes in minor releases. The test suite checks
+that both pins use the same minor version.
 
-現在は `three@0.185.1` / `@types/three@0.185.4` である。
-THREE は minor でも破壊的変更を入れる。参照実装は `three/addons/postprocessing/*` の
+The current pins are `three@0.186.1` / `@types/three@0.186.0`.
+The browser entry uses `three/addons/postprocessing/*` for
 `EffectComposer` / `RenderPass` / `GTAOPass` / `UnrealBloomPass` / `BokehPass` / `SMAAPass` /
 `OutputPass` を直接使っており（`src/browser.ts` の post-processing factory）、
 addons のパス構成は THREE のバージョンで変わったことがある。
@@ -164,54 +161,42 @@ mc-kernel の API 差分としてレビューする。
 
 ## 7. ビルド / publish パイプライン
 
-ビルドと package 境界は実装済みである。`pnpm build` は `scripts/clean-dist.mjs` で
-`dist/` を先に削除し、`tsc -p tsconfig.release.json` が宣言ファイルと ESM の両方を
-直接 emit する（Wave 0 でバンドラ（esbuild/tsdown）を廃止し、kernel と同じ tsc-emit
-形に揃えた — バンドルは `exports` サブパスと declaration map を壊し、mirror/repoint
-ゲートが読む型の同一性を保証できないため）。`package.json` の `main` / `types` /
-`exports` / `files` は `dist/` を指し、`prepublishOnly`（`pnpm verify && pnpm
-package:verify`）からこの build を呼ぶ。`pnpm package:verify` は
-`scripts/verify-package.mjs` が packed tarball を実際に `npm install` して
-import することで、export map と実体の一致を CI で検証する。
+The package build clears `dist/`, then runs `tsc -p tsconfig.release.json` for
+the DOM-free root entry and `tsc -p tsconfig.browser-release.json` for the
+browser entry. `prepublishOnly` runs `pnpm verify && pnpm package:verify`.
+`scripts/verify-package.mjs` installs the packed tarball in a consumer and checks
+that every declared export target resolves.
 
 | 項目 | 内容 |
 | --- | --- |
-| ビルド | `pnpm build`: clean dist + `tsc -p tsconfig.release.json` による宣言・ESM emit |
-| `exports` | `{ ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js", "default": "./dist/index.js" } }` |
+| Build | `pnpm build`: clean dist, then emit root and browser declarations and ESM using their release tsconfigs |
+| `exports` | Root entry at `./dist/index.*`; browser entry at `./dist/browser.*` |
 | `files` | `dist` / `LICENSE` / `README.md`（npm が常に含める `package.json` を除く） |
 | changesets | CLI と CI の status 検査は導入済み。release/publish 操作は未実施 |
-| カバレッジ 100% ゲート | `vitest.config.ts`（`coverage.include: ['src/**/*.ts']`）と CI の `pnpm test:coverage` |
+| Node coverage 100% ゲート | `vitest.config.ts` の executable Node scope と CI の `pnpm test:coverage`; `src/browser.ts` は Playwright で検証 |
 
 `.gitignore` は `dist/` `build/` `out/` を無視する。
 
-このリポジトリには API lock の生成物・スクリプト・コマンドは置かない。公開面は
-`src/index.ts`、生成された declaration、PR 差分をレビューし、日数計測ベースの自動ゲートには戻さない。
+This repository does not maintain an API lock file or API lock commands. Review
+the source entry points and declaration diffs in pull requests.
 
-`src/browser.ts`（THREE.js を使うオプショナルなブラウザランタイム、
-`makeBrowserWorldRuntime`）は `tsconfig.release.json` の include に無く、
-`package.json#exports` にも `"./browser"` サブパスを宣言していない —
-`docs/public-api.md` §8 が `src/index.ts` を公開面の唯一の source of truth と
-明記しており、Wave 0 はこの文書を書き換える対象に含まれていないため。以前は
-tsdown が `dist/browser.js` を生成していたが、それを指す `exports` サブパスは
-一度も存在しなかった（`scripts/check-package.mjs` だけがそれを検証しようとして
-いたが、`package.json` 側にサブパスが無いため到達不能だった）。この repo 内の
-どのファイルもこのエントリを import していない（`grep` で確認済み）。**`./browser`
-を正式な公開面として復活させるか、shipped ではないファイルとして扱うかは
-Wave 0 の範囲外の決定として残っている。**
+The package exposes two entries. `src/index.ts` is the portable root entry;
+`src/browser.ts` is published as `@nerima-games/mc-render/browser` and compiled
+with `tsconfig.browser-release.json`. `docs/public-api.md` §9 documents its
+canvas runtime. `scripts/verify-package.mjs` checks both export targets in the
+packed package and resolves them from a consumer.
 
 ## 8. 依存の固定
 
 | 依存 | 現在 | 方針 |
 | --- | --- | --- |
-| `effect` | `3.22.1`（exact） | Effect の major を揃え、Context / Layer の型を同じ系統で合成する |
-| `@nerima-games/*` | `mc-kernel 0.8.0` / `mc-meshing 0.3.0` / `mc-sim 0.5.0` / `mc-worldgen 0.5.0` | 公開後も互換性を確認し、下流 publish の順序を守る |
-| `three` / `@types/three` | `0.185.1` / `0.185.4`（exact、**devDependencies**） | §5。出荷ソースは import せず、メジャー・マイナーをテストで揃える |
-| `typescript` / `vitest` | `7.0.2` / `4.1.11`（exact） | 開発ツールとして更新し、lockfile で実解決を固定する |
+| `effect` | `4.0.5` (exact) | Keep Effect APIs and service types on one major version |
+| `@nerima-games/*` | `mc-kernel 0.9.0` / `mc-meshing 0.4.0` / `mc-sim 0.5.0` / `mc-worldgen 0.6.0` | Pin published versions; update mc-sim after 0.6.0 is published |
+| `three` / `@types/three` | `0.186.1` / `0.186.0` (exact; runtime and development dependencies) | Keep the browser runtime and declarations on the same minor version |
+| `typescript` / `vitest` | `7.0.2` / `5.0.5` (exact) | Pin resolved development tools in the lockfile |
 | `oxlint` | **package.json devDependency ではない** | `flake.nix` の devShell が `pkgs.oxlint`（org 全体で `nix flake lock --override-input` により 624af665 に固定）を入れる。16 リポジトリが各自 npm 解決で drift するのを防ぐため、Nix 側で一本化した単一ソース |
-| `packageManager` | `pnpm@11.24.0` | lockfile と package manager の解決を揃える |
+| `packageManager` | `pnpm@12.14.0` | Keep package manager resolution aligned with the lockfile |
 
-`engines.node` は `>=24.0.0`。`flake.nix` の devShell が `nodejs_24` を入れる。
+`engines.node` remains `>=24.0.0`; the development shell uses Node.js 26.
 
-Vitest は Wave 0（chore/wave0-toolchain）で `4.1.11` に上げた。`@effect/vitest@0.30.0`
-は `vitest ^4.1.11` の peer dependency を満たし、`pnpm test` / `pnpm test:coverage` は
-ソース変更なしで green のままだった。
+`@effect/vitest` is pinned to `4.0.5` to match Effect 4 and Vitest 5.

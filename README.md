@@ -34,15 +34,23 @@ mc-playground-kit は devDependency 専用で出荷ビルドに入らないた�
 `mc-meshing` はチャンクメッシュ生成を担う application adapter から直接利用し、
 `mc-sim` / `mc-worldgen` との境界は Port と構造ミラーで保つ。
 
-**`three` / `@types/three` は `devDependencies` に入った**（現在はそれぞれ `^0.185.1` / `^0.185.4`）。
-メジャー・マイナーを揃え、patch 差だけを許すことをテストで検査する。
-`dependencies` ではない。**出荷ソースは THREE.js を 1 行も import していない** ——
-`application/three-surface.ts` が使う 7 個のコンストラクタを構造的な型として書き、
-ホストが本物の名前空間を渡す。`three` が要るのは
-`test/fixtures/three-surface.ts` を**本物の `three` の `.d.ts` に対してコンパイルする**
-テスト（`test/three-surface.test.ts`）のためであり、それがこの型が正しいことの唯一の証拠である。
-`tsconfig.base.json` の `lib` は `["ES2024"]` のまま、`types` は `[]` のまま
-（[`docs/versioning.md`](./docs/versioning.md) §5）。
+`three@0.186.1` is a runtime dependency for the published browser entry.
+`@types/three@0.186.0` stays in `devDependencies`; tests check that both pins
+share a major and minor version. The portable root entry still uses the
+structural `application/three-surface.ts` adapter and compiles without DOM
+types. The browser entry has a separate release tsconfig with DOM types.
+
+## Package entry points
+
+`@nerima-games/mc-render` is the portable root entry. It exports domain,
+application, input-service, and stage APIs without importing DOM or Three.js.
+
+`@nerima-games/mc-render/browser` exports the Three.js browser runtime for a
+host-owned canvas. Its `BrowserWorldRuntime` provides rendering, quality
+measurements, water surfaces, screenshots, and lifecycle controls. mx-ui owns
+focus DOM membership and resolution; mc-render exports the `FocusTarget`
+`{ group, index }` DTO and arrow-key intent vocabulary. See
+[`docs/public-api.md`](./docs/public-api.md) for both entry surfaces.
 
 ## このリポジトリの位置づけ
 
@@ -77,11 +85,11 @@ mc-playground-kit は devDependency 専用で出荷ビルドに入らないた�
 ### セットアップ
 
 ```console
-$ direnv allow          # flake.nix の devShell で nodejs_24 + corepack + oxlint + ast-grep が入る
+$ direnv allow          # flake.nix の devShell で Node.js 26 + corepack + oxlint + ast-grep が入る
 $ NODE_AUTH_TOKEN=$(gh auth token) pnpm install
 ```
 
-Nix を使わない場合は Node.js 24 以上と pnpm 11.24.0（`corepack` 推奨）を用意する。
+Nix を使わない場合は Node.js 24 以上と pnpm 12.14.0（`corepack` 推奨）を用意する。
 asdf を使う場合は、リポジトリ直下の `.tool-versions` をそのまま読み込む。
 `@nerima-games/*` の依存は GitHub Packages から解決するため、`pnpm install` には
 `packages: read` スコープを持つトークンが要る（`.npmrc` はレジストリのマッピングのみ
@@ -95,13 +103,14 @@ asdf を使う場合は、リポジトリ直下の `.tool-versions` をそのま
 
 | コマンド | 内容 |
 | --- | --- |
-| `pnpm typecheck` | `tsconfig.build.json` / `tsconfig.test.json` / `tsconfig.preview.json` の 3 プロジェクトを型検査 |
+| `pnpm typecheck` | root、test、terminal preview、browser application の各 TypeScript project を検査 |
 | `pnpm lint` | `nix develop --command pnpm lint` として実行すること。oxlint（`.oxlintrc.json`、`--deny-warnings` 付きで `warn` もビルドを落とす）と ast-grep（`sgconfig.yml` / `.ast-grep/rules/*`）の両方を実行する。oxlint と ast-grep は Nix の devShell が供給し、どちらも npm の devDependency ではない。`no-restricted-imports` は Wave 0 で `error` に統一した（D.9） |
 | `pnpm lint:fix` | oxlint の自動修正（ast-grep には自動修正がない） |
 | `pnpm test` | vitest（`@effect/vitest` の `it.effect` が主 API、`environment: 'node'`） |
 | `pnpm test:watch` | vitest watch |
-| `pnpm test:coverage` | 全指標 100% の閾値付きカバレッジ計測（`coverage.include` は `src/**/*.ts` 全体） |
-| `pnpm build` | `scripts/clean-dist.mjs` で `dist/` を掃除し、`tsc -p tsconfig.release.json` で宣言ファイルと ESM を emit（esbuild によるバンドルは Wave 0 で廃止） |
+| `pnpm test:coverage` | Node-executed source is held to 100% statements, branches, functions, and lines; `src/browser.ts` is verified by the Playwright browser job |
+| `pnpm test:browser` | Chromium/SwiftShader shader, fixed-fixture, screenshot, adaptive-quality, and browser-runtime checks |
+| `pnpm build` | Cleans `dist/`, then emits declarations and ESM for root and `./browser` release entries |
 | `pnpm package:verify` | `pnpm build` の後、`scripts/verify-package.mjs` が packed tarball を実際に `npm install` して import し、`exports` と実体の一致を検証する |
 | `pnpm pack --dry-run` | package に含まれる生成物が `dist` / `LICENSE` / `README.md`（および npm 必須の `package.json`）だけであることを確認 |
 | `pnpm preview` | 内蔵プレビュー（入力状態機械とポリシー表のステッパ）。**`pnpm verify` には入らない**。[`apps/preview-render/README.md`](./apps/preview-render/README.md) |
@@ -110,16 +119,16 @@ asdf を使う場合は、リポジトリ直下の `.tool-versions` をそのま
 
 ## 現状
 
-**このリポジトリは純粋な domain と注入可能な browser / THREE 境界を中心に実装されている。**
+The pure domain modules remain separate from the browser runtime. The root entry
+uses structural ports, while `src/browser.ts` owns the Three.js and WebGL
+implementation behind the `./browser` package entry.
 
-ドメインはすべて**純粋**である。ポストFXチェーンは配列、マテリアル方針は述語、
-入力バインディングは表、スクラッチバッファはただの `Map`。WebGL は無い。
-
-DOM に触るのは `window` 入力アダプタ 1 つだけで、**`tsconfig` の `lib` に `"DOM"` は入っていない**。
-アダプタが実際に使う DOM メンバは 8 個しかないので、`application/dom-surface.ts` に
-**構造的な型**として書いてある。実物の `Window` / `Document` / `HTMLCanvasElement` が
-**キャスト無しで**適合することは、本物の `lib.dom.d.ts` に対してフィクスチャをコンパイルする
-テストで証明している（[`docs/design-notes.md`](./docs/design-notes.md) DN-15）。
+Root and terminal-preview TypeScript projects do not include `"DOM"` in
+`lib`. The root input adapter uses a narrow structural DOM surface with eight
+members in `application/dom-surface.ts`; a compile-time fixture verifies that
+real `Window`, `Document`, and `HTMLCanvasElement` values satisfy it without
+casts ([`docs/design-notes.md`](./docs/design-notes.md) DN-15). The published
+`./browser` entry uses DOM types in its separate browser release project.
 
 **これは手抜きではなく設計判断である。** 参照実装ではこれらの知識が
 「builder 関数の文の並び順」や「`addEventListener` 2 行」にしか書かれておらず、
@@ -137,7 +146,7 @@ DOM に触るのは `window` 入力アダプタ 1 つだけで、**`tsconfig` �
 | ロック中のクリックとUIクリックの違い | `pressed` / `justPressed` と `uiClicks` の分離 |
 | ホイールの `deltaY` が何単位か | `WheelDeltaMode` + `notchesForWheelDelta`（1 ノッチ = 100px / 3 行 / 1 ページ） |
 | ロック要求が拒否されたのか未要求なのか | `PointerLockState`（`unlocked` / `requested` / `locked` / `refused`） |
-| キーボードがどの UI に居るか | `FocusTarget`（`{ group, index }`）+ `HOTBAR_FOCUS_GROUP`。解決は `resolveFocusTarget` の**同一性照合** 1 箇所 |
+| Keyboard focus boundary | mc-render exports `FocusTarget` (`{ group, index }`) and key-to-intent conversion; mx-ui resolves DOM membership and moves focus |
 | Tab を `preventDefault` してよいか | `FOCUS_NAVIGATION_OWNER = 'user-agent'` / `FOCUS_NAVIGATION_POLICY.preventDefault === false`（grep できる値。`remap` も Tab を拒否する） |
 
 | 領域 | 実装 | 設計注意 |
@@ -154,18 +163,18 @@ DOM に触るのは `window` 入力アダプタ 1 つだけで、**`tsconfig` �
 | `window` 入力アダプタ（登録 / 正確な解除 / イベント変換 / ロック要求の実行） | `application/browser-input-adapter.ts` | DN-04 / DN-12 / DN-13 / DN-14 |
 | DOM を `lib` ではなく狭い構造的インターフェースで受ける | `application/dom-surface.ts` | DN-15 |
 | キーボードフォーカスの**観測**（`focusin` / `focusout`、ロック中のマスク、Tab を奪わない） | 同上 + `domain/input-bindings.ts` / `application/input-service.ts` | DN-16 |
-| キーボードフォーカスの**移動**（グループ内を矢印キーで、ロック中は動かない） | `domain/focus-navigation.ts` / `application/browser-input-adapter.ts` / `application/dom-surface.ts` | DN-16 §5(a) |
+| キーボードフォーカスの DTO と矢印 intent | `domain/input-bindings.ts` / `domain/focus-navigation.ts` / `application/browser-input-adapter.ts` | W4-R5。DOM 解決とフォーカス移動は mx-ui |
 | カメラのミラー（書き戻し無し） | `domain/camera-mirror.ts` | DN-06 |
 
 各 DN の参照実装証跡（file:line）と書くべき回帰テスト一覧は
 [`docs/design-notes.md`](./docs/design-notes.md)。
 
-### まだ無いもの
+### 実装状況と残りの作業
 
-- **内蔵 fixture ビューア。** THREE.js のホストアダプタ、シーンとチャンク描画、
-  `ShaderMaterial` によるチャンク/水面、InstancedBuffer によるパーティクル、
-  `EffectComposer` によるポストFX実行は mc-compose 側に入った。アトラス転送は
-  注入可能なテクスチャ資産としてホストが担当する。
+- **対話型 terrain fixture viewer。** `apps/render-preview/` の固定 terrain fixture と
+  screenshot comparison は `pnpm test:browser` で自動検証できるが、チャンクを
+  対話的に選んで探索する viewer はまだない。`apps/preview-render/` は入力状態と
+  render policy を調べる terminal preview で、固定 terrain viewer とは別の用途である。
 - **`WorldRenderer` のダーティ購読と照明同期は入った。**
   `attachChunkStoreRenderer` が mc-worldgen の `ChunkStore.subscribeDirty` を購読し、
   ダーティチャンクを再メッシュする。各面の外側セルをワールド座標で `getLight` し、
@@ -176,20 +185,14 @@ DOM に触るのは `window` 入力アダプタ 1 つだけで、**`tsconfig` �
   `planRenderEnvironment(daylight, farPlane)` は純粋関数として空色、日照強度、
   フォグ色と距離を返す。`WorldRenderer.setEnvironment` は clear color と既存の
   chunk shader uniform を更新し、material や GPU resource を再生成しない。
-- **キーボードフォーカスの「移動」側も入った。** 観測（`focusin` / `focusout` →
-  `InputSnapshot.keyboardFocus`）に加え、グループ**内**を矢印キー（`ArrowLeft`/`ArrowUp` で
-  前へ、`ArrowRight`/`ArrowDown` で次へ、循環する）で動かす手段が入った。
-  `dom-surface.ts` に `FocusableTarget`（`focus(): void`）が増え、
-  `resolveFocusNavigationTarget` がロック中は動かさない
-  （[`docs/design-notes.md`](./docs/design-notes.md) DN-16 §5(a)）。
-  `event.preventDefault()` は呼ばない——`ARROW_FOCUS_NAVIGATION_POLICY.owner` は
-  `'host'` で、抑止するかどうかはホストの判断のままである。
-  **mx-ui 側のコード変更は要らない**（`HudView.setKeyboardFocus` は既存のまま呼ばれる回数が
-  増えるだけ）が、**この挙動を mx-ui のオーナーとまだ確認していない**——DN-16 §5(a) の
-  「まだ残っている 1 点」。
-  **同 §5(b)（HUD の上のクリックがポインタロック要求になる）も閉じた**——
-  `acquiresPointerLock` がクリックの落ちた先を受け取るようになり、
-  mx-ui もホストも変わっていない（[`docs/public-api.md`](./docs/public-api.md) §2.11）。
+- **キーボードフォーカスは mx-ui と mc-render の間で分担する。** mx-ui が DOM
+  membership を解決してフォーカスを移動し、mc-render は `FocusTarget` の
+  `{ group, index }` DTO を `InputServiceApi` で運び、矢印キーを navigation intent に変換する。
+  入力アダプタは mx-ui の resolver / intent callback を受け取るが、DOM 要素を調べず、
+  `.focus()` や `preventDefault()` を呼ばない。詳細は
+  [`docs/public-api.md`](./docs/public-api.md) §2.10。
+  **同 §2.11（UI click が pointer lock を要求しないこと）も閉じた**——
+  `acquiresPointerLock` が click landing を受け取り、mx-ui の分類 callback を使う。
 - **ゲームパッドとタッチ入力。** `domain/gamepad-input.ts` と
   `application/gamepad-input-adapter.ts` が、押下エッジ・解放・軸のデッドゾーン・切断時の
   解放を実装する。タッチ入力も `browser-input-adapter.ts` と
@@ -201,7 +204,7 @@ DOM に触るのは `window` 入力アダプタ 1 つだけで、**`tsconfig` �
   所有者が別にいるための保留である。詳細は [`docs/public-api.md`](./docs/public-api.md) §1.3。
 - **ビルドは実装済みだが、publish はまだ運用していない。** `pnpm build` が `dist/index.js` と宣言ファイルを生成し、
   `package.json` の `exports` はその生成物を指す。`version` は `0.x` に留める（[`docs/versioning.md`](./docs/versioning.md)）。
-- **カバレッジ閾値は全指標 100% に設定済み。** 未達時は `pnpm test:coverage` が失敗する。
+- **Node coverage 閾値は全指標 100% に設定済み。** `src/browser.ts` は Chromium 上で実行するため Vitest V8 の数値対象から除外し、Playwright の browser job で挙動を検査する。
 - **共有語彙は出所を分離している。** `mc-kernel` の定数は公開 package から直接 import し、
   mc-meshing と共有する可搬なメッシュ表現・LOD 定義はこのリポジトリの domain vocabulary として所有する。
   公開型との assignability は `pnpm typecheck` と各 domain test が検査する。

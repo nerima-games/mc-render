@@ -2,26 +2,21 @@
 
 ## 1. plan.md が要求する検証（§3.9）
 
-> **検証**: fixture描画 + スクリーンショット比較 +
-> **内蔵ビューア（固定チャンクを読み込んでマテリアル/ポストFXを目視確認）**
-
-3 本立てである。
+The rendering checks use both deterministic Node tests and Chromium with software
+WebGL. The public `./browser` entry owns the Three.js runtime; the portable root
+entry remains DOM-free.
 
 | 検証 | 何を保証するか | 状態 |
 | --- | --- | --- |
-| fixture 描画 | 固定チャンクが描ける | **未実装。ただし塞いでいるものが変わった** —— THREE アダプタは**着地済み**（§12）。残っているのは**描く対象**、すなわちこのリポジトリが所有していないワールドデータと、それを載せるブラウザページ。§2.2 |
-| スクリーンショット比較 | 見た目が変わっていない | 未実装。ただし**決定性は実測で片付いた**（§2.5） |
-| **内蔵プレビュー** | **人間が操作して確かめられること** | 実装済（[`apps/preview-render/`](../apps/preview-render/README.md)）。ただしターミナル。§2.2 |
-| ── うち固定チャンクの目視 | マテリアル / ポストFX の**絵**を見る | **GPU が要る。§2.2 を見ること**。現状もっとも近いのは mc-compose の `pnpm e2e:browser`（空は出るがジオメトリは届かない） |
+| Browser fixture rendering | 固定 terrain fixture が WebGL2 上で描画され、複数の atlas tile を使う | `pnpm test:browser` の render-preview テスト |
+| Screenshot comparison | 固定 fixture が pinned baseline と十分一致する | fixture/baseline の SHA-256 と SSIM > 0.95 を同じ browser job で検査 |
+| Shader probe | chunk、water、particle shader が compile して描画できる | `pnpm test:browser` |
+| Terminal preview | 入力状態と render policy を人が操作して調べる | [`apps/preview-render/`](../apps/preview-render/README.md)、`pnpm preview` |
+| Browser runtime | composite pass、refraction gate、GPU timer fallback、PNG capture を実行する | `pnpm test:browser` |
 
-> **この表は 1 度、実装より古くなったまま放置された。** 行は
-> 「未実装（THREE.js アダプタが要る。**まだ無い**）」と書いてあり、
-> 同じファイルの §2.2 と §12 は**同じ日付でアダプタの着地を詳述していた** ——
-> つまり矛盾は外部の情報ではなく、**このファイルの中で閉じていた**。
-> 表を直すときは §2.2 / §12 と突き合わせること。片方だけ直すのが、この状態の作り方である。
-
-GPU を必要としない部分の単体テストは、§3 で述べるとおり**意図的に厚くしてある**。
-内蔵プレビューはその厚みの上に立っており、同じ理由で端末に描く。
+The browser regression job covers WebGL paths that Node cannot execute. Node
+tests remain the primary proof for the deterministic domain and input state
+machines. The terminal preview is a separate interactive diagnostic tool.
 
 ## 2. 完了条件（plan.md §6 Step 2）
 
@@ -39,33 +34,23 @@ mc-render のプレビューは kit の**前**に作る必要がある——kit 
 kit を待っていると永遠に始まらない。つまり mc-render のプレビューだけは kit 無しで書く。
 これは重複ではなく、kit の設計に対する最初のフィードバックになる。**そうした。**
 
-### 2.2 「固定チャンクの目視」がまだ無い理由と、代わりに何を見せているか
+### 2.2 Browser fixture and image comparison
 
-**この節の前提は 2026-07-28 に変わった。THREE シームは着地した。**
-以下、変わった部分と変わらなかった部分を分けて書く。
+The published `./browser` entry imports Three.js and creates a runtime for a
+host-owned canvas. Its DOM and WebGL declarations are compiled in a separate
+browser release project; the root release build keeps `lib: ["ES2024"]` and
+`types: []`.
 
-#### 変わったこと
+`apps/render-preview/` loads the fixed terrain fixture and draws it through the
+browser runtime. The browser regression suite checks that the fixture draws
+multiple atlas tile colours and compares the canvas with the pinned PNG using
+SSIM. It also checks the fixture and baseline hashes so an input change cannot
+silently redefine the reference image. `apps/shader-probe/` compiles and draws
+the chunk, water, and particle shaders under Chromium/SwiftShader.
 
-`application/three-surface.ts` と `application/world-renderer.ts` があり、
-`render:draw` は `DrawPort` を呼ぶ。`domain/chunk-geometry.ts` は mc-meshing の
-quad を interleave した頂点バッファにする。**`tsconfig.base.json` の `lib` は
-`["ES2024"]` のまま、`types` は `[]` のままである** —— 予告では `"DOM"` が要ると
-書いてあったが、要らなかった（[versioning.md](./versioning.md) §5.1）。
-つまり上の段落が守りたかった機構的保証は**そのまま残っている**。
-
-`three` は `devDependencies` にある。出荷ソースは 1 行も import しない。
-
-#### 変わっていないこと ——「固定チャンクの目視」は依然この repo に無い
-
-`apps/preview-render/` はターミナルプレビューのままである。ブラウザプレビューを
-足すには vite（もう 1 つの devDependency）と、このリポジトリが所有していない
-ワールドデータが要る。**代わりに、目視は mc-compose の `pnpm e2e:browser` にある** ——
-そこでは実際に WebGL2 コンテキストが取得され、フレームが回る
-（docs/e2e-triage.md #1、2026-07-28 に `fixme` を外した）。
-ただし**画面はスカイブルー 1 色である**。mc-worldgen も mc-meshing も
-mc-compose の vite alias で解決できる 3 つの兄弟に入っていないので、
-ジオメトリがページに到達しない。「コンテキストが無い」と「中身が無い」の区別が
-ついた、というのがこの変更の到達点である。
+`apps/preview-render/` remains the terminal preview for stepping input and
+render policies. It complements the browser fixture rather than standing in
+for it. See [`public-api.md`](./public-api.md) §9 and the command table below.
 
 #### 判定方法についての注意は生きている
 
@@ -123,31 +108,32 @@ DN-02 §「数値の出所」は**コミットメッセージを見なかった�
 
 全件の詳細は [`apps/preview-render/README.md`](../apps/preview-render/README.md)。
 
-### 2.3 fixture の入手元（THREE アダプタ着手時）
+### 2.3 Browser fixture inputs
 
-参照実装の fixture を資産として移植する（plan.md §6 Step 2）。
-チャンク fixture は `packages/rendering/test/` および mc-meshing 側のゴールデンテスト用と共通化できる。
-そのときの目視テストは mc-playground-kit を要する。**現在のプレビューはその代わりではない。**
-GPU 無しで確かめられる半分であり、入力状態機械にいたっては他に置き場所が無い。
+The browser fixture is `apps/render-preview/terrain-fixture.json`; its expected
+image is `e2e/fixtures/render-preview-baseline.png`. The Playwright test pins
+both inputs by SHA-256 before comparing the rendered canvas. Keep fixture
+changes and baseline changes reviewable together.
 
 ### 2.4 プレビューの依存
 
-`apps/preview-render/` は**このリポジトリ自身のモジュール、`effect`、
-`@nerima-games/mc-kernel`、`@nerima-games/mc-sim` を import する**。
-他の org パッケージも THREE も持たず、`tsconfig.preview.json` と `pnpm lint` で検証する。
-ミラーの陳腐化は注入した `MonotonicTimeSecs` を操作者が動かして測るため、
-ランタイムがグローバルな時計を直接読む設計にもしていない。
+`apps/preview-render/` is the terminal diagnostic app. It imports mc-sim and
+stays on the 0.5 API until mc-sim 0.6.0 is published; its deferred migration is
+separate from `apps/render-preview/`, the browser fixture used by Playwright.
+The terminal preview continues to use the injected `MonotonicTimeSecs` clock.
 
 ### 2.5 スクリーンショット比較の決定性 —— **実測して片付けた**
 
-アダプタが無くても、**比較側の未知**は先に潰せる。潰した。以下はすべて実測値である
-（Apple macOS、Playwright、640x480、`deviceScaleFactor: 1`、参照実装と同じ
-launch フラグ、現行 `package.json` の THREE、`MeshLambertMaterial` + 平行光 + 環境光、
-16x16 チャンクを greedy merge した 169 quad / 1690 三角形、カメラ固定）。
+Before the browser runtime shipped, comparison uncertainty was measured under
+these conditions: Apple macOS, Playwright, 640x480, `deviceScaleFactor: 1`, the
+reference launch flags, the then-current Three.js package, `MeshLambertMaterial`
+with directional and ambient light, and a fixed camera viewing a 16x16 chunk
+greedily merged to 169 quads / 1690 triangles.
 
-この節の画像測定値は参照実装条件での記録であり、現行依存関係でのブラウザ画像比較を
-完了したことを意味しない。現行の受け入れゲートは `pnpm test:coverage` と
-`pnpm build`、および将来追加する fixture / screenshot 検証である。
+These historical measurements do not replace the current browser gate. The
+current fixture acceptance check is `pnpm test:browser`, which requires SSIM
+above 0.95 and verifies the fixture and baseline hashes. `pnpm test:coverage`
+and `pnpm build` remain separate package gates.
 
 #### 測定 1: SwiftShader は**ビット単位で決定的**である
 
@@ -241,7 +227,10 @@ SwiftShader と Metal（実 GPU、ANGLE Metal Renderer: Apple M4 Max）の同一
 
 ## 3. GPU を必要としないテストを厚くする方針
 
-**現在のソースには THREE.js が 1 行も無い。** これは設計判断で、根拠は 2 つある。
+The portable root modules stay independent of Three.js. The published
+`./browser` entry contains the concrete Three.js and WebGL implementation, so
+runtime browser behavior is tested in Playwright as well as through pure domain
+tests.
 
 ### 3.1 参照実装で「読むことでしか検査できなかった」知識をデータにする
 
@@ -258,7 +247,7 @@ SwiftShader と Metal（実 GPU、ANGLE Metal Renderer: Apple M4 Max）の同一
 「ultra プリセットの誰かのマシンで god rays が光らなくなった」という形でしか観測できない。
 データにすると単体テストの失敗になる。
 
-### 3.2 ブラウザでしか試せないものは、ブラウザでも試せない
+### 3.2 Browser E2E coverage and its pointer-lock limit
 
 plan.md §3.10 が記録している E2E 環境の制約:
 
@@ -273,7 +262,10 @@ launchOptions.args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-webg
                      '--enable-unsafe-swiftshader', '--no-sandbox', ...]
 ```
 
-つまり **E2E でポインタロックの挙動は検証できない。**
+Headless Playwright on SwiftShader cannot exercise pointer-lock state
+transitions. The browser job does verify shader compilation, fixture rendering,
+screenshot similarity, and the browser runtime under Chromium/SwiftShader.
+Pointer-lock transitions remain in Node tests.
 DN-09（ロック解除時にデルタを捨てる）のような知見は、
 **ポート越しの単体テストで押さえるしかない**。だから入力サービスは
 DOM を import せず `InputEvent` を注入で受ける。
@@ -291,37 +283,42 @@ E2E でも（ポインタロックが使えないので）単体でも（DOM が
 `environment: 'node'` であり、テスト数は固定値として文書化せず、実行時の Vitest 出力を
 一次資料とする。
 
-| ファイル | テスト数 | 対応 |
-| --- | ---: | --- |
-| `test/post-processing.test.ts` | 22 | DN-01 / DN-07 |
-| `test/input.test.ts` | 128 | DN-04 / DN-05 / DN-08 / DN-09 / DN-12 / DN-13 / DN-14 |
-| `test/browser-input-adapter.test.ts` | 77 | `window` アダプタ。DN-04（登録と解除）/ DN-12 / DN-13 / DN-14 / DN-15 |
-| `test/touch-controls.test.ts` | 23 | タッチ入力（DN-16 周辺） |
-| `test/movement-keys.test.ts` | 10 | 移動キーの語彙 |
-| `test/camera-mirror.test.ts` | 14 | DN-06 |
-| `test/frame-scratch.test.ts` | 18 | DN-03 |
-| `test/material-policy.test.ts` | 10 | DN-02 |
-| **`test/particle-pool.test.ts`** | **36** | **DN-17**（容量・drop-oldest・シード付き乱数） |
-| **`test/water-surface.test.ts`** | **31** | **DN-18**（水マテリアルと `forceSinglePass` の穴）/ DN-02 |
-| **`test/water-refraction.test.ts`** | **29** | **DN-18**（屈折プリパスのゲート 6 つとその順序） |
-| **`test/texture-atlas.test.ts`** | **19** | **DN-19**（レイアウト算術、RGBA生成、全マッピングcoverage、素材別alpha） |
-| **`test/world-renderer.test.ts`** | **20** | THREE シーム。呼び出しプロトコルのみ（§12.3） |
-| **`test/chunk-geometry.test.ts`** | **21** | merged extent と per-face AO（§12.2） |
-| **`test/three-surface.test.ts`** | **4** | 本物の `three` に対する構造的代入可能性の証明（§12.1） |
-| `test/stage-registration.test.ts` | 29 | `stages/` のフレーム位置と順序制約（public-api.md §6-2）+ クリック→ロック要求（DN-14）+ `render:draw` の `DrawPort` 呼び出し |
+| ファイル | 対応 |
+| --- | --- |
+| `test/post-processing.test.ts` | DN-01 / DN-07 |
+| `test/input.test.ts` | DN-04 / DN-05 / DN-08 / DN-09 / DN-12 / DN-13 / DN-14 / W4-R5 focus state |
+| `test/browser-input-adapter.test.ts` | DOM listener lifecycle, event translation, focus and click host callbacks |
+| `test/touch-controls.test.ts` | タッチ入力と blur reset |
+| `test/movement-keys.test.ts` | 移動キーの語彙 |
+| `test/camera-mirror.test.ts` | DN-06 |
+| `test/frame-scratch.test.ts` | DN-03 |
+| `test/material-policy.test.ts` | DN-02 |
+| `test/particle-pool.test.ts` | DN-17（容量・drop-oldest・シード付き乱数） |
+| `test/water-surface.test.ts` | DN-18（水マテリアルと `forceSinglePass`）/ DN-02 |
+| `test/water-refraction.test.ts` | DN-18（屈折プリパスのゲートと順序） |
+| `test/texture-atlas.test.ts` | DN-19（レイアウト算術、RGBA生成、全マッピング、素材別 alpha） |
+| `test/world-renderer.test.ts` | THREE シームの呼び出しプロトコル（§12.3） |
+| `test/chunk-geometry.test.ts` | merged extent と per-face AO（§12.2） |
+| `test/three-surface.test.ts` | 本物の `three` に対する構造的代入可能性（§12.1） |
+| `test/adaptive-quality.test.ts` / `test/ssim-adaptive-quality.test.ts` | FPS and SSIM quality policy |
+| `test/refraction-ratio-gate.test.ts` | refraction render-ratio gate |
+| `test/browser-runtime.test.ts` | GPU timer service lifecycle and error handling |
+| `test/public-api.test.ts` | root public focus DTO and callback exports |
+| `test/stage-registration.test.ts` | `stages/` order and input-to-render wiring |
 
-### 4.2 パーティクル / 水面で**押さえられなかった**もの
+### 4.2 Visual claims not covered by the current browser fixture
 
-§3.2 の論法と同じで、正直に書いておく。以下は
-「**本物のスクリーンショットが要るので、ここでは検査できない**」であって、
-弱い assertion を置いて覆っているつもりになってはならない。
+The current screenshot fixture covers terrain. The shader probe checks that
+shader programs compile and draw, and the browser runtime test checks the
+refraction gate. They do not establish the visual quality or gameplay workload
+claims below.
 
 | 主張 | なぜ検査不能か |
 | --- | --- |
-| パーティクルが**それらしく見える**か（0.1m のクォッドの大きさ、フェード曲線、壊したブロックのタイルが本当に出ているか） | GPU が要る。§1 の fixture / スクリーンショット行 |
-| **容量 512 で足りる**か（速いツルハシで枯渇しないか） | 同上。参照実装も測定を残していない（`domain/particle-pool.ts` は「転記であって正当化ではない」と明記） |
-| 水の**色が水に見える**か。パレット・空のグラデーション・`WATER_SURFACE_ALPHA = 0.86` | 参照実装の根拠が「湖が水平線のヘイズに溶けないこと」という**画についての判断**であり、画を見ないと決まらない |
-| 屈折の閾値 0.005 / 0.05 と、high の間隔 2 が**振り向きで遅れて見えないか** | 実 GPU で閾値サイズの水を見るしかない |
+| パーティクルが**それらしく見える**か（0.1m のクォッドの大きさ、フェード曲線、壊したブロックのタイルが本当に出ているか） | 現在の fixture にパーティクルが無く、shader probe は見た目を比較しない |
+| **容量 512 で足りる**か（速いツルハシで枯渇しないか） | gameplay workload の測定が無い。参照実装にも測定値は無い（`domain/particle-pool.ts` は「転記であって正当化ではない」と明記） |
+| 水の**色が水に見える**か。パレット・空のグラデーション・`WATER_SURFACE_ALPHA = 0.86` | 現在の terrain fixture に水面が無く、shader probe は見た目を比較しない |
+| 屈折の閾値 0.005 / 0.05 と、high の間隔 2 が**振り向きで遅れて見えないか** | 閾値ゲートは browser runtime test で検証するが、閾値付近の水面を動かす視覚 fixture は無い |
 
 検査**できた**ほうは、逆に全部データにしてある ——
 リップルが有界であること、フレネルが単調であること、
@@ -349,21 +346,23 @@ it.effect('name', () => Effect.gen(function* () { ... }))
 純粋な assertion だけの場合も `Effect.sync` で包む（実行モデルを 1 つに保つため）。
 `it.effect` は TestClock を提供する。
 
-### 5.2 `environment: 'node'` 固定 — **ブラウザや WebGL を要するテストを書かない**
+### 5.2 Node unit tests and browser E2E have separate jobs
 
 `vitest.config.ts` は `environment: 'node'`。jsdom も入れていない。
 
-これは制約に見えて、**設計を守る仕掛け**である。
-DOM を要するテストを書きたくなったら、それは DOM を domain/application に持ち込もうと
-している合図である。ブラウザ依存は THREE.js / `window` アダプタに閉じ込める。
+Vitest stays in `environment: 'node'` so domain and service tests do not need
+a browser simulator. Tests that need actual DOM, WebGL2, or the published
+browser runtime run in the separate Playwright job instead of expanding the
+Node test environment.
 
 **`window` 入力アダプタはこの規約の中に収まった**（§8.1）。
 `jsdom` も Playwright も要らない——アダプタが触る DOM メンバは 8 個しかなく
 （`application/dom-surface.ts`）、偽装は 40 行で済む。
 `lib.DOM` を入れずに済ませたことがそのまま「偽装できる大きさ」を保証している（DN-15）。
 
-THREE.js アダプタは違う。あちらの検証は §1 の 3 本立て
-（fixture / スクリーンショット / 内蔵ビューア）で行う。
+The browser runtime is covered by the fixture, screenshot, shader-probe, and
+runtime checks listed in §1. Pointer-lock transitions remain covered by Node
+tests because the headless SwiftShader browser cannot request pointer lock.
 
 ### 5.3 全数テストできるものは全数テストする
 
@@ -432,12 +431,13 @@ assert しているのは文字列の存在であって、数値の再現では�
 
 ## 6. カバレッジ
 
-`vitest.config.ts` は branches / functions / lines / statements の全指標に 100% の閾値を
-設定している。`pnpm test:coverage` はこの閾値を含む現行の品質ゲートであり、CI でも実行する。
+`vitest.config.ts` は Node coverage の branches / functions / lines / statements 全指標に
+100% の閾値を設定している。`pnpm test:coverage` はこの閾値を含む現行の品質ゲートであり、
+CI でも実行する。`src/browser.ts` は Chromium 内で実行されるため Vitest V8 の計測範囲外とし、
+実行時の WebGL 経路は `pnpm test:browser` で検査する。
 
-カバレッジは Node 上で実行されるソースとテストの範囲を示す。GPU を使うブラウザ描画の
-見た目はカバレッジの代替にならないため、fixture 描画とスクリーンショット比較は別の
-検証として追加する。
+この browser job は Node coverage の代替ではない。固定 fixture の描画と screenshot
+comparison、shader、composite/refraction、GPU timer fallback、F2 capture の動作を独立して検証する。
 
 ## 7. CI
 
@@ -483,7 +483,7 @@ install (GitHub Packages 認証込み)
 `retries` はスクリーンショット比較には**入れないこと**。上の 2 つを守れば決定的であり、
 決定的なテストに retry を付けると、壊れた瞬間を隠す方向にしか働かない。
 
-## 8. これから必要なテスト
+## 8. Remaining test work
 
 [design-notes.md](./design-notes.md) の「（要追加）」印を参照。特に重要な未実装:
 
@@ -493,31 +493,27 @@ install (GitHub Packages 認証込み)
 
 | テスト | 対応 | いつ | 条件は成立したか |
 | --- | --- | --- | --- |
-| `the THREE adapter adds passes in exactly buildPostProcessingChain order` | DN-01 | ホストの EffectComposer アダプタが着地したとき | **mc-compose 側で成立。** mc-render の純粋なシームには Three.js の `EffectComposer` / `Pass` を入れず、ブラウザ実装は `mc-compose/apps/web/post-processing.ts` が検証対象として所有する |
+| `the THREE adapter adds passes in exactly buildPostProcessingChain order` | DN-01 | browser runtime の実装時 | The browser entry owns the Three.js composer; domain chain order is unit-tested and Chromium E2E executes the composite path |
 | `every shared material built by the adapter passes auditMaterials` | DN-02 | 起動時アサーションとして | **成立した。** `makeWorldRenderer` は共有 `MeshBasicMaterial` を 1 枚作る。ただし `describeMaterialPolicy` の入力である `MaterialSpec` を組む所がまだ無い |
 | `a full frame allocates no new Map` | DN-03 | シーム着地後 | **成立した。** `render:draw` は実体になった。未着手 |
 | `no source file in this repository reads camera.position` | DN-06 | 走査テストで | **成立した。ただし優先度は下がった** —— `ThreeSurface` の `ThreeVector3` は `set` しか持たず、`ThreeCamera` は読み出し口を持たない。**読む書き方が型として存在しない**ので、走査テストは型が既に保証しているものの二重化になる。書くなら「シームに getter が生えていないこと」を見るほうが強い |
 | `blur clears gamepad and touch state too` | DN-08 | それらの実装時 | **成立。** `test/touch-controls.test.ts`（25 件）と `test/gamepad-input.test.ts`（5 件）で、保持状態・軸・押下エッジを検証する |
 | ワーカープールの Port 適合 / 死んだワーカーの置き換え | DN-10 | プール実装時 | まだ |
-| fixture 描画 + スクリーンショット比較（許容差 0、SwiftShader 限定 skip 付き） | §2.5 | 描く対象が届いたとき | **アダプタ条件は成立、データ条件は未成立。** §1 の表と §2.2 を見ること。塞いでいるのはワールドデータであってアダプタではない |
+| terrain fixture rendering + screenshot comparison (SSIM > 0.95) | §2.2 / §2.5 | 完了 | `e2e/shader-probe.e2e.spec.ts` verifies fixed inputs, drawn pixels, multiple atlas tiles, and SSIM against the pinned baseline |
 | 参照実装の入力テスト 1,261 LOC の移植 | — | 残り（[porting.md](./porting.md) §6） | — |
 
-**アダプタを書き始める前に決めておくこと（テストではなく設計制約）。**
-§2.5 の測定から出た要求は 1 つだけで、しかし**後から入れると高くつく**:
+**Browser runtime property enforced by the current tests.** The runtime exposes
+an explicit `render` call so the fixture can draw and capture a frame without a
+wall-clock delay:
 
 > レンダラは **1 フレームを明示的に描いて戻る入口**を持つこと。
 > rAF ループを内部に抱えたまま「描きっぱなし」にしないこと。
 
-自前の rAF ループを持つレンダラは**テストから決定的に駆動できない**。
-ループを埋め込んだ後でフレームステップの入口を後付けするには、
-生存期間と順序の前提を全体にわたって解きほぐすことになる。
-だからこれは「スクリーンショットテストを書く人の要望」ではなく
-**アダプタの仕様に最初から入れる制約**である。
-測定 2（rAF + 固定待ちで 5 回とも別画像、最悪 1.196% / 最大チャンネル差 103）がその根拠。
+This keeps the pinned image comparison independent of an animation-frame wait.
 
 ### 8.1 解消済み: `window` 入力アダプタの 5 本
 
-かつてこの表にあった以下は `test/browser-input-adapter.test.ts`（49 テスト）で**実装済み**である。
+かつてこの表にあった以下の回帰契約は `test/browser-input-adapter.test.ts` で実装済みである。
 
 | テスト | 対応 |
 | --- | --- |
@@ -527,11 +523,9 @@ install (GitHub Packages 認証込み)
 | `the wheel handler calls preventDefault exactly when shouldSuppressWheelScroll says so` | DN-13 |
 | `the browser port calls canvas.requestPointerLock exactly once per ask` | DN-14 |
 
-DOM は**偽物**で駆動している。§5.2 の「ブラウザを要するテストを書かない」に反していない——
-アダプタが触る DOM メンバは 8 個しかなく（`application/dom-surface.ts`）、
-偽装は 40 行で済む。そしてこれは妥協ではなく §3.2 の論法そのものである:
-実ブラウザでもポインタロックは駆動できない（Playwright は SwiftShader）ので、
-「本物の DOM で試す」という選択肢は最初から存在しない。
+Node unit tests use a fake DOM to keep listener and event-translation checks
+deterministic. The browser regression job exercises the renderer DOM and WebGL
+path; headless SwiftShader still cannot exercise pointer-lock transitions.
 
 追加で 2 本、**この設計自体**を守るテストがある（DN-15）。
 
@@ -540,13 +534,38 @@ DOM は**偽物**で駆動している。§5.2 の「ブラウザを要するテ
 | `a real Window, Document and HTMLCanvasElement satisfy the adapter without a cast` | `test/fixtures/dom-surface.ts` を**本物の `lib.dom.d.ts`** に対してコンパイルし、診断 0 件を assert する。狭い構造的型が実物の部分集合であること |
 | `the shipped project still compiles with NO DOM at all` | `tsconfig.build.json` の `lib` / `types` が後から緩められていないこと |
 
-### 8.2 キーボードフォーカス（DN-16）
+### 8.2 Keyboard focus boundary (DN-16, W4-R5)
 
-`test/input.test.ts` に focus 関連の describe、`test/browser-input-adapter.test.ts` には
-`DN-16 §5(a): resolveFocusNavigationTarget answers WHERE arrow navigation moves TO` と
-`DN-16 §5(a): arrow keys move focus within a group, through the real listener` を含む
-4 describe（§5(a) が閉じたことで 2 本増えた——下記参照）。
-全表は [design-notes.md](./design-notes.md) DN-16 にある。
+`FocusTarget` is the public `{ group, index }` DTO owned by mc-render and carried
+through `InputServiceApi`. mx-ui owns DOM membership, resolves focus elements to
+that DTO, and moves focus within its groups. mc-render maps arrow key codes to
+direction intent. It does not inspect a host roster or call `.focus()`.
+
+| Coverage | What it protects | Location |
+| --- | --- | --- |
+| Focus state, pointer-lock masking, `focusout`, and frame retention | The input service retains a DTO, masks it while locked, and clears it when focus leaves managed UI | `test/input.test.ts` |
+| Host callbacks and DOM event translation | `focusin` dispatches the callback's DTO; focus outside the host UI yields no DTO; unlocked arrows become direction intent while raw keys still reach the input service | `test/browser-input-adapter.test.ts` |
+| Keyboard ownership | Tab remains browser-owned and is never suppressed or remapped; the renderer does not suppress arrow keys | `test/input.test.ts`, `test/browser-input-adapter.test.ts` |
+| Public surface | The root entry exports `FocusTarget`, callback types, and key-to-direction helpers | `test/public-api.test.ts` |
+
+The host's resolver and DOM focus movement are outside this repository's test
+surface and belong to mx-ui. mc-render tests the scalar callback boundary with a
+fake DOM. The browser regression job covers rendering paths that require
+WebGL; it does not claim to verify host-owned focus behavior.
+
+Click landing follows the same ownership boundary. mc-render checks exact canvas
+identity first, then asks the host to classify other targets as `ui` or
+`elsewhere`. The service records every unlocked click, while only a primary
+click on the canvas can request pointer lock. Predicate, adapter, and stage
+coverage live in `test/input.test.ts`, `test/browser-input-adapter.test.ts`, and
+`test/stage-registration.test.ts` respectively.
+
+### Historical pre-W4-R5 implementation notes (superseded)
+
+The notes below were written when mc-render owned focus and click target
+classification. They are retained only as history; the current API and test
+boundary are stated above and in [public-api.md](./public-api.md) §§2.10–2.11.
+The final package-verification paragraph in this section remains current.
 
 | テスト | 何を守るか |
 | --- | --- |
@@ -563,21 +582,9 @@ DOM は**偽物**で駆動している。§5.2 の「ブラウザを要するテ
 実装が入り、上の 4 本目の行がそれを固定した（DN-16 §5(a)、「(a) を閉じたが、まだ残っている 1 点」参照）。
 テーブルを直すときの注意は §1 冒頭のものと同じ: 片方だけ直すと矛盾がまたこのファイルの中で閉じる。**
 
-**残っている限界（テストの穴ではなく、この設計が最初から選ばなかったもの）。**
-`ArrowRight calls .focus() on the next slot` が固定しているのは「配線が正しい要素の
-`.focus()` を呼ぶこと」であって、**その呼び出しが実ブラウザで `focusout`/`focusin` を発火させ
-`document.activeElement` を実際に動かすこと」ではない——このフェイクの `.focus()` は
-呼び出し回数を数えるだけで、ブラウザではない（テスト自身のコメントがそう書いている）。
-その事実は 2026 年 8 月末に一度、実ブラウザを CDP (Chrome DevTools Protocol) で駆動して
-手作業で確かめられた——`document.activeElement` が実際に動き、入力スナップショットがそれを
-報告した。**その確認はコミットされたチェックとして存在しない。** §5.2 の規約
-（`environment: 'node'` 固定、`jsdom` も Playwright も入れない）と、
-§8.1 の理由（アダプタが触る DOM メンバは 8 個だけで、ポインタロックはどのみち
-Playwright/SwiftShader で駆動できない——§3.2）から、この 1 点のためだけに
-ブラウザテスト一式を足すべきかは、**このリポジトリの他のどの検証判断より大きい決定**で、
-1 タスクの一存では決めない。あるとすれば、フォーカスはロックと違って
-Playwright で実際に検証可能な数少ない領域だという点が §8.1 の前提（「実ブラウザでも
-試しようがない」）と食い違う——それが再検討の理由になるなら、この段落を起点にすること。
+mx-ui owns the resolver, DOM membership, and browser focus movement under
+W4-R5. This repository tests the `FocusTarget` callback boundary and key
+intent; the renderer browser job does not test mx-ui's host-owned focus UI.
 
 **もう 1 つ（HUD の上のクリックがロック要求になる）は閉じた**（DN-16 §5(b)）。
 `acquiresPointerLock` は `(button, state, landing)` になり、`landing` は

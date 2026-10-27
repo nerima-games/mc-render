@@ -39,16 +39,18 @@ mc-playground-kit は devDependency 専用で出荷ビルドに入らないた�
 
 ## いま何が入っているか
 
-**監査後の実装段階。THREE.js はホスト注入する構造 surface 越しに利用する。**
+**Implementation status:** the portable root uses the structural Three surface;
+the published `./browser` entry owns the concrete Three.js runtime.
 
 ドメインはすべて**純粋**である。ポストFXチェーンは配列、マテリアル方針は述語、
 入力、chunk/world 同期、WebGL 描画、atlas shader、照明同期、空と距離フォグまで実装済み。
 これは手抜きではなく設計判断で、理由は [testing.md](./testing.md) §3 にある——
 順序規則やイベント遮蔽規則を **`environment: 'node'` の単体テストで固定できる**ようにするため。
 
-`window` 入力アダプタは入ったが、**`lib` の `"DOM"` は入れていない**。
-触る DOM メンバは 8 個で、`application/dom-surface.ts` に構造的な型として書いてある
-（[design-notes.md](./design-notes.md) DN-15）。
+The root build remains DOM-free. DOM and WebGL types are scoped to
+`src/browser.ts` and its browser release project; the browser regression job
+uses Chromium with software WebGL. Pointer-lock state transitions remain
+covered by Node tests because headless SwiftShader cannot request pointer lock.
 
 | 領域 | 実装 | 設計注意 |
 | --- | --- | --- |
@@ -58,13 +60,14 @@ mc-playground-kit は devDependency 専用で出荷ビルドに入らないた�
 | 入力の window/document 遮蔽と Escape 単一所有 | `domain/input-bindings.ts` / `application/input-service.ts` | DN-04 / DN-05 |
 | クリック・ホイール・ポインタロック要求 | 同上 | DN-12 / DN-13 / DN-14 |
 | `window` 入力アダプタ（登録 / 解除 / 変換 / ロック要求） | `application/browser-input-adapter.ts` / `application/dom-surface.ts` | DN-04 / DN-12 / DN-13 / DN-14 / DN-15 |
-| キーボードフォーカスの**観測**（Tab は奪わない。ロック中はマスクし、忘れない） | 同上 + `domain/input-bindings.ts` | DN-16 |
+| Keyboard focus DTO and arrow intent | mc-render owns `FocusTarget` and key mapping; mx-ui owns DOM membership and focus movement | W4-R5 |
 | カメラのミラー（書き戻し無し） | `domain/camera-mirror.ts` | DN-06 |
 
-まだ無いもの: **mc-render 単体の fixture ビューア**、テクスチャ PNG の THREE 転送、
-テクスチャ PNG の同梱、内蔵 fixture ビューア、
+Remaining work includes **texture PNG transfer through Three.js** and
+**packaging an authored texture atlas**; the fixed terrain fixture browser
+preview is available through `pnpm test:browser`.
 グラフィックス品質プリセットの残り物（影解像度は所有者違いで対象外、視界距離のチャンク基準値は
 mc-sim 所有で未公開 —— [public-api.md](./public-api.md) §1.3）。
 
-キーボードフォーカスの「移動」側（矢印キーでグループ内を動かす手段）は閉じた ——
-[public-api.md](./public-api.md) §2.10.7。
+mx-ui owns keyboard focus movement. mc-render exposes the DTO and converts
+arrow keys to intent, as documented in [public-api.md](./public-api.md) §2.10.
