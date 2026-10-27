@@ -57,6 +57,8 @@ import {
   enqueueNativeMouseButton,
   ESCAPE_POLICY,
   FOCUS_NAVIGATION_POLICY,
+  InputService,
+  InputServiceLayer,
   LISTENER_PLAN,
   makeInputService,
   UNAVAILABLE_POINTER_LOCK,
@@ -76,6 +78,15 @@ describe('input settings boundary', () => {
     expect(() => decodeBindings({ ...bindings, jump: 'Escape' })).toThrow(InputSettingsDecodeError)
     expect(() => decodeBindings({ ...bindings, jump: bindings['moveForward'] })).toThrow(InputSettingsDecodeError)
   })
+})
+
+describe('input service layer', () => {
+  it.effect('provides an input service with the default bindings', () =>
+    Effect.gen(function* () {
+      const input = yield* InputService
+      expect(yield* input.bindings).toStrictEqual(defaultBindings())
+    }).pipe(Effect.provide(InputServiceLayer())),
+  )
 })
 
 describe('REGRESSION: Escape has exactly one owner', () => {
