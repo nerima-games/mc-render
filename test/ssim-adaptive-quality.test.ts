@@ -35,7 +35,8 @@ describe('SSIM adaptive quality', () => {
         const result = advanceSsimAdaptiveQuality(state, 'ultra', 0.949)
         expect(result.change, `frame ${String(frame)}`).toBe('none')
         expect(result.preset, `frame ${String(frame)}`).toBe('ultra')
-        state = result.state
+        const { state: nextState } = result
+        state = nextState
       }
 
       const result = advanceSsimAdaptiveQuality(state, 'ultra', 0.949)
@@ -65,7 +66,8 @@ describe('SSIM adaptive quality', () => {
         const result = advanceSsimAdaptiveQuality(state, 'low', 0.5)
         expect(result.change).toBe('none')
         expect(result.preset).toBe('low')
-        state = result.state
+        const { state: nextState } = result
+        state = nextState
       }
       expect(state).toStrictEqual({ belowThresholdFrames: 20, hasDowngraded: false })
     }),
@@ -77,7 +79,8 @@ describe('SSIM adaptive quality', () => {
       let first: ReturnType<typeof advanceSsimAdaptiveQuality> | undefined = undefined
       for (let frame = 0; frame < ADAPTIVE_QUALITY_POLICY.sustainedFrames; frame += 1) {
         first = advanceSsimAdaptiveQuality(state, 'ultra', 0.8)
-        state = first.state
+        const { state: nextState } = first
+        state = nextState
       }
       expect(first?.change).toBe('downgrade')
 

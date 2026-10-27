@@ -5,6 +5,7 @@ import {
 import { type QualityPreset, stepQualityPreset } from './post-processing.js'
 
 export const SSIM_ADAPTIVE_QUALITY_THRESHOLD = 0.95
+const ONE_ADAPTIVE_FRAME = 1
 
 export type SsimAdaptiveQualityState = {
   readonly belowThresholdFrames: number
@@ -22,6 +23,15 @@ export const createSsimAdaptiveQualityState = (): SsimAdaptiveQualityState => ({
   hasDowngraded: false,
 })
 
+const noSsimQualityChange = (
+  preset: QualityPreset,
+  state: SsimAdaptiveQualityState,
+): SsimAdaptiveQualityResult => ({
+  change: 'none',
+  preset,
+  state,
+})
+
 /**
  * Advance the SSIM policy by one comparison with the hidden reference target.
  *
@@ -34,20 +44,20 @@ export const advanceSsimAdaptiveQuality = (
   ssim: number,
 ): SsimAdaptiveQualityResult => {
   if (state.hasDowngraded) {
-    return { state, preset, change: 'none' }
+    return noSsimQualityChange(preset, state)
   }
 
   if (!Number.isFinite(ssim) || ssim >= SSIM_ADAPTIVE_QUALITY_THRESHOLD) {
     return {
-      state: { belowThresholdFrames: 0, hasDowngraded: false },
-      preset,
       change: 'none',
+      preset,
+      state: { belowThresholdFrames: 0, hasDowngraded: false },
     }
   }
 
   const belowThresholdFrames = Math.min(
     ADAPTIVE_QUALITY_POLICY.sustainedFrames,
-    state.belowThresholdFrames + 1,
+    state.belowThresholdFrames + ONE_ADAPTIVE_FRAME,
   )
   const lowerPreset = stepQualityPreset(preset, 'lower')
   if (
@@ -55,15 +65,15 @@ export const advanceSsimAdaptiveQuality = (
     lowerPreset === preset
   ) {
     return {
-      state: { belowThresholdFrames, hasDowngraded: false },
-      preset,
       change: 'none',
+      preset,
+      state: { belowThresholdFrames, hasDowngraded: false },
     }
   }
 
   return {
-    state: { belowThresholdFrames: 0, hasDowngraded: true },
-    preset: lowerPreset,
     change: 'downgrade',
+    preset: lowerPreset,
+    state: { belowThresholdFrames: 0, hasDowngraded: true },
   }
 }

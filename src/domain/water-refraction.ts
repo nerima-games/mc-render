@@ -167,6 +167,8 @@ export const REFRACTION_MIN_SCREEN_RATIO: Readonly<Record<QualityPreset, number>
 
 const MIN_SCREEN_RATIO = 0
 const MAX_SCREEN_RATIO = 1
+/** The count below which there are no meshes to refract: none at all. */
+const EMPTY_MESH_COUNT = 0
 
 /** Keep custom quality values inside the measurable screen-ratio domain. */
 export const normalizeRefractionMinScreenRatio = (value: number): number => {
@@ -448,8 +450,6 @@ export type RefractionDecision = 'run' | `skip:${RefractionGate}`
 /** True when the decision is any kind of skip. */
 export const isRefractionSkipped = (decision: RefractionDecision): boolean => decision !== 'run'
 
-/** The count below which there are no meshes to refract: none at all. */
-const EMPTY_MESH_COUNT = 0
 /** The `minScreenRatio` value that disables the screen-ratio gate entirely. */
 const SCREEN_RATIO_GATE_DISABLED = 0
 

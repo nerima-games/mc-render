@@ -1,10 +1,274 @@
-import { expect, test } from '@playwright/test'
+import { type Page, expect, test } from '@playwright/test'
 
 const WEB_ORIGIN = 'http://127.0.0.1:5182'
+const ZERO = 0
+const ONE = 1
+const TWO = 2
+const CANVAS_WIDTH = 320
+const CANVAS_HEIGHT = 240
+const PIXEL_RATIO = 1
+const FRAME_RATE = 60
+const FRAME_COUNT = 12
+const FRAME_DELTA_SECS = ONE / FRAME_RATE
+const NO_QUERY_RESULT = -1
+const BELOW_THRESHOLD_WATER_SIZE = 0.01
+const VISIBLE_WATER_SIZE = 16
+const HALF_TURN_RADIANS = Math.PI / TWO
+const CAMERA = {
+  position: { x: ZERO, y: 3, z: 6 },
+  rotation: { order: 'YXZ', x: -0.45, y: ZERO, z: ZERO },
+  sourceCapturedAtSecs: ZERO,
+}
+const FRAME_CAMERA_POSITION = { worldX: ZERO, worldY: 3, worldZ: 6 }
 
-test('ultra renders its composite chain and exposes browser stage measures', async ({ page }) => {
-  await page.goto(`${WEB_ORIGIN}/apps/shader-probe/`)
+type CanvasLike = {
+  height: number
+  style: { height: string; width: string }
+  width: number
+}
 
+type BrowserBase = {
+  readonly document: {
+    readonly body: { appendChild: (element: CanvasLike) => unknown }
+    readonly createElement: (tag: 'canvas') => CanvasLike
+  }
+  readonly location: { readonly href: string }
+}
+
+type BrowserWithPerformance = BrowserBase & {
+  readonly performance: {
+    getEntriesByName: (name: string) => ReadonlyArray<{ readonly duration: number }>
+  }
+}
+
+type BrowserWithAnimationFrame = BrowserBase & {
+  readonly requestAnimationFrame: (callback: (timestamp: number) => void) => number
+}
+
+type ExtensionProvider = {
+  getExtension: (this: object, name: string) => unknown
+}
+
+type BrowserWithWebGL = {
+  readonly WebGL2RenderingContext?: { readonly prototype: ExtensionProvider }
+}
+
+type BrowserRuntimeOptions = Readonly<{
+  camera: typeof CAMERA
+  canvasHeight: number
+  canvasWidth: number
+  maxPixelRatio: number
+  one: number
+  zero: number
+}>
+
+type CompositeRuntimeOptions = BrowserRuntimeOptions & Readonly<{
+  cameraPosition: typeof FRAME_CAMERA_POSITION
+  deltaSecs: number
+  elapsedSecs: number
+}>
+
+type RefractionRuntimeOptions = BrowserRuntimeOptions & Readonly<{
+  belowThresholdSize: number
+  halfTurnRadians: number
+  noQueryResult: number
+  visibleSize: number
+}>
+
+type RuntimeDiagnostics = Readonly<{
+  shaderDiagnostics: ReadonlyArray<string>
+  uncaughtErrors: ReadonlyArray<string>
+}>
+
+type CompositeRuntimeResult = Readonly<{
+  compiledPrograms: number
+  compositeEnabled: boolean
+  measures: ReadonlyArray<Readonly<{ durations: ReadonlyArray<number>; name: string }>>
+  pngBytes: number
+  pngType: string
+  rendererCalls: number
+}>
+
+type GpuTimerResult = Readonly<{
+  gpuTimingSupported: boolean
+  latestGpuTimeMs: number | undefined
+}>
+
+type RefractionResult = Readonly<{
+  belowThreshold: number
+  visible: number
+}>
+
+const inspectCompositeRuntime = async (options: CompositeRuntimeOptions): Promise<CompositeRuntimeResult> => {
+  const browser = globalThis as unknown as BrowserWithPerformance
+  const runtimeModule = await import(new URL('/src/browser.ts', browser.location.href).href)
+  const tools = {
+    createCanvas: (): CanvasLike => {
+      const canvas = Object.assign(browser.document.createElement('canvas'), {
+        height: options.canvasHeight,
+        style: { height: `${options.canvasHeight}px`, width: `${options.canvasWidth}px` },
+        width: options.canvasWidth,
+      })
+      browser.document.body.appendChild(canvas)
+      return canvas
+    },
+    renderAndInspect: async (runtime: Awaited<ReturnType<typeof runtimeModule.makeBrowserWorldRuntime>>) => {
+      runtime.advanceFrame({
+        cameraPosition: options.cameraPosition,
+        deltaSecs: options.deltaSecs,
+        elapsedSecs: options.elapsedSecs,
+      })
+      runtime.render(options.camera)
+      const screenshot = await runtime.captureScreenshot()
+      const measures = ['render.browser.advanceFrame', 'render.browser.draw'].map((name) => ({
+        durations: browser.performance.getEntriesByName(name).map((entry) => entry.duration),
+        name,
+      }))
+      return {
+        compiledPrograms: runtime.threeRenderer.info.programs?.length ?? options.zero,
+        compositeEnabled: runtime.quality.useCompositePass,
+        measures,
+        pngBytes: screenshot.size,
+        pngType: screenshot.type,
+        rendererCalls: runtime.threeRenderer.info.render.calls,
+      }
+    },
+  }
+  const canvas = tools.createCanvas()
+  const runtime = await runtimeModule.makeBrowserWorldRuntime({
+    autoResize: false,
+    canvas,
+    maxPixelRatio: options.maxPixelRatio,
+    quality: 'ultra',
+  })
+  try {
+    return tools.renderAndInspect(runtime)
+  } finally {
+    runtime.dispose()
+  }
+}
+
+const inspectRefraction = async (options: RefractionRuntimeOptions): Promise<RefractionResult> => {
+  const browser = globalThis as unknown as BrowserBase
+  const [runtimeModule, three] = await Promise.all([
+    import(new URL('/src/browser.ts', browser.location.href).href),
+    import(new URL('/node_modules/three/build/three.module.js', browser.location.href).href),
+  ])
+  const tools = {
+    sample: async (size: number): Promise<number> => {
+      const canvas = Object.assign(browser.document.createElement('canvas'), {
+        height: options.canvasHeight,
+        style: { height: `${options.canvasHeight}px`, width: `${options.canvasWidth}px` },
+        width: options.canvasWidth,
+      })
+      browser.document.body.appendChild(canvas)
+      const waterGeometry = new three.PlaneGeometry(size, size).rotateX(-options.halfTurnRadians)
+      const runtime = await runtimeModule.makeBrowserWorldRuntime({
+        autoResize: false,
+        canvas,
+        maxPixelRatio: options.maxPixelRatio,
+        quality: 'ultra',
+        waterGeometry,
+      })
+      try {
+        runtime.render(options.camera)
+        return runtime.world.waterUniforms['uRefractionValid']?.value ?? options.noQueryResult
+      } finally {
+        runtime.dispose()
+        waterGeometry.dispose()
+      }
+    },
+  }
+  return {
+    belowThreshold: await tools.sample(options.belowThresholdSize),
+    visible: await tools.sample(options.visibleSize),
+  }
+}
+
+const inspectGpuTimer = async (options: BrowserRuntimeOptions & Readonly<{ frameCount: number }>): Promise<GpuTimerResult> => {
+  const browser = globalThis as unknown as BrowserWithAnimationFrame
+  const runtimeModule = await import(new URL('/src/browser.ts', browser.location.href).href)
+  const canvas = Object.assign(browser.document.createElement('canvas'), {
+    height: options.canvasHeight,
+    style: { height: `${options.canvasHeight}px`, width: `${options.canvasWidth}px` },
+    width: options.canvasWidth,
+  })
+  browser.document.body.appendChild(canvas)
+  const runtime = await runtimeModule.makeBrowserWorldRuntime({
+    autoResize: false,
+    canvas,
+    maxPixelRatio: options.maxPixelRatio,
+    quality: 'low',
+  })
+  const tools = {
+    nextFrame: (): Promise<void> => new Promise<void>((resolve) => {
+      browser.requestAnimationFrame(() => {
+        resolve()
+      })
+    }),
+    renderFrames: async (remaining: number): Promise<void> => {
+      if (remaining === options.zero) {
+        return
+      }
+      await tools.nextFrame()
+      runtime.render(options.camera)
+      await tools.renderFrames(remaining - options.one)
+    },
+  }
+  try {
+    await tools.renderFrames(options.frameCount)
+    return {
+      gpuTimingSupported: runtime.gpuTimingSupported,
+      latestGpuTimeMs: runtime.latestGpuTimeMs,
+    }
+  } finally {
+    runtime.dispose()
+  }
+}
+
+const disableGpuTimerExtension = (): void => {
+  const browser = globalThis as unknown as BrowserWithWebGL
+  const { WebGL2RenderingContext } = browser
+  const prototype = WebGL2RenderingContext?.prototype
+  if (!prototype) {
+    return
+  }
+  const { getExtension } = prototype
+  prototype.getExtension = function (this: object, name: string): unknown {
+    if (name === 'EXT_disjoint_timer_query_webgl2') {
+      return null
+    }
+    return getExtension.call(this, name)
+  }
+}
+
+const inspectGpuFallback = async (options: BrowserRuntimeOptions): Promise<GpuTimerResult> => {
+  const browser = globalThis as unknown as BrowserBase
+  const runtimeModule = await import(new URL('/src/browser.ts', browser.location.href).href)
+  const canvas = Object.assign(browser.document.createElement('canvas'), {
+    height: options.canvasHeight,
+    style: { height: `${options.canvasHeight}px`, width: `${options.canvasWidth}px` },
+    width: options.canvasWidth,
+  })
+  browser.document.body.appendChild(canvas)
+  const runtime = await runtimeModule.makeBrowserWorldRuntime({
+    autoResize: false,
+    canvas,
+    maxPixelRatio: options.maxPixelRatio,
+    quality: 'low',
+  })
+  try {
+    runtime.render(options.camera)
+    return {
+      gpuTimingSupported: runtime.gpuTimingSupported,
+      latestGpuTimeMs: runtime.latestGpuTimeMs,
+    }
+  } finally {
+    runtime.dispose()
+  }
+}
+
+const watchBrowserErrors = (page: Page): RuntimeDiagnostics => {
   const shaderDiagnostics: Array<string> = []
   const uncaughtErrors: Array<string> = []
   page.on('console', (message) => {
@@ -13,281 +277,100 @@ test('ultra renders its composite chain and exposes browser stage measures', asy
     }
   })
   page.on('pageerror', (error) => uncaughtErrors.push(error.message))
+  return { shaderDiagnostics, uncaughtErrors }
+}
 
-  const result = await page.evaluate(async () => {
-    type CanvasLike = {
-      height: number
-      style: { height: string; width: string }
-      width: number
-    }
-    type Browser = {
-      readonly document: {
-        readonly body: { appendChild: (element: CanvasLike) => unknown }
-        readonly createElement: (tag: 'canvas') => CanvasLike
-      }
-      readonly location: { readonly href: string }
-      readonly performance: {
-        getEntriesByName: (name: string) => ReadonlyArray<{ readonly duration: number }>
-      }
-    }
-
-    const browser = globalThis as unknown as Browser
-    const runtimeModule = await import(new URL('/src/browser.ts', browser.location.href).href)
-    const canvas = browser.document.createElement('canvas')
-    canvas.width = 320
-    canvas.height = 240
-    canvas.style.width = '320px'
-    canvas.style.height = '240px'
-    browser.document.body.appendChild(canvas)
-
-    const runtime = await runtimeModule.makeBrowserWorldRuntime({
-      autoResize: false,
-      canvas,
-      maxPixelRatio: 1,
-      quality: 'ultra',
-    })
-    const camera = {
-      position: { x: 0, y: 3, z: 6 },
-      rotation: { x: -0.45, y: 0, z: 0, order: 'YXZ' },
-      sourceCapturedAtSecs: 0,
-    }
-
-    try {
-      runtime.advanceFrame({
-        cameraPosition: { worldX: 0, worldY: 3, worldZ: 6 },
-        deltaSecs: 1 / 60,
-        elapsedSecs: 1 / 60,
-      })
-      runtime.render(camera)
-      const screenshot = await runtime.captureScreenshot()
-      const measures = ['render.browser.advanceFrame', 'render.browser.draw'].map((name) => ({
-        durations: browser.performance.getEntriesByName(name).map((entry) => entry.duration),
-        name,
-      }))
-      return {
-        compiledPrograms: runtime.threeRenderer.info.programs?.length ?? 0,
-        compositeEnabled: runtime.quality.useCompositePass,
-        measures,
-        pngBytes: screenshot.size,
-        pngType: screenshot.type,
-        rendererCalls: runtime.threeRenderer.info.render.calls,
-      }
-    } finally {
-      runtime.dispose()
-    }
-  })
-
+const expectCompositeResult = (result: CompositeRuntimeResult): void => {
   expect(result.compositeEnabled).toBe(true)
-  expect(result.compiledPrograms).toBeGreaterThan(0)
-  expect(result.rendererCalls).toBeGreaterThan(0)
+  expect(result.compiledPrograms).toBeGreaterThan(ZERO)
+  expect(result.rendererCalls).toBeGreaterThan(ZERO)
   expect(result.pngType).toBe('image/png')
-  expect(result.pngBytes).toBeGreaterThan(0)
-  expect(result.measures).toHaveLength(2)
+  expect(result.pngBytes).toBeGreaterThan(ZERO)
+}
+
+const expectMeasurements = (result: CompositeRuntimeResult): void => {
+  expect(result.measures).toHaveLength(TWO)
   for (const measure of result.measures) {
-    expect(measure.durations.length).toBeGreaterThan(0)
+    expect(measure.durations.length).toBeGreaterThan(ZERO)
     for (const duration of measure.durations) {
       expect(Number.isFinite(duration)).toBe(true)
-      expect(duration).toBeGreaterThanOrEqual(0)
+      expect(duration).toBeGreaterThanOrEqual(ZERO)
     }
   }
-  expect(shaderDiagnostics).toEqual([])
-  expect(uncaughtErrors).toEqual([])
+}
+
+const expectNoBrowserErrors = (diagnostics: RuntimeDiagnostics): void => {
+  expect(diagnostics.shaderDiagnostics).toEqual([])
+  expect(diagnostics.uncaughtErrors).toEqual([])
+}
+
+test('ultra renders its composite chain and exposes browser stage measures', async ({ page }) => {
+  await page.goto(`${WEB_ORIGIN}/apps/shader-probe/`)
+  const diagnostics = watchBrowserErrors(page)
+  const result = await page.evaluate(inspectCompositeRuntime, {
+    camera: CAMERA,
+    cameraPosition: FRAME_CAMERA_POSITION,
+    canvasHeight: CANVAS_HEIGHT,
+    canvasWidth: CANVAS_WIDTH,
+    deltaSecs: FRAME_DELTA_SECS,
+    elapsedSecs: FRAME_DELTA_SECS,
+    maxPixelRatio: PIXEL_RATIO,
+    one: ONE,
+    zero: ZERO,
+  })
+  expectCompositeResult(result)
+  expectMeasurements(result)
+  expectNoBrowserErrors(diagnostics)
 })
 
 test('visible water captures refraction while sub-threshold water is skipped', async ({ page }) => {
   await page.goto(`${WEB_ORIGIN}/apps/shader-probe/`)
-
-  const result = await page.evaluate(async () => {
-    type CanvasLike = {
-      height: number
-      style: { height: string; width: string }
-      width: number
-    }
-    type Browser = {
-      readonly document: {
-        readonly body: { appendChild: (element: CanvasLike) => unknown }
-        readonly createElement: (tag: 'canvas') => CanvasLike
-      }
-      readonly location: { readonly href: string }
-    }
-
-    const browser = globalThis as unknown as Browser
-    const [runtimeModule, three] = await Promise.all([
-      import(new URL('/src/browser.ts', browser.location.href).href),
-      import(new URL('/node_modules/three/build/three.module.js', browser.location.href).href),
-    ])
-    const camera = {
-      position: { x: 0, y: 3, z: 6 },
-      rotation: { x: -0.45, y: 0, z: 0, order: 'YXZ' },
-      sourceCapturedAtSecs: 0,
-    }
-
-    const sampleRefraction = async (size: number): Promise<number> => {
-      const canvas = browser.document.createElement('canvas')
-      canvas.width = 320
-      canvas.height = 240
-      canvas.style.width = '320px'
-      canvas.style.height = '240px'
-      browser.document.body.appendChild(canvas)
-
-      const waterGeometry = new three.PlaneGeometry(size, size)
-      waterGeometry.rotateX(-Math.PI / 2)
-      const runtime = await runtimeModule.makeBrowserWorldRuntime({
-        autoResize: false,
-        canvas,
-        maxPixelRatio: 1,
-        quality: 'ultra',
-        waterGeometry,
-      })
-      try {
-        runtime.render(camera)
-        return runtime.world.waterUniforms['uRefractionValid']?.value ?? -1
-      } finally {
-        runtime.dispose()
-        waterGeometry.dispose()
-      }
-    }
-
-    return {
-      belowThreshold: await sampleRefraction(0.01),
-      visible: await sampleRefraction(16),
-    }
+  const result = await page.evaluate(inspectRefraction, {
+    belowThresholdSize: BELOW_THRESHOLD_WATER_SIZE,
+    camera: CAMERA,
+    canvasHeight: CANVAS_HEIGHT,
+    canvasWidth: CANVAS_WIDTH,
+    halfTurnRadians: HALF_TURN_RADIANS,
+    maxPixelRatio: PIXEL_RATIO,
+    noQueryResult: NO_QUERY_RESULT,
+    one: ONE,
+    visibleSize: VISIBLE_WATER_SIZE,
+    zero: ZERO,
   })
-
-  expect(result.visible).toBe(1)
-  expect(result.belowThreshold).toBe(0)
+  expect(result.visible).toBe(ONE)
+  expect(result.belowThreshold).toBe(ZERO)
 })
 
 test('GPU timer uses a completed query when available and keeps rendering without the extension', async ({ page }) => {
   await page.goto(`${WEB_ORIGIN}/apps/shader-probe/`)
-
-  const result = await page.evaluate(async () => {
-    type CanvasLike = {
-      height: number
-      style: { height: string; width: string }
-      width: number
-    }
-    type Browser = {
-      readonly document: {
-        readonly body: { appendChild: (element: CanvasLike) => unknown }
-        readonly createElement: (tag: 'canvas') => CanvasLike
-      }
-      readonly location: { readonly href: string }
-      readonly requestAnimationFrame: (callback: (timestamp: number) => void) => number
-    }
-
-    const browser = globalThis as unknown as Browser
-    const runtimeModule = await import(new URL('/src/browser.ts', browser.location.href).href)
-    const canvas = browser.document.createElement('canvas')
-    canvas.width = 320
-    canvas.height = 240
-    canvas.style.width = '320px'
-    canvas.style.height = '240px'
-    browser.document.body.appendChild(canvas)
-    const runtime = await runtimeModule.makeBrowserWorldRuntime({
-      autoResize: false,
-      canvas,
-      maxPixelRatio: 1,
-      quality: 'low',
-    })
-    const camera = {
-      position: { x: 0, y: 3, z: 6 },
-      rotation: { x: -0.45, y: 0, z: 0, order: 'YXZ' },
-      sourceCapturedAtSecs: 0,
-    }
-
-    try {
-      for (let frame = 0; frame < 12; frame += 1) {
-        await new Promise<void>((resolve) => browser.requestAnimationFrame(() => resolve()))
-        runtime.render(camera)
-      }
-      return {
-        gpuTimingSupported: runtime.gpuTimingSupported,
-        latestGpuTimeMs: runtime.latestGpuTimeMs,
-      }
-    } finally {
-      runtime.dispose()
-    }
+  const result = await page.evaluate(inspectGpuTimer, {
+    camera: CAMERA,
+    canvasHeight: CANVAS_HEIGHT,
+    canvasWidth: CANVAS_WIDTH,
+    frameCount: FRAME_COUNT,
+    maxPixelRatio: PIXEL_RATIO,
+    one: ONE,
+    zero: ZERO,
   })
-
-  if (result.gpuTimingSupported) {
-    if (result.latestGpuTimeMs !== undefined) {
-      expect(Number.isFinite(result.latestGpuTimeMs)).toBe(true)
-      expect(result.latestGpuTimeMs).toBeGreaterThanOrEqual(0)
-    }
-  } else {
+  if (result.gpuTimingSupported && result.latestGpuTimeMs !== undefined) {
+    expect(Number.isFinite(result.latestGpuTimeMs)).toBe(true)
+    expect(result.latestGpuTimeMs).toBeGreaterThanOrEqual(ZERO)
+  } else if (!result.gpuTimingSupported) {
     expect(result.latestGpuTimeMs).toBeUndefined()
   }
 })
 
 test('GPU timer falls back cleanly when WebGL2 lacks the timer-query extension', async ({ page }) => {
-  await page.addInitScript(() => {
-    type ExtensionProvider = {
-      getExtension: (this: object, name: string) => unknown
-    }
-    type BrowserWithWebGL = {
-      readonly WebGL2RenderingContext?: { readonly prototype: ExtensionProvider }
-    }
-
-    const browser = globalThis as unknown as BrowserWithWebGL
-    const prototype = browser.WebGL2RenderingContext?.prototype
-    if (!prototype) {
-      return
-    }
-    const getExtension = prototype.getExtension
-    prototype.getExtension = function (this: object, name: string): unknown {
-      if (name === 'EXT_disjoint_timer_query_webgl2') {
-        return null
-      }
-      return getExtension.call(this, name)
-    }
-  })
+  await page.addInitScript(disableGpuTimerExtension)
   await page.goto(`${WEB_ORIGIN}/apps/shader-probe/`)
-
-  const result = await page.evaluate(async () => {
-    type CanvasLike = {
-      height: number
-      style: { height: string; width: string }
-      width: number
-    }
-    type Browser = {
-      readonly document: {
-        readonly body: { appendChild: (element: CanvasLike) => unknown }
-        readonly createElement: (tag: 'canvas') => CanvasLike
-      }
-      readonly location: { readonly href: string }
-    }
-
-    const browser = globalThis as unknown as Browser
-    const runtimeModule = await import(new URL('/src/browser.ts', browser.location.href).href)
-    const canvas = browser.document.createElement('canvas')
-    canvas.width = 320
-    canvas.height = 240
-    canvas.style.width = '320px'
-    canvas.style.height = '240px'
-    browser.document.body.appendChild(canvas)
-    const runtime = await runtimeModule.makeBrowserWorldRuntime({
-      autoResize: false,
-      canvas,
-      maxPixelRatio: 1,
-      quality: 'low',
-    })
-
-    try {
-      runtime.render({
-        position: { x: 0, y: 3, z: 6 },
-        rotation: { x: -0.45, y: 0, z: 0, order: 'YXZ' },
-        sourceCapturedAtSecs: 0,
-      })
-      return {
-        gpuTimingSupported: runtime.gpuTimingSupported,
-        latestGpuTimeMs: runtime.latestGpuTimeMs,
-      }
-    } finally {
-      runtime.dispose()
-    }
+  const result = await page.evaluate(inspectGpuFallback, {
+    camera: CAMERA,
+    canvasHeight: CANVAS_HEIGHT,
+    canvasWidth: CANVAS_WIDTH,
+    maxPixelRatio: PIXEL_RATIO,
+    one: ONE,
+    zero: ZERO,
   })
-
   expect(result.gpuTimingSupported).toBe(false)
   expect(result.latestGpuTimeMs).toBeUndefined()
 })

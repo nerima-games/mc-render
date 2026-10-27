@@ -2,11 +2,14 @@ import { type QualityPreset, stepQualityPreset } from './post-processing.js'
 
 /** Runtime thresholds for frame-rate driven quality changes. */
 export const ADAPTIVE_QUALITY_POLICY = {
+  cooldownFrames: 20,
   downgradeBelowFps: 50,
   recoveryAtOrAboveFps: 60,
   sustainedFrames: 20,
-  cooldownFrames: 20,
 } as const
+
+const ZERO_QUALITY_FRAMES = 0
+const ONE_QUALITY_FRAME = 1
 
 export type AdaptiveQualityState = {
   readonly overBudgetFrames: number
@@ -22,9 +25,58 @@ export type AdaptiveQualityResult = {
 }
 
 export const createAdaptiveQualityState = (): AdaptiveQualityState => ({
-  overBudgetFrames: 0,
-  cooldownFramesRemaining: 0,
+  cooldownFramesRemaining: ZERO_QUALITY_FRAMES,
+  overBudgetFrames: ZERO_QUALITY_FRAMES,
 })
+
+const noAdaptiveQualityChange = (preset: QualityPreset): AdaptiveQualityResult => ({
+  change: 'none',
+  preset,
+  state: createAdaptiveQualityState(),
+})
+
+const advanceOverBudgetQuality = (
+  state: AdaptiveQualityState,
+  preset: QualityPreset,
+): AdaptiveQualityResult => {
+  const overBudgetFrames = Math.min(
+    ADAPTIVE_QUALITY_POLICY.sustainedFrames,
+    state.overBudgetFrames + ONE_QUALITY_FRAME,
+  )
+  const lowerPreset = stepQualityPreset(preset, 'lower')
+  if (overBudgetFrames < ADAPTIVE_QUALITY_POLICY.sustainedFrames || lowerPreset === preset) {
+    return {
+      change: 'none',
+      preset,
+      state: { cooldownFramesRemaining: ZERO_QUALITY_FRAMES, overBudgetFrames },
+    }
+  }
+
+  return {
+    change: 'downgrade',
+    preset: lowerPreset,
+    state: {
+      cooldownFramesRemaining: ADAPTIVE_QUALITY_POLICY.cooldownFrames,
+      overBudgetFrames: ZERO_QUALITY_FRAMES,
+    },
+  }
+}
+
+const advanceRecoveryQuality = (preset: QualityPreset): AdaptiveQualityResult => {
+  const higherPreset = stepQualityPreset(preset, 'higher')
+  if (higherPreset === preset) {
+    return noAdaptiveQualityChange(preset)
+  }
+
+  return {
+    change: 'recover',
+    preset: higherPreset,
+    state: {
+      cooldownFramesRemaining: ADAPTIVE_QUALITY_POLICY.cooldownFrames,
+      overBudgetFrames: ZERO_QUALITY_FRAMES,
+    },
+  }
+}
 
 /**
  * Advance the frame-rate policy by one observed frame.
@@ -38,60 +90,28 @@ export const advanceAdaptiveQuality = (
   preset: QualityPreset,
   fps: number,
 ): AdaptiveQualityResult => {
-  if (state.cooldownFramesRemaining > 0) {
+  if (state.cooldownFramesRemaining > ZERO_QUALITY_FRAMES) {
     return {
-      state: {
-        overBudgetFrames: 0,
-        cooldownFramesRemaining: state.cooldownFramesRemaining - 1,
-      },
-      preset,
       change: 'none',
+      preset,
+      state: {
+        cooldownFramesRemaining: state.cooldownFramesRemaining - ONE_QUALITY_FRAME,
+        overBudgetFrames: ZERO_QUALITY_FRAMES,
+      },
     }
   }
 
-  if (!Number.isFinite(fps) || fps < 0) {
-    return { state: createAdaptiveQualityState(), preset, change: 'none' }
+  if (!Number.isFinite(fps) || fps < ZERO_QUALITY_FRAMES) {
+    return noAdaptiveQualityChange(preset)
   }
 
   if (fps < ADAPTIVE_QUALITY_POLICY.downgradeBelowFps) {
-    const overBudgetFrames = Math.min(
-      ADAPTIVE_QUALITY_POLICY.sustainedFrames,
-      state.overBudgetFrames + 1,
-    )
-    const lowerPreset = stepQualityPreset(preset, 'lower')
-    if (overBudgetFrames < ADAPTIVE_QUALITY_POLICY.sustainedFrames || lowerPreset === preset) {
-      return {
-        state: { overBudgetFrames, cooldownFramesRemaining: 0 },
-        preset,
-        change: 'none',
-      }
-    }
-
-    return {
-      state: {
-        overBudgetFrames: 0,
-        cooldownFramesRemaining: ADAPTIVE_QUALITY_POLICY.cooldownFrames,
-      },
-      preset: lowerPreset,
-      change: 'downgrade',
-    }
+    return advanceOverBudgetQuality(state, preset)
   }
 
   if (fps >= ADAPTIVE_QUALITY_POLICY.recoveryAtOrAboveFps) {
-    const higherPreset = stepQualityPreset(preset, 'higher')
-    if (higherPreset === preset) {
-      return { state: createAdaptiveQualityState(), preset, change: 'none' }
-    }
-
-    return {
-      state: {
-        overBudgetFrames: 0,
-        cooldownFramesRemaining: ADAPTIVE_QUALITY_POLICY.cooldownFrames,
-      },
-      preset: higherPreset,
-      change: 'recover',
-    }
+    return advanceRecoveryQuality(preset)
   }
 
-  return { state: createAdaptiveQualityState(), preset, change: 'none' }
+  return noAdaptiveQualityChange(preset)
 }

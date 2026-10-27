@@ -121,6 +121,10 @@ import {
 } from './dom-surface.js'
 import { Effect, Layer, Scope } from 'effect'
 import {
+  type FocusNavigationDirection,
+  focusNavigationDirectionForCode,
+} from '../domain/focus-navigation.js'
+import {
   type InputEvent,
   InputService,
   type InputServiceApi,
@@ -130,10 +134,6 @@ import {
   UNAVAILABLE_POINTER_LOCK,
   makeInputService,
 } from './input-service.js'
-import {
-  focusNavigationDirectionForCode,
-  type FocusNavigationDirection,
-} from '../domain/focus-navigation.js'
 
 /**
  * The two objects the plan's two `ListenerTarget`s name.
@@ -480,10 +480,11 @@ const translateWheel = (event: DomInputEvent): InputEvent | undefined => {
 }
 
 const translateFocusIn = (event: DomInputEvent, context: DomEventContext): InputEvent => {
-  const target = event.target
-  const focus = target === null || typeof target === 'undefined'
-    ? undefined
-    : context.focusTargetForElement?.(target)
+  const { target } = event
+  let focus: FocusTarget | undefined = undefined
+  if (target !== null && typeof target !== 'undefined') {
+    focus = context.focusTargetForElement?.(target)
+  }
   return { focus, kind: 'focuschange' }
 }
 
@@ -805,12 +806,12 @@ export const installInputListeners = (
       }
 
       const translated = translateDomEvent(planned, event, {
-        ...(options.clickLandingForTarget === undefined
-          ? {}
-          : { clickLandingForTarget: options.clickLandingForTarget }),
-        ...(options.focusTargetForElement === undefined
-          ? {}
-          : { focusTargetForElement: options.focusTargetForElement }),
+        ...(options.clickLandingForTarget && {
+          clickLandingForTarget: options.clickLandingForTarget,
+        }),
+        ...(options.focusTargetForElement && {
+          focusTargetForElement: options.focusTargetForElement,
+        }),
         pointerLockHeld: readsLockElement && isPointerLockHeld(targets.document),
         pointerLockTarget,
         touchControls,
@@ -833,9 +834,9 @@ export const installInputListeners = (
       dispatchFocusNavigationIntent({
         code: event.code,
         eventName: planned.event,
-        ...(options.onFocusNavigationDirection === undefined
-          ? {}
-          : { onDirection: options.onFocusNavigationDirection }),
+        ...(options.onFocusNavigationDirection && {
+          onDirection: options.onFocusNavigationDirection,
+        }),
         targets,
       })
     }
@@ -998,9 +999,9 @@ export type BrowserInputOptions = {
   readonly canvas?: PointerLockTarget
   readonly allowsPointerLock?: () => boolean
   readonly bindings?: Bindings
-  /** mx-ui-owned DOM membership resolver for focus arrivals. */
+  /** Resolves focus arrivals using mx-ui-owned DOM membership. */
   readonly focusTargetForElement?: FocusTargetForElement
-  /** mx-ui-owned DOM membership classifier for click arrivals. */
+  /** Classifies click arrivals using mx-ui-owned DOM membership. */
   readonly clickLandingForTarget?: ClickLandingForTarget
   /** Arrow navigation intent delivered to mx-ui. */
   readonly onFocusNavigationDirection?: FocusNavigationHandler
@@ -1057,15 +1058,15 @@ export const browserInputLayer = (options: BrowserInputOptions): Layer.Layer<Inp
          — the declaration it already had to make now also scopes the
          acquisition (DN-16 §5(b)). */
       yield* scopedInputListeners(options.targets, input, {
-        ...(options.clickLandingForTarget === undefined
-          ? {}
-          : { clickLandingForTarget: options.clickLandingForTarget }),
-        ...(options.focusTargetForElement === undefined
-          ? {}
-          : { focusTargetForElement: options.focusTargetForElement }),
-        ...(options.onFocusNavigationDirection === undefined
-          ? {}
-          : { onFocusNavigationDirection: options.onFocusNavigationDirection }),
+        ...(options.clickLandingForTarget && {
+          clickLandingForTarget: options.clickLandingForTarget,
+        }),
+        ...(options.focusTargetForElement && {
+          focusTargetForElement: options.focusTargetForElement,
+        }),
+        ...(options.onFocusNavigationDirection && {
+          onFocusNavigationDirection: options.onFocusNavigationDirection,
+        }),
         pointerLockTarget: options.canvas,
         touchControls: options.touchControls ?? [],
       })

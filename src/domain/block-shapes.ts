@@ -8,6 +8,7 @@ import {
   blockIndex,
   getBlockAcrossBoundary,
 } from '@nerima-games/mc-meshing'
+import { type BlockId, BlockId as makeBlockId, propertyOfBlockId } from '@nerima-games/mc-kernel'
 import {
   type BlockShapeKind,
   type BlockShapeQuad,
@@ -17,7 +18,6 @@ import {
   type QuadCorners,
   tangentAxes,
 } from './meshing-vocabulary.js'
-import { BlockId as makeBlockId, type BlockId, propertyOfBlockId } from '@nerima-games/mc-kernel'
 import { Result } from 'effect'
 
 const ZERO = 0

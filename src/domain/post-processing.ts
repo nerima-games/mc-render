@@ -215,6 +215,11 @@ export type ComposerRenderTarget = 'ldr' | 'hdr'
 export type QualityPreset = 'low' | 'medium' | 'high' | 'ultra'
 
 const QUALITY_PRESET_ORDER: ReadonlyArray<QualityPreset> = ['low', 'medium', 'high', 'ultra']
+const QUALITY_PRESET_STEP = 1
+const QUALITY_PRESET_OFFSETS = {
+  higher: QUALITY_PRESET_STEP,
+  lower: -QUALITY_PRESET_STEP,
+} as const
 
 /** Move one step through the renderer's ordered quality presets. */
 export const stepQualityPreset = (
@@ -222,7 +227,7 @@ export const stepQualityPreset = (
   direction: 'lower' | 'higher',
 ): QualityPreset => {
   const index = QUALITY_PRESET_ORDER.indexOf(preset)
-  const offset = direction === 'lower' ? -1 : 1
+  const offset = QUALITY_PRESET_OFFSETS[direction]
   const next = QUALITY_PRESET_ORDER[index + offset]
   return next ?? preset
 }

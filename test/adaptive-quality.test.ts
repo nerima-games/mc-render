@@ -33,12 +33,13 @@ describe('frame-rate adaptive quality', () => {
   it.effect('downgrades one step after 20 consecutive frames below 50 FPS', () =>
     Effect.sync(() => {
       let state = createAdaptiveQualityState()
-      let preset = 'ultra' as const
+      const preset = 'ultra' as const
       for (let frame = 1; frame < ADAPTIVE_QUALITY_POLICY.sustainedFrames; frame += 1) {
         const result = advanceAdaptiveQuality(state, preset, 49.99)
         expect(result.change, `frame ${String(frame)}`).toBe('none')
         expect(result.preset, `frame ${String(frame)}`).toBe('ultra')
-        state = result.state
+        const { state: nextState } = result
+        state = nextState
       }
 
       const result = advanceAdaptiveQuality(state, preset, 49.99)
@@ -52,7 +53,8 @@ describe('frame-rate adaptive quality', () => {
     Effect.sync(() => {
       let state = createAdaptiveQualityState()
       for (let frame = 0; frame < 19; frame += 1) {
-        state = advanceAdaptiveQuality(state, 'high', 49).state
+        const { state: nextState } = advanceAdaptiveQuality(state, 'high', 49)
+        state = nextState
       }
       const result = advanceAdaptiveQuality(state, 'high', 50)
       expect(result.change).toBe('none')
@@ -64,23 +66,24 @@ describe('frame-rate adaptive quality', () => {
   it.effect('holds changes for 20 frames after a transition, then can downgrade again', () =>
     Effect.sync(() => {
       const first = advanceAdaptiveQuality(createAdaptiveQualityState(), 'medium', 60)
-      let state = first.state
-      let preset = first.preset
+      let { state, preset } = first
       expect(first.change).toBe('recover')
       expect(preset).toBe('high')
       for (let frame = 0; frame < ADAPTIVE_QUALITY_POLICY.cooldownFrames; frame += 1) {
         const cooling = advanceAdaptiveQuality(state, preset, 0)
         expect(cooling.change).toBe('none')
         expect(cooling.preset).toBe('high')
-        state = cooling.state
-        preset = cooling.preset
+        const { state: nextState, preset: nextPreset } = cooling
+        state = nextState
+        preset = nextPreset
       }
 
       expect(state.cooldownFramesRemaining).toBe(0)
       for (let frame = 0; frame < ADAPTIVE_QUALITY_POLICY.sustainedFrames - 1; frame += 1) {
         const pending = advanceAdaptiveQuality(state, preset, 49)
         expect(pending.change).toBe('none')
-        state = pending.state
+        const { state: nextState } = pending
+        state = nextState
       }
       const second = advanceAdaptiveQuality(state, preset, 49)
       expect(second.change).toBe('downgrade')
@@ -120,7 +123,8 @@ describe('frame-rate adaptive quality', () => {
         const result = advanceAdaptiveQuality(state, 'low', 49)
         expect(result.change).toBe('none')
         expect(result.preset).toBe('low')
-        state = result.state
+        const { state: nextState } = result
+        state = nextState
       }
       expect(state.overBudgetFrames).toBe(ADAPTIVE_QUALITY_POLICY.sustainedFrames)
     }),

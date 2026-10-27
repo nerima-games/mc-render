@@ -1132,7 +1132,10 @@ describe('focus DTO and navigation intent stay at the host boundary', () => {
       installInputListeners(dom.targets, input, {
         focusTargetForElement: (target) => {
           resolved.push(target)
-          return target === hotbarSlot ? focus : undefined
+          if (target === hotbarSlot) {
+            return focus
+          }
+          return undefined
         },
       })
 
@@ -1203,7 +1206,10 @@ describe('click landing is classified by the host and dispatched as a scalar DTO
       let classifications = 0
       const classify = (target: unknown) => {
         classifications += 1
-        return target === slot ? 'ui' as const : 'elsewhere' as const
+        if (target === slot) {
+          return 'ui' as const
+        }
+        return 'elsewhere' as const
       }
 
       expect(resolveClickLanding(canvas, canvas, classify)).toBe('lock-target')
@@ -1224,8 +1230,18 @@ describe('click landing is classified by the host and dispatched as a scalar DTO
       const focus = { group: HOTBAR_FOCUS_GROUP, index: 2 }
       const input = yield* makeInputService()
       installInputListeners(dom.targets, input, {
-        clickLandingForTarget: (target) => target === slot ? 'ui' : 'elsewhere',
-        focusTargetForElement: (target) => target === slot ? focus : undefined,
+        clickLandingForTarget: (target) => {
+          if (target === slot) {
+            return 'ui'
+          }
+          return 'elsewhere'
+        },
+        focusTargetForElement: (target) => {
+          if (target === slot) {
+            return focus
+          }
+          return undefined
+        },
         pointerLockTarget: canvas,
       })
 
@@ -1268,8 +1284,18 @@ describe('click landing is classified by the host and dispatched as a scalar DTO
       }).pipe(Effect.provide(browserInputLayer({
         targets: dom.targets,
         canvas,
-        clickLandingForTarget: (target) => target === slot ? 'ui' : 'elsewhere',
-        focusTargetForElement: (target) => target === slot ? focus : undefined,
+        clickLandingForTarget: (target) => {
+          if (target === slot) {
+            return 'ui'
+          }
+          return 'elsewhere'
+        },
+        focusTargetForElement: (target) => {
+          if (target === slot) {
+            return focus
+          }
+          return undefined
+        },
         onFocusNavigationDirection: (direction) => directions.push(direction),
       })))
     }),

@@ -67,14 +67,14 @@ type ParticleInstanceAttributes = {
 }
 
 export const PARTICLE_INSTANCE_ATTRIBUTES: ParticleInstanceAttributes = {
+  /** Per-instance RGB tint, multiplied by the sampled atlas color. */
+  color: { name: 'instanceColor', stride: PARTICLE_COLOR_STRIDE },
   /** World position of the particle's centre, in metres. */
   position: { name: 'instancePosition', stride: PARTICLE_VECTOR_STRIDE },
   /** The lifetime fade in [0, 1]. Zero is a free slot or a hidden dimension. */
   scale: { name: 'instanceScale', stride: 1 },
   /** The atlas tile origin this particle samples. */
   uvOffset: { name: 'instanceUvOffset', stride: PARTICLE_UV_STRIDE },
-  /** Per-instance RGB tint, multiplied by the sampled atlas color. */
-  color: { name: 'instanceColor', stride: PARTICLE_COLOR_STRIDE },
 } as const
 
 /** The uniform names a host has to bind. */

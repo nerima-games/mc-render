@@ -637,8 +637,12 @@ describe('REGRESSION: a tap can NOT reach pointer-lock acquisition', () => {
       // `landing !== 'ui'` an undeclared control would read "not UI" and every
       // tap would grab the pointer; under `=== 'lock-target'` the worst case is
       // that mouselook does not engage, which is visible on the first try.
-      const clickLandingForTarget = (target: unknown) =>
-        target === inventoryButton || target === pauseButton ? 'ui' as const : 'elsewhere' as const
+      const clickLandingForTarget = (target: unknown) => {
+        if (target === inventoryButton || target === pauseButton) {
+          return 'ui' as const
+        }
+        return 'elsewhere' as const
+      }
       expect(resolveClickLanding(canvas, inventoryButton, clickLandingForTarget)).toBe('ui')
       expect(resolveClickLanding(canvas, inventoryButton)).toBe('elsewhere')
       expect(resolveClickLanding(canvas, undeclaredDecoration, clickLandingForTarget)).toBe('elsewhere')

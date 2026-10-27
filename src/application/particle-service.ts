@@ -1,21 +1,26 @@
-import {
-  EntityIdSchema,
-  WorldPositionSchema,
-  type EntityId,
-  type WorldPosition,
-} from '@nerima-games/mc-kernel'
 import { Brand, Context, Effect, Layer, Schema } from 'effect'
+import {
+  type EntityId,
+  EntityIdSchema,
+  type WorldPosition,
+  WorldPositionSchema,
+} from '@nerima-games/mc-kernel'
 import {
   PARTICLE_LIFETIME_SECS,
   type ParticleFrameSnapshot,
   type ParticlePool,
   type ParticlePoolOptions,
   type ParticleSpawnSpec,
-  spawnParticle,
   makeParticlePool,
+  spawnParticle,
 } from '../domain/particle-pool.js'
 
 export type ParticleKind = 'block-break' | 'entity-hit' | 'explosion' | 'level-up'
+
+const MINIMUM_PARTICLE_LIFETIME_SECONDS = 0
+const PARTICLE_REQUEST_REJECTED = 0
+const PARTICLE_REQUEST_ACCEPTED = 1
+const PARTICLE_LOOP_STEP = 1
 
 export const ParticleKindSchema: Schema.Codec<ParticleKind> = Schema.Literals([
   'block-break',
@@ -27,7 +32,7 @@ export const ParticleKindSchema: Schema.Codec<ParticleKind> = Schema.Literals([
 export type ParticleColorChannel = Brand.Branded<number, 'ParticleColorChannel'>
 
 export const ParticleColorChannelSchema: Schema.Codec<ParticleColorChannel, number> = Schema.Finite
-  .check(Schema.isBetween({ minimum: 0, maximum: 1 }))
+  .check(Schema.isBetween({ maximum: 1, minimum: 0 }))
   .pipe(Schema.brand('ParticleColorChannel'))
 
 export type ParticleColor = Readonly<{
@@ -41,9 +46,9 @@ export const ParticleColorSchema: Schema.Codec<ParticleColor, Readonly<{
   readonly green: number
   readonly blue: number
 }>> = Schema.Struct({
-  red: ParticleColorChannelSchema,
-  green: ParticleColorChannelSchema,
   blue: ParticleColorChannelSchema,
+  green: ParticleColorChannelSchema,
+  red: ParticleColorChannelSchema,
 })
 
 export type ParticleDirection = Brand.Branded<Readonly<{
@@ -65,7 +70,7 @@ export const ParticleDirectionSchema: Schema.Codec<ParticleDirection, Readonly<{
 export type ParticleLifetimeSeconds = Brand.Branded<number, 'ParticleLifetimeSeconds'>
 
 export const ParticleLifetimeSecondsSchema: Schema.Codec<ParticleLifetimeSeconds, number> = Schema.Finite
-  .check(Schema.isGreaterThan(0))
+  .check(Schema.isGreaterThan(MINIMUM_PARTICLE_LIFETIME_SECONDS))
   .pipe(Schema.brand('ParticleLifetimeSeconds'))
 
 export type ParticleRequest = Readonly<{
@@ -87,12 +92,12 @@ type ParticleRequestEncoded = Readonly<{
 }>
 
 export const ParticleRequestSchema: Schema.Codec<ParticleRequest, ParticleRequestEncoded> = Schema.Struct({
-  kind: ParticleKindSchema,
-  position: WorldPositionSchema,
   color: Schema.optional(ParticleColorSchema),
-  lifetimeSeconds: Schema.optional(ParticleLifetimeSecondsSchema),
   direction: Schema.optional(ParticleDirectionSchema),
   followEntity: Schema.optional(EntityIdSchema),
+  kind: ParticleKindSchema,
+  lifetimeSeconds: Schema.optional(ParticleLifetimeSecondsSchema),
+  position: WorldPositionSchema,
 })
 
 export type ParticleKindDefaults = Readonly<{
@@ -130,7 +135,7 @@ export const PARTICLE_KIND_DEFAULTS: Readonly<Record<ParticleKind, ParticleKindD
 }
 
 export type ParticleServiceApi = {
-  readonly spawn: (request: ParticleRequest) => Effect.Effect<0 | 1>
+  readonly spawn: (request: ParticleRequest) => Effect.Effect<typeof PARTICLE_REQUEST_REJECTED | typeof PARTICLE_REQUEST_ACCEPTED>
 }
 
 const ParticleServiceBase: Context.ServiceClass<
@@ -178,6 +183,57 @@ const followLinkFor = (
   return undefined
 }
 
+const velocityFor = (
+  direction: ParticleDirection | undefined,
+  speed: number,
+): ParticleSpawnSpec['velocity'] => {
+  if (direction === undefined) {
+    return undefined
+  }
+  return {
+    x: direction.x * speed,
+    y: direction.y * speed,
+    z: direction.z * speed,
+  }
+}
+
+const particleSpawnSpecFor = (
+  request: ParticleRequest,
+  defaults: ParticleKindDefaults,
+  follow: ParticleSpawnSpec['follow'],
+): ParticleSpawnSpec => {
+  const { direction, position } = request
+  const velocity = velocityFor(direction, defaults.baseSpeedMPerSecond)
+  return {
+    dimension: position.dimension,
+    follow,
+    lifetimeSecs: request.lifetimeSeconds ?? defaults.lifetimeSeconds,
+    positionX: position.x,
+    positionY: position.y,
+    positionZ: position.z,
+    tint: request.color ?? defaults.color,
+    uvU: 0,
+    uvV: 0,
+    velocity,
+  }
+}
+
+const spawnParticles = (
+  pool: ParticlePool,
+  spawn: ParticleSpawnSpec,
+  requestedCount: number,
+): typeof PARTICLE_REQUEST_REJECTED | typeof PARTICLE_REQUEST_ACCEPTED => {
+  const count = Math.min(requestedCount, pool.capacity)
+  let accepted = false
+  for (let particle = 0; particle < count; particle += PARTICLE_LOOP_STEP) {
+    accepted = spawnParticle(pool, spawn) || accepted
+  }
+  if (!accepted) {
+    return PARTICLE_REQUEST_REJECTED
+  }
+  return PARTICLE_REQUEST_ACCEPTED
+}
+
 const makeParticleService = (
   pool: ParticlePool,
   readRenderContext: () => ParticleFrameSnapshot,
@@ -185,42 +241,17 @@ const makeParticleService = (
   spawn: (request) => Effect.sync(() => {
     const context = readRenderContext()
     if (request.position.dimension !== context.dimension) {
-      return 0
+      return PARTICLE_REQUEST_REJECTED
     }
 
     const follow = followLinkFor(request, context)
     if (request.followEntity !== undefined && follow === undefined) {
-      return 0
+      return PARTICLE_REQUEST_REJECTED
     }
 
     const defaults = PARTICLE_KIND_DEFAULTS[request.kind]
-    const direction = request.direction
-    const velocity = direction === undefined
-      ? undefined
-      : {
-          x: direction.x * defaults.baseSpeedMPerSecond,
-          y: direction.y * defaults.baseSpeedMPerSecond,
-          z: direction.z * defaults.baseSpeedMPerSecond,
-        }
-    const spawn: ParticleSpawnSpec = {
-      dimension: request.position.dimension,
-      lifetimeSecs: request.lifetimeSeconds ?? defaults.lifetimeSeconds,
-      positionX: request.position.x,
-      positionY: request.position.y,
-      positionZ: request.position.z,
-      tint: request.color ?? defaults.color,
-      uvU: 0,
-      uvV: 0,
-      ...(velocity === undefined ? {} : { velocity }),
-      ...(follow === undefined ? {} : { follow }),
-    }
-
-    const count = Math.min(defaults.particleCount, pool.capacity)
-    let accepted = false
-    for (let particle = 0; particle < count; particle += 1) {
-      accepted = spawnParticle(pool, spawn) || accepted
-    }
-    return accepted ? 1 : 0
+    const spawn = particleSpawnSpecFor(request, defaults, follow)
+    return spawnParticles(pool, spawn, defaults.particleCount)
   }),
 })
 

@@ -35,8 +35,8 @@ const chunkWithBlocks = (
   entries: ReadonlyArray<readonly [number, number, number, number]>,
 ): ChunkView => {
   const blocks = new Uint16Array(CHUNK_SIZE * CHUNK_HEIGHT * CHUNK_SIZE)
-  for (const [lx, y, lz, blockId] of entries) {
-    blocks[blockIndex(lx, y, lz)] = blockId
+  for (const [lx, y, lz, numericId] of entries) {
+    blocks[blockIndex(lx, y, lz)] = numericId
   }
   return { blocks, coord: chunkCoord(0, 0), height: CHUNK_HEIGHT }
 }
@@ -44,25 +44,25 @@ const chunkWithBlocks = (
 const shapeKindsForPlacements = (): ReadonlyMap<BlockId, BlockShapeKind> =>
   new Map(SHAPE_PLACEMENTS.map(([shape, , , , numericId]) => [blockId(numericId), shape]))
 
-const findBlockId = (predicate: (blockId: BlockId) => boolean, description: string): BlockId => {
-  const blockId = BLOCK_IDS.find(predicate)
-  if (blockId === undefined) {
+const findBlockId = (predicate: (candidateId: BlockId) => boolean, description: string): BlockId => {
+  const foundBlockId = BLOCK_IDS.find(predicate)
+  if (foundBlockId === undefined) {
     throw new Error(`mc-kernel must expose ${description}`)
   }
-  return blockId
+  return foundBlockId
 }
 
 const fullOpaqueBlockId = (): BlockId =>
   findBlockId(
-    (blockId) =>
-      Result.getOrThrow(propertyOfBlockId(blockId, 'opacity')) === 'opaque' &&
-      Result.getOrThrow(propertyOfBlockId(blockId, 'collisionShape')) === 'full' &&
-      Result.getOrThrow(propertyOfBlockId(blockId, 'renderKind')) === 'cube',
+    (candidateId) =>
+      Result.getOrThrow(propertyOfBlockId(candidateId, 'opacity')) === 'opaque' &&
+      Result.getOrThrow(propertyOfBlockId(candidateId, 'collisionShape')) === 'full' &&
+      Result.getOrThrow(propertyOfBlockId(candidateId, 'renderKind')) === 'cube',
     'a full opaque cube',
   )
 
 const partialBlockId = (): BlockId =>
-  findBlockId((blockId) => Result.getOrThrow(propertyOfBlockId(blockId, 'renderKind')) === 'cactus', 'a non-cubic block',)
+  findBlockId((candidateId) => Result.getOrThrow(propertyOfBlockId(candidateId, 'renderKind')) === 'cactus', 'a non-cubic block',)
 
 const crossPlantQuad = (): CrossPlantQuad => ({
   ao: 0,
@@ -94,7 +94,7 @@ const cubeQuad = (): MeshQuad => ({
 describe('block shape meshing', () => {
   it.effect('emits all configured shape kinds with every visible face', () =>
     Effect.sync(() => {
-      const chunk = chunkWithBlocks(SHAPE_PLACEMENTS.map(([, lx, y, lz, blockId]) => [lx, y, lz, blockId]))
+      const chunk = chunkWithBlocks(SHAPE_PLACEMENTS.map(([, lx, y, lz, numericId]) => [lx, y, lz, numericId]))
       const quads = meshBlockShapes(chunk, {}, shapeKindsForPlacements())
 
       expect(quads).toHaveLength(SHAPE_PLACEMENTS.length * 6)

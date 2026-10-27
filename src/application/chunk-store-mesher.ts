@@ -1,8 +1,9 @@
 import {
-  BlockAxis,
   BLOCK_IDS,
-  ChunkAxis,
+  BlockAxis,
   type BlockId,
+  ChunkAxis,
+  LightLevelCandidate,
   blockIdsWithOpacity,
   blockPosition,
   blockTypeOfId,
@@ -28,6 +29,7 @@ import {
   type WorldRendererAttachment,
   attachWorldRenderer,
 } from './world-sync.js'
+import { Effect, Option, Result } from 'effect'
 import { type GeometryQuad, type QuadColor } from '../domain/chunk-geometry.js'
 import {
   type LightSampler,
@@ -38,8 +40,6 @@ import {
 } from '../domain/voxel-lighting.js'
 import type { BlockNameLookup } from '../domain/block-texture-map.js'
 import type { BlockShapeKind } from '../domain/meshing-vocabulary.js'
-import { Effect, Option, Result } from 'effect'
-import { LightLevelCandidate } from '@nerima-games/mc-kernel'
 import type { WorldRenderer } from './world-renderer.js'
 import { meshBlockShapes } from '../domain/block-shapes.js'
 

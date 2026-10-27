@@ -1,18 +1,14 @@
-import type { Dimension } from '@nerima-games/mc-kernel'
-import { ParticleService, ParticleServiceLive, ParticleServicePoolAccess } from './particle-service.js'
-/**
- * Production renderer composition.
- *
- * The base renderer owns the platform-neutral scene protocol. This module
- * assembles the atlas shader, animated water and instanced particles that a
- * browser-facing world uses on top of that protocol.
- */
+import {
+  DEFAULT_DIMENSION,
+  type RenderEnvironmentPlan,
+} from '../domain/render-environment.js'
 import {
   type ParticleFrameSnapshot,
   type ParticlePool,
   type ParticlePoolOptions,
   advanceParticles,
 } from '../domain/particle-pool.js'
+import { ParticleService, ParticleServiceLive, ParticleServicePoolAccess } from './particle-service.js'
 import { type ParticleSystem, makeParticleSystem } from './particle-system.js'
 import type {
   ThreeBufferGeometry,
@@ -32,13 +28,17 @@ import {
   makeChunkShaderMaterial,
   makeWaterMaterial,
 } from './world-renderer-materials.js'
-import {
-  type WorldRenderer,
-  type WorldRendererOptions,
-  makeWorldRenderer,
-} from './world-renderer.js'
+import { type WorldRenderer, type WorldRendererOptions, makeWorldRenderer } from './world-renderer.js'
+import type { Dimension } from '@nerima-games/mc-kernel'
 import { Effect } from 'effect'
-import { DEFAULT_DIMENSION, type RenderEnvironmentPlan } from '../domain/render-environment.js'
+
+/**
+ * Production renderer composition.
+ *
+ * The base renderer owns the platform-neutral scene protocol. This module
+ * assembles the atlas shader, animated water and instanced particles that a
+ * browser-facing world uses on top of that protocol.
+ */
 
 type TransformableThreeMesh = ThreeMesh & {
   readonly position: ThreeVector3
@@ -120,7 +120,7 @@ export const makeProductionWorldRenderer = <
         const entities = yield* renderer.entitySnapshot
         particleFrame = {
           dimension: activeDimension,
-          entities: entities.map(({ id, feetPosition }) => ({ id, feetPosition })),
+          entities: entities.map(({ feetPosition, id }) => ({ feetPosition, id })),
         }
         advanceParticles(particlePool, frame.deltaSecs, particleFrame)
         const time = water.uniforms['uTime']
