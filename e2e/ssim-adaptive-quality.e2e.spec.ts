@@ -141,6 +141,7 @@ const runAdaptiveScenario = async (options: AdaptiveScenarioOptions): Promise<Ad
       options: AdaptiveScenarioOptions
       runtime: typeof runtime
     }>): AdaptiveResult => {
+      const initialPreset = input.runtime.qualityPreset
       const samples = tools.renderFrames({
         camera: input.options.camera,
         frameCount: input.options.comparisonsToDowngrade + input.options.rendersAfterDowngrade,
@@ -148,7 +149,7 @@ const runAdaptiveScenario = async (options: AdaptiveScenarioOptions): Promise<Ad
         runtime: input.runtime,
         zero: input.options.zero,
       })
-      return { initialPreset: input.runtime.qualityPreset, ...samples }
+      return { initialPreset, ...samples }
     },
     dispose: (input: Readonly<{
       fixture: FixtureResources
