@@ -48,9 +48,12 @@ const makeTimerContext = ({
     endQuery: vi.fn(),
     getExtension: vi.fn(() => extension),
     getParameter: vi.fn(() => disjoint),
-    getQueryParameter: vi.fn((_query: unknown, parameter: number) =>
-      parameter === queryResultAvailable ? available : elapsedNanoseconds,
-    ),
+    getQueryParameter: vi.fn((_query: unknown, parameter: number) => {
+      if (parameter === queryResultAvailable) {
+        return available
+      }
+      return elapsedNanoseconds
+    }),
   } as unknown as WebGL2RenderingContext
   return { gl, query }
 }
@@ -195,7 +198,8 @@ vi.mock('three', () => {
     minFilter = 0
     wrapS = 0
     wrapT = 0
-    dispose(): void {}
+    disposed = false
+    dispose(): void { this.disposed = true }
   }
 
   class FakeDataTexture extends FakeTexture {
@@ -217,16 +221,20 @@ vi.mock('three', () => {
       this.options = options
     }
     setSize(width: number, height: number): void { this.width = width; this.height = height }
-    dispose(): void {}
+    disposed = false
+    dispose(): void { this.disposed = true }
   }
 
   class FakeShaderMaterial {
     readonly uniforms: Record<string, { value: unknown }>
     constructor(options: { readonly uniforms?: Record<string, { value: unknown }> }) {
       this.uniforms = options.uniforms ?? {}
-      if (browserMocks.settings.omitCopyDiffuseUniform) delete this.uniforms['tDiffuse']
+      if (browserMocks.settings.omitCopyDiffuseUniform) {
+        delete this.uniforms['tDiffuse']
+      }
     }
-    dispose(): void {}
+    disposed = false
+    dispose(): void { this.disposed = true }
   }
 
   class FakeMesh {
@@ -242,9 +250,14 @@ vi.mock('three', () => {
     get visible(): boolean { return this.visibleState }
     set visible(value: boolean) {
       this.visibleState = value
-      if (!value) browserMocks.settings.hiddenWaterWasRendered = true
+      if (!value) {
+        browserMocks.settings.hiddenWaterWasRendered = true
+      }
     }
-    updateWorldMatrix(_updateParents: boolean, _updateChildren: boolean): void {}
+    worldMatrixUpdated = false
+    updateWorldMatrix(_updateParents: boolean, _updateChildren: boolean): void {
+      this.worldMatrixUpdated = true
+    }
   }
 
   class FakeScene {}
@@ -252,7 +265,8 @@ vi.mock('three', () => {
   class FakePerspectiveCamera extends FakeCamera {
     far = 1000
     near = 0.1
-    updateMatrixWorld(): void {}
+    matrixWorldUpdated = false
+    updateMatrixWorld(): void { this.matrixWorldUpdated = true }
   }
 
   class FakeVector3 {
@@ -273,7 +287,8 @@ vi.mock('three', () => {
       max: { x: 0.5, y: 0.5, z: 0.5 },
       min: { x: -0.5, y: -0.5, z: -0.5 },
     }
-    computeBoundingBox(): void {}
+    boundingBoxComputed = false
+    computeBoundingBox(): void { this.boundingBoxComputed = true }
   }
 
   class FakeWebGLRenderer {
@@ -289,11 +304,19 @@ vi.mock('three', () => {
       createQuery: () => ({}),
       deleteQuery: () => undefined,
       endQuery: () => undefined,
-      getExtension: () => browserMocks.settings.gpuTimerExtension
-        ? ({ GPU_DISJOINT_EXT: 1, TIME_ELAPSED_EXT: 2 })
-        : null,
+      getExtension: () => {
+        if (browserMocks.settings.gpuTimerExtension) {
+          return { GPU_DISJOINT_EXT: 1, TIME_ELAPSED_EXT: 2 }
+        }
+        return null
+      },
       getParameter: () => false,
-      getQueryParameter: (_query: unknown, parameter: number) => parameter === 6 ? true : 2_500_000,
+      getQueryParameter: (_query: unknown, parameter: number) => {
+        if (parameter === 6) {
+          return true
+        }
+        return 2_500_000
+      },
       readPixels: (
         _x: number,
         _y: number,
@@ -305,28 +328,56 @@ vi.mock('three', () => {
       ) => pixels.fill(browserMocks.settings.activePixel),
     }
 
-    getContext(): unknown { return browserMocks.settings.webgl2 ? this.context : {} }
-    getDrawingBufferSize(target: FakeVector2): FakeVector2 { return target.set(8, 8) }
+    getContext(): unknown {
+      if (browserMocks.settings.webgl2) {
+        return this.context
+      }
+      return {}
+    }
+    drawingBufferSize = new FakeVector2(8, 8)
+    getDrawingBufferSize(target: FakeVector2): FakeVector2 {
+      this.drawingBufferSize = target.set(8, 8)
+      return this.drawingBufferSize
+    }
     getRenderTarget(): unknown {
-      if (browserMocks.settings.throwOnGetTarget) throw new Error('render target query failed')
+      if (browserMocks.settings.throwOnGetTarget) {
+        throw new Error('render target query failed')
+      }
       return this.target
     }
     readRenderTargetPixels(
-      _target: unknown,
+      target: unknown,
       _x: number,
       _y: number,
       _width: number,
       _height: number,
       pixels: Uint8Array,
-    ): void { pixels.fill(browserMocks.settings.referencePixel) }
-    render(_scene: unknown, _camera: unknown): void {}
-    setPixelRatio(_ratio: number): void {}
+    ): void {
+      this.lastReadTarget = target
+      this.lastReadPixels = pixels
+      pixels.fill(browserMocks.settings.referencePixel)
+    }
+    lastReadTarget: unknown
+    lastReadPixels: Uint8Array | undefined
+    lastRenderedScene: unknown
+    lastRenderedCamera: unknown
+    render(scene: unknown, camera: unknown): void {
+      this.lastRenderedScene = scene
+      this.lastRenderedCamera = camera
+    }
+    pixelRatio = 1
+    setPixelRatio(ratio: number): void { this.pixelRatio = ratio }
     setRenderTarget(target: unknown): void { this.target = target }
-    clear(): void {}
+    clearCount = 0
+    clear(): void { this.clearCount += 1 }
   }
 
   class FakeTextureLoader {
-    async loadAsync(_url: string): Promise<FakeTexture> { return new FakeTexture() }
+    loadedUrl: string | undefined
+    async loadAsync(url: string): Promise<FakeTexture> {
+      this.loadedUrl = url
+      return new FakeTexture()
+    }
   }
 
   return {
@@ -353,10 +404,13 @@ vi.mock('three', () => {
     WebGLRenderTarget: FakeRenderTarget,
   }
 })
-
-vi.mock('three/addons/postprocessing/BokehPass.js', () => ({
-  BokehPass: class { dispose(): void {} },
-}))
+vi.mock('three/addons/postprocessing/BokehPass.js', () => {
+  class BokehPass {
+    disposed = false
+    dispose(): void { this.disposed = true }
+  }
+  return { BokehPass }
+})
 vi.mock('three/addons/postprocessing/EffectComposer.js', () => ({
   EffectComposer: class {
     readonly passes: Array<{
@@ -372,7 +426,8 @@ vi.mock('three/addons/postprocessing/EffectComposer.js', () => ({
       this.renderer = renderer
       this.renderTarget = renderTarget
     }
-    dispose(): void {}
+    disposed = false
+    dispose(): void { this.disposed = true }
     removePass(pass: {
       dispose?: () => void
       render?: (...args: ReadonlyArray<unknown>) => void
@@ -385,9 +440,12 @@ vi.mock('three/addons/postprocessing/EffectComposer.js', () => ({
         pass.render?.(this.renderer, {}, { depthTexture: { id: 'depth' } }, 0, false)
       }
     }
-    setPixelRatio(_ratio: number): void {}
+    pixelRatio = 1
+    setPixelRatio(ratio: number): void { this.pixelRatio = ratio }
     setSize(width: number, height: number): void {
-      for (const pass of this.passes) pass.setSize?.(width, height)
+      for (const pass of this.passes) {
+        pass.setSize?.(width, height)
+      }
     }
     addPass(pass: {
       dispose?: () => void
@@ -399,61 +457,94 @@ vi.mock('three/addons/postprocessing/EffectComposer.js', () => ({
     }
   },
 }))
-vi.mock('three/addons/postprocessing/GTAOPass.js', () => ({
-  GTAOPass: class { dispose(): void {} },
-}))
-vi.mock('three/addons/postprocessing/OutputPass.js', () => ({
-  OutputPass: class { dispose(): void {} },
-}))
-vi.mock('three/addons/postprocessing/Pass.js', () => ({
-  FullScreenQuad: class {
-    constructor(_material: unknown) {}
-    dispose(): void {}
-    render(_renderer: unknown): void {}
-  },
-  Pass: class { dispose(): void {} },
-}))
-vi.mock('three/addons/postprocessing/RenderPass.js', () => ({
-  RenderPass: class { dispose(): void {} },
-}))
-vi.mock('three/addons/postprocessing/SMAAPass.js', () => ({
-  SMAAPass: class { dispose(): void {} },
-}))
+vi.mock('three/addons/postprocessing/GTAOPass.js', () => {
+  class GTAOPass {
+    disposed = false
+    dispose(): void { this.disposed = true }
+  }
+  return { GTAOPass }
+})
+vi.mock('three/addons/postprocessing/OutputPass.js', () => {
+  class OutputPass {
+    disposed = false
+    dispose(): void { this.disposed = true }
+  }
+  return { OutputPass }
+})
+vi.mock('three/addons/postprocessing/Pass.js', () => {
+  class FullScreenQuad {
+    readonly material: unknown
+    constructor(material: unknown) { this.material = material }
+    disposed = false
+    dispose(): void { this.disposed = true }
+    lastRenderer: unknown
+    render(renderer: unknown): void { this.lastRenderer = renderer }
+  }
+  class Pass {
+    disposed = false
+    dispose(): void { this.disposed = true }
+  }
+  return { FullScreenQuad, Pass }
+})
+vi.mock('three/addons/postprocessing/RenderPass.js', () => {
+  class RenderPass {
+    disposed = false
+    dispose(): void { this.disposed = true }
+  }
+  return { RenderPass }
+})
+vi.mock('three/addons/postprocessing/SMAAPass.js', () => {
+  class SMAAPass {
+    disposed = false
+    dispose(): void { this.disposed = true }
+  }
+  return { SMAAPass }
+})
 vi.mock('three/addons/postprocessing/ShaderPass.js', () => ({
   ShaderPass: class {
     readonly uniforms: Record<string, { value: unknown }>
     constructor(shader: { readonly uniforms: Record<string, { value: unknown }> }) {
       this.uniforms = shader.uniforms
-      if (browserMocks.settings.omitCompositeDepthUniform) delete this.uniforms['tDepth']
+      if (browserMocks.settings.omitCompositeDepthUniform) {
+        delete this.uniforms['tDepth']
+      }
       if (browserMocks.settings.invalidCompositeResolution && this.uniforms['uResolution']) {
         this.uniforms['uResolution'].value = {}
       }
     }
-    dispose(): void {}
-    render(_renderer: unknown, _write: unknown, _read: unknown): void {}
-    setSize(_width: number, _height: number): void {}
+    disposed = false
+    dispose(): void { this.disposed = true }
+    lastRender: ReadonlyArray<unknown> = []
+    render(...args: ReadonlyArray<unknown>): void { this.lastRender = args }
+    size = { width: 0, height: 0 }
+    setSize(width: number, height: number): void { this.size = { width, height } }
   },
 }))
-vi.mock('three/addons/postprocessing/UnrealBloomPass.js', () => ({
-  UnrealBloomPass: class { dispose(): void {} },
-}))
+vi.mock('three/addons/postprocessing/UnrealBloomPass.js', () => {
+  class UnrealBloomPass {
+    disposed = false
+    dispose(): void { this.disposed = true }
+  }
+  return { UnrealBloomPass }
+})
 
-let originalDocument: PropertyDescriptor | undefined
-let originalCanvasConstructor: PropertyDescriptor | undefined
-let originalDevicePixelRatio: PropertyDescriptor | undefined
-let originalResizeObserver: PropertyDescriptor | undefined
-let originalAnimationFrame: PropertyDescriptor | undefined
-let originalCancelAnimationFrame: PropertyDescriptor | undefined
-let originalUrl: PropertyDescriptor | undefined
-let frameCallbacks: Map<number, () => void>
-let cancelledFrames: Array<number>
-let nextFrameId: number
-let downloadedFiles: Array<string>
-let revokedUrls: Array<string>
-let screenshotPixel: number | undefined
-let screenshotContextAvailable: boolean
-let screenshotBlobAvailable: boolean
-let observerState: { disconnected: boolean; observed: boolean }
+let originalDocument: PropertyDescriptor | undefined = undefined
+let originalCanvasConstructor: PropertyDescriptor | undefined = undefined
+let originalDevicePixelRatio: PropertyDescriptor | undefined = undefined
+let originalResizeObserver: PropertyDescriptor | undefined = undefined
+let originalAnimationFrame: PropertyDescriptor | undefined = undefined
+let originalCancelAnimationFrame: PropertyDescriptor | undefined = undefined
+let originalUrl: PropertyDescriptor | undefined = undefined
+let frameCallbacks: Map<number, () => void> = new Map()
+let cancelledFrames: Array<number> = []
+let nextFrameId = 1
+let downloadedFiles: Array<string> = []
+let revokedUrls: Array<string> = []
+let appendedElements: Array<unknown> = []
+let screenshotPixel: number | undefined = undefined
+let screenshotContextAvailable = true
+let screenshotBlobAvailable = true
+let observerState = { disconnected: false, observed: false }
 
 class FakeHtmlElement {
   closestResult: unknown = null
@@ -470,7 +561,14 @@ type FakeDocument = {
   removeEventListener: (type: string, listener: unknown) => void
 }
 
-let fakeDocument: FakeDocument
+let fakeDocument: FakeDocument | undefined = undefined
+
+const requireFakeDocument = (): FakeDocument => {
+  if (!fakeDocument) {
+    throw new Error('fake document was not initialized')
+  }
+  return fakeDocument
+}
 
 const restoreGlobal = (name: string, original: PropertyDescriptor | undefined): void => {
   if (original) {
@@ -493,12 +591,13 @@ beforeEach(() => {
   nextFrameId = 1
   downloadedFiles = []
   revokedUrls = []
+  appendedElements = []
   screenshotPixel = undefined
   screenshotContextAvailable = true
   screenshotBlobAvailable = true
   observerState = { disconnected: false, observed: false }
   fakeDocument = {
-    body: { append: () => undefined },
+    body: { append: (element) => { appendedElements.push(element) } },
     defaultView: { HTMLElement: FakeHtmlElement },
     listeners: new Map(),
     addEventListener(type, listener) { this.listeners.set(type, listener) },
@@ -508,18 +607,25 @@ beforeEach(() => {
           width: 0,
           height: 0,
           getContext(type: string) {
-            if (type !== '2d' || !screenshotContextAvailable) return null
+            if (type !== '2d' || !screenshotContextAvailable) {
+              return null
+            }
             return {
               createImageData(width: number, height: number) {
                 return { data: new Uint8ClampedArray(width * height * 4) }
               },
               putImageData(image: { readonly data: Uint8ClampedArray }) {
-                screenshotPixel = image.data[0]
+                const [firstPixel] = image.data
+                screenshotPixel = firstPixel
               },
             }
           },
           toBlob(callback: (blob: Blob | null) => void, type: string) {
-            callback(screenshotBlobAvailable ? new Blob([], { type }) : null)
+            if (screenshotBlobAvailable) {
+              callback(new Blob([], { type }))
+              return
+            }
+            callback(null)
           },
         }
       }
@@ -528,19 +634,23 @@ beforeEach(() => {
         hidden: false,
         href: '',
         click() { downloadedFiles.push(this.download) },
-        remove() {},
+        removed: false,
+        remove() { this.removed = true },
       }
       return link
     },
     removeEventListener(type, listener) {
-      if (this.listeners.get(type) === listener) this.listeners.delete(type)
+      if (this.listeners.get(type) === listener) {
+        this.listeners.delete(type)
+      }
     },
   }
   Object.defineProperty(globalThis, 'document', { configurable: true, value: fakeDocument })
+  const initializedDocument = requireFakeDocument()
   Object.defineProperty(globalThis, 'HTMLCanvasElement', {
     configurable: true,
     value: class {
-      readonly ownerDocument = fakeDocument
+      readonly ownerDocument = initializedDocument
       readonly clientWidth = 8
       readonly clientHeight = 8
       width = 8
@@ -550,10 +660,19 @@ beforeEach(() => {
   Object.defineProperty(globalThis, 'devicePixelRatio', { configurable: true, value: 1 })
   Object.defineProperty(globalThis, 'ResizeObserver', {
     configurable: true,
-    value: class {
-      constructor(_callback: () => void) {}
-      observe(_target: unknown): void { observerState.observed = true }
-      disconnect(): void { observerState.disconnected = true }
+      value: class FakeResizeObserver {
+        readonly callback: () => void
+        constructor(callback: () => void) { this.callback = callback }
+        observedTarget: unknown
+        disconnected = false
+        observe(target: unknown): void {
+          this.observedTarget = target
+          observerState.observed = true
+        }
+        disconnect(): void {
+          this.disconnected = true
+          observerState.disconnected = true
+        }
     },
   })
   Object.defineProperty(globalThis, 'requestAnimationFrame', {
@@ -618,7 +737,24 @@ afterEach(() => {
   restoreGlobal('URL', originalUrl)
 })
 
+const browserFailureMessage = (cause: unknown): string => {
+  if (cause instanceof Error) {
+    return cause.message
+  }
+  return String(cause)
+}
+
 describe('browser world runtime', () => {
+  it('reports a malformed post-processing pass from the runtime boundary', async () => {
+    const runtime = await makeBrowserWorldRuntime({ canvas: new HTMLCanvasElement(), atlas: new THREE.Texture() })
+    try {
+      Effect.runSync(runtime.world.setPostProcessingChain(JSON.parse('[{"effects":[],"pass":"unsupported"}]')))
+      expect(() => runtime.render(testCamera)).toThrow('Unsupported post-processing pass: unsupported')
+    } finally {
+      runtime.dispose()
+    }
+  })
+
   it('initializes the public runtime, renders against a hidden ultra reference, adapts quality, and disposes', async () => {
     const canvas = new HTMLCanvasElement()
     const runtime = await makeBrowserWorldRuntime({
@@ -639,8 +775,10 @@ describe('browser world runtime', () => {
     expect(blob.type).toBe('image/png')
     expect(screenshotPixel).toBe(0)
 
-    const keydown = fakeDocument.listeners.get('keydown')
-    if (typeof keydown !== 'function') throw new Error('screenshot shortcut listener was not installed')
+    const keydown = requireFakeDocument().listeners.get('keydown')
+    if (typeof keydown !== 'function') {
+      throw new Error('screenshot shortcut listener was not installed')
+    }
     const editable = new FakeHtmlElement()
     editable.isContentEditable = true
     const ignoredEvent = { code: 'F2', repeat: false, altKey: false, ctrlKey: false, metaKey: false, shiftKey: false, target: editable, preventDefault: vi.fn() }
@@ -662,7 +800,9 @@ describe('browser world runtime', () => {
     const unrelatedEvent = { code: 'F3', repeat: false, altKey: false, ctrlKey: false, metaKey: false, shiftKey: false, target: null, preventDefault: vi.fn() }
     keydown(unrelatedEvent)
     expect(unrelatedEvent.preventDefault).not.toHaveBeenCalled()
-    await new Promise((resolve) => setTimeout(resolve, 0))
+    await new Promise<void>((resolve) => {
+      setTimeout(() => resolve(), 0)
+    })
     expect(revokedUrls).toEqual(['blob:runtime-test', 'blob:runtime-test'])
 
     for (let frame = 0; frame < 19; frame += 1) {
@@ -672,8 +812,10 @@ describe('browser world runtime', () => {
     expect(runtime.qualityPreset).toBe('medium')
     expect(runtime.quality).toStrictEqual(QUALITY_PRESETS.medium)
 
-    const waterMesh = runtime.waterMeshes[0]
-    if (!waterMesh) throw new Error('initial water mesh was not attached')
+    const [waterMesh] = runtime.waterMeshes
+    if (!waterMesh) {
+      throw new Error('initial water mesh was not attached')
+    }
     runtime.detachWaterSurface(waterMesh)
     runtime.detachWaterSurface(waterMesh)
     runtime.attachWaterSurface(new THREE.BufferGeometry())
@@ -691,22 +833,28 @@ describe('browser world runtime', () => {
     runtime.advanceFrame({ ...frame.frame, deltaSecs: 0 })
     runtime.start(() => frame)
     const firstAnimation = frameCallbacks.get(nextFrameId - 1)
-    if (!firstAnimation) throw new Error('animation frame was not scheduled')
+    if (!firstAnimation) {
+      throw new Error('animation frame was not scheduled')
+    }
     firstAnimation()
     runtime.stop()
     expect(cancelledFrames.length).toBeGreaterThan(0)
     runtime.start(() => undefined)
     const emptyAnimation = frameCallbacks.get(nextFrameId - 1)
-    if (!emptyAnimation) throw new Error('animation frame was not scheduled')
+    if (!emptyAnimation) {
+      throw new Error('animation frame was not scheduled')
+    }
     emptyAnimation()
     runtime.stop()
     runtime.start(() => undefined)
     const staleAnimation = frameCallbacks.get(nextFrameId - 1)
-    if (!staleAnimation) throw new Error('animation frame was not scheduled')
+    if (!staleAnimation) {
+      throw new Error('animation frame was not scheduled')
+    }
     runtime.dispose()
     expect(observerState.disconnected).toBe(true)
     staleAnimation()
-    expect(fakeDocument.listeners.has('keydown')).toBe(false)
+    expect(requireFakeDocument().listeners.has('keydown')).toBe(false)
     expect(runtime.latestGpuTimeMs).toBe(2.5)
     expect(() => runtime.render(testCamera)).toThrow('browser world runtime is disposed')
     expect(() => runtime.start(() => undefined)).toThrow('browser world runtime is disposed')
@@ -726,7 +874,9 @@ describe('browser world runtime', () => {
       deltaSecs: 0.021,
       cameraPosition: { worldX: 0, worldY: 0, worldZ: 0 },
     }
-    for (let index = 0; index < 20; index += 1) runtime.advanceFrame(frame)
+    for (let index = 0; index < 20; index += 1) {
+      runtime.advanceFrame(frame)
+    }
     expect(runtime.qualityPreset).toBe('medium')
     runtime.dispose()
 
@@ -737,7 +887,9 @@ describe('browser world runtime', () => {
       canvas: new HTMLCanvasElement(),
       quality: { ...QUALITY_PRESETS.high, pixelRatioCap: 1.25 },
     })
-    for (let index = 0; index < 20; index += 1) customRuntime.advanceFrame(frame)
+    for (let index = 0; index < 20; index += 1) {
+      customRuntime.advanceFrame(frame)
+    }
     expect(customRuntime.qualityPreset).toBeUndefined()
     customRuntime.render(testCamera)
     customRuntime.dispose()
@@ -753,8 +905,10 @@ describe('browser world runtime', () => {
     })
     await expect(disabled.captureScreenshot()).rejects.toThrow('captureScreenshot requires preserveDrawingBuffer')
     const screenshotError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
-    const failedShortcut = fakeDocument.listeners.get('keydown')
-    if (typeof failedShortcut !== 'function') throw new Error('screenshot shortcut listener was not installed')
+    const failedShortcut = requireFakeDocument().listeners.get('keydown')
+    if (typeof failedShortcut !== 'function') {
+      throw new Error('screenshot shortcut listener was not installed')
+    }
     failedShortcut({ code: 'F2', repeat: false, altKey: false, ctrlKey: false, metaKey: false, shiftKey: false, target: null, preventDefault: () => undefined })
     await vi.waitFor(() => expect(screenshotError).toHaveBeenCalledOnce())
     disabled.dispose()
@@ -794,18 +948,19 @@ describe('browser world runtime', () => {
       { surface: { renderer, scene, camera: new THREE.Camera() }, message: 'Browser surface did not provide a THREE.PerspectiveCamera' },
     ]
 
-    for (const { surface, message } of cases) {
+    const validationPromises = cases.map(({ surface }) => {
       browserMocks.worldFactory.mockImplementationOnce((_three, _canvas, _viewport, _atlas, options) => {
         options.postProcessing(surface)
         return Effect.succeed({})
       })
-      const result = await makeBrowserWorldRuntime({
+      return makeBrowserWorldRuntime({
         atlas: new THREE.Texture(),
         autoResize: false,
         canvas: new HTMLCanvasElement(),
-      }).then(() => 'unexpected success', (cause: unknown) => cause instanceof Error ? cause.message : String(cause))
-      expect(result).toBe(message)
-    }
+      }).then(() => 'unexpected success', browserFailureMessage)
+    })
+    const validationResults = await Promise.all(validationPromises)
+    expect(validationResults).toStrictEqual(cases.map(({ message }) => message))
 
     browserMocks.settings.webgl2 = false
     browserMocks.worldFactory.mockImplementationOnce((_three, _canvas, _viewport, _atlas, options) => {

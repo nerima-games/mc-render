@@ -133,9 +133,9 @@ describe('browser render policy', () => {
   })
 
   it('resolves canvas dimensions and refraction target dimensions', () => {
-    expect(resolveBrowserViewport(320.9, 200.2, 640, 480)).toStrictEqual({ width: 320, height: 200 })
-    expect(resolveBrowserViewport(0, 0, 64.8, 0)).toStrictEqual({ width: 64, height: 1 })
-    expect(resolveBrowserViewport(0, 0, 0, 0)).toStrictEqual({ width: 1, height: 1 })
+    expect(resolveBrowserViewport({ clientWidth: 320.9, clientHeight: 200.2, canvasWidth: 640, canvasHeight: 480 })).toStrictEqual({ width: 320, height: 200 })
+    expect(resolveBrowserViewport({ clientWidth: 0, clientHeight: 0, canvasWidth: 64.8, canvasHeight: 0 })).toStrictEqual({ width: 64, height: 1 })
+    expect(resolveBrowserViewport({ clientWidth: 0, clientHeight: 0, canvasWidth: 0, canvasHeight: 0 })).toStrictEqual({ width: 1, height: 1 })
     expect(resolveBrowserRefractionTargetSize({ width: 320, height: 200 }, 1.5)).toStrictEqual({
       width: 480,
       height: 300,
@@ -182,7 +182,9 @@ describe('browser render policy', () => {
       measure: vi.fn(),
     }
     expect(measureBrowserStage(undefined, 'render.none', () => 3)).toBe(3)
+    expect(measureBrowserStage({}, 'render.missing-mark', () => 4)).toBe(4)
     expect(measureBrowserStage({ mark: marks.mark }, 'render.incomplete', () => 4)).toBe(4)
+    expect(measureBrowserStage({ mark: marks.mark, measure: marks.measure }, 'render.missing-cleanup', () => 4)).toBe(4)
     const api = { mark: marks.mark, measure: marks.measure, clearMarks: marks.clearMarks }
     expect(measureBrowserStage(api, 'render.stage', () => 5)).toBe(5)
     expect(marks.mark.mock.calls).toEqual([['render.stage:start'], ['render.stage:end']])
@@ -224,13 +226,13 @@ describe('browser render policy', () => {
     })
     expect(godRays.fragmentShader).toContain('index < 40')
 
-    const enabled = createBrowserCompositeShader(
-      ['bloom', 'godRays', 'bokeh'],
-      QUALITY_PRESETS.ultra,
-      { width: 1920, height: 1080 },
-      { near: 0.1, far: 1000 },
+    const enabled = createBrowserCompositeShader({
+      camera: { near: 0.1, far: 1000 },
+      effects: ['bloom', 'godRays', 'bokeh'],
       makeVector2,
-    )
+      quality: QUALITY_PRESETS.ultra,
+      viewport: { width: 1920, height: 1080 },
+    })
     expect(enabled.uniforms.uBloomEnabled.value).toBe(true)
     expect(enabled.uniforms.uGodRaysEnabled.value).toBe(true)
     expect(enabled.uniforms.uBokehEnabled.value).toBe(true)
@@ -238,13 +240,13 @@ describe('browser render policy', () => {
     expect(enabled.uniforms.uNearClip.value).toBe(0.1)
     expect(enabled.uniforms.uFarClip.value).toBe(1000)
 
-    const disabled = createBrowserCompositeShader(
-      [],
-      QUALITY_PRESETS.low,
-      { width: 1, height: 1 },
-      { near: 0.1, far: 10 },
+    const disabled = createBrowserCompositeShader({
+      camera: { near: 0.1, far: 10 },
+      effects: [],
       makeVector2,
-    )
+      quality: QUALITY_PRESETS.low,
+      viewport: { width: 1, height: 1 },
+    })
     expect(disabled.uniforms.uBloomEnabled.value).toBe(false)
     expect(disabled.uniforms.uGodRaysEnabled.value).toBe(false)
     expect(disabled.uniforms.uBokehEnabled.value).toBe(false)
@@ -266,28 +268,26 @@ describe('browser render policy', () => {
   })
 
   it('gates refraction by visible mesh count, configured ratio, and frame interval', () => {
-    const high = QUALITY_PRESETS.high
-    expect(shouldCaptureBrowserRefraction(high, 0, 1, 1)).toBe(false)
-    expect(shouldCaptureBrowserRefraction(high, 1, 0.004, 1)).toBe(false)
-    expect(shouldCaptureBrowserRefraction(high, 1, 0.005, 1)).toBe(true)
-    expect(shouldCaptureBrowserRefraction(high, 1, 0.5, 2)).toBe(false)
-    expect(shouldCaptureBrowserRefraction(QUALITY_PRESETS.low, 1, 1, 1)).toBe(false)
+    const { high } = QUALITY_PRESETS
+    expect(shouldCaptureBrowserRefraction({ quality: high, visibleWaterMeshCount: 0, waterScreenRatio: 1, frameNumber: 1 })).toBe(false)
+    expect(shouldCaptureBrowserRefraction({ quality: high, visibleWaterMeshCount: 1, waterScreenRatio: 0.004, frameNumber: 1 })).toBe(false)
+    expect(shouldCaptureBrowserRefraction({ quality: high, visibleWaterMeshCount: 1, waterScreenRatio: 0.005, frameNumber: 1 })).toBe(true)
+    expect(shouldCaptureBrowserRefraction({ quality: high, visibleWaterMeshCount: 1, waterScreenRatio: 0.5, frameNumber: 2 })).toBe(false)
+    expect(shouldCaptureBrowserRefraction({ quality: QUALITY_PRESETS.low, visibleWaterMeshCount: 1, waterScreenRatio: 1, frameNumber: 1 })).toBe(false)
     const custom = { ...high, refractionMinScreenRatio: 0.75, refractionThrottleFrames: 1 }
-    expect(shouldCaptureBrowserRefraction(custom, 1, 0.74, 1)).toBe(false)
-    expect(shouldCaptureBrowserRefraction(custom, 1, 0.75, 1)).toBe(true)
+    expect(shouldCaptureBrowserRefraction({ quality: custom, visibleWaterMeshCount: 1, waterScreenRatio: 0.74, frameNumber: 1 })).toBe(false)
+    expect(shouldCaptureBrowserRefraction({ quality: custom, visibleWaterMeshCount: 1, waterScreenRatio: 0.75, frameNumber: 1 })).toBe(true)
   })
 
   it('wraps FPS transitions with the SSIM skip signal', () => {
-    let state = createAdaptiveQualityState()
-    let result = advanceBrowserFpsQuality(state, 'ultra', 49)
+    let result = advanceBrowserFpsQuality(createAdaptiveQualityState(), 'ultra', 49)
     for (let frame = 1; frame < 20; frame += 1) {
       result = advanceBrowserFpsQuality(result.state, result.preset, 49)
     }
     expect(result.change).toBe('downgrade')
     expect(result.preset).toBe('high')
     expect(result.skipSsim).toBe(true)
-    state = result.state
-    result = advanceBrowserFpsQuality(state, 'high', 60)
+    result = advanceBrowserFpsQuality(result.state, 'high', 60)
     expect(result.change).toBe('none')
     expect(result.skipSsim).toBe(false)
     const recovery = advanceBrowserFpsQuality(createAdaptiveQualityState(), 'medium', 60)
@@ -301,39 +301,44 @@ describe('browser render policy', () => {
 
   it('skips SSIM after an FPS change and downgrades once after sustained low scores', () => {
     const initial = createSsimAdaptiveQualityState()
-    const skipped = advanceBrowserSsimQuality(initial, 'ultra', 0.5, true)
+    const skipped = advanceBrowserSsimQuality({ state: initial, preset: 'ultra', ssim: 0.5, skipSsim: true })
     expect(skipped).toStrictEqual({
       change: 'none',
       preset: 'ultra',
       skipSsim: false,
       state: initial,
     })
-    let result = advanceBrowserSsimQuality(initial, 'ultra', 0.94, false)
+    let result = advanceBrowserSsimQuality({ state: initial, preset: 'ultra', ssim: 0.94, skipSsim: false })
     for (let frame = 1; frame < 20; frame += 1) {
-      result = advanceBrowserSsimQuality(result.state, result.preset, 0.94, false)
+      result = advanceBrowserSsimQuality({ state: result.state, preset: result.preset, ssim: 0.94, skipSsim: false })
     }
     expect(result.change).toBe('downgrade')
     expect(result.preset).toBe('high')
     expect(result.skipSsim).toBe(false)
-    const latched = advanceBrowserSsimQuality(result.state, result.preset, 0.1, false)
+    const latched = advanceBrowserSsimQuality({ state: result.state, preset: result.preset, ssim: 0.1, skipSsim: false })
     expect(latched.change).toBe('none')
     expect(latched.preset).toBe('high')
   })
 
   it('computes SSIM for identical, changed, partial-window, and offset-backed RGBA data', () => {
     const same = rgba(1, 1, 20)
-    expect(structuralSimilarity(same, same, 1, 1)).toBe(1)
+    expect(structuralSimilarity({ left: same, right: same, width: 1, height: 1 })).toBe(1)
     const left = rgba(9, 9, 20)
     const right = rgba(9, 9, 120)
-    expect(structuralSimilarity(left, right, 9, 9)).toBeLessThan(1)
+    expect(structuralSimilarity({ left, right, width: 9, height: 9 })).toBeLessThan(1)
     const paddedLeft = new Uint8Array(left.length + 8)
     const paddedRight = new Uint8Array(right.length + 8)
     paddedLeft.set(left, 4)
     paddedRight.set(right, 4)
     expect(
-      structuralSimilarity(paddedLeft.subarray(4, 4 + left.length), paddedRight.subarray(4, 4 + right.length), 9, 9),
+      structuralSimilarity({
+        left: paddedLeft.subarray(4, 4 + left.length),
+        right: paddedRight.subarray(4, 4 + right.length),
+        width: 9,
+        height: 9,
+      }),
     ).toBeLessThan(1)
-    expect(() => structuralSimilarity(new Uint8Array(4), new Uint8Array(8), 1, 1)).toThrow(
+    expect(() => structuralSimilarity({ left: new Uint8Array(4), right: new Uint8Array(8), width: 1, height: 1 })).toThrow(
       'SSIM inputs must be equally sized RGBA images',
     )
   })

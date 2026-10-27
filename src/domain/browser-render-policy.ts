@@ -1,17 +1,17 @@
 import {
+  type AdaptiveQualityChange,
+  type AdaptiveQualityState,
+  advanceAdaptiveQuality,
+} from './adaptive-quality.js'
+import {
   type GraphicsQuality,
   type PostProcessingPass,
   type PostProcessingStep,
-  type QualityPreset,
   QUALITY_PRESETS,
+  type QualityPreset,
   buildPostProcessingChain,
   qualityUsesHdrRenderTarget,
 } from './post-processing.js'
-import {
-  type AdaptiveQualityState,
-  type AdaptiveQualityChange,
-  advanceAdaptiveQuality,
-} from './adaptive-quality.js'
 import {
   type SsimAdaptiveQualityState,
   advanceSsimAdaptiveQuality,
@@ -34,23 +34,51 @@ const SSIM_WINDOW_SIZE = 8
 const SSIM_LUMINANCE_RANGE = 255
 const SSIM_K1 = 0.01
 const SSIM_K2 = 0.03
+const SSIM_RED_LUMINANCE_WEIGHT = 0.2126
+const SSIM_GREEN_LUMINANCE_WEIGHT = 0.7152
+const SSIM_BLUE_LUMINANCE_WEIGHT = 0.0722
+const SSIM_VARIANCE_DIVISOR_FLOOR = 1
+const SSIM_LUMINANCE_FACTOR = 2
+const SSIM_COVARIANCE_FACTOR = 2
+const SSIM_VARIANCE_POWER = 2
+const RGBA_CHANNEL_COUNT = 4
+const PIXEL_INDEX_INCREMENT = 1
+const RED_CHANNEL_OFFSET = 0
+const GREEN_CHANNEL_OFFSET = 1
+const BLUE_CHANNEL_OFFSET = 2
+const ZERO = 0
+const NANOSECONDS_PER_MILLISECOND = 1_000_000
 const MIN_VIEWPORT_SIZE = 1
 const REFRACTION_AVAILABLE = 1
 const REFRACTION_UNAVAILABLE = 0
 const SCREENSHOT_SHORTCUT_CODE = 'F2'
 
 export const BROWSER_RENDER_DEFAULTS = {
-  godRaysDensity: 0.7,
-  godRaysDecay: 0.95,
-  godRaysWeight: 0.12,
-  godRaysExposure: 0.25,
-  bokehFocus: 10,
   bokehAperture: 0.00002,
+  bokehFocus: 10,
   bokehMaxBlur: 0.01,
+  godRaysDecay: 0.95,
+  godRaysDensity: 0.7,
+  godRaysExposure: 0.25,
+  godRaysWeight: 0.12,
   lightPositionComponent: 0.5,
 }
 
 export type BrowserVector2Factory<Vector2> = (x: number, y: number) => Vector2
+
+const clampBrowserGodRaySamples = (value: number): number => {
+  if (!Number.isFinite(value)) {
+    return MIN_GOD_RAY_SAMPLES
+  }
+  return Math.max(MIN_GOD_RAY_SAMPLES, Math.min(MAX_GOD_RAY_SAMPLES, Math.trunc(value)))
+}
+
+const clampBrowserBloomStrength = (value: number): number => {
+  if (!Number.isFinite(value)) {
+    return MIN_BLOOM_STRENGTH
+  }
+  return Math.max(MIN_BLOOM_STRENGTH, Math.min(MAX_BLOOM_STRENGTH, value))
+}
 
 export type BrowserScreenshotShortcutInput = {
   readonly code: string
@@ -159,7 +187,7 @@ export const createBrowserGodRaysShader = <Vector2>(
         BROWSER_RENDER_DEFAULTS.lightPositionComponent,
       ),
     },
-    uSamples: { value: resolveBrowserGodRaySamples(samples) },
+    uSamples: { value: clampBrowserGodRaySamples(samples) },
     uWeight: { value: BROWSER_RENDER_DEFAULTS.godRaysWeight },
   },
   vertexShader: `
@@ -172,12 +200,16 @@ export const createBrowserGodRaysShader = <Vector2>(
 })
 
 export const createBrowserCompositeShader = <Vector2>(
-  effects: ReadonlyArray<PostProcessingPass>,
-  quality: GraphicsQuality,
-  viewport: BrowserViewport,
-  camera: { readonly far: number; readonly near: number },
-  makeVector2: BrowserVector2Factory<Vector2>,
-): BrowserCompositeShader<Vector2> => ({
+  options: {
+    readonly camera: { readonly far: number; readonly near: number }
+    readonly effects: ReadonlyArray<PostProcessingPass>
+    readonly makeVector2: BrowserVector2Factory<Vector2>
+    readonly quality: GraphicsQuality
+    readonly viewport: BrowserViewport
+  },
+): BrowserCompositeShader<Vector2> => {
+  const { camera, effects, makeVector2, quality, viewport } = options
+  return {
   fragmentShader: `
     #include <packing>
     uniform sampler2D tDiffuse;
@@ -266,11 +298,11 @@ export const createBrowserCompositeShader = <Vector2>(
     }
   `,
   uniforms: {
-    tDiffuse: { value: null },
     tDepth: { value: null },
+    tDiffuse: { value: null },
     uAperture: { value: BROWSER_RENDER_DEFAULTS.bokehAperture },
     uBloomEnabled: { value: effects.includes('bloom') },
-    uBloomStrength: { value: resolveBrowserBloomStrength(quality.bloomStrength) },
+    uBloomStrength: { value: clampBrowserBloomStrength(quality.bloomStrength) },
     uBloomThreshold: { value: 0.85 },
     uBokehEnabled: { value: effects.includes('bokeh') },
     uDecay: { value: BROWSER_RENDER_DEFAULTS.godRaysDecay },
@@ -288,7 +320,7 @@ export const createBrowserCompositeShader = <Vector2>(
     uMaxBlur: { value: BROWSER_RENDER_DEFAULTS.bokehMaxBlur },
     uNearClip: { value: camera.near },
     uResolution: { value: makeVector2(viewport.width, viewport.height) },
-    uSamples: { value: resolveBrowserGodRaySamples(quality.godRaysSamples) },
+    uSamples: { value: clampBrowserGodRaySamples(quality.godRaysSamples) },
     uWeight: { value: BROWSER_RENDER_DEFAULTS.godRaysWeight },
   },
   vertexShader: `
@@ -298,7 +330,8 @@ export const createBrowserCompositeShader = <Vector2>(
       gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
     }
   `,
-})
+  }
+}
 
 export type BrowserQualitySelection = QualityPreset | GraphicsQuality | undefined
 
@@ -351,36 +384,39 @@ export const resolveBrowserPixelRatio = (
   return Math.min(maxPixelRatio, DEFAULT_DEVICE_PIXEL_RATIO)
 }
 
-export const resolveBrowserGodRaySamples = (value: number): number => {
-  if (!Number.isFinite(value)) {
-    return MIN_GOD_RAY_SAMPLES
-  }
-  return Math.max(MIN_GOD_RAY_SAMPLES, Math.min(MAX_GOD_RAY_SAMPLES, Math.trunc(value)))
-}
+export const resolveBrowserGodRaySamples = (value: number): number => clampBrowserGodRaySamples(value)
 
-export const resolveBrowserBloomStrength = (value: number): number => {
-  if (!Number.isFinite(value)) {
-    return MIN_BLOOM_STRENGTH
-  }
-  return Math.max(MIN_BLOOM_STRENGTH, Math.min(MAX_BLOOM_STRENGTH, value))
-}
+export const resolveBrowserBloomStrength = (value: number): number => clampBrowserBloomStrength(value)
 
 export type BrowserRenderTargetKind = 'hdr' | 'ldr'
 
-export const browserRenderTargetKind = (quality: GraphicsQuality): BrowserRenderTargetKind =>
-  qualityUsesHdrRenderTarget(quality) ? 'hdr' : 'ldr'
+export const browserRenderTargetKind = (quality: GraphicsQuality): BrowserRenderTargetKind => {
+  if (qualityUsesHdrRenderTarget(quality)) {
+    return 'hdr'
+  }
+  return 'ldr'
+}
 
 export const resolveBrowserRenderTargetValue = <Value>(
   quality: GraphicsQuality,
   hdrValue: Value,
   ldrValue: Value,
-): Value => (browserRenderTargetKind(quality) === 'hdr' ? hdrValue : ldrValue)
+): Value => {
+  if (browserRenderTargetKind(quality) === 'hdr') {
+    return hdrValue
+  }
+  return ldrValue
+}
 
 export const browserDepthTextureOption = <Texture>(
   enabled: boolean,
   makeTexture: () => Texture,
-): { readonly depthTexture?: Texture } =>
-  enabled ? { depthTexture: makeTexture() } : {}
+): { readonly depthTexture?: Texture } => {
+  if (enabled) {
+    return { depthTexture: makeTexture() }
+  }
+  return {}
+}
 
 export const browserPostProcessingChain = (
   quality: GraphicsQuality,
@@ -411,21 +447,24 @@ export const requireBrowserRuntimeValue = <Value>(value: Value | undefined, mess
 export type BrowserViewport = { readonly width: number; readonly height: number }
 
 export const resolveBrowserViewport = (
-  clientWidth: number,
-  clientHeight: number,
-  canvasWidth: number,
-  canvasHeight: number,
-): BrowserViewport => ({
-  height: Math.max(MIN_VIEWPORT_SIZE, Math.floor(clientHeight || canvasHeight || MIN_VIEWPORT_SIZE)),
-  width: Math.max(MIN_VIEWPORT_SIZE, Math.floor(clientWidth || canvasWidth || MIN_VIEWPORT_SIZE)),
-})
+  { clientWidth, clientHeight, canvasWidth, canvasHeight }: {
+    readonly canvasHeight: number
+    readonly canvasWidth: number
+    readonly clientHeight: number
+    readonly clientWidth: number
+  },
+): BrowserViewport => {
+  const width = Math.max(MIN_VIEWPORT_SIZE, Math.floor(clientWidth || canvasWidth || MIN_VIEWPORT_SIZE))
+  const height = Math.max(MIN_VIEWPORT_SIZE, Math.floor(clientHeight || canvasHeight || MIN_VIEWPORT_SIZE))
+  return { height, width }
+}
 
 export const resolveBrowserDrawingBufferSize = (
   width: number,
   height: number,
 ): BrowserViewport => ({
-  width: Math.max(MIN_VIEWPORT_SIZE, Math.floor(width)),
   height: Math.max(MIN_VIEWPORT_SIZE, Math.floor(height)),
+  width: Math.max(MIN_VIEWPORT_SIZE, Math.floor(width)),
 })
 
 export type BrowserRefractionTargetSize = BrowserViewport & { readonly key: string }
@@ -440,26 +479,26 @@ export const resolveBrowserRefractionTargetSize = (
 }
 
 export type BrowserWaterMesh = { visible: boolean }
-export type BrowserWaterVisibility<T extends BrowserWaterMesh> = ReadonlyArray<readonly [T, boolean]>
+export type BrowserWaterVisibility<MeshType extends BrowserWaterMesh> = ReadonlyArray<readonly [MeshType, boolean]>
 
-export const captureBrowserWaterVisibility = <T extends BrowserWaterMesh>(
-  waterMeshes: ReadonlySet<T>,
-): BrowserWaterVisibility<T> =>
-  [...waterMeshes].map((mesh): readonly [T, boolean] => [mesh, mesh.visible])
+export const captureBrowserWaterVisibility = <MeshType extends BrowserWaterMesh>(
+  waterMeshes: ReadonlySet<MeshType>,
+): BrowserWaterVisibility<MeshType> =>
+  [...waterMeshes].map((mesh): readonly [MeshType, boolean] => [mesh, mesh.visible])
 
-export const hideBrowserWaterMeshes = <T extends BrowserWaterMesh>(
-  waterMeshes: ReadonlySet<T>,
+export const hideBrowserWaterMeshes = <MeshType extends BrowserWaterMesh>(
+  waterMeshes: ReadonlySet<MeshType>,
 ): void => {
   for (const mesh of waterMeshes) {
     mesh.visible = false
   }
 }
 
-export const restoreBrowserWaterVisibility = <T extends BrowserWaterMesh>(
-  visibility: BrowserWaterVisibility<T>,
+export const restoreBrowserWaterVisibility = <MeshType extends BrowserWaterMesh>(
+  visibility: BrowserWaterVisibility<MeshType>,
 ): void => {
-  for (const [mesh, visible] of visibility) {
-    mesh.visible = visible
+  for (const [waterMesh, visible] of visibility) {
+    waterMesh.visible = visible
   }
 }
 
@@ -493,17 +532,39 @@ export type BrowserPerformanceApi = {
   readonly clearMarks?: (markName: string) => void
 }
 
-export const measureBrowserStage = <A>(
+type CompleteBrowserPerformanceApi = Required<Pick<BrowserPerformanceApi, 'mark' | 'measure' | 'clearMarks'>>
+
+const hasCompleteBrowserPerformanceApi = (
+  performanceApi: BrowserPerformanceApi | undefined,
+): performanceApi is CompleteBrowserPerformanceApi =>
+  performanceApi !== undefined &&
+  typeof performanceApi.mark === 'function' &&
+  typeof performanceApi.measure === 'function' &&
+  typeof performanceApi.clearMarks === 'function'
+
+const finishBrowserStageMeasurement = ({
+  endMark,
+  name,
+  performanceApi,
+  startMark,
+}: {
+  readonly endMark: string
+  readonly name: string
+  readonly performanceApi: CompleteBrowserPerformanceApi
+  readonly startMark: string
+}): void => {
+  performanceApi.mark(endMark)
+  performanceApi.measure(name, startMark, endMark)
+  performanceApi.clearMarks(startMark)
+  performanceApi.clearMarks(endMark)
+}
+
+export const measureBrowserStage = <Result>(
   performanceApi: BrowserPerformanceApi | undefined,
   name: string,
-  run: () => A,
-): A => {
-  if (
-    !performanceApi ||
-    typeof performanceApi.mark !== 'function' ||
-    typeof performanceApi.measure !== 'function' ||
-    typeof performanceApi.clearMarks !== 'function'
-  ) {
+  run: () => Result,
+): Result => {
+  if (!hasCompleteBrowserPerformanceApi(performanceApi)) {
     return run()
   }
   const startMark = `${name}:start`
@@ -512,10 +573,7 @@ export const measureBrowserStage = <A>(
   try {
     return run()
   } finally {
-    performanceApi.mark(endMark)
-    performanceApi.measure(name, startMark, endMark)
-    performanceApi.clearMarks(startMark)
-    performanceApi.clearMarks(endMark)
+    finishBrowserStageMeasurement({ endMark, name, performanceApi, startMark })
   }
 }
 
@@ -537,12 +595,12 @@ export const selectGpuTimer = (value: unknown): GpuTimerSelection => {
     'TIME_ELAPSED_EXT' in value &&
     typeof value.TIME_ELAPSED_EXT === 'number'
   ) {
-    return {
-      kind: 'query',
+  return {
       extension: {
         GPU_DISJOINT_EXT: value.GPU_DISJOINT_EXT,
         TIME_ELAPSED_EXT: value.TIME_ELAPSED_EXT,
       },
+      kind: 'query',
     }
   }
   return { kind: 'fallback' }
@@ -552,14 +610,16 @@ export const millisecondsFromGpuNanoseconds = (value: unknown): number | undefin
   if (typeof value !== 'number' || !Number.isFinite(value)) {
     return undefined
   }
-  return Math.max(0, value) / 1_000_000
+  return Math.max(ZERO, value) / NANOSECONDS_PER_MILLISECOND
 }
 
 export const shouldCaptureBrowserRefraction = (
-  quality: GraphicsQuality,
-  visibleWaterMeshCount: number,
-  waterScreenRatio: number,
-  frameNumber: number,
+  { frameNumber, quality, visibleWaterMeshCount, waterScreenRatio }: {
+    readonly frameNumber: number
+    readonly quality: GraphicsQuality
+    readonly visibleWaterMeshCount: number
+    readonly waterScreenRatio: number
+  },
 ): boolean =>
   shouldRunRefractionRatioGate(
     visibleWaterMeshCount,
@@ -583,8 +643,8 @@ export const advanceBrowserFpsQuality = (
   return {
     change: result.change,
     preset: result.preset,
-    state: result.state,
     skipSsim: result.change !== 'none',
+    state: result.state,
   }
 }
 
@@ -596,10 +656,12 @@ export type BrowserSsimQualityTransition = {
 }
 
 export const advanceBrowserSsimQuality = (
-  state: SsimAdaptiveQualityState,
-  preset: QualityPreset,
-  ssim: number,
-  skipSsim: boolean,
+  { preset, skipSsim, ssim, state }: {
+    readonly preset: QualityPreset
+    readonly skipSsim: boolean
+    readonly ssim: number
+    readonly state: SsimAdaptiveQualityState
+  },
 ): BrowserSsimQualityTransition => {
   if (skipSsim) {
     return { change: 'none', preset, skipSsim: false, state }
@@ -609,55 +671,127 @@ export const advanceBrowserSsimQuality = (
 }
 
 const luminanceAt = (pixels: DataView, offset: number): number =>
-  0.2126 * pixels.getUint8(offset) +
-  0.7152 * pixels.getUint8(offset + 1) +
-  0.0722 * pixels.getUint8(offset + 2)
+  SSIM_RED_LUMINANCE_WEIGHT * pixels.getUint8(offset + RED_CHANNEL_OFFSET) +
+  SSIM_GREEN_LUMINANCE_WEIGHT * pixels.getUint8(offset + GREEN_CHANNEL_OFFSET) +
+  SSIM_BLUE_LUMINANCE_WEIGHT * pixels.getUint8(offset + BLUE_CHANNEL_OFFSET)
+
+type SsimPixelPair = readonly [number, number]
+
+type SsimMoments = {
+  readonly covariance: number
+  readonly meanLeft: number
+  readonly meanRight: number
+  readonly varianceLeft: number
+  readonly varianceRight: number
+}
+
+const meanSsimValues = (values: ReadonlyArray<SsimPixelPair>): Pick<SsimMoments, 'meanLeft' | 'meanRight'> => {
+  const total = values.reduce((sum, [valueLeft, valueRight]) => ({
+    left: sum.left + valueLeft,
+    right: sum.right + valueRight,
+  }), { left: ZERO, right: ZERO })
+  return { meanLeft: total.left / values.length, meanRight: total.right / values.length }
+}
+
+const varianceSsimValues = (
+  values: ReadonlyArray<SsimPixelPair>,
+  means: Pick<SsimMoments, 'meanLeft' | 'meanRight'>,
+): Omit<SsimMoments, 'meanLeft' | 'meanRight'> => {
+  const sums = values.reduce((result, [valueLeft, valueRight]) => {
+    const deltaLeft = valueLeft - means.meanLeft
+    const deltaRight = valueRight - means.meanRight
+    return {
+      covariance: result.covariance + deltaLeft * deltaRight,
+      varianceLeft: result.varianceLeft + deltaLeft ** SSIM_VARIANCE_POWER,
+      varianceRight: result.varianceRight + deltaRight ** SSIM_VARIANCE_POWER,
+    }
+  }, { covariance: ZERO, varianceLeft: ZERO, varianceRight: ZERO })
+  const divisor = Math.max(SSIM_VARIANCE_DIVISOR_FLOOR, values.length - SSIM_VARIANCE_DIVISOR_FLOOR)
+  return {
+    covariance: sums.covariance / divisor,
+    varianceLeft: sums.varianceLeft / divisor,
+    varianceRight: sums.varianceRight / divisor,
+  }
+}
+
+const scoreSsimWindow = (moments: SsimMoments, c1: number, c2: number): number => {
+  const luminance = (
+    SSIM_LUMINANCE_FACTOR * moments.meanLeft * moments.meanRight + c1
+  ) / (moments.meanLeft ** SSIM_LUMINANCE_FACTOR + moments.meanRight ** SSIM_LUMINANCE_FACTOR + c1)
+  const contrast = (
+    SSIM_COVARIANCE_FACTOR * moments.covariance + c2
+  ) / (moments.varianceLeft + moments.varianceRight + c2)
+  return luminance * contrast
+}
+
+const collectSsimWindowValues = (options: {
+  readonly height: number
+  readonly leftEdge: number
+  readonly leftPixels: DataView
+  readonly rightPixels: DataView
+  readonly top: number
+  readonly width: number
+}): ReadonlyArray<SsimPixelPair> => {
+  const { height, leftEdge, leftPixels, rightPixels, top, width } = options
+  const values: Array<SsimPixelPair> = []
+  for (let y = top; y < Math.min(top + SSIM_WINDOW_SIZE, height); y += PIXEL_INDEX_INCREMENT) {
+    for (let x = leftEdge; x < Math.min(leftEdge + SSIM_WINDOW_SIZE, width); x += PIXEL_INDEX_INCREMENT) {
+      const offset = (y * width + x) * RGBA_CHANNEL_COUNT
+      values.push([luminanceAt(leftPixels, offset), luminanceAt(rightPixels, offset)])
+    }
+  }
+  return values
+}
+
+const computeSsimWindowScore = (options: {
+  readonly c1: number
+  readonly c2: number
+  readonly height: number
+  readonly leftEdge: number
+  readonly leftPixels: DataView
+  readonly rightPixels: DataView
+  readonly top: number
+  readonly width: number
+}): number => {
+  const values = collectSsimWindowValues(options)
+  const means = meanSsimValues(values)
+  const variances = varianceSsimValues(values, means)
+  return scoreSsimWindow({ ...means, ...variances }, options.c1, options.c2)
+}
+
+const averageSsimWindowScores = (options: {
+  readonly c1: number
+  readonly c2: number
+  readonly height: number
+  readonly leftPixels: DataView
+  readonly rightPixels: DataView
+  readonly width: number
+}): number => {
+  let windowScoreTotal = ZERO
+  let windowCount = ZERO
+  for (let top = 0; top < options.height; top += SSIM_WINDOW_SIZE) {
+    for (let leftEdge = 0; leftEdge < options.width; leftEdge += SSIM_WINDOW_SIZE) {
+      windowScoreTotal += computeSsimWindowScore({ ...options, leftEdge, top })
+      windowCount += PIXEL_INDEX_INCREMENT
+    }
+  }
+  return windowScoreTotal / windowCount
+}
 
 export const structuralSimilarity = (
-  left: Uint8Array,
-  right: Uint8Array,
-  width: number,
-  height: number,
+  { height, left, right, width }: {
+    readonly height: number
+    readonly left: Uint8Array
+    readonly right: Uint8Array
+    readonly width: number
+  },
 ): number => {
-  if (left.length !== right.length || left.length !== width * height * 4) {
+  if (left.length !== right.length || left.length !== width * height * RGBA_CHANNEL_COUNT) {
     throw new Error('SSIM inputs must be equally sized RGBA images')
   }
   const leftPixels = new DataView(left.buffer, left.byteOffset, left.byteLength)
   const rightPixels = new DataView(right.buffer, right.byteOffset, right.byteLength)
-  const c1 = (SSIM_K1 * SSIM_LUMINANCE_RANGE) ** 2
-  const c2 = (SSIM_K2 * SSIM_LUMINANCE_RANGE) ** 2
-  let windowScoreTotal = 0
-  let windowCount = 0
-  for (let top = 0; top < height; top += SSIM_WINDOW_SIZE) {
-    for (let leftEdge = 0; leftEdge < width; leftEdge += SSIM_WINDOW_SIZE) {
-      const values: Array<readonly [number, number]> = []
-      for (let y = top; y < Math.min(top + SSIM_WINDOW_SIZE, height); y += 1) {
-        for (let x = leftEdge; x < Math.min(leftEdge + SSIM_WINDOW_SIZE, width); x += 1) {
-          const offset = (y * width + x) * 4
-          values.push([luminanceAt(leftPixels, offset), luminanceAt(rightPixels, offset)])
-        }
-      }
-      const meanLeft = values.reduce((sum, [value]) => sum + value, 0) / values.length
-      const meanRight = values.reduce((sum, [, value]) => sum + value, 0) / values.length
-      let varianceLeft = 0
-      let varianceRight = 0
-      let covariance = 0
-      for (const [valueLeft, valueRight] of values) {
-        const deltaLeft = valueLeft - meanLeft
-        const deltaRight = valueRight - meanRight
-        varianceLeft += deltaLeft ** 2
-        varianceRight += deltaRight ** 2
-        covariance += deltaLeft * deltaRight
-      }
-      const divisor = Math.max(1, values.length - 1)
-      varianceLeft /= divisor
-      varianceRight /= divisor
-      covariance /= divisor
-      windowScoreTotal +=
-        ((2 * meanLeft * meanRight + c1) * (2 * covariance + c2)) /
-        ((meanLeft ** 2 + meanRight ** 2 + c1) * (varianceLeft + varianceRight + c2))
-      windowCount += 1
-    }
-  }
-  return windowScoreTotal / windowCount
+  const c1 = (SSIM_K1 * SSIM_LUMINANCE_RANGE) ** SSIM_VARIANCE_POWER
+  const c2 = (SSIM_K2 * SSIM_LUMINANCE_RANGE) ** SSIM_VARIANCE_POWER
+  return averageSsimWindowScores({ c1, c2, height, leftPixels, rightPixels, width })
 }

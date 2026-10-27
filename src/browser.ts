@@ -1,15 +1,44 @@
 import * as THREE from 'three'
 import {
+  BROWSER_RENDER_DEFAULTS,
+  type TimerQueryExtensionShape,
+  advanceBrowserFpsQuality,
+  advanceBrowserSsimQuality,
+  assertBrowserRuntimeActive,
+  browserDepthTextureOption,
+  browserPostProcessingChain,
+  browserPostProcessingChainKey,
+  captureBrowserWaterVisibility,
+  createBrowserCompositeShader,
+  createBrowserGodRaysShader,
+  hideBrowserWaterMeshes,
+  isBrowserScreenshotShortcut,
+  measureBrowserStage,
+  millisecondsFromGpuNanoseconds,
+  requireBrowserRuntimeValue,
+  resolveBrowserBloomStrength,
+  resolveBrowserDrawingBufferSize,
+  resolveBrowserLatestGpuTime,
+  resolveBrowserMaxPixelRatio,
+  resolveBrowserPixelRatio,
+  resolveBrowserQuality,
+  resolveBrowserRefractionTargetSize,
+  resolveBrowserRenderTargetValue,
+  resolveBrowserViewport,
+  restoreBrowserWaterVisibility,
+  selectGpuTimer,
+  setBrowserWaterRefractionUniforms,
+  shouldCaptureBrowserRefraction,
+  structuralSimilarity,
+} from './domain/browser-render-policy.js'
+import { Context, Effect, Layer } from 'effect'
+import { FullScreenQuad, Pass } from 'three/addons/postprocessing/Pass.js'
+import {
   type GraphicsQuality,
   type PostProcessingPass,
   type PostProcessingStep,
   type QualityPreset,
 } from './domain/post-processing.js'
-import { createAdaptiveQualityState } from './domain/adaptive-quality.js'
-import { createSsimAdaptiveQualityState } from './domain/ssim-adaptive-quality.js'
-import {
-  type PostProcessingRendererFactory,
-} from './application/world-renderer.js'
 import {
   type ProductionFrame,
   type ProductionWorldRenderer,
@@ -17,49 +46,19 @@ import {
   makeProductionWorldRenderer,
 } from './application/world-renderer-production.js'
 import { type RgbaAtlas, generateTerrainAtlas } from './domain/texture-atlas.js'
-import {
-  BROWSER_RENDER_DEFAULTS,
-  advanceBrowserFpsQuality,
-  advanceBrowserSsimQuality,
-  browserDepthTextureOption,
-  browserPostProcessingChainKey,
-  browserPostProcessingChain,
-  captureBrowserWaterVisibility,
-  createBrowserCompositeShader,
-  createBrowserGodRaysShader,
-  hideBrowserWaterMeshes,
-  assertBrowserRuntimeActive,
-  isBrowserScreenshotShortcut,
-  millisecondsFromGpuNanoseconds,
-  measureBrowserStage,
-  resolveBrowserBloomStrength,
-  resolveBrowserDrawingBufferSize,
-  resolveBrowserMaxPixelRatio,
-  resolveBrowserPixelRatio,
-  resolveBrowserQuality,
-  resolveBrowserRenderTargetValue,
-  resolveBrowserLatestGpuTime,
-  resolveBrowserRefractionTargetSize,
-  resolveBrowserViewport,
-  requireBrowserRuntimeValue,
-  restoreBrowserWaterVisibility,
-  selectGpuTimer,
-  shouldCaptureBrowserRefraction,
-  setBrowserWaterRefractionUniforms,
-  structuralSimilarity,
-} from './domain/browser-render-policy.js'
 import { BokehPass } from 'three/addons/postprocessing/BokehPass.js'
-import { Context, Effect, Layer } from 'effect'
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js'
 import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js'
 import type { MirroredCameraState } from './domain/camera-mirror.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js'
-import { FullScreenQuad, Pass } from 'three/addons/postprocessing/Pass.js'
+import { type PostProcessingRendererFactory } from './application/world-renderer.js'
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js'
 import { SMAAPass } from 'three/addons/postprocessing/SMAAPass.js'
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js'
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import type { Viewport } from './domain/render-environment.js'
+import { createAdaptiveQualityState } from './domain/adaptive-quality.js'
+import { createSsimAdaptiveQualityState } from './domain/ssim-adaptive-quality.js'
 import { measureWaterVisibility } from './browser-water-visibility.js'
 
 const requireRenderer = (value: unknown): THREE.WebGLRenderer => {
@@ -81,6 +80,12 @@ const DEFAULT_BLOOM_RADIUS = 0.4
 const DEFAULT_BLOOM_THRESHOLD = 0.85
 const EMPTY_WATER_MESH_COUNT = 0
 const FRAME_NUMBER_INCREMENT = 1
+const ZERO_DELTA_SECONDS = 0
+const ZERO_PIXEL_COORDINATE = 0
+const RGBA_COMPONENT_COUNT = 4
+const ZERO_INDEX = 0
+const ONE_SECOND_IN_SECONDS = 1
+const ZERO_DELAY_MILLISECONDS = 0
 const TIMER_QUERY_EXTENSION = 'EXT_disjoint_timer_query_webgl2'
 const SCREENSHOT_FILENAME = 'mc-render-screenshot.png'
 
@@ -112,99 +117,140 @@ const GpuTimerServiceBase: Context.ServiceClass<
 
 export class GpuTimerService extends GpuTimerServiceBase {}
 
-const tryGpuTimerOperation = <A>(run: () => A): Effect.Effect<A, GpuTimerServiceFailure> =>
+const tryGpuTimerOperation = <Result>(run: () => Result): Effect.Effect<Result, GpuTimerServiceFailure> =>
   Effect.try({
-    try: run,
     catch: (cause) => ({ cause }),
+    try: run,
   })
 
-export const makeGpuTimerService = (gl: WebGL2RenderingContext): Effect.Effect<
+type GpuTimerQueryState = {
+  activeQuery: WebGLQuery | undefined
+  pendingQuery: WebGLQuery | undefined
+}
+
+const resolveGpuTimerExtension = (value: unknown): TimerQueryExtensionShape | undefined => {
+  const selection = selectGpuTimer(value)
+  if (selection.kind === 'query') {
+    return selection.extension
+  }
+  return undefined
+}
+
+const pollReadyGpuQuery = ({
+  extension,
+  query,
+  state,
+  webglContext,
+}: {
+  readonly extension: TimerQueryExtensionShape
+  readonly query: WebGLQuery
+  readonly state: GpuTimerQueryState
+  readonly webglContext: WebGL2RenderingContext
+}): Effect.Effect<number | undefined, GpuTimerServiceFailure> => Effect.gen(function* pollReadyGpuQueryEffect() {
+  const disjoint: unknown = yield* tryGpuTimerOperation(() =>
+    webglContext.getParameter(extension.GPU_DISJOINT_EXT),
+  )
+  if (disjoint === true) {
+    yield* tryGpuTimerOperation(() => webglContext.deleteQuery(query))
+    state.pendingQuery = undefined
+    return undefined
+  }
+  const elapsedNanoseconds: unknown = yield* tryGpuTimerOperation(() =>
+    webglContext.getQueryParameter(query, webglContext.QUERY_RESULT),
+  )
+  yield* tryGpuTimerOperation(() => webglContext.deleteQuery(query))
+  state.pendingQuery = undefined
+  return millisecondsFromGpuNanoseconds(elapsedNanoseconds)
+})
+
+const disposeGpuTimerQueries = ({
+  extension,
+  state,
+  webglContext,
+}: {
+  readonly extension: TimerQueryExtensionShape | undefined
+  readonly state: GpuTimerQueryState
+  readonly webglContext: WebGL2RenderingContext
+}): Effect.Effect<void, GpuTimerServiceFailure> => Effect.gen(function* disposeGpuTimerQueriesEffect() {
+  const { activeQuery, pendingQuery } = state
+  if (extension && activeQuery) {
+    yield* tryGpuTimerOperation(() => webglContext.endQuery(extension.TIME_ELAPSED_EXT))
+    yield* tryGpuTimerOperation(() => webglContext.deleteQuery(activeQuery))
+    state.activeQuery = undefined
+  }
+  if (pendingQuery) {
+    yield* tryGpuTimerOperation(() => webglContext.deleteQuery(pendingQuery))
+    state.pendingQuery = undefined
+  }
+})
+
+const createGpuTimerOperations = ({
+  extension,
+  webglContext,
+}: {
+  readonly extension: TimerQueryExtensionShape | undefined
+  readonly webglContext: WebGL2RenderingContext
+}): GpuTimerServiceApi => {
+  const state: GpuTimerQueryState = { activeQuery: undefined, pendingQuery: undefined }
+  const begin = Effect.gen(function* beginGpuTimer() {
+    if (!extension || state.activeQuery || state.pendingQuery) {
+      return
+    }
+    const query = yield* tryGpuTimerOperation(() => webglContext.createQuery())
+    if (query) {
+      yield* tryGpuTimerOperation(() => webglContext.beginQuery(extension.TIME_ELAPSED_EXT, query))
+      state.activeQuery = query
+    }
+  })
+  const end = Effect.gen(function* endGpuTimer() {
+  const { activeQuery } = state
+    if (!extension || !activeQuery) {
+      return
+    }
+    yield* tryGpuTimerOperation(() => webglContext.endQuery(extension.TIME_ELAPSED_EXT))
+    state.pendingQuery = activeQuery
+    state.activeQuery = undefined
+  })
+  const poll = Effect.gen(function* pollGpuTimer() {
+    if (!extension || !state.pendingQuery) {
+      return undefined
+    }
+    const query = state.pendingQuery
+    const available: unknown = yield* tryGpuTimerOperation(() =>
+      webglContext.getQueryParameter(query, webglContext.QUERY_RESULT_AVAILABLE),
+    )
+    if (available !== true) {
+      return undefined
+    }
+    return yield* pollReadyGpuQuery({ extension, query, state, webglContext })
+  })
+  return {
+    begin,
+    dispose: disposeGpuTimerQueries({ extension, state, webglContext }),
+    end,
+    poll,
+    supported: extension !== undefined,
+  }
+}
+
+export const makeGpuTimerService = (webglContext: WebGL2RenderingContext): Effect.Effect<
   GpuTimerServiceApi,
   GpuTimerServiceFailure
 > =>
   Effect.gen(function* makeGpuTimerServiceEffect() {
     const extensionValue: unknown = yield* tryGpuTimerOperation(() =>
-      gl.getExtension(TIMER_QUERY_EXTENSION),
+      webglContext.getExtension(TIMER_QUERY_EXTENSION),
     )
-    const timerSelection = selectGpuTimer(extensionValue)
-    const extension = timerSelection.kind === 'query' ? timerSelection.extension : undefined
-    let activeQuery: WebGLQuery | undefined = undefined
-    let pendingQuery: WebGLQuery | undefined = undefined
-
-    const begin = Effect.gen(function* beginGpuTimer() {
-      if (!extension || activeQuery || pendingQuery) {
-        return
-      }
-      const query = yield* tryGpuTimerOperation(() => gl.createQuery())
-      if (query) {
-        yield* tryGpuTimerOperation(() => gl.beginQuery(extension.TIME_ELAPSED_EXT, query))
-        activeQuery = query
-      }
-    })
-
-    const end = Effect.gen(function* endGpuTimer() {
-      if (!extension || !activeQuery) {
-        return
-      }
-      yield* tryGpuTimerOperation(() => gl.endQuery(extension.TIME_ELAPSED_EXT))
-      pendingQuery = activeQuery
-      activeQuery = undefined
-    })
-
-    const poll = Effect.gen(function* pollGpuTimer() {
-      if (!extension || !pendingQuery) {
-        return undefined
-      }
-      const query = pendingQuery
-      const available: unknown = yield* tryGpuTimerOperation(() =>
-        gl.getQueryParameter(query, gl.QUERY_RESULT_AVAILABLE),
-      )
-      if (available !== true) {
-        return undefined
-      }
-      const disjoint: unknown = yield* tryGpuTimerOperation(() =>
-        gl.getParameter(extension.GPU_DISJOINT_EXT),
-      )
-      if (disjoint === true) {
-        yield* tryGpuTimerOperation(() => gl.deleteQuery(query))
-        pendingQuery = undefined
-        return undefined
-      }
-      const elapsedNanoseconds: unknown = yield* tryGpuTimerOperation(() =>
-        gl.getQueryParameter(query, gl.QUERY_RESULT),
-      )
-      yield* tryGpuTimerOperation(() => gl.deleteQuery(query))
-      pendingQuery = undefined
-      return millisecondsFromGpuNanoseconds(elapsedNanoseconds)
-    })
-
-    const dispose = Effect.gen(function* disposeGpuTimer() {
-      if (!extension) {
-        return
-      }
-      const query = activeQuery
-      if (query) {
-        yield* tryGpuTimerOperation(() => gl.endQuery(extension.TIME_ELAPSED_EXT))
-        yield* tryGpuTimerOperation(() => gl.deleteQuery(query))
-        activeQuery = undefined
-      }
-      const pending = pendingQuery
-      if (pending) {
-        yield* tryGpuTimerOperation(() => gl.deleteQuery(pending))
-        pendingQuery = undefined
-      }
-    })
-
-    return { begin, dispose, end, poll, supported: extension !== undefined }
+    return createGpuTimerOperations({ extension: resolveGpuTimerExtension(extensionValue), webglContext })
   })
 
 export const GpuTimerServiceLayer = (
-  gl: WebGL2RenderingContext,
+  webglContext: WebGL2RenderingContext,
 ): Layer.Layer<GpuTimerService, GpuTimerServiceFailure> =>
-  Layer.effect(GpuTimerService, makeGpuTimerService(gl))
+  Layer.effect(GpuTimerService, makeGpuTimerService(webglContext))
 
-const runBrowserOperation = <A>(run: () => A): A =>
-  Effect.runSync(Effect.try({ try: run, catch: (cause) => cause }))
+const runBrowserOperation = <Result>(run: () => Result): Result =>
+  Effect.runSync(Effect.try({ catch: (cause) => cause, try: run }))
 
 export type BrowserFrame = {
   readonly camera: MirroredCameraState
@@ -246,7 +292,12 @@ export type BrowserWorldRuntime = {
 }
 
 const measureViewport = (canvas: HTMLCanvasElement): Viewport =>
-  resolveBrowserViewport(canvas.clientWidth, canvas.clientHeight, canvas.width, canvas.height)
+  resolveBrowserViewport({
+    canvasHeight: canvas.height,
+    canvasWidth: canvas.width,
+    clientHeight: canvas.clientHeight,
+    clientWidth: canvas.clientWidth,
+  })
 
 const configureAtlasTexture = (texture: THREE.Texture): void => {
   texture.colorSpace = THREE.SRGBColorSpace
@@ -303,29 +354,26 @@ type ViewportPassContext = {
   readonly viewport: Viewport
 }
 
-const createViewportPass = (
-  effect: ViewportPostProcessingPass,
-  { camera, quality, scene, viewport }: ViewportPassContext,
-): Pass => {
-  switch (effect) {
-    case 'bloom':
-      return new UnrealBloomPass(
-        new THREE.Vector2(viewport.width, viewport.height),
-        resolveBrowserBloomStrength(quality.bloomStrength),
-        DEFAULT_BLOOM_RADIUS,
-        DEFAULT_BLOOM_THRESHOLD,
-      )
-    case 'bokeh':
-      return new BokehPass(scene, camera, {
-        aperture: BROWSER_RENDER_DEFAULTS.bokehAperture,
-        aspect: viewport.width / viewport.height,
-        focus: BROWSER_RENDER_DEFAULTS.bokehFocus,
-        maxblur: BROWSER_RENDER_DEFAULTS.bokehMaxBlur,
-      })
-    case 'gtao':
-      return new GTAOPass(scene, camera, viewport.width, viewport.height)
-  }
+const VIEWPORT_PASS_FACTORIES: Record<ViewportPostProcessingPass, (context: ViewportPassContext) => Pass> = {
+  bloom: ({ quality, viewport }) =>
+    new UnrealBloomPass(
+      new THREE.Vector2(viewport.width, viewport.height),
+      resolveBrowserBloomStrength(quality.bloomStrength),
+      DEFAULT_BLOOM_RADIUS,
+      DEFAULT_BLOOM_THRESHOLD,
+    ),
+  bokeh: ({ camera, scene, viewport }) =>
+    new BokehPass(scene, camera, {
+      aperture: BROWSER_RENDER_DEFAULTS.bokehAperture,
+      aspect: viewport.width / viewport.height,
+      focus: BROWSER_RENDER_DEFAULTS.bokehFocus,
+      maxblur: BROWSER_RENDER_DEFAULTS.bokehMaxBlur,
+    }),
+  gtao: ({ camera, scene, viewport }) => new GTAOPass(scene, camera, viewport.width, viewport.height),
 }
+
+const createViewportPass = (effect: ViewportPostProcessingPass, context: ViewportPassContext): Pass =>
+  VIEWPORT_PASS_FACTORIES[effect](context)
 
 const disposeComposerPasses = (composer: EffectComposer): void => {
   for (const pass of [...composer.passes]) {
@@ -369,30 +417,24 @@ const createComposer = ({
   return composer
 }
 
-const createCompositePass = (
-  effects: ReadonlyArray<PostProcessingPass>,
-  { getPixelRatio, getViewport, quality, camera }: Omit<ComposerOptions, 'renderer'> & {
-    readonly camera: THREE.PerspectiveCamera
-  },
-): ShaderPass => {
-  const pass = new ShaderPass(
-    createBrowserCompositeShader(
-      effects,
-      quality,
-      getViewport(),
-      camera,
-      (x, y) => new THREE.Vector2(x, y),
-    ),
-  )
+const bindCompositePassRender = (pass: ShaderPass): void => {
   const render = pass.render.bind(pass)
-  pass.render = (...args) => {
-    const depth = args[2].depthTexture
+  pass.render = (...args: Parameters<ShaderPass['render']>): void => {
+    const [, , readBuffer] = args
+    const depth = readBuffer.depthTexture
     const depthUniform = pass.uniforms['tDepth']
     if (depthUniform) {
       depthUniform.value = depth
     }
     render(...args)
   }
+}
+
+const bindCompositePassSize = (
+  pass: ShaderPass,
+  getPixelRatio: () => number,
+  getViewport: () => Viewport,
+): void => {
   const setSize = pass.setSize.bind(pass)
   pass.setSize = (width, height) => {
     setSize(width, height)
@@ -406,26 +448,64 @@ const createCompositePass = (
     const viewport = getViewport()
     resolution.set(viewport.width * getPixelRatio(), viewport.height * getPixelRatio())
   }
+}
+
+const createCompositePass = (
+  effects: ReadonlyArray<PostProcessingPass>,
+  { camera, getPixelRatio, getViewport, quality }: Omit<ComposerOptions, 'renderer'> & {
+    readonly camera: THREE.PerspectiveCamera
+  },
+): ShaderPass => {
+  const pass = new ShaderPass(
+    createBrowserCompositeShader(
+      {
+        camera,
+        effects,
+        makeVector2: (x, y) => new THREE.Vector2(x, y),
+        quality,
+        viewport: getViewport(),
+      },
+    ),
+  )
+  bindCompositePassRender(pass)
+  bindCompositePassSize(pass, getPixelRatio, getViewport)
   return pass
 }
 
-const createPostProcessingFactory = ({
-  getPixelRatio,
-  getViewport,
-  onSurface,
-  getQuality,
-  captureRefraction,
-  onGpuTiming,
-  onPresentedImage,
-  onSsim,
-}: Omit<ComposerOptions, 'quality' | 'renderer'> & {
+type BrowserPostProcessingSurfaceInput = Parameters<PostProcessingRendererFactory>[number]
+
+type BrowserPostProcessingFactoryOptions = Omit<ComposerOptions, 'quality' | 'renderer'> & {
   readonly getQuality: () => GraphicsQuality
   readonly onSurface: (surface: BrowserSurface) => void
   readonly captureRefraction: (surface: BrowserSurface) => void
   readonly onGpuTiming: (timing: BrowserGpuTiming) => void
   readonly onPresentedImage: (image: BrowserScreenshotFrame) => void
   readonly onSsim: (ssim: number) => void
-}): PostProcessingRendererFactory => (surface) => {
+}
+
+type BrowserPostProcessingSurface = BrowserSurface & {
+  readonly webglContext: WebGL2RenderingContext
+}
+
+type BrowserPostProcessingState = {
+  composer: EffectComposer
+  composerQuality: GraphicsQuality
+  readonly copyMaterial: THREE.ShaderMaterial
+  readonly copyQuad: FullScreenQuad
+  currentKey: string
+  readbackTarget: THREE.WebGLRenderTarget | undefined
+  readonly referenceComposer: EffectComposer
+  referenceKey: string
+  readonly referenceQuality: GraphicsQuality
+}
+
+const requireBrowserPostProcessingSurface = ({
+  onSurface,
+  surface,
+}: {
+  readonly onSurface: (surface: BrowserSurface) => void
+  readonly surface: BrowserPostProcessingSurfaceInput
+}): BrowserPostProcessingSurface => {
   const renderer = requireRenderer(surface.renderer)
   const scene = requireScene(surface.scene)
   const camera = requirePerspectiveCamera(surface.camera)
@@ -435,26 +515,40 @@ const createPostProcessingFactory = ({
   if (!isWebGl2Context(context)) {
     throw new Error('Browser renderer requires a WebGL2 context')
   }
-  const gl = context
-  const gpuTimerService = Effect.runSync(
+  return { ...browserSurface, webglContext: context }
+}
+
+const createBrowserGpuTiming = ({
+  onGpuTiming,
+  surface,
+}: {
+  readonly onGpuTiming: (timing: BrowserGpuTiming) => void
+  readonly surface: BrowserPostProcessingSurface
+}): BrowserGpuTiming => {
+  const service = Effect.runSync(
     Effect.gen(function* acquireGpuTimerService() {
       return yield* GpuTimerService
-    }).pipe(Effect.provide(GpuTimerServiceLayer(gl))),
+    }).pipe(Effect.provide(GpuTimerServiceLayer(surface.webglContext))),
   )
-  const gpuTiming: BrowserGpuTiming = { latestGpuTimeMs: undefined, service: gpuTimerService }
-  onGpuTiming(gpuTiming)
+  const timing: BrowserGpuTiming = { latestGpuTimeMs: undefined, service }
+  onGpuTiming(timing)
+  return timing
+}
 
-  const createComposerFor = (quality: GraphicsQuality): EffectComposer =>
-    createComposer({ getPixelRatio, getViewport, quality, renderer })
-  let composer = createComposerFor(getQuality())
-  let composerQuality = getQuality()
-  const referenceQuality = resolveBrowserQuality('ultra').quality
-  const referenceComposer = createComposerFor(referenceQuality)
-  referenceComposer.renderToScreen = false
-  let readbackTarget: THREE.WebGLRenderTarget | undefined = undefined
+const createReferenceCopyResources = (): {
+  readonly copyMaterial: THREE.ShaderMaterial
+  readonly copyQuad: FullScreenQuad
+} => {
   const copyMaterial = new THREE.ShaderMaterial({
     depthTest: false,
     depthWrite: false,
+    fragmentShader: `
+      uniform sampler2D tDiffuse;
+      varying vec2 vUv;
+      void main() {
+        gl_FragColor = texture2D(tDiffuse, vUv);
+      }
+    `,
     toneMapped: false,
     uniforms: { tDiffuse: { value: null } },
     vertexShader: `
@@ -464,174 +558,412 @@ const createPostProcessingFactory = ({
         gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
       }
     `,
-    fragmentShader: `
-      uniform sampler2D tDiffuse;
-      varying vec2 vUv;
-      void main() {
-        gl_FragColor = texture2D(tDiffuse, vUv);
-      }
-    `,
   })
-  const copyQuad = new FullScreenQuad(copyMaterial)
-  let referenceKey = ''
-  let currentKey = ''
+  return { copyMaterial, copyQuad: new FullScreenQuad(copyMaterial) }
+}
 
-  const createPass = (step: PostProcessingStep, quality: GraphicsQuality): Pass => {
-    switch (step.pass) {
-      case 'render':
-        return new RenderPass(scene, camera)
-      case 'gtao':
-      case 'bloom':
-      case 'bokeh':
-        return createViewportPass(step.pass, { camera, quality, scene, viewport: getViewport() })
-      case 'godRays':
-        return new ShaderPass(
-          createBrowserGodRaysShader(quality.godRaysSamples, (x, y) => new THREE.Vector2(x, y)),
-        )
-      case 'composite':
-        return createCompositePass(step.effects, { getPixelRatio, getViewport, quality, camera })
-      case 'smaa':
-        return new SMAAPass()
-      case 'output':
-        return new OutputPass()
-    }
-  }
-
-  const installChain = (
-    target: EffectComposer,
-    chain: ReadonlyArray<PostProcessingStep>,
-    quality: GraphicsQuality,
-    installedKey: string,
-  ): string => {
-    const key = browserPostProcessingChainKey(chain)
-    if (key === installedKey) {
-      return installedKey
-    }
-    disposeComposerPasses(target)
-    for (const step of chain) {
-      target.addPass(createPass(step, quality))
-    }
-    return key
-  }
-
-  const ensureComposerQuality = (): void => {
-    const nextQuality = getQuality()
-    if (nextQuality === composerQuality) {
-      return
-    }
-    disposeComposerPasses(composer)
-    composer.dispose()
-    composer = createComposerFor(nextQuality)
-    composerQuality = nextQuality
-    currentKey = ''
-  }
-
-  const ensureReadbackTarget = (): {
-    readonly height: number
-    readonly target: THREE.WebGLRenderTarget
-    readonly width: number
-  } => {
-    const size = renderer.getDrawingBufferSize(new THREE.Vector2())
-    const { height, width } = resolveBrowserDrawingBufferSize(size.x, size.y)
-    let target: THREE.WebGLRenderTarget
-    if (readbackTarget) {
-      target = readbackTarget
-      readbackTarget.setSize(width, height)
-    } else {
-      target = new THREE.WebGLRenderTarget(width, height, {
-        depthBuffer: false,
-        format: THREE.RGBAFormat,
-        type: THREE.UnsignedByteType,
-      })
-      readbackTarget = target
-    }
-    return { height, target, width }
-  }
-
-  const readPresentedImage = (width: number, height: number): Uint8Array => {
-    const pixels = new Uint8Array(width * height * 4)
-    runBrowserOperation(() => renderer.setRenderTarget(null))
-    runBrowserOperation(() =>
-      gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, pixels),
-    )
-    return pixels
-  }
-
-  const readReferenceImage = (
-    readback: THREE.WebGLRenderTarget,
-    width: number,
-    height: number,
-  ): Uint8Array => {
-    const source = referenceComposer.readBuffer.texture
-    const previousTarget = runBrowserOperation(() => renderer.getRenderTarget())
-    try {
-      const diffuseUniform = copyMaterial.uniforms['tDiffuse']
-      if (diffuseUniform) {
-        diffuseUniform.value = source
-      }
-      runBrowserOperation(() => renderer.setRenderTarget(readback))
-      runBrowserOperation(() => renderer.clear(true, true, true))
-      runBrowserOperation(() => copyQuad.render(renderer))
-      const pixels = new Uint8Array(width * height * 4)
-      runBrowserOperation(() =>
-        renderer.readRenderTargetPixels(readback, 0, 0, width, height, pixels),
-      )
-      return pixels
-    } finally {
-      runBrowserOperation(() => renderer.setRenderTarget(previousTarget))
-    }
-  }
-
-  const drawAndCompare = (chain: ReadonlyArray<PostProcessingStep>): void => {
-    const priorSample = Effect.runSync(gpuTimerService.poll)
-    gpuTiming.latestGpuTimeMs = resolveBrowserLatestGpuTime(gpuTiming.latestGpuTimeMs, priorSample)
-    ensureComposerQuality()
-    currentKey = installChain(composer, chain, composerQuality, currentKey)
-    referenceKey = installChain(
-      referenceComposer,
-      browserPostProcessingChain(referenceQuality),
-      referenceQuality,
-      referenceKey,
-    )
-    const { height, target, width } = ensureReadbackTarget()
-    Effect.runSync(gpuTimerService.begin)
-    try {
-      captureRefraction(browserSurface)
-      composer.render()
-      const activePixels = readPresentedImage(width, height)
-      onPresentedImage({ height, pixels: activePixels, width })
-      referenceComposer.render()
-      const referencePixels = readReferenceImage(target, width, height)
-      onSsim(structuralSimilarity(activePixels, referencePixels, width, height))
-    } finally {
-      Effect.runSync(gpuTimerService.end)
-    }
-  }
-
+const createBrowserPostProcessingState = ({
+  getPixelRatio,
+  getQuality,
+  getViewport,
+  renderer,
+}: {
+  readonly getPixelRatio: () => number
+  readonly getQuality: () => GraphicsQuality
+  readonly getViewport: () => Viewport
+  readonly renderer: THREE.WebGLRenderer
+}): BrowserPostProcessingState => {
+  const createComposerFor = (quality: GraphicsQuality): EffectComposer =>
+    createComposer({ getPixelRatio, getViewport, quality, renderer })
+  const composerQuality = getQuality()
+  const composer = createComposerFor(composerQuality)
+  const referenceQuality = resolveBrowserQuality('ultra').quality
+  const referenceComposer = createComposerFor(referenceQuality)
+  referenceComposer.renderToScreen = false
+  const { copyMaterial, copyQuad } = createReferenceCopyResources()
   return {
-    dispose: () => {
-      disposeComposerPasses(composer)
-      composer.dispose()
-      disposeComposerPasses(referenceComposer)
-      referenceComposer.dispose()
-      copyQuad.dispose()
-      copyMaterial.dispose()
-      readbackTarget?.dispose()
-      Effect.runSync(gpuTimerService.dispose)
-    },
-    render: (chain) => {
-      drawAndCompare(chain)
-    },
-    resize: (width, height) => {
-      composer.setPixelRatio(getPixelRatio())
-      composer.setSize(width, height)
-      referenceComposer.setPixelRatio(getPixelRatio())
-      referenceComposer.setSize(width, height)
-      if (readbackTarget) {
-        ensureReadbackTarget()
-      }
-    },
+    composer,
+    composerQuality,
+    copyMaterial,
+    copyQuad,
+    currentKey: '',
+    readbackTarget: undefined,
+    referenceComposer,
+    referenceKey: '',
+    referenceQuality,
   }
+}
+
+const createBrowserPostProcessingPass = ({
+  camera,
+  getPixelRatio,
+  getViewport,
+  scene,
+}: {
+  readonly camera: THREE.PerspectiveCamera
+  readonly getPixelRatio: () => number
+  readonly getViewport: () => Viewport
+  readonly scene: THREE.Scene
+}) => (step: PostProcessingStep, quality: GraphicsQuality): Pass => {
+  switch (step.pass) {
+    case 'render':
+      return new RenderPass(scene, camera)
+    case 'gtao':
+    case 'bloom':
+    case 'bokeh':
+      return createViewportPass(step.pass, { camera, quality, scene, viewport: getViewport() })
+    case 'godRays':
+      return new ShaderPass(
+        createBrowserGodRaysShader(quality.godRaysSamples, (x, y) => new THREE.Vector2(x, y)),
+      )
+    case 'composite':
+      return createCompositePass(step.effects, { camera, getPixelRatio, getViewport, quality })
+    case 'smaa':
+      return new SMAAPass()
+    case 'output':
+      return new OutputPass()
+    default:
+      throw new Error(`Unsupported post-processing pass: ${step.pass}`)
+  }
+}
+
+const installBrowserPostProcessingChain = ({
+  chain,
+  createPass,
+  installedKey,
+  quality,
+  target,
+}: {
+  readonly chain: ReadonlyArray<PostProcessingStep>
+  readonly createPass: (step: PostProcessingStep, quality: GraphicsQuality) => Pass
+  readonly installedKey: string
+  readonly quality: GraphicsQuality
+  readonly target: EffectComposer
+}): string => {
+  const key = browserPostProcessingChainKey(chain)
+  if (key === installedKey) {
+    return installedKey
+  }
+  disposeComposerPasses(target)
+  for (const step of chain) {
+    target.addPass(createPass(step, quality))
+  }
+  return key
+}
+
+const ensureBrowserComposerQuality = ({
+  getPixelRatio,
+  getQuality,
+  getViewport,
+  renderer,
+  state,
+}: {
+  readonly getPixelRatio: () => number
+  readonly getQuality: () => GraphicsQuality
+  readonly getViewport: () => Viewport
+  readonly renderer: THREE.WebGLRenderer
+  readonly state: BrowserPostProcessingState
+}): void => {
+  const nextQuality = getQuality()
+  if (nextQuality === state.composerQuality) {
+    return
+  }
+  disposeComposerPasses(state.composer)
+  state.composer.dispose()
+  state.composer = createComposer({ getPixelRatio, getViewport, quality: nextQuality, renderer })
+  state.composerQuality = nextQuality
+  state.currentKey = ''
+}
+
+const ensureBrowserReadbackTarget = ({
+  renderer,
+  state,
+}: {
+  readonly renderer: THREE.WebGLRenderer
+  readonly state: BrowserPostProcessingState
+}): { readonly height: number; readonly target: THREE.WebGLRenderTarget; readonly width: number } => {
+  const size = renderer.getDrawingBufferSize(new THREE.Vector2())
+  const { height, width } = resolveBrowserDrawingBufferSize(size.x, size.y)
+  const target = state.readbackTarget ?? new THREE.WebGLRenderTarget(width, height, {
+    depthBuffer: false,
+    format: THREE.RGBAFormat,
+    type: THREE.UnsignedByteType,
+  })
+  if (state.readbackTarget) {
+    state.readbackTarget.setSize(width, height)
+  } else {
+    state.readbackTarget = target
+  }
+  return { height, target, width }
+}
+
+const readBrowserPresentedImage = ({
+  height,
+  renderer,
+  webglContext,
+  width,
+}: {
+  readonly height: number
+  readonly renderer: THREE.WebGLRenderer
+  readonly webglContext: WebGL2RenderingContext
+  readonly width: number
+}): Uint8Array => {
+  const pixels = new Uint8Array(width * height * RGBA_COMPONENT_COUNT)
+  runBrowserOperation(() => renderer.setRenderTarget(null))
+  runBrowserOperation(() => webglContext.readPixels(
+    ZERO_PIXEL_COORDINATE,
+    ZERO_PIXEL_COORDINATE,
+    width,
+    height,
+    webglContext.RGBA,
+    webglContext.UNSIGNED_BYTE,
+    pixels,
+  ))
+  return pixels
+}
+
+const renderBrowserReferenceCopy = ({
+  copyMaterial,
+  copyQuad,
+  readback,
+  renderer,
+  source,
+}: {
+  readonly copyMaterial: THREE.ShaderMaterial
+  readonly copyQuad: FullScreenQuad
+  readonly readback: THREE.WebGLRenderTarget
+  readonly renderer: THREE.WebGLRenderer
+  readonly source: THREE.Texture
+}): void => {
+  const diffuseUniform = copyMaterial.uniforms['tDiffuse']
+  if (diffuseUniform) {
+    diffuseUniform.value = source
+  }
+  runBrowserOperation(() => renderer.setRenderTarget(readback))
+  runBrowserOperation(() => renderer.clear(true, true, true))
+  runBrowserOperation(() => copyQuad.render(renderer))
+}
+
+const readBrowserReferenceImage = ({
+  copyMaterial,
+  copyQuad,
+  height,
+  readback,
+  referenceComposer,
+  renderer,
+  width,
+}: {
+  readonly copyMaterial: THREE.ShaderMaterial
+  readonly copyQuad: FullScreenQuad
+  readonly height: number
+  readonly readback: THREE.WebGLRenderTarget
+  readonly referenceComposer: EffectComposer
+  readonly renderer: THREE.WebGLRenderer
+  readonly width: number
+}): Uint8Array => {
+  const source = referenceComposer.readBuffer.texture
+  const previousTarget = runBrowserOperation(() => renderer.getRenderTarget())
+  try {
+    renderBrowserReferenceCopy({ copyMaterial, copyQuad, readback, renderer, source })
+    const pixels = new Uint8Array(width * height * RGBA_COMPONENT_COUNT)
+    runBrowserOperation(() => renderer.readRenderTargetPixels(
+      readback,
+      ZERO_PIXEL_COORDINATE,
+      ZERO_PIXEL_COORDINATE,
+      width,
+      height,
+      pixels,
+    ))
+    return pixels
+  } finally {
+    runBrowserOperation(() => renderer.setRenderTarget(previousTarget))
+  }
+}
+
+const ensureBrowserPostProcessingChains = ({
+  chain,
+  createPass,
+  getPixelRatio,
+  getQuality,
+  getViewport,
+  renderer,
+  state,
+}: {
+  readonly chain: ReadonlyArray<PostProcessingStep>
+  readonly createPass: (step: PostProcessingStep, quality: GraphicsQuality) => Pass
+  readonly getPixelRatio: () => number
+  readonly getQuality: () => GraphicsQuality
+  readonly getViewport: () => Viewport
+  readonly renderer: THREE.WebGLRenderer
+  readonly state: BrowserPostProcessingState
+}): void => {
+  ensureBrowserComposerQuality({ getPixelRatio, getQuality, getViewport, renderer, state })
+  state.currentKey = installBrowserPostProcessingChain({
+    chain,
+    createPass,
+    installedKey: state.currentKey,
+    quality: state.composerQuality,
+    target: state.composer,
+  })
+  state.referenceKey = installBrowserPostProcessingChain({
+    chain: browserPostProcessingChain(state.referenceQuality),
+    createPass,
+    installedKey: state.referenceKey,
+    quality: state.referenceQuality,
+    target: state.referenceComposer,
+  })
+}
+
+const renderAndCompareBrowserImages = ({
+  captureRefraction,
+  height,
+  onPresentedImage,
+  onSsim,
+  renderer,
+  state,
+  surface,
+  target,
+  webglContext,
+  width,
+}: {
+  readonly captureRefraction: (surface: BrowserSurface) => void
+  readonly height: number
+  readonly onPresentedImage: (image: BrowserScreenshotFrame) => void
+  readonly onSsim: (ssim: number) => void
+  readonly renderer: THREE.WebGLRenderer
+  readonly state: BrowserPostProcessingState
+  readonly surface: BrowserSurface
+  readonly target: THREE.WebGLRenderTarget
+  readonly webglContext: WebGL2RenderingContext
+  readonly width: number
+}): void => {
+  captureRefraction(surface)
+  state.composer.render()
+  const activePixels = readBrowserPresentedImage({ height, renderer, webglContext, width })
+  onPresentedImage({ height, pixels: activePixels, width })
+  state.referenceComposer.render()
+  const referencePixels = readBrowserReferenceImage({
+    copyMaterial: state.copyMaterial,
+    copyQuad: state.copyQuad,
+    height,
+    readback: target,
+    referenceComposer: state.referenceComposer,
+    renderer,
+    width,
+  })
+  onSsim(structuralSimilarity({ height, left: activePixels, right: referencePixels, width }))
+}
+
+const disposeBrowserPostProcessingState = ({
+  gpuTiming,
+  state,
+}: {
+  readonly gpuTiming: BrowserGpuTiming
+  readonly state: BrowserPostProcessingState
+}): void => {
+  disposeComposerPasses(state.composer)
+  state.composer.dispose()
+  disposeComposerPasses(state.referenceComposer)
+  state.referenceComposer.dispose()
+  state.copyQuad.dispose()
+  state.copyMaterial.dispose()
+  state.readbackTarget?.dispose()
+  Effect.runSync(gpuTiming.service.dispose)
+}
+
+const resizeBrowserPostProcessingState = ({
+  getPixelRatio,
+  height,
+  renderer,
+  state,
+  width,
+}: {
+  readonly getPixelRatio: () => number
+  readonly height: number
+  readonly renderer: THREE.WebGLRenderer
+  readonly state: BrowserPostProcessingState
+  readonly width: number
+}): void => {
+  state.composer.setPixelRatio(getPixelRatio())
+  state.composer.setSize(width, height)
+  state.referenceComposer.setPixelRatio(getPixelRatio())
+  state.referenceComposer.setSize(width, height)
+  if (state.readbackTarget) {
+    ensureBrowserReadbackTarget({ renderer, state })
+  }
+}
+
+const createPostProcessingSession = ({
+  gpuTiming,
+  options,
+  surface,
+}: {
+  readonly gpuTiming: BrowserGpuTiming
+  readonly options: BrowserPostProcessingFactoryOptions
+  readonly surface: BrowserPostProcessingSurface
+}): ReturnType<PostProcessingRendererFactory> => {
+  const state = createBrowserPostProcessingState({
+    getPixelRatio: options.getPixelRatio,
+    getQuality: options.getQuality,
+    getViewport: options.getViewport,
+    renderer: surface.renderer,
+  })
+  const createPass = createBrowserPostProcessingPass({
+    camera: surface.camera,
+    getPixelRatio: options.getPixelRatio,
+    getViewport: options.getViewport,
+    scene: surface.scene,
+  })
+  const draw = (chain: ReadonlyArray<PostProcessingStep>): void => {
+    const priorSample = Effect.runSync(gpuTiming.service.poll)
+    gpuTiming.latestGpuTimeMs = resolveBrowserLatestGpuTime(gpuTiming.latestGpuTimeMs, priorSample)
+    ensureBrowserPostProcessingChains({
+      chain,
+      createPass,
+      getPixelRatio: options.getPixelRatio,
+      getQuality: options.getQuality,
+      getViewport: options.getViewport,
+      renderer: surface.renderer,
+      state,
+    })
+    const { height, target, width } = ensureBrowserReadbackTarget({ renderer: surface.renderer, state })
+    Effect.runSync(gpuTiming.service.begin)
+    try {
+      renderAndCompareBrowserImages({
+        captureRefraction: options.captureRefraction,
+        height,
+        onPresentedImage: options.onPresentedImage,
+        onSsim: options.onSsim,
+        renderer: surface.renderer,
+        state,
+        surface,
+        target,
+        webglContext: surface.webglContext,
+        width,
+      })
+    } finally {
+      Effect.runSync(gpuTiming.service.end)
+    }
+  }
+  return {
+    dispose: () => disposeBrowserPostProcessingState({ gpuTiming, state }),
+    render: draw,
+    resize: (width, height) => resizeBrowserPostProcessingState({
+      getPixelRatio: options.getPixelRatio,
+      height,
+      renderer: surface.renderer,
+      state,
+      width,
+    }),
+  }
+}
+
+const createPostProcessingFactory = (
+  options: BrowserPostProcessingFactoryOptions,
+): PostProcessingRendererFactory => (surface) => {
+  const browserSurface = requireBrowserPostProcessingSurface({ onSurface: options.onSurface, surface })
+  const gpuTiming = createBrowserGpuTiming({ onGpuTiming: options.onGpuTiming, surface: browserSurface })
+  return createPostProcessingSession({ gpuTiming, options, surface: browserSurface })
 }
 
 type BrowserWorld = ProductionWorldRenderer<THREE.ShaderMaterial>
@@ -678,6 +1010,18 @@ type BrowserWorldInitializationOptions = {
   readonly state: BrowserRuntimeState
 }
 
+type BrowserWorldBuildState = {
+  gpuTiming: BrowserGpuTiming | undefined
+  surface: BrowserSurface | undefined
+  world: BrowserWorld | undefined
+}
+
+type BrowserWorldCallbacks = {
+  readonly applyPreset: (preset: QualityPreset) => void
+  readonly postProcessing: PostProcessingRendererFactory
+  readonly refraction: BrowserRefractionController
+}
+
 type BrowserRuntimeResources = {
   readonly atlas: AtlasResource
   readonly applyPreset: (preset: QualityPreset) => void
@@ -689,14 +1033,16 @@ type BrowserRuntimeResources = {
 }
 
 const makeRuntimeState = (
-  canvas: HTMLCanvasElement,
-  quality: GraphicsQuality,
-  qualityPreset: QualityPreset | undefined,
-  maxPixelRatio: number,
+  { canvas, quality, qualityPreset, maxPixelRatio }: {
+    readonly canvas: HTMLCanvasElement
+    readonly maxPixelRatio: number
+    readonly quality: GraphicsQuality
+    readonly qualityPreset: QualityPreset | undefined
+  },
 ): BrowserRuntimeState => ({
   adaptiveQualityState: createAdaptiveQualityState(),
-  latestSsim: undefined,
   lastPresentedFrame: undefined,
+  latestSsim: undefined,
   maxPixelRatio,
   pixelRatio: resolveBrowserPixelRatio(maxPixelRatio, globalThis.devicePixelRatio),
   quality,
@@ -768,7 +1114,12 @@ const shouldCaptureRefraction = ({
   state,
 }: RefractionVisibilityContext): boolean => {
   const { screenRatio, visibleMeshCount } = measureWaterVisibility(state.waterMeshes, camera)
-  return shouldCaptureBrowserRefraction(state.quality, visibleMeshCount, screenRatio, frameNumber)
+  return shouldCaptureBrowserRefraction({
+    frameNumber,
+    quality: state.quality,
+    visibleWaterMeshCount: visibleMeshCount,
+    waterScreenRatio: screenRatio,
+  })
 }
 
 const createRefractionController = (
@@ -840,42 +1191,34 @@ const createBrowserWorldOptions = (
   postProcessing,
 })
 
-const initializeBrowserWorld = ({
-  atlas,
+const createBrowserWorldCallbacks = ({
+  buildState,
   options,
   state,
-}: BrowserWorldInitializationOptions): BrowserWorldInitialization => {
-  const buildState: {
-    gpuTiming: BrowserGpuTiming | undefined
-    surface: BrowserSurface | undefined
-    world: BrowserWorld | undefined
-  } = { gpuTiming: undefined, surface: undefined, world: undefined }
-  let world: BrowserWorld
-  const refraction = createRefractionController(state, () => {
-    const { world } = buildState
-    if (!world) {
-      throw new Error('browser world surface was not initialized')
-    }
-    return world.waterUniforms
-  })
+}: {
+  readonly buildState: BrowserWorldBuildState
+  readonly options: BrowserWorldRuntimeOptions
+  readonly state: BrowserRuntimeState
+}): BrowserWorldCallbacks => {
+  const getWaterUniforms = (): BrowserWaterUniforms =>
+    requireBrowserRuntimeValue(buildState.world, 'browser world surface was not initialized').waterUniforms
+  const refraction = createRefractionController(state, getWaterUniforms)
   const applyPreset = (preset: QualityPreset): void => {
+    const activeWorld = requireBrowserRuntimeValue(buildState.world, 'browser world surface was not initialized')
     state.qualityPreset = preset
     state.quality = resolveBrowserQuality(preset).quality
     state.maxPixelRatio = resolveBrowserMaxPixelRatio(options.maxPixelRatio, state.quality.pixelRatioCap)
     state.pixelRatio = resolveBrowserPixelRatio(state.maxPixelRatio, globalThis.devicePixelRatio)
     buildState.surface?.renderer.setPixelRatio(state.pixelRatio)
     refraction.resize()
-    Effect.runSync(world.setPostProcessingChain(browserPostProcessingChain(state.quality)))
-    Effect.runSync(world.resize(state.viewport.width, state.viewport.height))
+    Effect.runSync(activeWorld.setPostProcessingChain(browserPostProcessingChain(state.quality)))
+    Effect.runSync(activeWorld.resize(state.viewport.width, state.viewport.height))
   }
   const postProcessing = createPostProcessingFactory({
-    getPixelRatio: () => state.pixelRatio,
-    getViewport: () => state.viewport,
-    getQuality: () => state.quality,
     captureRefraction: refraction.capture,
-    onSurface: (nextSurface) => {
-      buildState.surface = nextSurface
-    },
+    getPixelRatio: () => state.pixelRatio,
+    getQuality: () => state.quality,
+    getViewport: () => state.viewport,
     onGpuTiming: (timing) => {
       buildState.gpuTiming = timing
     },
@@ -888,21 +1231,34 @@ const initializeBrowserWorld = ({
       if (!currentPreset) {
         return
       }
-      const result = advanceBrowserSsimQuality(
-        state.ssimAdaptiveQualityState,
-        currentPreset,
+      const result = advanceBrowserSsimQuality({
+        preset: currentPreset,
+        skipSsim: state.skipSsimForCurrentFrame,
         ssim,
-        state.skipSsimForCurrentFrame,
-      )
+        state: state.ssimAdaptiveQualityState,
+      })
       state.ssimAdaptiveQualityState = result.state
       state.skipSsimForCurrentFrame = result.skipSsim
       if (result.change !== 'none') {
         applyPreset(result.preset)
       }
     },
+    onSurface: (surface) => {
+      buildState.surface = surface
+    },
   })
-  const worldOptions = createBrowserWorldOptions(options, postProcessing)
-  world = Effect.runSync(
+  return { applyPreset, postProcessing, refraction }
+}
+
+const initializeBrowserWorld = ({
+  atlas,
+  options,
+  state,
+}: BrowserWorldInitializationOptions): BrowserWorldInitialization => {
+  const buildState: BrowserWorldBuildState = { gpuTiming: undefined, surface: undefined, world: undefined }
+  const callbacks = createBrowserWorldCallbacks({ buildState, options, state })
+  const worldOptions = createBrowserWorldOptions(options, callbacks.postProcessing)
+  const initializedWorld = Effect.runSync(
     makeProductionWorldRenderer<
       HTMLCanvasElement,
       THREE.BufferGeometry,
@@ -911,8 +1267,8 @@ const initializeBrowserWorld = ({
       THREE.ShaderMaterial
     >(THREE, options.canvas, state.viewport, atlas.texture, worldOptions),
   )
-  buildState.world = world
-  Effect.runSync(world.setPostProcessingChain(browserPostProcessingChain(state.quality)))
+  buildState.world = initializedWorld
+  Effect.runSync(initializedWorld.setPostProcessingChain(browserPostProcessingChain(state.quality)))
   const surface = requireBrowserRuntimeValue(
     buildState.surface,
     'browser world did not expose its Three surface',
@@ -921,7 +1277,13 @@ const initializeBrowserWorld = ({
     buildState.gpuTiming,
     'browser world did not initialize GPU timing',
   )
-  return { applyPreset, gpuTiming, refraction, surface, world }
+  return {
+    applyPreset: callbacks.applyPreset,
+    gpuTiming,
+    refraction: callbacks.refraction,
+    surface,
+    world: initializedWorld,
+  }
 }
 
 const makeRuntimeActivity = (): BrowserRuntimeActivity => ({
@@ -948,6 +1310,27 @@ type FrameHandlers = {
   readonly render: (camera: MirroredCameraState) => void
 }
 
+const resolveBrowserFrameFps = (deltaSeconds: number): number => {
+  if (deltaSeconds > ZERO_DELTA_SECONDS) {
+    return ONE_SECOND_IN_SECONDS / deltaSeconds
+  }
+  return Number.NaN
+}
+
+const advanceBrowserRuntimeQuality = (frame: ProductionFrame, resources: BrowserRuntimeResources): void => {
+  const currentPreset = resources.state.qualityPreset
+  if (!currentPreset) {
+    return
+  }
+  const fps = resolveBrowserFrameFps(frame.deltaSecs)
+  const result = advanceBrowserFpsQuality(resources.state.adaptiveQualityState, currentPreset, fps)
+  resources.state.adaptiveQualityState = result.state
+  if (result.change !== 'none') {
+    resources.state.skipSsimForCurrentFrame = result.skipSsim
+    resources.applyPreset(result.preset)
+  }
+}
+
 const createFrameHandlers = (
   resources: BrowserRuntimeResources,
   activity: BrowserRuntimeActivity,
@@ -956,17 +1339,7 @@ const createFrameHandlers = (
     assertBrowserRuntimeActive(activity.disposed)
     measureBrowserStage(globalThis.performance, 'render.browser.advanceFrame', () => {
       Effect.runSync(resources.world.advanceFrame(frame))
-      const currentPreset = resources.state.qualityPreset
-      if (!currentPreset) {
-        return
-      }
-      const fps = frame.deltaSecs > 0 ? 1 / frame.deltaSecs : Number.NaN
-      const result = advanceBrowserFpsQuality(resources.state.adaptiveQualityState, currentPreset, fps)
-      resources.state.adaptiveQualityState = result.state
-      if (result.change !== 'none') {
-        resources.state.skipSsimForCurrentFrame = result.skipSsim
-        resources.applyPreset(result.preset)
-      }
+      advanceBrowserRuntimeQuality(frame, resources)
     })
   }
   const render = (camera: MirroredCameraState): void => {
@@ -1007,36 +1380,29 @@ type AnimationHandlers = {
   readonly stop: () => void
 }
 
-const createScreenshotHandler = (
-  canvas: HTMLCanvasElement,
-  activity: BrowserRuntimeActivity,
-  preserveDrawingBuffer: boolean,
-  getLastFrame: () => BrowserScreenshotFrame | undefined,
-): (() => Promise<Blob>) => () => {
-  assertBrowserRuntimeActive(activity.disposed)
-  if (!preserveDrawingBuffer) {
-    return Promise.reject(new Error('captureScreenshot requires preserveDrawingBuffer'))
-  }
-  const frame = getLastFrame()
-  if (!frame) {
-    return Promise.reject(new Error('captureScreenshot requires a rendered frame'))
-  }
+const createScreenshotCanvas = (canvas: HTMLCanvasElement, frame: BrowserScreenshotFrame): HTMLCanvasElement => {
   const screenshotCanvas = canvas.ownerDocument.createElement('canvas')
   screenshotCanvas.width = frame.width
   screenshotCanvas.height = frame.height
-  const context = screenshotCanvas.getContext('2d')
-  if (!context) {
-    return Promise.reject(new Error('could not create a 2D screenshot canvas'))
-  }
+  return screenshotCanvas
+}
+
+const copyScreenshotPixels = (
+  context: CanvasRenderingContext2D,
+  frame: BrowserScreenshotFrame,
+): void => {
   const image = context.createImageData(frame.width, frame.height)
-  const rowSize = frame.width * 4
-  for (let row = 0; row < frame.height; row += 1) {
-    const sourceOffset = (frame.height - row - 1) * rowSize
+  const rowSize = frame.width * RGBA_COMPONENT_COUNT
+  for (let row = ZERO_INDEX; row < frame.height; row += FRAME_NUMBER_INCREMENT) {
+    const sourceOffset = (frame.height - row - FRAME_NUMBER_INCREMENT) * rowSize
     const targetOffset = row * rowSize
     image.data.set(frame.pixels.subarray(sourceOffset, sourceOffset + rowSize), targetOffset)
   }
-  context.putImageData(image, 0, 0)
-  return new Promise((resolve, reject) => {
+  context.putImageData(image, ZERO_PIXEL_COORDINATE, ZERO_PIXEL_COORDINATE)
+}
+
+const encodeScreenshotCanvas = (screenshotCanvas: HTMLCanvasElement): Promise<Blob> =>
+  new Promise((resolve, reject) => {
     screenshotCanvas.toBlob((blob) => {
       if (blob === null) {
         reject(new Error('screenshot canvas.toBlob returned no image'))
@@ -1045,6 +1411,41 @@ const createScreenshotHandler = (
       }
     }, 'image/png')
   })
+
+const captureScreenshotFrame = (canvas: HTMLCanvasElement, frame: BrowserScreenshotFrame): Promise<Blob> => {
+  const screenshotCanvas = createScreenshotCanvas(canvas, frame)
+  const context = screenshotCanvas.getContext('2d')
+  if (!context) {
+    return Promise.reject(new Error('could not create a 2D screenshot canvas'))
+  }
+  copyScreenshotPixels(context, frame)
+  return encodeScreenshotCanvas(screenshotCanvas)
+}
+
+const createScreenshotHandler = ({
+  activity,
+  canvas,
+  getLastFrame,
+  preserveDrawingBuffer,
+}: {
+  readonly activity: BrowserRuntimeActivity
+  readonly canvas: HTMLCanvasElement
+  readonly getLastFrame: () => BrowserScreenshotFrame | undefined
+  readonly preserveDrawingBuffer: boolean
+}): (() => Promise<Blob>) => () => {
+  assertBrowserRuntimeActive(activity.disposed)
+  if (!preserveDrawingBuffer) {
+    return Promise.reject(new Error('captureScreenshot requires preserveDrawingBuffer'))
+  }
+  const frame = getLastFrame()
+  if (!frame) {
+    return Promise.reject(new Error('captureScreenshot requires a rendered frame'))
+  }
+  return captureScreenshotFrame(canvas, frame)
+}
+
+const reportScreenshotDownloadFailure = (cause: unknown): void => {
+  globalThis.console.error('Could not download the browser screenshot', cause)
 }
 
 const installPngScreenshotShortcut = (
@@ -1055,7 +1456,7 @@ const installPngScreenshotShortcut = (
     if (!isBrowserScreenshotShortcut(event)) {
       return
     }
-    const target = event.target
+    const { target } = event
     const view = document.defaultView
     if (view && target instanceof view.HTMLElement) {
       if (
@@ -1066,7 +1467,7 @@ const installPngScreenshotShortcut = (
       }
     }
     event.preventDefault()
-    void captureScreenshot()
+    captureScreenshot()
       .then((blob) => {
         const objectUrl = URL.createObjectURL(blob)
         const link = document.createElement('a')
@@ -1078,11 +1479,11 @@ const installPngScreenshotShortcut = (
           link.click()
         } finally {
           link.remove()
-          globalThis.setTimeout(() => URL.revokeObjectURL(objectUrl), 0)
+          globalThis.setTimeout(() => URL.revokeObjectURL(objectUrl), ZERO_DELAY_MILLISECONDS)
         }
       })
       .catch((cause: unknown) => {
-        console.error('Could not download the browser screenshot', cause)
+        reportScreenshotDownloadFailure(cause)
       })
   }
   document.addEventListener('keydown', onKeyDown)
@@ -1135,12 +1536,17 @@ const disposeAtlas = (atlas: AtlasResource): void => {
   }
 }
 
-const createDisposeHandler = (
-  activity: BrowserRuntimeActivity,
-  resources: BrowserRuntimeResources,
-  stop: () => void,
-  removeScreenshotShortcut: () => void,
-): (() => void) => (): void => {
+const createDisposeHandler = ({
+  activity,
+  removeScreenshotShortcut,
+  resources,
+  stop,
+}: {
+  readonly activity: BrowserRuntimeActivity
+  readonly removeScreenshotShortcut: () => void
+  readonly resources: BrowserRuntimeResources
+  readonly stop: () => void
+}): (() => void) => (): void => {
   if (activity.disposed) {
     return
   }
@@ -1187,22 +1593,22 @@ const createBrowserWorldRuntime = (
   const frameHandlers = createFrameHandlers(resources, activity)
   const waterHandlers = createWaterHandlers(resources, activity)
   const animationHandlers = createAnimationHandlers(activity, frameHandlers.advanceFrame, frameHandlers.render)
-  const captureScreenshot = createScreenshotHandler(
-    options.canvas,
+  const captureScreenshot = createScreenshotHandler({
     activity,
-    options.preserveDrawingBuffer ?? true,
-    () => resources.state.lastPresentedFrame,
-  )
+    canvas: options.canvas,
+    getLastFrame: () => resources.state.lastPresentedFrame,
+    preserveDrawingBuffer: options.preserveDrawingBuffer ?? true,
+  })
   const removeScreenshotShortcut = installPngScreenshotShortcut(
     options.canvas.ownerDocument,
     captureScreenshot,
   )
-  const dispose = createDisposeHandler(
+  const dispose = createDisposeHandler({
     activity,
-    resources,
-    animationHandlers.stop,
     removeScreenshotShortcut,
-  )
+    resources,
+    stop: animationHandlers.stop,
+  })
   installRuntime({
     activity,
     attachWaterSurface: waterHandlers.attachWaterSurface,
@@ -1216,12 +1622,6 @@ const createBrowserWorldRuntime = (
     captureScreenshot,
     detachWaterSurface: waterHandlers.detachWaterSurface,
     dispose,
-    render: frameHandlers.render,
-    resize,
-    scene: resources.surface.scene,
-    start: animationHandlers.start,
-    stop: animationHandlers.stop,
-    threeRenderer: resources.surface.renderer,
     get gpuTimingSupported() {
       return resources.gpuTiming.service.supported
     },
@@ -1237,6 +1637,12 @@ const createBrowserWorldRuntime = (
     get qualityPreset() {
       return resources.state.qualityPreset
     },
+    render: frameHandlers.render,
+    resize,
+    scene: resources.surface.scene,
+    start: animationHandlers.start,
+    stop: animationHandlers.stop,
+    threeRenderer: resources.surface.renderer,
     get waterMeshes() {
       return [...resources.state.waterMeshes]
     },
@@ -1250,11 +1656,11 @@ export const makeBrowserWorldRuntime = async (
   const { quality, preset: qualityPreset } = resolveBrowserQuality(options.quality)
   const maxPixelRatio = resolveBrowserMaxPixelRatio(options.maxPixelRatio, quality.pixelRatioCap)
   const atlas = await resolveAtlas(options.atlas)
-  const state = makeRuntimeState(options.canvas, quality, qualityPreset, maxPixelRatio)
+  const state = makeRuntimeState({ canvas: options.canvas, maxPixelRatio, quality, qualityPreset })
   const initialized = initializeBrowserWorld({ atlas, options, state })
   const resources: BrowserRuntimeResources = {
-    atlas,
     applyPreset: initialized.applyPreset,
+    atlas,
     gpuTiming: initialized.gpuTiming,
     refraction: initialized.refraction,
     state,
