@@ -28,22 +28,6 @@ const vitestConfig: Parameters<typeof defineConfig>[0] = {
         '**/*.config.ts',
         '**/*.test.ts',
         '**/*.spec.ts',
-        // PURE_TYPE (TEST_STANDARD.md §3.2, same treatment as mc-kernel's
-        // domain/frame.ts): every export in this file is `export type` — zero
-        // executable statements. v8 reports files like this as 0% rather than
-        // 100%, which only makes the headline number meaningless without
-        // saying anything about real coverage. The contract this file makes
-        // (that the structural types below are a real subset of `three`'s
-        // actual API) is verified by `pnpm typecheck` and by
-        // test/three-surface.test.ts / test/fixtures/three-surface.ts, which
-        // compile it against the real `three/index.d.ts` — not by vitest
-        // coverage.
-        'src/application/three-surface.ts',
-        // BROWSER_RUNTIME: Vitest's V8 provider observes the Node process, while
-        // the published browser entry executes in Chromium. Its WebGL behavior
-        // is exercised by the Playwright browser regression job; excluding it
-        // here avoids treating browser-process code as unexecuted Node code.
-        'src/browser.ts',
       ],
       reporter: ['text', 'json', 'html', 'lcov'],
       reportsDirectory: './coverage',
