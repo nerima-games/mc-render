@@ -214,6 +214,19 @@ export type ComposerRenderTarget = 'ldr' | 'hdr'
  */
 export type QualityPreset = 'low' | 'medium' | 'high' | 'ultra'
 
+const QUALITY_PRESET_ORDER: ReadonlyArray<QualityPreset> = ['low', 'medium', 'high', 'ultra']
+
+/** Move one step through the renderer's ordered quality presets. */
+export const stepQualityPreset = (
+  preset: QualityPreset,
+  direction: 'lower' | 'higher',
+): QualityPreset => {
+  const index = QUALITY_PRESET_ORDER.indexOf(preset)
+  const offset = direction === 'lower' ? -1 : 1
+  const next = QUALITY_PRESET_ORDER[index + offset]
+  return next ?? preset
+}
+
 export const QUALITY_PRESETS: Readonly<Record<QualityPreset, GraphicsQuality>> = {
   high: {
     bloomEnabled: true,

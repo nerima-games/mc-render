@@ -177,6 +177,23 @@ export const normalizeRefractionMinScreenRatio = (value: number): number => {
 }
 
 /**
+ * Apply the visible-mesh and screen-ratio gates in their required order.
+ *
+ * The browser supplies the resolved threshold so custom GraphicsQuality values
+ * keep their configured refraction behavior.
+ */
+export const shouldRunRefractionRatioGate = (
+  visibleWaterMeshCount: number,
+  waterScreenRatio: number,
+  minScreenRatio: number,
+): boolean => {
+  if (visibleWaterMeshCount <= EMPTY_MESH_COUNT) {
+    return false
+  }
+  return waterScreenRatio >= normalizeRefractionMinScreenRatio(minScreenRatio)
+}
+
+/**
  * Whether this frame is a refraction frame for a given interval.
  *
  * `frameNumber` is 1-based, matching the reference's counter, which is
