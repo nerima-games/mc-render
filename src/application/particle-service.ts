@@ -170,9 +170,6 @@ const isParticleRequestParticleSafe = (request: ParticleRequest): boolean => {
   if (!isParticleWorldPosition(position)) {
     return false
   }
-  if (request.lifetimeSeconds !== undefined && request.lifetimeSeconds > MAX_PARTICLE_LIFETIME_SECS) {
-    return false
-  }
   if (direction === undefined) {
     return true
   }

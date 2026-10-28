@@ -133,11 +133,7 @@ const [LOD_LEVEL_FINEST, LOD_LEVEL_MIDDLE, LOD_LEVEL_COARSEST] = LOD_LEVELS
  */
 export type ChunkXZ = ChunkCoord
 
-const ChunkAxisSchema: Schema.Codec<ChunkAxis, number> = Schema.Int
-  .check(Schema.makeFilter<number>((value) =>
-    Number.isSafeInteger(value) || 'ChunkAxis must be a safe integer'
-  ))
-  .pipe(Schema.brand('ChunkAxis'))
+const ChunkAxisSchema: Schema.Codec<ChunkAxis, number> = Schema.Int.pipe(Schema.brand('ChunkAxis'))
 
 export const ChunkXZSchema: Schema.Codec<ChunkXZ, Readonly<{
   readonly cx: number

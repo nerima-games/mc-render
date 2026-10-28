@@ -30,7 +30,7 @@ import {
 } from '../src/domain/particle-pool.js'
 
 const particlePoolMock = vi.hoisted(() => {
-  const spawnOutcomes: Array<boolean> = []
+  const spawnOutcomes: Array<boolean | 'invalid-pool'> = []
   return { spawnOutcomes }
 })
 
@@ -41,8 +41,16 @@ vi.mock('../src/domain/particle-pool.js', async (importOriginal) => {
   return {
     ...actual,
     spawnParticle: (...args: Parameters<typeof actual.spawnParticle>) => {
-      if (particlePoolMock.spawnOutcomes.shift() === false) {
+      const outcome = particlePoolMock.spawnOutcomes.shift()
+      if (outcome === false) {
         return effectModule.Result.succeed(false)
+      }
+      if (outcome === 'invalid-pool') {
+        return effectModule.Result.fail({
+          _tag: 'ParticlePoolInputError',
+          operation: 'spawn',
+          reason: 'invalid-pool',
+        })
       }
       return actual.spawnParticle(...args)
     },
@@ -70,7 +78,7 @@ const advanceParticles = (pool: ParticlePool, dtSecs: number, frame?: ParticleFr
 const isParticlePoolInputFailure = (
   error: unknown,
   operation: 'pool' | 'spawn' | 'request' | 'render-context',
-  reason: 'invalid-capacity' | 'invalid-spawn' | 'invalid-request' | 'invalid-frame' | 'render-context-failed',
+  reason: 'invalid-capacity' | 'invalid-pool' | 'invalid-spawn' | 'invalid-request' | 'invalid-frame' | 'render-context-failed',
 ): boolean => {
   const decoded = Schema.decodeUnknownResult(ParticlePoolInputErrorSchema, {
     onExcessProperty: 'error',
@@ -245,6 +253,19 @@ describe('ParticleServiceLive', () => {
       expect(yield* service.spawn(particleRequest())).toBe(0)
       expect(pool.activeCount()).toBe(0)
       expect(particlePoolMock.spawnOutcomes).toStrictEqual([])
+    }).pipe(Effect.provide(ParticleServiceLive({ pool: { capacity: 1 } }))),
+  )
+
+  it.effect('propagates a typed spawn failure from the pool', () =>
+    Effect.gen(function* () {
+      const service = yield* ParticleService
+      particlePoolMock.spawnOutcomes.push('invalid-pool')
+
+      const result = yield* Effect.result(service.spawn(particleRequest()))
+      expect(Result.isFailure(result)).toBe(true)
+      if (Result.isFailure(result)) {
+        expect(isParticlePoolInputFailure(result.failure, 'spawn', 'invalid-pool')).toBe(true)
+      }
     }).pipe(Effect.provide(ParticleServiceLive({ pool: { capacity: 1 } }))),
   )
 

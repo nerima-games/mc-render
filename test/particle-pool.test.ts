@@ -638,6 +638,26 @@ describe('integration', () => {
     }),
   )
 
+  it.effect('expires a followed particle when its resolved offset leaves supported world bounds', () =>
+    Effect.sync(() => {
+      const pool = makeParticlePool({ capacity: 1 })
+      expect(spawnParticle(pool, particleSpawn({
+        positionX: 30_000_000,
+        follow: { id: 'mob-1', x: 29_999_998, y: 0, z: 0 },
+      }))).toBe(true)
+
+      advanceParticles(pool, 0.1, {
+        dimension: 'overworld',
+        entities: [{ id: 'mob-1', feetPosition: { x: 29_999_999, y: 0, z: 0 } }],
+      })
+
+      expect(pool.activeCount()).toBe(0)
+      expect(Array.from(pool.positions).every(Number.isFinite)).toBe(true)
+      expect(Array.from(pool.lifetimesSecs).every(Number.isFinite)).toBe(true)
+      expect(Array.from(pool.scales).every(Number.isFinite)).toBe(true)
+    }),
+  )
+
   it.effect('property: accepted particle spawns stay finite across arbitrary advances', () =>
     Effect.sync(() => {
       const numericBuffersStayFinite = (pool: ParticlePool): boolean =>
@@ -1151,6 +1171,10 @@ describe('C6 particle spawn state', () => {
       })), 'spawn', 'invalid-spawn')).toBe(true)
       expect(isDecodedParticleInputFailure(spawnParticleResult(pool, particleSpawn({
         follow: { id: 'mob-1', x: 60_000_001, y: 2, z: 3 },
+      })), 'spawn', 'invalid-spawn')).toBe(true)
+      expect(isDecodedParticleInputFailure(spawnParticleResult(pool, particleSpawn({
+        positionZ: 30_000_000,
+        follow: { id: 'mob-1', x: 0, y: 0, z: -30_000_001 },
       })), 'spawn', 'invalid-spawn')).toBe(true)
       expect(isDecodedParticleInputFailure(spawnBurstResult(pool, 30_000_001, 0, 0, 0, 0, 1), 'burst', 'invalid-position')).toBe(true)
 

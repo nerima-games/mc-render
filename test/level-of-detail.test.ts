@@ -26,6 +26,7 @@ import {
   REFERENCE_VIEWING_CONDITIONS,
   chunkDistance as chunkDistanceResult,
   ChunkXZSchema,
+  LodInputErrorSchema,
   type ChunkXZ,
   distanceForScreenErrorPixels,
   lodForDistance,
@@ -217,6 +218,35 @@ describe('chunkDistance', () => {
       expect(Result.isFailure(decodeChunk({ cx: Number.MAX_SAFE_INTEGER + 1, cz: 0 }))).toBe(true)
       expect(Result.isFailure(decodeChunk({ chunkX: 0, chunkZ: 0 }))).toBe(true)
       expect(Result.isFailure(decodeChunk({ cx: 0, cz: 0, extra: true }))).toBe(true)
+    }),
+  )
+
+  it.effect('returns a typed failure when decoded chunk coordinates are later mutated unsafe', () =>
+    Effect.sync(() => {
+      const unsafeFrom = chunk(0, 0)
+      const unsafeTo = chunk(0, 0)
+      expect(Reflect.set(unsafeFrom, 'cx', Number.MAX_SAFE_INTEGER + 1)).toBe(true)
+      expect(Reflect.set(unsafeTo, 'cz', Number.MAX_SAFE_INTEGER + 1)).toBe(true)
+      const valid = chunk(0, 0)
+      const decodeError = Schema.decodeUnknownResult(LodInputErrorSchema, { onExcessProperty: 'error' })
+
+      for (const result of [
+        chunkDistanceResult(unsafeFrom, valid),
+        chunkDistanceResult(valid, unsafeTo),
+      ]) {
+        expectFailure(result)
+        if (Result.isFailure(result)) {
+          const decoded = decodeError(result.failure)
+          expect(Result.isSuccess(decoded)).toBe(true)
+          if (Result.isSuccess(decoded)) {
+            expect(decoded.success).toStrictEqual({
+              _tag: 'LodInputError',
+              operation: 'chunk-distance',
+              reason: 'invalid-chunk-coordinate',
+            })
+          }
+        }
+      }
     }),
   )
 
