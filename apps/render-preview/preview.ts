@@ -10,25 +10,21 @@
  * ---------------------------------------------------------------------------
  *
  * PROVES: that `buildChunkGeometry` -> `setChunk` -> `draw` with a
- * `ShaderMaterial` produces non-background pixels on a real GPU, and that the
- * `tileIndex` attribute reaches the fragment stage — the atlas below gives every
- * tile a different colour, so a broken tile path renders one flat colour and
+ * `ShaderMaterial` produces non-background pixels in Chromium using the
+ * SwiftShader WebGL renderer, and that the `tileIndex` attribute reaches the
+ * fragment stage. The atlas gives every tile a different colour, so a broken
+ * tile path renders one flat colour and
  * the tile-variety assertion fails.
  *
  * THE QUADS ARE REAL. `terrain-fixture.json` is the output of
  * `generateChunkAt(20260728, cx, cz)` from mc-worldgen, meshed by mc-meshing's
- * `meshChunk` with its greedy merge, for a 3x3 block of chunks — 2,181 quads.
+ * `meshChunk` with its greedy merge, for radius 3 (49 chunks) — 13,218 quads.
  * Nothing on this page authored a vertex.
  *
- * DOES NOT PROVE: that a world reaches the renderer AT RUNTIME. The fixture is
- * loaded as DATA, by `fetch`, because this preview intentionally keeps the
- * generated-world path out of its fixture-only entry point. The direct-import
- * boundary is enforced by `.oxlintrc.json` and `pnpm lint`; the browser game
- * path is verified separately through the published package graph. So this is
- * exactly what docs/testing.md asks mc-render's preview to be — 「固定チャンクを
- * 読み込んで」, LOAD A FIXED CHUNK — and it is not a running world. Calling it
- * "the game renders" would be the green-lamp-with-nothing-behind-it that
- * docs/testing.md §3.4 rejects by name.
+ * DOES NOT PROVE: that runtime world generation reaches the renderer. This
+ * preview fetches pre-generated terrain data instead of invoking worldgen.
+ * `.oxlintrc.json` and `pnpm lint` enforce its direct-import boundary; browser
+ * runtime paths are covered separately by E2E tests.
  *
  * ---------------------------------------------------------------------------
  * WHY THE ATLAS IS GENERATED RATHER THAN LOADED

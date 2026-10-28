@@ -284,13 +284,14 @@ assert しているのは文字列の存在であって、数値の再現では�
 
 ## 6. カバレッジ
 
-`vitest.config.ts` は Node coverage の branches / functions / lines / statements 全指標に
-100% の閾値を設定している。`pnpm test:coverage` はこの閾値を含む現行の品質ゲートであり、
-CI でも実行する。`src/browser.ts` は Chromium 内で実行されるため Vitest V8 の計測範囲外とし、
-実行時の WebGL 経路は `pnpm test:browser` で検査する。
+`vitest.config.ts` の coverage 対象は `src/**/*.ts` で、`.d.ts`、`*.config.ts`、
+`*.test.ts`、`*.spec.ts` を除外する。branches / functions / lines / statements は
+すべて 100% の閾値を持つ。`pnpm test:coverage` は coverage 検査と閾値判定を実行し、
+CI でも実行する。ブラウザ E2E の実行結果は Node coverage に含めず、WebGL 経路は
+`pnpm test:browser` で検査する。
 
-この browser job は Node coverage の代替ではない。固定 fixture の描画と screenshot
-comparison、shader、composite/refraction、GPU timer fallback、F2 capture の動作を独立して検証する。
+ブラウザ E2E は Chromium/SwiftShader で固定 fixture を描画し、screenshot comparison、
+shader、composite/refraction、GPU timer fallback、F2 capture の動作も検証する。
 
 ## 7. CI
 
