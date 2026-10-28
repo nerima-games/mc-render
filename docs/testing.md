@@ -1,6 +1,6 @@
 # テスト / 検証
 
-## 1. plan.md が要求する検証（§3.9）
+## 1. Rendering verification
 
 The rendering checks use both deterministic Node tests and Chromium with software
 WebGL. The public `./browser` entry owns the Three.js runtime; the portable root
@@ -18,25 +18,15 @@ The browser regression job covers WebGL paths that Node cannot execute. Node
 tests remain the primary proof for the deterministic domain and input state
 machines. The terminal preview is a separate interactive diagnostic tool.
 
-## 2. 完了条件（plan.md §6 Step 2）
+## 2. Preview and browser verification
 
-> 各リポジトリの完了条件: ユニット/シナリオテスト green + **内蔵プレビューが操作可能**
+`apps/preview-render/` is the terminal preview for stepping input and render
+policies. `pnpm preview` starts it. `pnpm verify` typechecks and lints the
+preview, but does not run its interactive UI.
 
-プレビューは `apps/preview-<name>/` に置く。モジュール契約には含めない（plan.md §4.1 末尾）。
-本リポジトリのそれは [`apps/preview-render/`](../apps/preview-render/README.md) であり、
-`pnpm preview` で起動する。`pnpm verify` には入らないが、`pnpm typecheck`
-（`tsconfig.preview.json`）と `pnpm lint` の対象には入っている。
+### 2.1 Browser fixture and image comparison
 
-### 2.1 順序の都合
-
-構築順は `worldgen → sim → render → kit`（plan.md §6 Step 2）。
-mc-render のプレビューは kit の**前**に作る必要がある——kit が mc-render に依存するので、
-kit を待っていると永遠に始まらない。つまり mc-render のプレビューだけは kit 無しで書く。
-これは重複ではなく、kit の設計に対する最初のフィードバックになる。**そうした。**
-
-### 2.2 Browser fixture and image comparison
-
-The published `./browser` entry imports Three.js and creates a runtime for a
+The `./browser` entry imports Three.js and creates a runtime for a
 host-owned canvas. Its DOM and WebGL declarations are compiled in a separate
 browser release project; the root release build keeps `lib: ["ES2024"]` and
 `types: []`.
@@ -52,40 +42,19 @@ the chunk, water, and particle shaders under Chromium/SwiftShader.
 render policies. It complements the browser fixture rather than standing in
 for it. See [`public-api.md`](./public-api.md) §9 and the command table below.
 
-#### 判定方法についての注意は生きている
+`apps/preview-render/` は、実装でモデル化した状態や描画ポリシーを確認するためのプレビューである。
+ビューは `input`、`postfx`、`material`、`mirror`、`scratch`、`stages` の 6 種類。
 
-一度「アダプタは着地済み」として扱われかけたことがある。
-`c99ac01` の**コミットメッセージ本文**は THREE シームを詳細に述べていた
-（narrow structural surface、mc-meshing の merged quads からのジオメトリ構築、`WorldRenderer`）。
-**その diff にシームは入っていなかった** —— 13 ファイルは
-`domain/particle-pool.ts` / `texture-atlas.ts` / `water-surface.ts` / `water-refraction.ts` と
-対応するテスト、および docs である。件名の「the **three** deferred mesh layers」の
-`three` は THREE.js ではなく**数の 3**（この 3 つのメッシュ層）を指す。
-
-したがって判定はコミットメッセージではなく**ツリー**で行うこと。
-現在なら `application/three-surface.ts` と `application/world-renderer.ts` が存在し、
-`test/three-surface.test.ts` が green であることが一次資料である。
-DN-02 §「数値の出所」は**コミットメッセージを見なかったことによる誤判定**を記録しているが、
-`c99ac01` は逆向きの失敗である。**どちらの方向にも、一次資料はツリーとテストであってメッセージではない。**
-
-そこで `apps/preview-render/` は、**実際にデータとしてモデル化されているもの**を出す。
-6 つのビューがある —— `input` / `postfx` / `material` / `mirror` / `scratch` / `stages`。
-
-**主役は入力状態機械である。** plan.md §3.10 は Playwright が SwiftShader 上で動き
-**ポインタロックを一切扱えない**と記録しており、`application/input-service.ts:209-214` は
-そこから「サービス内の `requestPointerLock()` は何にもテストできない挙動になる」と結論している。
-帰結はもっと鋭い: ロック状態は 4 値の機械で、その遷移が**すべてのボタン押下について
-ゲーム操作か UI クリックかを決める**。ブラウザテストはこれを駆動できず、
-`test/input.test.ts` は 1 つの fiber の中で、テスト作者が思いついた順序で駆動する。
+**入力状態機械は Node tests で検証する。** Headless Playwright cannot exercise
+pointer-lock transitions. `test/input.test.ts` drives those transitions in one
+fiber; the browser tests exercise the real canvas and WebGL path.
 
 ステップ可能なプレビューは、**イベント順序がつまみになる唯一の場所**である。
 だから `readSnapshot` と `endFrame` もイベントと同格のステップになっている。
 下の RND-1 / RND-2 はどちらも、テストがたまたま逆順で発行している 2 つのイベントを
 入れ替えただけで出てくる。
 
-`--stats` はかつて **8 件の発見**を出していた。**6 件は修正済み、2 件は「直さない」と決めて
-テストで固定した。** どちらの場合も `test/` にテストがあり、そこでしか主張は CI で落ちない
-—— `--stats` の行はピンではない。
+レビューで見つかった問題と、それぞれを固定する回帰テストを次に示す。
 
 | # | 内容 | 状態 | 固定しているテスト |
 | --- | --- | --- | --- |
@@ -108,122 +77,19 @@ DN-02 §「数値の出所」は**コミットメッセージを見なかった�
 
 全件の詳細は [`apps/preview-render/README.md`](../apps/preview-render/README.md)。
 
-### 2.3 Browser fixture inputs
+### 2.2 Browser fixture inputs
 
 The browser fixture is `apps/render-preview/terrain-fixture.json`; its expected
 image is `e2e/fixtures/render-preview-baseline.png`. The Playwright test pins
 both inputs by SHA-256 before comparing the rendered canvas. Keep fixture
 changes and baseline changes reviewable together.
 
-### 2.4 プレビューの依存
+### 2.3 プレビューの依存
 
 `apps/preview-render/` is the terminal diagnostic app. It imports the published
 mc-sim 0.6.0 API. `apps/render-preview/` is the browser fixture used by
 Playwright. The terminal preview continues to use the injected
 `MonotonicTimeSecs` clock.
-
-### 2.5 スクリーンショット比較の決定性 —— **実測して片付けた**
-
-Before the browser runtime shipped, comparison uncertainty was measured under
-these conditions: Apple macOS, Playwright, 640x480, `deviceScaleFactor: 1`, the
-reference launch flags, the then-current Three.js package, `MeshLambertMaterial`
-with directional and ambient light, and a fixed camera viewing a 16x16 chunk
-greedily merged to 169 quads / 1690 triangles.
-
-These historical measurements do not replace the current browser gate. The
-current fixture acceptance check is `pnpm test:browser`, which requires SSIM
-above 0.95 and verifies the fixture and baseline hashes. `pnpm test:coverage`
-and `pnpm build` remain separate package gates.
-
-#### 測定 1: SwiftShader は**ビット単位で決定的**である
-
-| 条件 | 取得枚数 | 相異なる画像 | 差分ピクセル | 最大チャンネル差 |
-| --- | --- | --- | --- | --- |
-| 逐次起動 | 5 | **1** | **0** | **0** |
-| **6 並列**起動（CPU を飢えさせる） | 6 | **1** | **0** | **0** |
-| GL フラグ無し（既定） | 1 | 同上 | **0** | **0** |
-| Chromium 147 と 148 | 2 | **1** | **0** | **0** |
-
-**計 15 枚が単一の sha256 に落ちる。** MSAA 有効時も 5 枚が別の単一ハッシュに落ちる
-（MSAA 無効とは当然違う画になるが、それ自体は 5 回とも同一）。
-Chromium のメジャーバージョンをまたいでも 1 バイトも動かない —— つまり
-「依存を上げたら基準画像が壊れる」という定番の反論は、**少なくとも 147→148 では起きない**。
-
-#### 測定 2: 非決定なのは**ラスタライザではなくフレームループ**である
-
-同じシーンを rAF ループで回し、壁時計で 600ms 待ってから撮ると:
-
-| 条件 | 取得枚数 | 相異なる画像 | 最悪差分ピクセル | 最大チャンネル差 |
-| --- | --- | --- | --- | --- |
-| rAF ループ + 固定待ち | 5 | **5** | 3,674（1.196%） | 103 |
-
-**これが §7 の「SwiftShader の非決定性」の正体である。**
-参照実装の `retries: 1` のコメントが述べているのは
-「並列インスタンスがレンダーループを飢えさせ、**合成キー入力がフレーム境界で落ちる**」であって、
-**ピクセルの非決定性ではない**。入力とタイミングの話をラスタライザの話として一般化していた。
-§7 を訂正した。
-
-#### 帰結（アダプタ実装者への拘束条件）
-
-- **fixture 描画は「1 フレームを明示的に描いて止まる」入口を持つこと。**
-  rAF ループを回して撮ってはいけない。測定 2 のばらつき（最大 103、1.196%）は
-  **本物の回帰と同じ桁**であり、これを吸収する許容差は何でも通す。
-- **許容差はゼロでよい。** 15 枚が同一ハッシュなのだから、緩める根拠が無い。
-  「緩めておけば安全」は、ここでは**テストを消すのと同じ**である。次項がその実測である。
-
-#### なぜ「±1 くらいなら安全」が**間違い**か —— ミューテーション 5 件
-
-基準画像に対し、レンダラで起こりうる 1 トークンの変更を入れて撮り直した:
-
-| ミューテーション | 差分ピクセル | 最大チャンネル差 | 許容差 0 | 許容差 ±1 |
-| --- | --- | --- | --- | --- |
-| 環境光 0.55 → 0.56（1.8%） | 63,955（20.8%） | **1** | 検出 | **見逃す** |
-| 平行光強度 1.1 → 1.101（0.09%） | 10,158（3.3%） | **1** | 検出 | **見逃す** |
-| FOV 55 → 55.05（0.09%） | 702（0.23%） | 103 | 検出 | 検出 |
-| **merged quad をやめて unit face にする** | 2,450（0.80%） | 103 | 検出 | 検出 |
-| 光源 x 12 → 12.01（0.08%） | **0** | **0** | **見逃す** | 見逃す |
-
-**上 2 件が決定的である。** 画面の 3%〜21% を動かす本物の照明回帰が、
-最大チャンネル差 **1** として出る —— 8bit 量子化のせいで、
-広い面積がそれぞれ 1 段だけずれるからである。
-**「±1 は丸め誤差だから安全」という最も控えめな許容差ですら、この 2 件を丸ごと飲み込む。**
-許容差は「緩いほど危ない」のではなく、**1 でもう危ない**。
-
-4 件目は c99ac01 のコミットメッセージが「やらかしていたら平地の 99.8% で間違う」と
-述べていたまさにそのバグで、**ゼロ許容差なら捕まる**。
-
-5 件目は正直に書いておく: **この比較の検出限界**である。
-光源をこの量だけ動かしても、陰影の変化がどのピクセルでも量子化幅を超えない。
-スクリーンショット比較はジオメトリと光の**微小な**移動には目が無い。
-そこは単体テスト側（`domain/`）の仕事であって、絵で捕るものではない。
-
-#### バックエンドが違うときは、許容差では吸収できない
-
-SwiftShader と Metal（実 GPU、ANGLE Metal Renderer: Apple M4 Max）の同一シーン比較:
-
-| 指標 | 値 |
-| --- | --- |
-| 差分ピクセル | 125 / 307,200（**0.041%**） |
-| 最大チャンネル差 | **103** |
-| 差の分布 | 1-2:**0** / 3-8:9 / 9-16:12 / 17-32:30 / 33-64:14 / 65 以上:**60** |
-| 差分点の 83% | 輝度エッジに隣接（104/125）。連結成分 120 個・平均サイズ **1.0** |
-
-**チャンネル許容差という道具ではこれを表現できない。**
-差は 1-2 のような「わずかな色ズレ」ではなく、**孤立 1 ピクセルが全く別の色になる**形で出る
-（シルエット上のラスタライズのタイブレーク）。吸収するには許容差 103 以上が要り、
-それは 0-255 の 40% —— 草の緑が土の茶になっても通る値である。**それはテストではない。**
-
-正しい構造は許容差ではなく**環境の固定**である:
-
-- `WEBGL_debug_renderer_info` の `UNMASKED_RENDERER_WEBGL` に `SwiftShader` が
-  含まれることを**アサートする**。
-- 含まれなければ **skip する**（fail でも、黙って pass でもない）。
-  実 GPU で撮った画像を基準画像と比べる意味は無く、その事実を許容差に押し込むと
-  **回帰検出能力そのものが消える**。
-- これは `check:mirrors` / `check:repoint` と同じ「自分の環境要件を自分で述べるゲート」である。
-
-再現手順とスクリプトは本コミットには含めていない（描く対象がまだ無いため）。
-アダプタ着地時に上記の数値を**引用せず測り直すこと**（§5.8）。
 
 ## 3. GPU を必要としないテストを厚くする方針
 
@@ -249,33 +115,20 @@ tests.
 
 ### 3.2 Browser E2E coverage and its pointer-lock limit
 
-plan.md §3.10 が記録している E2E 環境の制約:
-
-> Playwright は SwiftShader、ヘッドレスではポインタロック不可
-
-参照実装の `playwright.config.ts` がそれを裏づけている:
-
-```
-process.env['PLAYWRIGHT_USE_SWIFTSHADER'] = '1'
-launchOptions.args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-webgl',
-                     '--enable-webgl2', '--ignore-gpu-blocklist',
-                     '--enable-unsafe-swiftshader', '--no-sandbox', ...]
-```
-
-Headless Playwright on SwiftShader cannot exercise pointer-lock state
+The local browser suite runs Chromium with SwiftShader. Headless Playwright
+cannot exercise pointer-lock state
 transitions. The browser job does verify shader compilation, fixture rendering,
 screenshot similarity, and the browser runtime under Chromium/SwiftShader.
 Pointer-lock transitions remain in Node tests.
 DN-09（ロック解除時にデルタを捨てる）のような知見は、
-**ポート越しの単体テストで押さえるしかない**。だから入力サービスは
+ポート越しの単体テストで検証する。そのため入力サービスは
 DOM を import せず `InputEvent` を注入で受ける。
 
-**ロックの「要求」側（DN-14）はこの論法が最も強く効く箇所である。**
-`canvas.requestPointerLock()` をサービスから直接呼べば、その挙動は
-E2E でも（ポインタロックが使えないので）単体でも（DOM が無いので）検査できない——
-**この世のどのテストからも押さえられなくなる。** だから要求は `PointerLockPort` から出す。
-拒否（`pointerlockerror`）も同じ理由でイベントとして注入する。
-ホイールの単位正規化（DN-13）がアダプタではなくドメインにあるのも同じ論法である。
+ロックの要求（DN-14）はこの制約の影響を強く受ける。`canvas.requestPointerLock()` を
+サービスから直接呼ぶと、Headless Playwright ではポインタロックを要求できず、Node の単体テストでは
+DOM を使わないため、どちらでも検証できない。そのため要求は `PointerLockPort` から出し、
+拒否（`pointerlockerror`）も注入イベントとして扱う。ホイール単位の正規化（DN-13）は、
+単体テストで検証できるようドメイン側に置く。
 
 ## 4. 現在のテスト
 
@@ -297,14 +150,20 @@ E2E でも（ポインタロックが使えないので）単体でも（DOM が
 | `test/water-surface.test.ts` | DN-18（水マテリアルと `forceSinglePass`）/ DN-02 |
 | `test/water-refraction.test.ts` | DN-18（屈折プリパスのゲートと順序） |
 | `test/texture-atlas.test.ts` | DN-19（レイアウト算術、RGBA生成、全マッピング、素材別 alpha） |
-| `test/world-renderer.test.ts` | THREE シームの呼び出しプロトコル（§12.3） |
-| `test/chunk-geometry.test.ts` | merged extent と per-face AO（§12.2） |
-| `test/three-surface.test.ts` | 本物の `three` に対する構造的代入可能性（§12.1） |
+| `test/world-renderer.test.ts` | THREE seam call protocol |
+| `test/chunk-geometry.test.ts` | merged extent and per-face AO |
+| `test/three-surface.test.ts` | Structural assignability to `three` types |
 | `test/adaptive-quality.test.ts` / `test/ssim-adaptive-quality.test.ts` | FPS and SSIM quality policy |
 | `test/refraction-ratio-gate.test.ts` | refraction render-ratio gate |
 | `test/browser-runtime.test.ts` | GPU timer service lifecycle and error handling |
 | `test/public-api.test.ts` | root public focus DTO and callback exports |
 | `test/stage-registration.test.ts` | `stages/` order and input-to-render wiring |
+
+### 4.1 mc-kernel direct imports
+
+mc-render imports shared vocabulary directly from the published mc-kernel package.
+It keeps no local mirrors, so `pnpm typecheck` checks assignability against the
+published types. Review mc-kernel changes as public API changes in that package.
 
 ### 4.2 Visual claims not covered by the current browser fixture
 
@@ -320,16 +179,11 @@ claims below.
 | 水の**色が水に見える**か。パレット・空のグラデーション・`WATER_SURFACE_ALPHA = 0.86` | 現在の terrain fixture に水面が無く、shader probe は見た目を比較しない |
 | 屈折の閾値 0.005 / 0.05 と、high の間隔 2 が**振り向きで遅れて見えないか** | 閾値ゲートは browser runtime test で検証するが、閾値付近の水面を動かす視覚 fixture は無い |
 
-検査**できた**ほうは、逆に全部データにしてある ——
-リップルが有界であること、フレネルが単調であること、
+検査できる性質はデータにしてテストで固定する。対象は、リップルが有界であること、
+フレネルが単調であること、
 正弦近似の誤差が 0.056 を超えないこと（**参照実装の数値を引用せず、この場で測っている**）、
 屈折ゲート 6 つの順序が答えを変えないこと（720 通り全数）。
 
-### 4.1 公開済み mc-kernel の直接利用
-
-mc-kernel の語彙は公開 package から直接 import している。ローカルミラーと専用テストを
-残さないことで、実装と型契約の二重化を避け、`pnpm typecheck` が公開型との
-assignability を直接検査する。mc-kernel の変更は package の公開 API 差分としてレビューする。
 
 ## 5. テストの書き方（本リポジトリの規約）
 
@@ -355,14 +209,14 @@ a browser simulator. Tests that need actual DOM, WebGL2, or the published
 browser runtime run in the separate Playwright job instead of expanding the
 Node test environment.
 
-**`window` 入力アダプタはこの規約の中に収まった**（§8.1）。
-`jsdom` も Playwright も要らない——アダプタが触る DOM メンバは 8 個しかなく
+`window` 入力アダプタもこの規約で検査する（§8.1）。
+`jsdom` と Playwright は不要である。アダプタが触る DOM メンバは 8 個に限られ、
 （`application/dom-surface.ts`）、偽装は 40 行で済む。
 `lib.DOM` を入れずに済ませたことがそのまま「偽装できる大きさ」を保証している（DN-15）。
 
 The browser runtime is covered by the fixture, screenshot, shader-probe, and
-runtime checks listed in §1. Pointer-lock transitions remain covered by Node
-tests because the headless SwiftShader browser cannot request pointer lock.
+runtime checks listed in §1. Node tests cover pointer-lock transitions because
+the headless SwiftShader browser cannot request pointer lock.
 
 ### 5.3 全数テストできるものは全数テストする
 
@@ -382,7 +236,7 @@ tests because the headless SwiftShader browser cannot request pointer lock.
 `forceSinglePass` の根拠となる `p95 33ms → 9.2ms` は実測値である
 （参照実装のコミット `d51c5ba7`、"Measured before/after (idle, settled world)"）。
 ただし**元の測定は `p95 25-33ms → 9.2ms` という範囲**であり、
-33 は plan.md §3.9 が範囲の悪いほうの端だけを取った表記である
+33 は測定範囲の上端である
 （[design-notes.md](./design-notes.md) DN-02）。
 そして本リポジトリでは**再測定できない**（ベンチマークも計測出力もコミットされていない）ので、
 **数値そのものを閾値として assert してはならない。**
@@ -410,8 +264,7 @@ assert しているのは文字列の存在であって、数値の再現では�
 `domain/material-policy.ts` の述語が水マテリアルを `review-sharing` と判定すること
 ——**参照実装がフラグを立てている**マテリアルについて —— を assert している。
 
-正しい答えのほうだけを assert するのが自然に見えるが、それをやると
-**食い違いが消える**。共有述語を誰かが広げた日に、
+正しい答えだけを assert すると、共有述語を誰かが広げた日に食い違いを検出できない。
 このテストが落ちて [responsibility.md §2.1](./responsibility.md) に導かれるのが望ましい挙動であり、
 「合成した側だけ緑」だとその日は静かに過ぎる。
 
@@ -451,45 +304,28 @@ oxlint と ast-grep（`.oxlintrc.json` / `sgconfig.yml`）の両方を実行す�
 
 ```
 install (GitHub Packages 認証込み)
-  → verify (typecheck (build + test + preview) → lint (oxlint + ast-grep) → test)
+  → verify (typecheck (build + test + preview + browser projects) → lint (oxlint + ast-grep) → test)
   → changeset status（PR かつ release/* ブランチでないときのみ）
   → coverage (100% 閾値、アーティファクト化)
   → package:verify（build → scripts/verify-package.mjs で packed tarball を検証）
   → audit
 ```
 
-スクリーンショット比較を入れる際の注意。**以前ここには「SwiftShader の非決定性に注意」と
-書いてあったが、それは誤りだった**（§2.5 で実測）。根拠として引いていたのは
-参照実装 `playwright.config.ts` の `retries: 1` のコメントである:
+This package has no API lock file or API lock commands. Its public surface is
+defined by `package.json` exports and declarations emitted from the release
+TypeScript projects. `pnpm typecheck` and `pnpm build` validate the source
+projects and declaration output. `pnpm package:verify` installs the packed
+archive in a scratch consumer and checks every declared export at runtime and
+through its declarations. Use `pnpm pack --dry-run` to inspect archive contents.
+See [public-api.md](./public-api.md) for the package checks.
 
-```
-// One retry everywhere: with 2 local workers, parallel game instances can
-// starve the render loop and drop synthetic key presses across frame
-// boundaries — a retry absorbs that without masking deterministic failures.
-```
 
-**このコメントが述べているのは「合成キー入力がフレーム境界で落ちる」ことであって、
-ピクセルが揺れることではない。** 入力とタイミングの問題を、
-ラスタライザの問題として一般化していた。実測では SwiftShader の出力は
-逐次・6 並列・Chromium 147/148 をまたいで **15 枚が同一 sha256**、差分 0 ピクセルである。
+## 8. Test request status
 
-正しい注意は 2 つに分かれる:
-
-- **フレームループを撮るな。** rAF を回して壁時計で待って撮ると 5 枚が 5 種類になり、
-  最悪 1.196% のピクセル・最大チャンネル差 103 が出る。1 フレームを明示的に描いて止める。
-- **バックエンドを固定しろ。** SwiftShader と実 GPU の差は許容差では吸収できない
-  （§2.5）。`UNMASKED_RENDERER_WEBGL` を見て、SwiftShader でなければ skip する。
-
-`retries` はスクリーンショット比較には**入れないこと**。上の 2 つを守れば決定的であり、
-決定的なテストに retry を付けると、壊れた瞬間を隠す方向にしか働かない。
-
-## 8. Remaining test work
-
-[design-notes.md](./design-notes.md) の「（要追加）」印を参照。特に重要な未実装:
-
-**「いつ」の列は 2026-07-28 に監査した。** 「アダプタ実装時」と書かれた 4 行のうち
-**2 行は条件が成立している**（シームは着地した）。条件が静かに真になった行を放置するのが、
-この表が信用されなくなる経路なので、成否を明示する。
+The table tracks selected test requests from [design-notes.md](./design-notes.md).
+It includes completed and outstanding work. “Condition met” records whether
+the implementation prerequisite exists; it does not mean the requested test
+has been implemented.
 
 | テスト | 対応 | いつ | 条件は成立したか |
 | --- | --- | --- | --- |
@@ -499,12 +335,11 @@ install (GitHub Packages 認証込み)
 | `no source file in this repository reads camera.position` | DN-06 | 走査テストで | **成立した。ただし優先度は下がった** —— `ThreeSurface` の `ThreeVector3` は `set` しか持たず、`ThreeCamera` は読み出し口を持たない。**読む書き方が型として存在しない**ので、走査テストは型が既に保証しているものの二重化になる。書くなら「シームに getter が生えていないこと」を見るほうが強い |
 | `blur clears gamepad and touch state too` | DN-08 | それらの実装時 | **成立。** `test/touch-controls.test.ts`（25 件）と `test/gamepad-input.test.ts`（5 件）で、保持状態・軸・押下エッジを検証する |
 | ワーカープールの Port 適合 / 死んだワーカーの置き換え | DN-10 | プール実装時 | まだ |
-| terrain fixture rendering + screenshot comparison (SSIM > 0.95) | §2.2 / §2.5 | 完了 | `e2e/shader-probe.e2e.spec.ts` verifies fixed inputs, drawn pixels, multiple atlas tiles, and SSIM against the pinned baseline |
+| terrain fixture rendering + screenshot comparison (SSIM > 0.95) | §2.1 | 完了 | `e2e/shader-probe.e2e.spec.ts` verifies fixed inputs, drawn pixels, multiple atlas tiles, and SSIM against the pinned baseline |
 | 参照実装の入力テスト 1,261 LOC の移植 | — | 残り（[porting.md](./porting.md) §6） | — |
 
-**Browser runtime property enforced by the current tests.** The runtime exposes
-an explicit `render` call so the fixture can draw and capture a frame without a
-wall-clock delay:
+**Browser runtime property enforced by the current tests.** The explicit
+`render` call lets the fixture draw and capture a frame without a wall-clock delay.
 
 > レンダラは **1 フレームを明示的に描いて戻る入口**を持つこと。
 > rAF ループを内部に抱えたまま「描きっぱなし」にしないこと。
@@ -560,63 +395,6 @@ click on the canvas can request pointer lock. Predicate, adapter, and stage
 coverage live in `test/input.test.ts`, `test/browser-input-adapter.test.ts`, and
 `test/stage-registration.test.ts` respectively.
 
-### Historical pre-W4-R5 implementation notes (superseded)
-
-The notes below were written when mc-render owned focus and click target
-classification. They are retained only as history; the current API and test
-boundary are stated above and in [public-api.md](./public-api.md) §§2.10–2.11.
-The final package-verification paragraph in this section remains current.
-
-| テスト | 何を守るか |
-| --- | --- |
-| `REGRESSION: no focus handler EVER calls preventDefault` | Tab を奪えばキーボードトラップ（WCAG 2.1 SC 2.1.2）。実リスナ越しに、ロック中でも 0 件であることを assert する |
-| `REGRESSION: the lock MASKS the focus, it does not forget it` | ロック中に消すと、明けたときリングとブラウザのフォーカスがずれる |
-| `endFrame does NOT clear it: focus is a LEVEL, like pressed and unlike justPressed` | フレーム境界の一貫性。エッジ扱いにするとリングがリフレッシュレートで点滅する |
-| `ArrowRight calls .focus() on the next slot, and on no other slot`（と対の Left/wrap ケース） | 実リスナ越しに、`activeElement` → ロスタ照合 → 名指しされた 1 要素だけへの `.focus()` 呼び出し、という配線を固定する |
-
-`focusin` / `focusout` も偽 DOM で駆動している。フォーカスは Playwright なら実在するが、
-**ロック中の分岐は相変わらず届かない**（§3.2）ので、
-「ロック中はリングを出さない」は node 側でしか押さえられない。
-
-**この表はかつて「§5(a) は意図的にテストが無い」と書いていた。もう正しくない——
-実装が入り、上の 4 本目の行がそれを固定した（DN-16 §5(a)、「(a) を閉じたが、まだ残っている 1 点」参照）。
-テーブルを直すときの注意は §1 冒頭のものと同じ: 片方だけ直すと矛盾がまたこのファイルの中で閉じる。**
-
-mx-ui owns the resolver, DOM membership, and browser focus movement under
-W4-R5. This repository tests the `FocusTarget` callback boundary and key
-intent; the renderer browser job does not test mx-ui's host-owned focus UI.
-
-**もう 1 つ（HUD の上のクリックがロック要求になる）は閉じた**（DN-16 §5(b)）。
-`acquiresPointerLock` は `(button, state, landing)` になり、`landing` は
-`resolveClickLanding` がアダプタの境界で `event.target` を `===` 照合して付ける。
-テストは 3 つの層に分かれていて、名前が**どちらの半分が壊れたか**を言うようにしてある:
-
-| 層 | 何を押さえるか | 場所 |
-| --- | --- | --- |
-| 述語 | 3 つの着地 × 4 状態 × 3 ボタン。第 3 の場合（`elsewhere`）を含む | `test/input.test.ts` |
-| 境界 | 要素 → 着地の解決。同一性、ロスタ、どちらでもない、宣言なしホスト、優先順位 | `test/browser-input-adapter.test.ts` |
-| フレーム | `render:input` が実際に要求する / しない。リングがマスクされない | `test/stage-registration.test.ts` |
-
-**DOM 面は増えていない**ので `a real Window, Document and HTMLCanvasElement satisfy the adapter
-without a cast` はそのまま通る。フィクスチャには「ロック対象を `===` でしか触らない」ハンドラを
-1 つ足してあり、`contains` に手を伸ばした瞬間にそこが落ちる。
-
-前者はフィクスチャを `test/typescript-project.ts` の
-`inspectTypeScriptFixture` で**テストの中からコンパイル**する。
-TypeScript 7 の `typescript/unstable/sync` API を使い、fixture が実際に開いた
-プログラムの診断と解決済みソースを検査する。
-フィクスチャは `tsconfig.json` / `tsconfig.test.json` から `test/fixtures/**` として除外してある。
-DOM 型を名指しするのが目的のファイルであり、DOM の無いプロジェクトに入れれば落ちるだけで、
-出荷プロジェクトに入れれば `"DOM"` が裏口から入ったのと同じになる。
-
-This package has no API lock file or API lock commands. Its public surface is
-defined by `package.json` exports and declarations emitted from the release
-TypeScript projects. `pnpm typecheck` and `pnpm build` validate the source
-projects and declaration output. `pnpm package:verify` installs the packed
-archive in a scratch consumer and checks every declared export at runtime and
-through its declarations. Use `pnpm pack --dry-run` to inspect archive contents.
-See [public-api.md](./public-api.md) for the package checks.
-
 ## 9. `stages/` の検証範囲
 
 `stages/` は現在の各検証に含まれている。
@@ -627,17 +405,18 @@ See [public-api.md](./public-api.md) for the package checks.
 - `pnpm lint` は `stages/` を明示的に走査する。
 - `pnpm test` は `stages/` を `test/stage-registration.test.ts` 経由で実行する。
 
-## 12. THREE シームのテスト（2026-07-28）
+## Appendix: THREE seam tests
 
-3 ファイル増えた。それぞれ**何を主張し、何を主張しないか**が違う。
+These tests establish what the structural Three.js boundary and renderer calls
+do and do not guarantee.
 
-### 12.1 `test/three-surface.test.ts` —— 型の証明であって、実行の証明ではない
+### `test/three-surface.test.ts`: type compatibility
 
 `test/fixtures/three-surface.ts` を `lib: ["ES2022", "DOM"]` と**本物の `three`** に
 対してコンパイルし、診断 0 件を主張する。`test/browser-input-adapter.test.ts` 末尾の
 DOM 証明と同じ `inspectTypeScriptFixture` の機構である。
 
-**これが必要な理由は 1 つ**: `application/three-surface.ts` の型が正しいかどうかを、
+このテストが必要なのは、`application/three-surface.ts` の型が正しいかどうかを、
 `pnpm typecheck` は原理的に判定できない。そのプロジェクトには `three` も DOM も無く、
 **assignable であるべき「元」が存在しない**。実際、この 3 つはどれも
 「素直な書き方」で書いて、このテストに落とされてから直したものである:
@@ -654,7 +433,7 @@ The same test locks three adjacent facts: `tsconfig.build.json` stays on
 references); and the browser entry is a separate export whose published
 `@types/three` dependency matches the pinned `three` major and minor version.
 
-### 12.2 `test/chunk-geometry.test.ts` —— merged extent と per-face AO
+### `test/chunk-geometry.test.ts`: merged extent and per-face AO
 
 **この 2 つが load-bearing である。**
 
@@ -668,39 +447,25 @@ x 面 2 方向でこれと逆である**（`greedy-meshing-algorithms.ts:24, :63
 AO は quad ごとに 1 値である（mc-meshing `domain/ambient-occlusion.ts`。
 per-vertex AO と greedy merge は本質的に両立しない）。テストは
 「4 頂点が同じ shade を持つ」と「shade が level に追従する」を**両方**主張する。
-片方だけなら定数実装が通る。
+片方だけでは定数実装が通る。
 
 巻き順は**外積で計算して**法線と向きが揃うことを見る。転記した表と比べるのでは、
 表を写し間違えたときに一緒に間違う。
 
-golden は 1 quad 分を全バイト書き下してある（plan.md §3.3 はハッシュを要求しているが、
-ハッシュは「何かが動いた」しか言わない）。
+golden は 1 quad 分を全バイト書き下してある。
 
-### 12.3 `test/world-renderer.test.ts` —— 呼び出しプロトコルだけ
+### `test/world-renderer.test.ts`: call protocol
 
 `test/support/fake-three.ts` を使う。**そのファイルのヘッダに、この fake が
 何の代わりになっていて何の代わりにはなっていないかが書いてある。**
 要点だけ再掲すると、GPU の挙動は一切モデル化していない ——
 コンテキストが取れるか、何かが見えるか、巻き順・カリング・深度、
 index がバッファをはみ出していないか、`dispose` が本当に解放したか。
-**そのどれもここでは green になる。**
+ここでは、これらの GPU 上の性質は検証できない。
 
-ここで意味があるのは、ブラウザでは「しばらく壊れていても気づかない」種類の帳簿である:
+このテストは、ブラウザでは気づきにくい次の更新・解放・描画の約束を確認する。
 
 - `setChunk` が同じ key で 2 回呼ばれたとき、mesh を**足す**のではなく**差し替える**
-  （docs/public-api.md §3.1: 落下する砂の柱は 1 tick に同じチャンクを 32 回汚す。
-  症状はメモリ曲線であって絵ではない）
 - `removeChunk` が `BufferGeometry.dispose()` を呼ぶ
 - `draw` が **mirrored** カメラを書き込む。authoritative pose を渡す実装は
   「view bob だけが静かに効かなくなった正しく見える世界」を描く
-
-### 12.4 目視の実測（2026-07-28）
-
-fake が「主張できない」と書いた側 —— バッファが本当にアップロードでき、
-巻き順が正しく、AO が実際に見えるか —— は、mc-compose のページに
-一時的にジオメトリを流し込んで**スクリーンショットで確認した**（コミットには含まれない）。
-merged な 16x15 の床が正しい遠近で出て、ao=0 の壁が白、ao=3 の壁が濃いグレー、
-ao=1 の `xNeg` 壁が薄いグレーで、いずれもカリングされずに出た。
-
-**この確認は自動化されていない。** ワールドデータが mc-compose に届くようになった時点で、
-`docs/e2e-triage.md` にピクセル主張の行を足すべきである。
