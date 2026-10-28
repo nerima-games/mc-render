@@ -1,7 +1,18 @@
 import { describe, expect, it, vi } from 'vitest'
+import { Effect, Result, Schema } from 'effect'
+import * as FastCheck from 'fast-check'
 import {
   type BrowserWaterMesh,
   BROWSER_RENDER_DEFAULTS,
+  BrowserBooleanResultSchema,
+  BrowserCompositeShaderResultSchema,
+  BrowserGodRaysShaderResultSchema,
+  BrowserGpuTimerSelectionResultSchema,
+  BrowserNumberResultSchema,
+  BrowserOptionalNumberResultSchema,
+  BrowserQualityResultSchema,
+  BrowserRefractionTargetSizeResultSchema,
+  BrowserVoidResultSchema,
   advanceBrowserFpsQuality,
   advanceBrowserSsimQuality,
   assertBrowserRuntimeActive,
@@ -38,6 +49,20 @@ import { createAdaptiveQualityState } from '../src/domain/adaptive-quality.js'
 import { createSsimAdaptiveQualityState } from '../src/domain/ssim-adaptive-quality.js'
 import { QUALITY_PRESETS } from '../src/domain/post-processing.js'
 
+const expectSuccess = <Value, Failure>(result: Result.Result<Value, Failure>): Value => {
+  if (Result.isFailure(result)) {
+    throw new Error(JSON.stringify(result.failure))
+  }
+  return result.success
+}
+
+const expectFailure = <Value, Failure>(result: Result.Result<Value, Failure>): Failure => {
+  if (Result.isSuccess(result)) {
+    throw new Error(JSON.stringify(result.success))
+  }
+  return result.failure
+}
+
 const rgba = (width: number, height: number, value: number): Uint8Array => {
   const pixels = new Uint8Array(width * height * 4)
   for (let offset = 0; offset < pixels.length; offset += 4) {
@@ -73,15 +98,33 @@ describe('browser render policy', () => {
     expect(resolveBrowserLatestGpuTime(2, 3)).toBe(3)
   })
 
-  it('guards operations after runtime disposal', () => {
-    expect(() => assertBrowserRuntimeActive(false)).not.toThrow()
-    expect(() => assertBrowserRuntimeActive(true)).toThrow('browser world runtime is disposed')
+  it('guards operations after runtime disposal with a typed failure', () => {
+    const active = assertBrowserRuntimeActive(false)
+    const inspectedActive = Schema.decodeUnknownResult(BrowserVoidResultSchema, { onExcessProperty: 'error' })(active)
+    expect(Result.isSuccess(inspectedActive)).toBe(true)
+    if (Result.isSuccess(inspectedActive)) {
+      expect(inspectedActive.success).toStrictEqual({ _tag: 'Success', _op: 'Success', success: undefined })
+    }
+    const disposed = assertBrowserRuntimeActive(true)
+    const inspected = Schema.decodeUnknownResult(BrowserVoidResultSchema, { onExcessProperty: 'error' })(disposed)
+    expect(Result.isSuccess(inspected)).toBe(true)
+    if (Result.isSuccess(inspected)) {
+      expect(inspected.success).toStrictEqual({
+        _tag: 'Failure',
+        _op: 'Failure',
+        failure: { _tag: 'BrowserRenderPolicyError', operation: 'runtime', reason: 'disposed' },
+      })
+    }
   })
 
   it('requires runtime surfaces and timer state captured during initialization', () => {
     const runtimeValue = { ready: true }
-    expect(requireBrowserRuntimeValue(runtimeValue, 'not ready')).toBe(runtimeValue)
-    expect(() => requireBrowserRuntimeValue(undefined, 'not ready')).toThrow('not ready')
+    expect(expectSuccess(requireBrowserRuntimeValue(runtimeValue, 'not ready'))).toBe(runtimeValue)
+    expect(expectFailure(requireBrowserRuntimeValue(undefined, 'not ready'))).toStrictEqual({
+      _tag: 'BrowserRenderPolicyError',
+      operation: 'runtime',
+      reason: 'missing-value',
+    })
   })
 
   it('accepts an unmodified F2 keydown and rejects repeats or modifiers', () => {
@@ -93,61 +136,102 @@ describe('browser render policy', () => {
       metaKey: false,
       shiftKey: false,
     }
-    expect(isBrowserScreenshotShortcut(shortcut)).toBe(true)
-    expect(isBrowserScreenshotShortcut({ ...shortcut, code: 'F3' })).toBe(false)
-    expect(isBrowserScreenshotShortcut({ ...shortcut, repeat: true })).toBe(false)
-    expect(isBrowserScreenshotShortcut({ ...shortcut, altKey: true })).toBe(false)
-    expect(isBrowserScreenshotShortcut({ ...shortcut, ctrlKey: true })).toBe(false)
-    expect(isBrowserScreenshotShortcut({ ...shortcut, metaKey: true })).toBe(false)
-    expect(isBrowserScreenshotShortcut({ ...shortcut, shiftKey: true })).toBe(false)
+    expect(expectSuccess(isBrowserScreenshotShortcut(shortcut))).toBe(true)
+    expect(expectSuccess(isBrowserScreenshotShortcut({ ...shortcut, code: 'F3' }))).toBe(false)
+    expect(expectSuccess(isBrowserScreenshotShortcut({ ...shortcut, repeat: true }))).toBe(false)
+    expect(expectSuccess(isBrowserScreenshotShortcut({ ...shortcut, altKey: true }))).toBe(false)
+    expect(expectSuccess(isBrowserScreenshotShortcut({ ...shortcut, ctrlKey: true }))).toBe(false)
+    expect(expectSuccess(isBrowserScreenshotShortcut({ ...shortcut, metaKey: true }))).toBe(false)
+    expect(expectSuccess(isBrowserScreenshotShortcut({ ...shortcut, shiftKey: true }))).toBe(false)
+    expect(Result.isFailure(isBrowserScreenshotShortcut({ ...shortcut, extra: true }))).toBe(true)
   })
 
   it('resolves named, custom, and default quality selections', () => {
-    expect(resolveBrowserQuality('ultra')).toStrictEqual({
+    const namedQuality = resolveBrowserQuality('ultra')
+    const namedQualitySchema = Schema.decodeUnknownResult(BrowserQualityResultSchema, { onExcessProperty: 'error' })(namedQuality)
+    expect(Result.isSuccess(namedQualitySchema)).toBe(true)
+    expect(expectSuccess(namedQuality)).toStrictEqual({
       preset: 'ultra',
       quality: QUALITY_PRESETS.ultra,
     })
     const custom = { ...QUALITY_PRESETS.high, pixelRatioCap: 1.25 }
-    expect(resolveBrowserQuality(custom)).toStrictEqual({ preset: undefined, quality: custom })
-    expect(resolveBrowserQuality(undefined)).toStrictEqual({
+    expect(expectSuccess(resolveBrowserQuality(custom))).toStrictEqual({ preset: undefined, quality: custom })
+    expect(expectSuccess(resolveBrowserQuality(undefined))).toStrictEqual({
       preset: 'high',
       quality: QUALITY_PRESETS.high,
     })
+    expect(Result.isFailure(resolveBrowserQuality({ ...custom, extra: true }))).toBe(true)
+    const invalidQuality = resolveBrowserQuality({ ...custom, refractionThrottleFrames: -1 })
+    const invalidQualityResult = Schema.decodeUnknownResult(BrowserQualityResultSchema, { onExcessProperty: 'error' })(invalidQuality)
+    expect(Result.isSuccess(invalidQualityResult)).toBe(true)
+    if (Result.isSuccess(invalidQualityResult)) {
+      expect(invalidQualityResult.success).toStrictEqual({
+        _tag: 'Failure',
+        _op: 'Failure',
+        failure: { _tag: 'BrowserRenderPolicyError', operation: 'refraction', reason: 'invalid-refraction-input' },
+      })
+    }
   })
 
-  it('bounds pixel ratio inputs and honors a positive requested cap', () => {
-    expect(resolveBrowserPixelRatioCap(Number.NaN)).toBe(2)
-    expect(resolveBrowserPixelRatioCap(0.25)).toBe(0.5)
-    expect(resolveBrowserPixelRatioCap(1.5)).toBe(1.5)
-    expect(resolveBrowserPixelRatioCap(3)).toBe(2)
-    expect(resolveBrowserMaxPixelRatio(1.25, 2)).toBe(1.25)
-    expect(resolveBrowserMaxPixelRatio(3, 1.5)).toBe(1.5)
-    expect(resolveBrowserMaxPixelRatio(undefined, 1.5)).toBe(1.5)
-    expect(resolveBrowserMaxPixelRatio(Number.NaN, 1.5)).toBe(1.5)
-    expect(resolveBrowserMaxPixelRatio(0, 1.5)).toBe(1.5)
-    expect(resolveBrowserMaxPixelRatio(undefined, Number.POSITIVE_INFINITY)).toBe(2)
-    expect(resolveBrowserPixelRatio(1.5, 1)).toBe(1)
-    expect(resolveBrowserPixelRatio(1.5, Number.POSITIVE_INFINITY)).toBe(1.5)
-    expect(resolveBrowserPixelRatio(1.5, undefined)).toBe(1)
-    expect(resolveBrowserPixelRatio(1.5, 0)).toBe(1)
+  it('accepts valid pixel ratios and rejects invalid external values', () => {
+    expect(expectFailure(resolveBrowserPixelRatioCap(Number.NaN))).toStrictEqual({
+      _tag: 'BrowserRenderPolicyError', operation: 'pixel-ratio', reason: 'not-finite',
+    })
+    expect(expectFailure(resolveBrowserPixelRatioCap(0.25))).toStrictEqual({
+      _tag: 'BrowserRenderPolicyError', operation: 'pixel-ratio', reason: 'out-of-range',
+    })
+    expect(expectSuccess(resolveBrowserPixelRatioCap(1.5))).toBe(1.5)
+    expect(expectFailure(resolveBrowserPixelRatioCap(3))).toStrictEqual({
+      _tag: 'BrowserRenderPolicyError', operation: 'pixel-ratio', reason: 'out-of-range',
+    })
+    expect(expectSuccess(resolveBrowserMaxPixelRatio(1.25, 2))).toBe(1.25)
+    expect(expectSuccess(resolveBrowserMaxPixelRatio(3, 1.5))).toBe(1.5)
+    expect(expectSuccess(resolveBrowserMaxPixelRatio(undefined, 1.5))).toBe(1.5)
+    expect(expectFailure(resolveBrowserMaxPixelRatio(Number.NaN, 1.5)).reason).toBe('not-finite')
+    expect(expectFailure(resolveBrowserMaxPixelRatio(0, 1.5)).reason).toBe('out-of-range')
+    expect(expectFailure(resolveBrowserMaxPixelRatio(undefined, Number.POSITIVE_INFINITY)).reason).toBe('not-finite')
+    expect(expectSuccess(resolveBrowserPixelRatio(1.5, 1))).toBe(1)
+    expect(expectFailure(resolveBrowserPixelRatio(1.5, Number.POSITIVE_INFINITY)).reason).toBe('not-finite')
+    expect(expectSuccess(resolveBrowserPixelRatio(1.5, undefined))).toBe(1)
+    expect(expectFailure(resolveBrowserPixelRatio(1.5, 0)).reason).toBe('out-of-range')
+    expect(expectFailure(resolveBrowserPixelRatio(0.25, 1)).reason).toBe('out-of-range')
   })
 
-  it('resolves canvas dimensions and refraction target dimensions', () => {
-    expect(resolveBrowserViewport({ clientWidth: 320.9, clientHeight: 200.2, canvasWidth: 640, canvasHeight: 480 })).toStrictEqual({ width: 320, height: 200 })
-    expect(resolveBrowserViewport({ clientWidth: 0, clientHeight: 0, canvasWidth: 64.8, canvasHeight: 0 })).toStrictEqual({ width: 64, height: 1 })
-    expect(resolveBrowserViewport({ clientWidth: 0, clientHeight: 0, canvasWidth: 0, canvasHeight: 0 })).toStrictEqual({ width: 1, height: 1 })
-    expect(resolveBrowserRefractionTargetSize({ width: 320, height: 200 }, 1.5)).toStrictEqual({
-      width: 480,
-      height: 300,
-      key: '480x300',
-    })
-    expect(resolveBrowserRefractionTargetSize({ width: 1, height: 1 }, 0)).toStrictEqual({
-      width: 1,
-      height: 1,
-      key: '1x1',
-    })
-    expect(resolveBrowserDrawingBufferSize(320.9, 200.2)).toStrictEqual({ width: 320, height: 200 })
-    expect(resolveBrowserDrawingBufferSize(0, 0)).toStrictEqual({ width: 1, height: 1 })
+  it('property: non-finite pixel caps produce strict typed failures', () => {
+    FastCheck.assert(
+      FastCheck.property(FastCheck.constantFrom(Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY), (value) => {
+        const actual = resolveBrowserPixelRatioCap(value)
+        const decoded = Schema.decodeUnknownResult(BrowserNumberResultSchema, { onExcessProperty: 'error' })(actual)
+        expect(Result.isSuccess(decoded)).toBe(true)
+        if (Result.isFailure(decoded)) {
+          return
+        }
+        expect(decoded.success).toStrictEqual({
+          _tag: 'Failure',
+          _op: 'Failure',
+          failure: { _tag: 'BrowserRenderPolicyError', operation: 'pixel-ratio', reason: 'not-finite' },
+        })
+      }),
+    )
+  })
+
+  it('resolves viewport and target dimensions while rejecting malformed sizes', () => {
+    expect(expectSuccess(resolveBrowserViewport({ clientWidth: 320.9, clientHeight: 200.2, canvasWidth: 640, canvasHeight: 480 }))).toStrictEqual({ width: 320, height: 200 })
+    expect(expectSuccess(resolveBrowserViewport({ clientWidth: 0, clientHeight: 0, canvasWidth: 64.8, canvasHeight: 0 }))).toStrictEqual({ width: 64, height: 1 })
+    expect(expectSuccess(resolveBrowserViewport({ clientWidth: 0, clientHeight: 0, canvasWidth: 0, canvasHeight: 0 }))).toStrictEqual({ width: 1, height: 1 })
+    expect(expectFailure(resolveBrowserViewport({ clientWidth: -1, clientHeight: 1, canvasWidth: 1, canvasHeight: 1 })).reason).toBe('out-of-range')
+    expect(Result.isFailure(resolveBrowserViewport({ clientWidth: 1, clientHeight: 1, canvasWidth: 1, canvasHeight: 1, extra: true }))).toBe(true)
+    const target = resolveBrowserRefractionTargetSize({ width: 320, height: 200 }, 1.5)
+    const inspectedTarget = Schema.decodeUnknownResult(BrowserRefractionTargetSizeResultSchema, { onExcessProperty: 'error' })(target)
+    expect(Result.isSuccess(inspectedTarget)).toBe(true)
+    if (Result.isSuccess(inspectedTarget)) {
+      expect(inspectedTarget.success).toStrictEqual({
+        _tag: 'Success', _op: 'Success', success: { width: 480, height: 300, key: '480x300' },
+      })
+    }
+    expect(expectFailure(resolveBrowserRefractionTargetSize({ width: 1, height: 1 }, 0)).reason).toBe('out-of-range')
+    expect(expectSuccess(resolveBrowserDrawingBufferSize(320.9, 200.2))).toStrictEqual({ width: 320, height: 200 })
+    expect(expectFailure(resolveBrowserDrawingBufferSize(0, 0)).reason).toBe('out-of-range')
   })
 
   it('captures, hides, and restores water mesh visibility', () => {
@@ -175,36 +259,37 @@ describe('browser render policy', () => {
     expect(uniforms).toStrictEqual({ uRefractionMap: { value: null }, uRefractionValid: { value: 0 } })
   })
 
-  it('measures browser stages and preserves cleanup when the stage throws', () => {
+  it('measures browser stages with typed Effect failure and cleanup', () => {
     const marks = {
       clearMarks: vi.fn(),
       mark: vi.fn(),
       measure: vi.fn(),
     }
-    expect(measureBrowserStage(undefined, 'render.none', () => 3)).toBe(3)
-    expect(measureBrowserStage({}, 'render.missing-mark', () => 4)).toBe(4)
-    expect(measureBrowserStage({ mark: marks.mark }, 'render.incomplete', () => 4)).toBe(4)
-    expect(measureBrowserStage({ mark: marks.mark, measure: marks.measure }, 'render.missing-cleanup', () => 4)).toBe(4)
+    expect(Effect.runSync(measureBrowserStage(undefined, 'render.none', () => 3))).toBe(3)
+    expect(Effect.runSync(measureBrowserStage({}, 'render.missing-mark', () => 4))).toBe(4)
+    expect(Effect.runSync(measureBrowserStage({ mark: marks.mark }, 'render.incomplete', () => 4))).toBe(4)
+    expect(Effect.runSync(measureBrowserStage({ mark: marks.mark, measure: marks.measure }, 'render.missing-cleanup', () => 4))).toBe(4)
     const api = { mark: marks.mark, measure: marks.measure, clearMarks: marks.clearMarks }
-    expect(measureBrowserStage(api, 'render.stage', () => 5)).toBe(5)
+    expect(Effect.runSync(measureBrowserStage(api, 'render.stage', () => 5))).toBe(5)
     expect(marks.mark.mock.calls).toEqual([['render.stage:start'], ['render.stage:end']])
     expect(marks.measure).toHaveBeenCalledWith('render.stage', 'render.stage:start', 'render.stage:end')
     expect(marks.clearMarks.mock.calls).toEqual([['render.stage:start'], ['render.stage:end']])
-    expect(() => measureBrowserStage(api, 'render.failure', () => { throw new Error('render failed') })).toThrow(
-      'render failed',
-    )
+    const failed = Effect.runSyncExit(measureBrowserStage(api, 'render.failure', () => { throw new Error('render failed') }))
+    expect(failed._tag).toBe('Failure')
     expect(marks.clearMarks).toHaveBeenCalledWith('render.failure:end')
   })
 
-  it('clamps shader sample and bloom parameters', () => {
-    expect(resolveBrowserGodRaySamples(Number.NaN)).toBe(0)
-    expect(resolveBrowserGodRaySamples(-2)).toBe(0)
-    expect(resolveBrowserGodRaySamples(3.9)).toBe(3)
-    expect(resolveBrowserGodRaySamples(50)).toBe(40)
-    expect(resolveBrowserBloomStrength(Number.POSITIVE_INFINITY)).toBe(0)
-    expect(resolveBrowserBloomStrength(-0.5)).toBe(0)
-    expect(resolveBrowserBloomStrength(0.6)).toBe(0.6)
-    expect(resolveBrowserBloomStrength(2)).toBe(1)
+  it('validates shader sample and bloom parameters', () => {
+    expect(expectFailure(resolveBrowserGodRaySamples(Number.NaN))).toStrictEqual({
+      _tag: 'BrowserRenderPolicyError', operation: 'god-ray-samples', reason: 'not-finite',
+    })
+    expect(expectFailure(resolveBrowserGodRaySamples(-2)).reason).toBe('out-of-range')
+    expect(expectFailure(resolveBrowserGodRaySamples(3.9)).reason).toBe('invalid-integer')
+    expect(expectFailure(resolveBrowserGodRaySamples(50)).reason).toBe('out-of-range')
+    expect(expectFailure(resolveBrowserBloomStrength(Number.POSITIVE_INFINITY)).reason).toBe('not-finite')
+    expect(expectFailure(resolveBrowserBloomStrength(-0.5)).reason).toBe('out-of-range')
+    expect(expectSuccess(resolveBrowserBloomStrength(0.6))).toBe(0.6)
+    expect(expectFailure(resolveBrowserBloomStrength(2)).reason).toBe('out-of-range')
   })
 
   it('selects render target precision and preset composite chains', () => {
@@ -216,22 +301,29 @@ describe('browser render policy', () => {
     expect(browserPostProcessingChain(QUALITY_PRESETS.ultra).map((step) => step.pass)).toContain('composite')
   })
 
-  it('builds shader descriptors and selects enabled composite effects', () => {
+  it('builds valid shader descriptors and selects enabled composite effects', () => {
     const makeVector2 = (x: number, y: number) => ({ x, y })
-    const godRays = createBrowserGodRaysShader(45, makeVector2)
+    const godRays = expectSuccess(createBrowserGodRaysShader(40, makeVector2))
+    expect(Schema.decodeUnknownResult(BrowserGodRaysShaderResultSchema, { onExcessProperty: 'error' })(Result.succeed(godRays))).toMatchObject({
+      _tag: 'Success',
+    })
     expect(godRays.uniforms.uSamples.value).toBe(40)
     expect(godRays.uniforms.uLightPosition.value).toStrictEqual({
       x: BROWSER_RENDER_DEFAULTS.lightPositionComponent,
       y: BROWSER_RENDER_DEFAULTS.lightPositionComponent,
     })
     expect(godRays.fragmentShader).toContain('index < 40')
+    expect(expectFailure(createBrowserGodRaysShader(45, makeVector2)).reason).toBe('out-of-range')
 
-    const enabled = createBrowserCompositeShader({
+    const enabled = expectSuccess(createBrowserCompositeShader({
       camera: { near: 0.1, far: 1000 },
       effects: ['bloom', 'godRays', 'bokeh'],
       makeVector2,
       quality: QUALITY_PRESETS.ultra,
       viewport: { width: 1920, height: 1080 },
+    }))
+    expect(Schema.decodeUnknownResult(BrowserCompositeShaderResultSchema, { onExcessProperty: 'error' })(Result.succeed(enabled))).toMatchObject({
+      _tag: 'Success',
     })
     expect(enabled.uniforms.uBloomEnabled.value).toBe(true)
     expect(enabled.uniforms.uGodRaysEnabled.value).toBe(true)
@@ -240,43 +332,101 @@ describe('browser render policy', () => {
     expect(enabled.uniforms.uNearClip.value).toBe(0.1)
     expect(enabled.uniforms.uFarClip.value).toBe(1000)
 
-    const disabled = createBrowserCompositeShader({
+    const disabled = expectSuccess(createBrowserCompositeShader({
       camera: { near: 0.1, far: 10 },
       effects: [],
       makeVector2,
       quality: QUALITY_PRESETS.low,
       viewport: { width: 1, height: 1 },
-    })
+    }))
     expect(disabled.uniforms.uBloomEnabled.value).toBe(false)
     expect(disabled.uniforms.uGodRaysEnabled.value).toBe(false)
     expect(disabled.uniforms.uBokehEnabled.value).toBe(false)
     expect(disabled.uniforms.uSamples.value).toBe(QUALITY_PRESETS.low.godRaysSamples)
+    expect(Result.isFailure(createBrowserCompositeShader({
+      camera: { near: 0.1, far: 10 },
+      effects: [],
+      makeVector2,
+      quality: { ...QUALITY_PRESETS.low, bloomStrength: 2 },
+      viewport: { width: 1, height: 1 },
+    }))).toBe(true)
   })
 
   it('chooses timer query support only for a complete extension and normalizes samples', () => {
     const extension = { GPU_DISJOINT_EXT: 1, TIME_ELAPSED_EXT: 2 }
-    expect(selectGpuTimer(extension)).toStrictEqual({ kind: 'query', extension })
-    expect(selectGpuTimer(null)).toStrictEqual({ kind: 'fallback' })
-    expect(selectGpuTimer('extension')).toStrictEqual({ kind: 'fallback' })
-    expect(selectGpuTimer({ GPU_DISJOINT_EXT: 1 })).toStrictEqual({ kind: 'fallback' })
-    expect(selectGpuTimer({ GPU_DISJOINT_EXT: '1', TIME_ELAPSED_EXT: 2 })).toStrictEqual({ kind: 'fallback' })
-    expect(selectGpuTimer({ GPU_DISJOINT_EXT: 1, TIME_ELAPSED_EXT: undefined })).toStrictEqual({ kind: 'fallback' })
-    expect(millisecondsFromGpuNanoseconds(2_500_000)).toBe(2.5)
-    expect(millisecondsFromGpuNanoseconds(-1)).toBe(0)
-    expect(millisecondsFromGpuNanoseconds(undefined)).toBeUndefined()
-    expect(millisecondsFromGpuNanoseconds(Number.NaN)).toBeUndefined()
+    const inspectedExtension = Schema.decodeUnknownResult(BrowserGpuTimerSelectionResultSchema, { onExcessProperty: 'error' })(selectGpuTimer(extension))
+    expect(Result.isSuccess(inspectedExtension)).toBe(true)
+    if (Result.isSuccess(inspectedExtension)) {
+      expect(inspectedExtension.success).toStrictEqual({
+        _tag: 'Success', _op: 'Success', success: { kind: 'query', extension },
+      })
+    }
+    expect(expectSuccess(selectGpuTimer(null))).toStrictEqual({ kind: 'fallback' })
+    const validElapsed = millisecondsFromGpuNanoseconds(2_500_000)
+    const inspectedElapsed = Schema.decodeUnknownResult(BrowserOptionalNumberResultSchema, { onExcessProperty: 'error' })(validElapsed)
+    expect(Result.isSuccess(inspectedElapsed)).toBe(true)
+    if (Result.isSuccess(inspectedElapsed)) {
+      expect(inspectedElapsed.success).toStrictEqual({ _tag: 'Success', _op: 'Success', success: 2.5 })
+    }
+    expect(expectSuccess(millisecondsFromGpuNanoseconds(undefined))).toBeUndefined()
+    const negativeElapsed = millisecondsFromGpuNanoseconds(-1)
+    const inspectedNegative = Schema.decodeUnknownResult(BrowserOptionalNumberResultSchema, { onExcessProperty: 'error' })(negativeElapsed)
+    expect(Result.isSuccess(inspectedNegative)).toBe(true)
+    if (Result.isSuccess(inspectedNegative)) {
+      expect(inspectedNegative.success).toStrictEqual({
+        _tag: 'Failure', _op: 'Failure',
+        failure: { _tag: 'BrowserRenderPolicyError', operation: 'runtime', reason: 'out-of-range' },
+      })
+    }
+    expect(expectFailure(millisecondsFromGpuNanoseconds(Number.NaN))).toStrictEqual({
+      _tag: 'BrowserRenderPolicyError', operation: 'runtime', reason: 'not-finite',
+    })
+  })
+
+  it('property: malformed timer extensions produce strict typed failures', () => {
+    const invalidExtension = FastCheck.oneof(
+      FastCheck.string(),
+      FastCheck.record({ GPU_DISJOINT_EXT: FastCheck.integer() }),
+      FastCheck.record({ GPU_DISJOINT_EXT: FastCheck.integer(), TIME_ELAPSED_EXT: FastCheck.string() }),
+    )
+    FastCheck.assert(
+      FastCheck.property(invalidExtension, (value) => {
+        const actual = selectGpuTimer(value)
+        const decoded = Schema.decodeUnknownResult(BrowserGpuTimerSelectionResultSchema, {
+          onExcessProperty: 'error',
+        })(actual)
+        expect(Result.isSuccess(decoded)).toBe(true)
+        if (Result.isFailure(decoded)) {
+          return
+        }
+        expect(decoded.success).toStrictEqual({
+          _tag: 'Failure',
+          _op: 'Failure',
+          failure: { _tag: 'BrowserRenderPolicyError', operation: 'runtime', reason: 'invalid-input' },
+        })
+      }),
+    )
   })
 
   it('gates refraction by visible mesh count, configured ratio, and frame interval', () => {
     const { high } = QUALITY_PRESETS
-    expect(shouldCaptureBrowserRefraction({ quality: high, visibleWaterMeshCount: 0, waterScreenRatio: 1, frameNumber: 1 })).toBe(false)
-    expect(shouldCaptureBrowserRefraction({ quality: high, visibleWaterMeshCount: 1, waterScreenRatio: 0.004, frameNumber: 1 })).toBe(false)
-    expect(shouldCaptureBrowserRefraction({ quality: high, visibleWaterMeshCount: 1, waterScreenRatio: 0.005, frameNumber: 1 })).toBe(true)
-    expect(shouldCaptureBrowserRefraction({ quality: high, visibleWaterMeshCount: 1, waterScreenRatio: 0.5, frameNumber: 2 })).toBe(false)
-    expect(shouldCaptureBrowserRefraction({ quality: QUALITY_PRESETS.low, visibleWaterMeshCount: 1, waterScreenRatio: 1, frameNumber: 1 })).toBe(false)
+    expect(expectSuccess(shouldCaptureBrowserRefraction({ quality: high, visibleWaterMeshCount: 0, waterScreenRatio: 1, frameNumber: 1 }))).toBe(false)
+    expect(expectSuccess(shouldCaptureBrowserRefraction({ quality: high, visibleWaterMeshCount: 1, waterScreenRatio: 0.004, frameNumber: 1 }))).toBe(false)
+    expect(expectSuccess(shouldCaptureBrowserRefraction({ quality: high, visibleWaterMeshCount: 1, waterScreenRatio: 0.005, frameNumber: 1 }))).toBe(true)
+    expect(expectSuccess(shouldCaptureBrowserRefraction({ quality: high, visibleWaterMeshCount: 1, waterScreenRatio: 0.5, frameNumber: 2 }))).toBe(false)
+    expect(expectSuccess(shouldCaptureBrowserRefraction({ quality: QUALITY_PRESETS.low, visibleWaterMeshCount: 1, waterScreenRatio: 1, frameNumber: 1 }))).toBe(false)
     const custom = { ...high, refractionMinScreenRatio: 0.75, refractionThrottleFrames: 1 }
-    expect(shouldCaptureBrowserRefraction({ quality: custom, visibleWaterMeshCount: 1, waterScreenRatio: 0.74, frameNumber: 1 })).toBe(false)
-    expect(shouldCaptureBrowserRefraction({ quality: custom, visibleWaterMeshCount: 1, waterScreenRatio: 0.75, frameNumber: 1 })).toBe(true)
+    expect(expectSuccess(shouldCaptureBrowserRefraction({ quality: custom, visibleWaterMeshCount: 1, waterScreenRatio: 0.74, frameNumber: 1 }))).toBe(false)
+    expect(expectSuccess(shouldCaptureBrowserRefraction({ quality: custom, visibleWaterMeshCount: 1, waterScreenRatio: 0.75, frameNumber: 1 }))).toBe(true)
+    const actual = shouldCaptureBrowserRefraction({ quality: high, visibleWaterMeshCount: -1, waterScreenRatio: 1, frameNumber: 1 })
+    const decoded = Schema.decodeUnknownResult(BrowserBooleanResultSchema, { onExcessProperty: 'error' })(actual)
+    expect(Result.isSuccess(decoded)).toBe(true)
+    if (Result.isSuccess(decoded)) {
+      expect(decoded.success).toStrictEqual({
+        _tag: 'Failure', _op: 'Failure',
+        failure: { _tag: 'BrowserRenderPolicyError', operation: 'refraction', reason: 'invalid-refraction-input' },
+      })
+    }
   })
 
   it('wraps FPS transitions with the SSIM skip signal', () => {
@@ -320,26 +470,30 @@ describe('browser render policy', () => {
     expect(latched.preset).toBe('high')
   })
 
-  it('computes SSIM for identical, changed, partial-window, and offset-backed RGBA data', () => {
+  it('computes SSIM for valid RGBA data and rejects mismatched sizes', () => {
     const same = rgba(1, 1, 20)
-    expect(structuralSimilarity({ left: same, right: same, width: 1, height: 1 })).toBe(1)
+    expect(expectSuccess(structuralSimilarity({ left: same, right: same, width: 1, height: 1 }))).toBe(1)
     const left = rgba(9, 9, 20)
     const right = rgba(9, 9, 120)
-    expect(structuralSimilarity({ left, right, width: 9, height: 9 })).toBeLessThan(1)
+    expect(expectSuccess(structuralSimilarity({ left, right, width: 9, height: 9 }))).toBeLessThan(1)
     const paddedLeft = new Uint8Array(left.length + 8)
     const paddedRight = new Uint8Array(right.length + 8)
     paddedLeft.set(left, 4)
     paddedRight.set(right, 4)
-    expect(
-      structuralSimilarity({
-        left: paddedLeft.subarray(4, 4 + left.length),
-        right: paddedRight.subarray(4, 4 + right.length),
-        width: 9,
-        height: 9,
-      }),
-    ).toBeLessThan(1)
-    expect(() => structuralSimilarity({ left: new Uint8Array(4), right: new Uint8Array(8), width: 1, height: 1 })).toThrow(
-      'SSIM inputs must be equally sized RGBA images',
-    )
+    expect(expectSuccess(structuralSimilarity({
+      left: paddedLeft.subarray(4, 4 + left.length),
+      right: paddedRight.subarray(4, 4 + right.length),
+      width: 9,
+      height: 9,
+    }))).toBeLessThan(1)
+    const actual = structuralSimilarity({ left: new Uint8Array(4), right: new Uint8Array(8), width: 1, height: 1 })
+    const decoded = Schema.decodeUnknownResult(BrowserNumberResultSchema, { onExcessProperty: 'error' })(actual)
+    expect(Result.isSuccess(decoded)).toBe(true)
+    if (Result.isSuccess(decoded)) {
+      expect(decoded.success).toStrictEqual({
+        _tag: 'Failure', _op: 'Failure',
+        failure: { _tag: 'BrowserRenderPolicyError', operation: 'similarity', reason: 'size-mismatch' },
+      })
+    }
   })
 })

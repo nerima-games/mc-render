@@ -1,7 +1,10 @@
 import * as THREE from 'three'
+import { Result, Schema } from 'effect'
 import {
   BEHIND_NEAR_PLANE_RATIO,
   type NdcRect,
+  RefractionInputErrorSchema,
+  type RefractionInputError,
   screenRatioForNdcRect,
 } from './domain/water-refraction.js'
 
@@ -95,26 +98,81 @@ const resolveWaterNdcRect = (points: ReadonlyArray<THREE.Vector3>): NdcRect | un
   return bounds
 }
 
-const resolveWaterScreenRatio = (mesh: THREE.Mesh, camera: THREE.Camera): number => {
+export type BrowserWaterVisibility = {
+  readonly screenRatio: number
+  readonly visibleMeshCount: number
+}
+
+type BrowserWaterVisibilityResultShape =
+  | { readonly _tag: 'Success'; readonly _op: 'Success'; readonly success: BrowserWaterVisibility }
+  | { readonly _tag: 'Failure'; readonly _op: 'Failure'; readonly failure: RefractionInputError }
+
+export const BrowserWaterVisibilitySchema: Schema.Codec<BrowserWaterVisibility> = Schema.Struct({
+  screenRatio: Schema.Finite,
+  visibleMeshCount: Schema.Int,
+})
+
+export const BrowserWaterVisibilityResultSchema: Schema.Codec<BrowserWaterVisibilityResultShape> = Schema.Union([
+  Schema.Struct({
+    _tag: Schema.Literal('Success'),
+    _op: Schema.Literal('Success'),
+    success: BrowserWaterVisibilitySchema,
+  }),
+  Schema.Struct({
+    _tag: Schema.Literal('Failure'),
+    _op: Schema.Literal('Failure'),
+    failure: RefractionInputErrorSchema,
+  }),
+])
+
+const resolveWaterScreenRatio = (
+  mesh: THREE.Mesh,
+  camera: THREE.Camera,
+): Result.Result<number, RefractionInputError> => {
   const ndcRect = resolveWaterNdcRect(projectWaterBounds(mesh, camera))
   if (ndcRect) {
     return screenRatioForNdcRect(ndcRect)
   }
-  return BEHIND_NEAR_PLANE_RATIO
+  return Result.succeed(BEHIND_NEAR_PLANE_RATIO)
 }
 
 export const measureWaterVisibility = (
-  waterMeshes: ReadonlySet<THREE.Mesh>,
-  camera: THREE.Camera,
-): { readonly screenRatio: number; readonly visibleMeshCount: number } => {
+  waterMeshes: unknown,
+  camera: unknown,
+): Result.Result<BrowserWaterVisibility, RefractionInputError> => {
+  if (!(waterMeshes instanceof Set) || !(camera instanceof THREE.Camera)) {
+    return Result.fail({
+      _tag: 'RefractionInputError',
+      operation: 'water-visibility',
+      reason: 'invalid-input',
+    })
+  }
   camera.updateMatrixWorld()
   let screenRatio = 0
   let visibleMeshCount = 0
-  for (const mesh of waterMeshes) {
-    if (mesh.visible) {
+  for (const meshValue of waterMeshes) {
+    if (!(meshValue instanceof THREE.Mesh)) {
+      return Result.fail({
+        _tag: 'RefractionInputError',
+        operation: 'water-visibility',
+        reason: 'invalid-input',
+      })
+    }
+    if (meshValue.visible) {
       visibleMeshCount += VISIBLE_MESH_COUNT_INCREMENT
-      screenRatio += resolveWaterScreenRatio(mesh, camera)
+      const meshScreenRatio = resolveWaterScreenRatio(meshValue, camera)
+      if (Result.isFailure(meshScreenRatio)) {
+        return Result.fail(meshScreenRatio.failure)
+      }
+      screenRatio += meshScreenRatio.success
+      if (!Number.isFinite(screenRatio)) {
+        return Result.fail({
+          _tag: 'RefractionInputError',
+          operation: 'ndc-rectangle',
+          reason: 'not-finite',
+        })
+      }
     }
   }
-  return { screenRatio, visibleMeshCount }
+  return Result.succeed({ screenRatio, visibleMeshCount })
 }

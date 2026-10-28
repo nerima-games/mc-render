@@ -1,6 +1,8 @@
 import * as THREE from 'three'
 import {
   BROWSER_RENDER_DEFAULTS,
+  type BrowserRenderPolicyError,
+  BrowserRenderPolicyErrorSchema,
   type TimerQueryExtensionShape,
   advanceBrowserFpsQuality,
   advanceBrowserSsimQuality,
@@ -31,7 +33,67 @@ import {
   shouldCaptureBrowserRefraction,
   structuralSimilarity,
 } from './domain/browser-render-policy.js'
-import { Context, Effect, Layer } from 'effect'
+import { Context, Effect, Layer, Result, Schema } from 'effect'
+
+import {
+  type ParticlePoolInputError,
+  ParticlePoolInputErrorSchema,
+} from './domain/particle-pool.js'
+
+export type BrowserRuntimeError = {
+  readonly _tag: 'BrowserRuntimeError'
+  readonly operation: 'initialization' | 'runtime' | 'screenshot'
+  readonly reason: 'invalid-input' | 'operation-failed' | 'disposed' | 'not-rendered' | 'unavailable' | 'encoding-failed'
+  readonly cause: unknown
+}
+
+export type GpuTimerServiceFailure = BrowserRenderPolicyError | { readonly cause: unknown }
+
+export type BrowserRuntimeFailure =
+  | BrowserRuntimeError
+  | BrowserRenderPolicyError
+  | RendererMaterialPolicyError
+  | ParticlePoolInputError
+  | GpuTimerServiceFailure
+
+type BrowserRuntimeResultShape<Success, Failure> =
+  | { readonly _tag: 'Success'; readonly _op: 'Success'; readonly success: Success }
+  | { readonly _tag: 'Failure'; readonly _op: 'Failure'; readonly failure: Failure }
+
+export const BrowserRuntimeErrorSchema: Schema.Codec<BrowserRuntimeError> = Schema.Struct({
+  _tag: Schema.Literal('BrowserRuntimeError'),
+  operation: Schema.Literals(['initialization', 'runtime', 'screenshot']),
+  reason: Schema.Literals(['invalid-input', 'operation-failed', 'disposed', 'not-rendered', 'unavailable', 'encoding-failed']),
+  cause: Schema.Unknown,
+})
+export const GpuTimerServiceFailureSchema: Schema.Codec<GpuTimerServiceFailure> = Schema.Union([
+  BrowserRenderPolicyErrorSchema,
+  Schema.Struct({ cause: Schema.Unknown }),
+])
+
+export const BrowserRuntimeFailureSchema: Schema.Codec<BrowserRuntimeFailure> = Schema.Union([
+  BrowserRuntimeErrorSchema,
+  BrowserRenderPolicyErrorSchema,
+  RendererMaterialPolicyErrorSchema,
+  ParticlePoolInputErrorSchema,
+  GpuTimerServiceFailureSchema,
+])
+
+export const BrowserRuntimeUnknownResultSchema: Schema.Codec<BrowserRuntimeResultShape<unknown, BrowserRuntimeFailure>> = Schema.Union([
+  Schema.Struct({ _tag: Schema.Literal('Success'), _op: Schema.Literal('Success'), success: Schema.Unknown }),
+  Schema.Struct({ _tag: Schema.Literal('Failure'), _op: Schema.Literal('Failure'), failure: BrowserRuntimeFailureSchema }),
+])
+
+export const BrowserRuntimeVoidResultSchema: Schema.Codec<BrowserRuntimeResultShape<void, BrowserRuntimeFailure>> = Schema.Union([
+  Schema.Struct({ _tag: Schema.Literal('Success'), _op: Schema.Literal('Success'), success: Schema.Undefined }),
+  Schema.Struct({ _tag: Schema.Literal('Failure'), _op: Schema.Literal('Failure'), failure: BrowserRuntimeFailureSchema }),
+])
+
+const browserRuntimeError = (
+  operation: BrowserRuntimeError['operation'],
+  reason: BrowserRuntimeError['reason'],
+  cause: unknown,
+): BrowserRuntimeError => ({ _tag: 'BrowserRuntimeError', operation, reason, cause })
 import { FullScreenQuad, Pass } from 'three/addons/postprocessing/Pass.js'
 import {
   type GraphicsQuality,
@@ -52,6 +114,10 @@ import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js'
 import type { MirroredCameraState } from './domain/camera-mirror.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js'
 import { type PostProcessingRendererFactory } from './application/world-renderer.js'
+import {
+  RendererMaterialPolicyErrorSchema,
+  type RendererMaterialPolicyError,
+} from './application/world-renderer-materials.js'
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js'
 import { SMAAPass } from 'three/addons/postprocessing/SMAAPass.js'
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js'
@@ -62,18 +128,24 @@ import { createSsimAdaptiveQualityState } from './domain/ssim-adaptive-quality.j
 import { measureWaterVisibility } from './browser-water-visibility.js'
 
 const requireRenderer = (value: unknown): THREE.WebGLRenderer => {
-  if (value instanceof THREE.WebGLRenderer) { return value }
-  throw new Error('Browser surface did not provide a THREE.WebGLRenderer')
+  if (value instanceof THREE.WebGLRenderer) {
+    return value
+  }
+  return Effect.runSync(Effect.fail(browserRuntimeError('initialization', 'invalid-input', value)))
 }
 
 const requireScene = (value: unknown): THREE.Scene => {
-  if (value instanceof THREE.Scene) { return value }
-  throw new Error('Browser surface did not provide a THREE.Scene')
+  if (value instanceof THREE.Scene) {
+    return value
+  }
+  return Effect.runSync(Effect.fail(browserRuntimeError('initialization', 'invalid-input', value)))
 }
 
 const requirePerspectiveCamera = (value: unknown): THREE.PerspectiveCamera => {
-  if (value instanceof THREE.PerspectiveCamera) { return value }
-  throw new Error('Browser surface did not provide a THREE.PerspectiveCamera')
+  if (value instanceof THREE.PerspectiveCamera) {
+    return value
+  }
+  return Effect.runSync(Effect.fail(browserRuntimeError('initialization', 'invalid-input', value)))
 }
 
 const DEFAULT_BLOOM_RADIUS = 0.4
@@ -96,8 +168,6 @@ const isWebGl2Context = (
   'beginQuery' in context &&
   'endQuery' in context &&
   'getQueryParameter' in context
-
-export type GpuTimerServiceFailure = { readonly cause: unknown }
 
 export type GpuTimerServiceApi = {
   readonly supported: boolean
@@ -128,12 +198,14 @@ type GpuTimerQueryState = {
   pendingQuery: WebGLQuery | undefined
 }
 
-const resolveGpuTimerExtension = (value: unknown): TimerQueryExtensionShape | undefined => {
+const resolveGpuTimerExtension = (
+  value: unknown,
+): Result.Result<TimerQueryExtensionShape | undefined, BrowserRenderPolicyError> => {
   const selection = selectGpuTimer(value)
-  if (selection.kind === 'query') {
-    return selection.extension
+  if (Result.isFailure(selection)) {
+    return Result.fail(selection.failure)
   }
-  return undefined
+  return Result.succeed(selection.success.kind === 'query' ? selection.success.extension : undefined)
 }
 
 const pollReadyGpuQuery = ({
@@ -160,7 +232,11 @@ const pollReadyGpuQuery = ({
   )
   yield* tryGpuTimerOperation(() => webglContext.deleteQuery(query))
   state.pendingQuery = undefined
-  return millisecondsFromGpuNanoseconds(elapsedNanoseconds)
+  const elapsedMilliseconds = millisecondsFromGpuNanoseconds(elapsedNanoseconds)
+  if (Result.isFailure(elapsedMilliseconds)) {
+    return yield* Effect.fail(elapsedMilliseconds.failure)
+  }
+  return elapsedMilliseconds.success
 })
 
 const disposeGpuTimerQueries = ({
@@ -241,7 +317,11 @@ export const makeGpuTimerService = (webglContext: WebGL2RenderingContext): Effec
     const extensionValue: unknown = yield* tryGpuTimerOperation(() =>
       webglContext.getExtension(TIMER_QUERY_EXTENSION),
     )
-    return createGpuTimerOperations({ extension: resolveGpuTimerExtension(extensionValue), webglContext })
+    const extension = resolveGpuTimerExtension(extensionValue)
+    if (Result.isFailure(extension)) {
+      return yield* Effect.fail(extension.failure)
+    }
+    return createGpuTimerOperations({ extension: extension.success, webglContext })
   })
 
 export const GpuTimerServiceLayer = (
@@ -249,8 +329,31 @@ export const GpuTimerServiceLayer = (
 ): Layer.Layer<GpuTimerService, GpuTimerServiceFailure> =>
   Layer.effect(GpuTimerService, makeGpuTimerService(webglContext))
 
-const runBrowserOperation = <Result>(run: () => Result): Result =>
-  Effect.runSync(Effect.try({ catch: (cause) => cause, try: run }))
+const runBrowserOperation = <Value>(run: () => Value): Value =>
+  Effect.runSync(
+    Effect.try({
+      catch: (cause) => browserRuntimeError('runtime', 'operation-failed', cause),
+      try: run,
+    }),
+  )
+
+const browserResultValue = <Value, Failure>(result: Result.Result<Value, Failure>): Value =>
+  Effect.runSync(Effect.fromResult(result))
+
+const browserRuntimeOperation = <Value>(
+  operation: BrowserRuntimeError['operation'],
+  run: () => Value,
+  activity?: BrowserRuntimeActivity,
+): Effect.Effect<Value, BrowserRuntimeFailure> =>
+  Effect.gen(function* browserRuntimeOperationEffect() {
+    if (activity) {
+      yield* Effect.fromResult(assertBrowserRuntimeActive(activity.disposed))
+    }
+    return yield* Effect.try({
+      try: run,
+      catch: (cause) => browserRuntimeError(operation, 'operation-failed', cause),
+    })
+  })
 
 export type BrowserFrame = {
   readonly camera: MirroredCameraState
@@ -280,18 +383,18 @@ export type BrowserWorldRuntime = {
   readonly latestGpuTimeMs: number | undefined
   readonly latestSsim: number | undefined
   readonly waterMeshes: ReadonlyArray<THREE.Mesh>
-  readonly attachWaterSurface: (geometry: THREE.BufferGeometry) => THREE.Mesh
-  readonly detachWaterSurface: (mesh: THREE.Mesh) => void
-  readonly resize: () => void
-  readonly render: (camera: MirroredCameraState) => void
-  readonly advanceFrame: (frame: ProductionFrame) => void
-  readonly captureScreenshot: () => Promise<Blob>
-  readonly start: (readFrame: () => BrowserFrame | undefined) => void
-  readonly stop: () => void
-  readonly dispose: () => void
+  readonly attachWaterSurface: (geometry: THREE.BufferGeometry) => Effect.Effect<THREE.Mesh, BrowserRuntimeFailure>
+  readonly detachWaterSurface: (mesh: THREE.Mesh) => Effect.Effect<void, BrowserRuntimeFailure>
+  readonly resize: () => Effect.Effect<void, BrowserRuntimeFailure>
+  readonly render: (camera: MirroredCameraState) => Effect.Effect<void, BrowserRuntimeFailure>
+  readonly advanceFrame: (frame: ProductionFrame) => Effect.Effect<void, BrowserRuntimeFailure>
+  readonly captureScreenshot: () => Effect.Effect<Blob, BrowserRuntimeFailure>
+  readonly start: (readFrame: () => BrowserFrame | undefined) => Effect.Effect<void, BrowserRuntimeFailure>
+  readonly stop: () => Effect.Effect<void, BrowserRuntimeFailure>
+  readonly dispose: () => Effect.Effect<void, BrowserRuntimeFailure>
 }
 
-const measureViewport = (canvas: HTMLCanvasElement): Viewport =>
+const measureViewport = (canvas: HTMLCanvasElement): Result.Result<Viewport, BrowserRenderPolicyError> =>
   resolveBrowserViewport({
     canvasHeight: canvas.height,
     canvasWidth: canvas.width,
@@ -322,21 +425,30 @@ const makeAtlasTexture = (atlas: RgbaAtlas): THREE.DataTexture => {
   return texture
 }
 
-const resolveAtlas = async (
+const resolveAtlas = (
   source: BrowserWorldRuntimeOptions['atlas'],
-): Promise<{ readonly owned: boolean; readonly texture: THREE.Texture }> => {
+): Effect.Effect<AtlasResource, BrowserRuntimeError> => {
   if (source instanceof THREE.Texture) {
-    return { owned: false, texture: source }
+    return Effect.succeed({ owned: false, texture: source })
   }
   if (typeof source === 'string') {
-    const texture = await new THREE.TextureLoader().loadAsync(source)
-    configureAtlasTexture(texture)
-    return { owned: true, texture }
+    return Effect.tryPromise({
+      try: () => new THREE.TextureLoader().loadAsync(source),
+      catch: (cause) => browserRuntimeError('initialization', 'operation-failed', cause),
+    }).pipe(
+      Effect.map((texture) => {
+        configureAtlasTexture(texture)
+        return { owned: true, texture }
+      }),
+    )
   }
-  return {
-    owned: true,
-    texture: makeAtlasTexture(source ?? generateTerrainAtlas()),
-  }
+  return Effect.try({
+    try: () => ({
+      owned: true,
+      texture: makeAtlasTexture(source ?? generateTerrainAtlas()),
+    }),
+    catch: (cause) => browserRuntimeError('initialization', 'operation-failed', cause),
+  })
 }
 
 type BrowserSurface = {
@@ -358,7 +470,7 @@ const VIEWPORT_PASS_FACTORIES: Record<ViewportPostProcessingPass, (context: View
   bloom: ({ quality, viewport }) =>
     new UnrealBloomPass(
       new THREE.Vector2(viewport.width, viewport.height),
-      resolveBrowserBloomStrength(quality.bloomStrength),
+      browserResultValue(resolveBrowserBloomStrength(quality.bloomStrength)),
       DEFAULT_BLOOM_RADIUS,
       DEFAULT_BLOOM_THRESHOLD,
     ),
@@ -457,15 +569,15 @@ const createCompositePass = (
   },
 ): ShaderPass => {
   const pass = new ShaderPass(
-    createBrowserCompositeShader(
+    browserResultValue(createBrowserCompositeShader(
       {
         camera,
         effects,
-        makeVector2: (x, y) => new THREE.Vector2(x, y),
+        makeVector2: (x: number, y: number) => new THREE.Vector2(x, y),
         quality,
         viewport: getViewport(),
       },
-    ),
+    )),
   )
   bindCompositePassRender(pass)
   bindCompositePassSize(pass, getPixelRatio, getViewport)
@@ -513,7 +625,7 @@ const requireBrowserPostProcessingSurface = ({
   onSurface(browserSurface)
   const context = renderer.getContext()
   if (!isWebGl2Context(context)) {
-    throw new Error('Browser renderer requires a WebGL2 context')
+    return Effect.runSync(Effect.fail(browserRuntimeError('initialization', 'invalid-input', context)))
   }
   return { ...browserSurface, webglContext: context }
 }
@@ -577,7 +689,7 @@ const createBrowserPostProcessingState = ({
     createComposer({ getPixelRatio, getViewport, quality, renderer })
   const composerQuality = getQuality()
   const composer = createComposerFor(composerQuality)
-  const referenceQuality = resolveBrowserQuality('ultra').quality
+  const referenceQuality = browserResultValue(resolveBrowserQuality('ultra')).quality
   const referenceComposer = createComposerFor(referenceQuality)
   referenceComposer.renderToScreen = false
   const { copyMaterial, copyQuad } = createReferenceCopyResources()
@@ -614,7 +726,7 @@ const createBrowserPostProcessingPass = ({
       return createViewportPass(step.pass, { camera, quality, scene, viewport: getViewport() })
     case 'godRays':
       return new ShaderPass(
-        createBrowserGodRaysShader(quality.godRaysSamples, (x, y) => new THREE.Vector2(x, y)),
+        browserResultValue(createBrowserGodRaysShader(quality.godRaysSamples, (x, y) => new THREE.Vector2(x, y))),
       )
     case 'composite':
       return createCompositePass(step.effects, { camera, getPixelRatio, getViewport, quality })
@@ -623,7 +735,7 @@ const createBrowserPostProcessingPass = ({
     case 'output':
       return new OutputPass()
     default:
-      throw new Error(`Unsupported post-processing pass: ${step.pass}`)
+      return Effect.runSync(Effect.fail(browserRuntimeError('runtime', 'invalid-input', step)))
   }
 }
 
@@ -683,7 +795,7 @@ const ensureBrowserReadbackTarget = ({
   readonly state: BrowserPostProcessingState
 }): { readonly height: number; readonly target: THREE.WebGLRenderTarget; readonly width: number } => {
   const size = renderer.getDrawingBufferSize(new THREE.Vector2())
-  const { height, width } = resolveBrowserDrawingBufferSize(size.x, size.y)
+  const { height, width } = browserResultValue(resolveBrowserDrawingBufferSize(size.x, size.y))
   const target = state.readbackTarget ?? new THREE.WebGLRenderTarget(width, height, {
     depthBuffer: false,
     format: THREE.RGBAFormat,
@@ -763,21 +875,28 @@ const readBrowserReferenceImage = ({
 }): Uint8Array => {
   const source = referenceComposer.readBuffer.texture
   const previousTarget = runBrowserOperation(() => renderer.getRenderTarget())
-  try {
-    renderBrowserReferenceCopy({ copyMaterial, copyQuad, readback, renderer, source })
-    const pixels = new Uint8Array(width * height * RGBA_COMPONENT_COUNT)
-    runBrowserOperation(() => renderer.readRenderTargetPixels(
-      readback,
-      ZERO_PIXEL_COORDINATE,
-      ZERO_PIXEL_COORDINATE,
-      width,
-      height,
-      pixels,
-    ))
-    return pixels
-  } finally {
-    runBrowserOperation(() => renderer.setRenderTarget(previousTarget))
-  }
+  return Effect.runSync(
+    Effect.acquireUseRelease(
+      Effect.succeed(previousTarget),
+      () => Effect.try({
+        try: () => {
+          renderBrowserReferenceCopy({ copyMaterial, copyQuad, readback, renderer, source })
+          const pixels = new Uint8Array(width * height * RGBA_COMPONENT_COUNT)
+          runBrowserOperation(() => renderer.readRenderTargetPixels(
+            readback,
+            ZERO_PIXEL_COORDINATE,
+            ZERO_PIXEL_COORDINATE,
+            width,
+            height,
+            pixels,
+          ))
+          return pixels
+        },
+        catch: (cause) => browserRuntimeError('runtime', 'operation-failed', cause),
+      }),
+      (target) => Effect.sync(() => runBrowserOperation(() => renderer.setRenderTarget(target))),
+    ),
+  )
 }
 
 const ensureBrowserPostProcessingChains = ({
@@ -851,7 +970,7 @@ const renderAndCompareBrowserImages = ({
     renderer,
     width,
   })
-  onSsim(structuralSimilarity({ height, left: activePixels, right: referencePixels, width }))
+  onSsim(browserResultValue(structuralSimilarity({ height, left: activePixels, right: referencePixels, width })))
 }
 
 const disposeBrowserPostProcessingState = ({
@@ -927,23 +1046,27 @@ const createPostProcessingSession = ({
       state,
     })
     const { height, target, width } = ensureBrowserReadbackTarget({ renderer: surface.renderer, state })
-    Effect.runSync(gpuTiming.service.begin)
-    try {
-      renderAndCompareBrowserImages({
-        captureRefraction: options.captureRefraction,
-        height,
-        onPresentedImage: options.onPresentedImage,
-        onSsim: options.onSsim,
-        renderer: surface.renderer,
-        state,
-        surface,
-        target,
-        webglContext: surface.webglContext,
-        width,
-      })
-    } finally {
-      Effect.runSync(gpuTiming.service.end)
-    }
+    Effect.runSync(
+      Effect.acquireUseRelease(
+        gpuTiming.service.begin,
+        () => Effect.try({
+          try: () => renderAndCompareBrowserImages({
+            captureRefraction: options.captureRefraction,
+            height,
+            onPresentedImage: options.onPresentedImage,
+            onSsim: options.onSsim,
+            renderer: surface.renderer,
+            state,
+            surface,
+            target,
+            webglContext: surface.webglContext,
+            width,
+          }),
+          catch: (cause) => browserRuntimeError('runtime', 'operation-failed', cause),
+        }),
+        () => gpuTiming.service.end,
+      ),
+    )
   }
   return {
     dispose: () => disposeBrowserPostProcessingState({ gpuTiming, state }),
@@ -968,7 +1091,7 @@ const createPostProcessingFactory = (
 
 type BrowserWorld = ProductionWorldRenderer<THREE.ShaderMaterial>
 type BrowserWaterUniforms = BrowserWorld['waterUniforms']
-type AtlasResource = Awaited<ReturnType<typeof resolveAtlas>>
+type AtlasResource = { readonly owned: boolean; readonly texture: THREE.Texture }
 
 type BrowserRuntimeState = {
   adaptiveQualityState: ReturnType<typeof createAdaptiveQualityState>
@@ -1039,24 +1162,34 @@ const makeRuntimeState = (
     readonly quality: GraphicsQuality
     readonly qualityPreset: QualityPreset | undefined
   },
-): BrowserRuntimeState => ({
-  adaptiveQualityState: createAdaptiveQualityState(),
-  lastPresentedFrame: undefined,
-  latestSsim: undefined,
-  maxPixelRatio,
-  pixelRatio: resolveBrowserPixelRatio(maxPixelRatio, globalThis.devicePixelRatio),
-  quality,
-  qualityPreset,
-  skipSsimForCurrentFrame: false,
-  ssimAdaptiveQualityState: createSsimAdaptiveQualityState(),
-  viewport: measureViewport(canvas),
-  waterMeshes: new Set<THREE.Mesh>(),
-})
+): Result.Result<BrowserRuntimeState, BrowserRenderPolicyError> => {
+  const pixelRatio = resolveBrowserPixelRatio(maxPixelRatio, globalThis.devicePixelRatio)
+  if (Result.isFailure(pixelRatio)) {
+    return Result.fail(pixelRatio.failure)
+  }
+  const viewport = measureViewport(canvas)
+  if (Result.isFailure(viewport)) {
+    return Result.fail(viewport.failure)
+  }
+  return Result.succeed({
+    adaptiveQualityState: createAdaptiveQualityState(),
+    lastPresentedFrame: undefined,
+    latestSsim: undefined,
+    maxPixelRatio,
+    pixelRatio: pixelRatio.success,
+    quality,
+    qualityPreset,
+    skipSsimForCurrentFrame: false,
+    ssimAdaptiveQualityState: createSsimAdaptiveQualityState(),
+    viewport: viewport.success,
+    waterMeshes: new Set<THREE.Mesh>(),
+  })
+}
 
 const resolveRefractionTargetSize = (
   state: BrowserRuntimeState,
 ): { readonly height: number; readonly key: string; readonly width: number } =>
-  resolveBrowserRefractionTargetSize(state.viewport, state.pixelRatio)
+  browserResultValue(resolveBrowserRefractionTargetSize(state.viewport, state.pixelRatio))
 
 const createRefractionTarget = (
   quality: GraphicsQuality,
@@ -1091,15 +1224,29 @@ const renderRefractionScene = (
 ): boolean => {
   const renderer = requireRenderer(context.renderer)
   const previousTarget = runBrowserOperation(() => renderer.getRenderTarget())
-  const visibility = captureBrowserWaterVisibility(waterMeshes)
-  hideBrowserWaterMeshes(waterMeshes)
-  try {
-    runBrowserOperation(() => renderToRefractionTarget(renderer, context, target))
-    return true
-  } finally {
-    runBrowserOperation(() => renderer.setRenderTarget(previousTarget))
-    restoreBrowserWaterVisibility(visibility)
-  }
+  return Effect.runSync(
+    Effect.acquireUseRelease(
+      Effect.try({
+        try: () => {
+          const visibility = captureBrowserWaterVisibility(waterMeshes)
+          hideBrowserWaterMeshes(waterMeshes)
+          return visibility
+        },
+        catch: (cause) => browserRuntimeError('runtime', 'operation-failed', cause),
+      }),
+      () => Effect.try({
+        try: () => {
+          runBrowserOperation(() => renderToRefractionTarget(renderer, context, target))
+          return true
+        },
+        catch: (cause) => browserRuntimeError('runtime', 'operation-failed', cause),
+      }),
+      (visibility) => Effect.sync(() => {
+        runBrowserOperation(() => renderer.setRenderTarget(previousTarget))
+        restoreBrowserWaterVisibility(visibility)
+      }),
+    ),
+  )
 }
 
 type RefractionVisibilityContext = {
@@ -1113,13 +1260,13 @@ const shouldCaptureRefraction = ({
   frameNumber,
   state,
 }: RefractionVisibilityContext): boolean => {
-  const { screenRatio, visibleMeshCount } = measureWaterVisibility(state.waterMeshes, camera)
-  return shouldCaptureBrowserRefraction({
+  const { screenRatio, visibleMeshCount } = browserResultValue(measureWaterVisibility(state.waterMeshes, camera))
+  return browserResultValue(shouldCaptureBrowserRefraction({
     frameNumber,
     quality: state.quality,
     visibleWaterMeshCount: visibleMeshCount,
     waterScreenRatio: screenRatio,
-  })
+  }))
 }
 
 const createRefractionController = (
@@ -1201,14 +1348,14 @@ const createBrowserWorldCallbacks = ({
   readonly state: BrowserRuntimeState
 }): BrowserWorldCallbacks => {
   const getWaterUniforms = (): BrowserWaterUniforms =>
-    requireBrowserRuntimeValue(buildState.world, 'browser world surface was not initialized').waterUniforms
+    browserResultValue(requireBrowserRuntimeValue(buildState.world, 'browser world surface was not initialized')).waterUniforms
   const refraction = createRefractionController(state, getWaterUniforms)
   const applyPreset = (preset: QualityPreset): void => {
-    const activeWorld = requireBrowserRuntimeValue(buildState.world, 'browser world surface was not initialized')
+    const activeWorld = browserResultValue(requireBrowserRuntimeValue(buildState.world, 'browser world surface was not initialized'))
     state.qualityPreset = preset
-    state.quality = resolveBrowserQuality(preset).quality
-    state.maxPixelRatio = resolveBrowserMaxPixelRatio(options.maxPixelRatio, state.quality.pixelRatioCap)
-    state.pixelRatio = resolveBrowserPixelRatio(state.maxPixelRatio, globalThis.devicePixelRatio)
+    state.quality = browserResultValue(resolveBrowserQuality(preset)).quality
+    state.maxPixelRatio = browserResultValue(resolveBrowserMaxPixelRatio(options.maxPixelRatio, state.quality.pixelRatioCap))
+    state.pixelRatio = browserResultValue(resolveBrowserPixelRatio(state.maxPixelRatio, globalThis.devicePixelRatio))
     buildState.surface?.renderer.setPixelRatio(state.pixelRatio)
     refraction.resize()
     Effect.runSync(activeWorld.setPostProcessingChain(browserPostProcessingChain(state.quality)))
@@ -1254,37 +1401,48 @@ const initializeBrowserWorld = ({
   atlas,
   options,
   state,
-}: BrowserWorldInitializationOptions): BrowserWorldInitialization => {
-  const buildState: BrowserWorldBuildState = { gpuTiming: undefined, surface: undefined, world: undefined }
-  const callbacks = createBrowserWorldCallbacks({ buildState, options, state })
-  const worldOptions = createBrowserWorldOptions(options, callbacks.postProcessing)
-  const initializedWorld = Effect.runSync(
-    makeProductionWorldRenderer<
+}: BrowserWorldInitializationOptions): Effect.Effect<
+  BrowserWorldInitialization,
+  BrowserRuntimeError | BrowserRenderPolicyError | RendererMaterialPolicyError | GpuTimerServiceFailure
+    | ParticlePoolInputError
+> =>
+  Effect.gen(function* initializeBrowserWorldEffect() {
+    const setup = yield* Effect.try({
+      try: () => {
+        const buildState: BrowserWorldBuildState = { gpuTiming: undefined, surface: undefined, world: undefined }
+        const callbacks = createBrowserWorldCallbacks({ buildState, options, state })
+        const worldOptions = createBrowserWorldOptions(options, callbacks.postProcessing)
+        return { buildState, callbacks, worldOptions }
+      },
+      catch: (cause) => browserRuntimeError('initialization', 'operation-failed', cause),
+    })
+    const initializedWorld = yield* makeProductionWorldRenderer<
       HTMLCanvasElement,
       THREE.BufferGeometry,
       THREE.MeshBasicMaterial,
       THREE.InstancedBufferGeometry,
       THREE.ShaderMaterial
-    >(THREE, options.canvas, state.viewport, atlas.texture, worldOptions),
+    >(THREE, options.canvas, state.viewport, atlas.texture, setup.worldOptions)
+    setup.buildState.world = initializedWorld
+    yield* initializedWorld.setPostProcessingChain(browserPostProcessingChain(state.quality))
+    const surface = yield* Effect.fromResult(requireBrowserRuntimeValue(
+      setup.buildState.surface,
+      'browser world did not expose its Three surface',
+    ))
+    const gpuTiming = yield* Effect.fromResult(requireBrowserRuntimeValue(
+      setup.buildState.gpuTiming,
+      'browser world did not initialize GPU timing',
+    ))
+    return {
+      applyPreset: setup.callbacks.applyPreset,
+      gpuTiming,
+      refraction: setup.callbacks.refraction,
+      surface,
+      world: initializedWorld,
+    }
+  }).pipe(
+    Effect.catchDefect((defect) => Effect.fail(browserRuntimeError('initialization', 'operation-failed', defect))),
   )
-  buildState.world = initializedWorld
-  Effect.runSync(initializedWorld.setPostProcessingChain(browserPostProcessingChain(state.quality)))
-  const surface = requireBrowserRuntimeValue(
-    buildState.surface,
-    'browser world did not expose its Three surface',
-  )
-  const gpuTiming = requireBrowserRuntimeValue(
-    buildState.gpuTiming,
-    'browser world did not initialize GPU timing',
-  )
-  return {
-    applyPreset: callbacks.applyPreset,
-    gpuTiming,
-    refraction: callbacks.refraction,
-    surface,
-    world: initializedWorld,
-  }
-}
 
 const makeRuntimeActivity = (): BrowserRuntimeActivity => ({
   animationFrame: undefined,
@@ -1297,9 +1455,9 @@ const createResizeHandler = (
   resources: BrowserRuntimeResources,
   activity: BrowserRuntimeActivity,
 ): (() => void) => (): void => {
-  assertBrowserRuntimeActive(activity.disposed)
-  resources.state.viewport = measureViewport(options.canvas)
-  resources.state.pixelRatio = resolveBrowserPixelRatio(resources.state.maxPixelRatio, globalThis.devicePixelRatio)
+  browserResultValue(assertBrowserRuntimeActive(activity.disposed))
+  resources.state.viewport = browserResultValue(measureViewport(options.canvas))
+  resources.state.pixelRatio = browserResultValue(resolveBrowserPixelRatio(resources.state.maxPixelRatio, globalThis.devicePixelRatio))
   resources.surface.renderer.setPixelRatio(resources.state.pixelRatio)
   Effect.runSync(resources.world.resize(resources.state.viewport.width, resources.state.viewport.height))
   resources.refraction.resize()
@@ -1336,15 +1494,15 @@ const createFrameHandlers = (
   activity: BrowserRuntimeActivity,
 ): FrameHandlers => {
   const advanceFrame = (frame: ProductionFrame): void => {
-    assertBrowserRuntimeActive(activity.disposed)
-    measureBrowserStage(globalThis.performance, 'render.browser.advanceFrame', () => {
+    browserResultValue(assertBrowserRuntimeActive(activity.disposed))
+    Effect.runSync(measureBrowserStage(globalThis.performance, 'render.browser.advanceFrame', () => {
       Effect.runSync(resources.world.advanceFrame(frame))
       advanceBrowserRuntimeQuality(frame, resources)
-    })
+    }))
   }
   const render = (camera: MirroredCameraState): void => {
-    assertBrowserRuntimeActive(activity.disposed)
-    measureBrowserStage(globalThis.performance, 'render.browser.draw', () => Effect.runSync(resources.world.draw(camera)))
+    browserResultValue(assertBrowserRuntimeActive(activity.disposed))
+    Effect.runSync(measureBrowserStage(globalThis.performance, 'render.browser.draw', () => Effect.runSync(resources.world.draw(camera))))
   }
   return { advanceFrame, render }
 }
@@ -1359,7 +1517,7 @@ const createWaterHandlers = (
   activity: BrowserRuntimeActivity,
 ): WaterHandlers => {
   const attachWaterSurface = (geometry: THREE.BufferGeometry): THREE.Mesh => {
-    assertBrowserRuntimeActive(activity.disposed)
+    browserResultValue(assertBrowserRuntimeActive(activity.disposed))
     const mesh = new THREE.Mesh(geometry, resources.world.waterMaterial)
     mesh.frustumCulled = false
     Effect.runSync(resources.world.attachSceneObject(mesh))
@@ -1401,26 +1559,48 @@ const copyScreenshotPixels = (
   context.putImageData(image, ZERO_PIXEL_COORDINATE, ZERO_PIXEL_COORDINATE)
 }
 
-const encodeScreenshotCanvas = (screenshotCanvas: HTMLCanvasElement): Promise<Blob> =>
-  new Promise((resolve, reject) => {
-    screenshotCanvas.toBlob((blob) => {
-      if (blob === null) {
-        reject(new Error('screenshot canvas.toBlob returned no image'))
-      } else {
-        resolve(blob)
-      }
-    }, 'image/png')
+const encodeScreenshotCanvas = (
+  screenshotCanvas: HTMLCanvasElement,
+): Effect.Effect<Blob, BrowserRuntimeError> =>
+  Effect.callback((resume) => {
+    const begin = Result.try({
+      try: () => screenshotCanvas.toBlob((blob) => {
+        resume(
+          blob === null
+            ? Effect.fail(browserRuntimeError('screenshot', 'encoding-failed', undefined))
+            : Effect.succeed(blob),
+        )
+      }, 'image/png'),
+      catch: (cause) => browserRuntimeError('screenshot', 'encoding-failed', cause),
+    })
+    if (Result.isFailure(begin)) {
+      resume(Effect.fail(begin.failure))
+    }
   })
 
-const captureScreenshotFrame = (canvas: HTMLCanvasElement, frame: BrowserScreenshotFrame): Promise<Blob> => {
-  const screenshotCanvas = createScreenshotCanvas(canvas, frame)
-  const context = screenshotCanvas.getContext('2d')
-  if (!context) {
-    return Promise.reject(new Error('could not create a 2D screenshot canvas'))
-  }
-  copyScreenshotPixels(context, frame)
-  return encodeScreenshotCanvas(screenshotCanvas)
-}
+const captureScreenshotFrame = (
+  canvas: HTMLCanvasElement,
+  frame: BrowserScreenshotFrame,
+): Effect.Effect<Blob, BrowserRuntimeError> =>
+  Effect.gen(function* captureScreenshotFrameEffect() {
+    const setup = yield* Effect.try({
+      try: () => {
+        const screenshotCanvas = createScreenshotCanvas(canvas, frame)
+        const context = screenshotCanvas.getContext('2d')
+        return { context, screenshotCanvas }
+      },
+      catch: (cause) => browserRuntimeError('screenshot', 'operation-failed', cause),
+    })
+    if (!setup.context) {
+      return yield* Effect.fail(browserRuntimeError('screenshot', 'unavailable', undefined))
+    }
+    const context = setup.context
+    yield* Effect.try({
+      try: () => copyScreenshotPixels(context, frame),
+      catch: (cause) => browserRuntimeError('screenshot', 'operation-failed', cause),
+    })
+    return yield* encodeScreenshotCanvas(setup.screenshotCanvas)
+  })
 
 const createScreenshotHandler = ({
   activity,
@@ -1432,17 +1612,18 @@ const createScreenshotHandler = ({
   readonly canvas: HTMLCanvasElement
   readonly getLastFrame: () => BrowserScreenshotFrame | undefined
   readonly preserveDrawingBuffer: boolean
-}): (() => Promise<Blob>) => () => {
-  assertBrowserRuntimeActive(activity.disposed)
-  if (!preserveDrawingBuffer) {
-    return Promise.reject(new Error('captureScreenshot requires preserveDrawingBuffer'))
-  }
-  const frame = getLastFrame()
-  if (!frame) {
-    return Promise.reject(new Error('captureScreenshot requires a rendered frame'))
-  }
-  return captureScreenshotFrame(canvas, frame)
-}
+}): (() => Effect.Effect<Blob, BrowserRuntimeFailure>) => () =>
+  Effect.gen(function* createScreenshotHandlerEffect() {
+    yield* Effect.fromResult(assertBrowserRuntimeActive(activity.disposed))
+    if (!preserveDrawingBuffer) {
+      return yield* Effect.fail(browserRuntimeError('screenshot', 'unavailable', undefined))
+    }
+    const frame = getLastFrame()
+    if (!frame) {
+      return yield* Effect.fail(browserRuntimeError('screenshot', 'not-rendered', undefined))
+    }
+    return yield* captureScreenshotFrame(canvas, frame)
+  })
 
 const reportScreenshotDownloadFailure = (cause: unknown): void => {
   globalThis.console.error('Could not download the browser screenshot', cause)
@@ -1450,10 +1631,41 @@ const reportScreenshotDownloadFailure = (cause: unknown): void => {
 
 const installPngScreenshotShortcut = (
   document: Document,
-  captureScreenshot: () => Promise<Blob>,
+  captureScreenshot: () => Effect.Effect<Blob, BrowserRuntimeFailure>,
 ): (() => void) => {
+  const downloadScreenshot = (blob: Blob): Effect.Effect<void, BrowserRuntimeError> =>
+    Effect.acquireUseRelease(
+      Effect.try({
+        try: () => {
+          const objectUrl = URL.createObjectURL(blob)
+          const link = document.createElement('a')
+          link.href = objectUrl
+          link.download = SCREENSHOT_FILENAME
+          link.hidden = true
+          document.body.append(link)
+          return { link, objectUrl }
+        },
+        catch: (cause) => browserRuntimeError('screenshot', 'operation-failed', cause),
+      }),
+      ({ link }) => Effect.try({
+        try: () => link.click(),
+        catch: (cause) => browserRuntimeError('screenshot', 'operation-failed', cause),
+      }),
+      ({ link, objectUrl }) => Effect.sync(() => {
+        link.remove()
+        globalThis.setTimeout(() => URL.revokeObjectURL(objectUrl), ZERO_DELAY_MILLISECONDS)
+      }),
+    )
   const onKeyDown = (event: KeyboardEvent): void => {
-    if (!isBrowserScreenshotShortcut(event)) {
+    const shortcut = isBrowserScreenshotShortcut({
+      altKey: event.altKey,
+      code: event.code,
+      ctrlKey: event.ctrlKey,
+      metaKey: event.metaKey,
+      repeat: event.repeat,
+      shiftKey: event.shiftKey,
+    })
+    if (Result.isFailure(shortcut) || !shortcut.success) {
       return
     }
     const { target } = event
@@ -1467,24 +1679,12 @@ const installPngScreenshotShortcut = (
       }
     }
     event.preventDefault()
-    captureScreenshot()
-      .then((blob) => {
-        const objectUrl = URL.createObjectURL(blob)
-        const link = document.createElement('a')
-        link.href = objectUrl
-        link.download = SCREENSHOT_FILENAME
-        link.hidden = true
-        document.body.append(link)
-        try {
-          link.click()
-        } finally {
-          link.remove()
-          globalThis.setTimeout(() => URL.revokeObjectURL(objectUrl), ZERO_DELAY_MILLISECONDS)
-        }
-      })
-      .catch((cause: unknown) => {
-        reportScreenshotDownloadFailure(cause)
-      })
+    Effect.runFork(
+      Effect.catchCause(
+        captureScreenshot().pipe(Effect.flatMap(downloadScreenshot)),
+        (cause) => Effect.sync(() => reportScreenshotDownloadFailure(cause)),
+      ),
+    )
   }
   document.addEventListener('keydown', onKeyDown)
   return () => document.removeEventListener('keydown', onKeyDown)
@@ -1502,7 +1702,7 @@ const createAnimationHandlers = (
     }
   }
   const start = (readFrame: () => BrowserFrame | undefined): void => {
-    assertBrowserRuntimeActive(activity.disposed)
+    browserResultValue(assertBrowserRuntimeActive(activity.disposed))
     stop()
     const loop = (): void => {
       activity.animationFrame = undefined
@@ -1587,85 +1787,114 @@ const installRuntime = ({
 const createBrowserWorldRuntime = (
   options: BrowserWorldRuntimeOptions,
   resources: BrowserRuntimeResources,
-): BrowserWorldRuntime => {
-  const activity = makeRuntimeActivity()
-  const resize = createResizeHandler(options, resources, activity)
-  const frameHandlers = createFrameHandlers(resources, activity)
-  const waterHandlers = createWaterHandlers(resources, activity)
-  const animationHandlers = createAnimationHandlers(activity, frameHandlers.advanceFrame, frameHandlers.render)
-  const captureScreenshot = createScreenshotHandler({
-    activity,
-    canvas: options.canvas,
-    getLastFrame: () => resources.state.lastPresentedFrame,
-    preserveDrawingBuffer: options.preserveDrawingBuffer ?? true,
+): Effect.Effect<BrowserWorldRuntime, BrowserRuntimeFailure> =>
+  Effect.try({
+    try: () => {
+      const activity = makeRuntimeActivity()
+      const resizeSync = createResizeHandler(options, resources, activity)
+      const frameHandlers = createFrameHandlers(resources, activity)
+      const waterHandlers = createWaterHandlers(resources, activity)
+      const animationHandlers = createAnimationHandlers(activity, frameHandlers.advanceFrame, frameHandlers.render)
+      const captureScreenshot = createScreenshotHandler({
+        activity,
+        canvas: options.canvas,
+        getLastFrame: () => resources.state.lastPresentedFrame,
+        preserveDrawingBuffer: options.preserveDrawingBuffer ?? true,
+      })
+      const removeScreenshotShortcut = installPngScreenshotShortcut(
+        options.canvas.ownerDocument,
+        captureScreenshot,
+      )
+      const disposeSync = createDisposeHandler({
+        activity,
+        removeScreenshotShortcut,
+        resources,
+        stop: animationHandlers.stop,
+      })
+      installRuntime({
+        activity,
+        attachWaterSurface: waterHandlers.attachWaterSurface,
+        options,
+        resize: resizeSync,
+      })
+      const resize = (): Effect.Effect<void, BrowserRuntimeFailure> =>
+        browserRuntimeOperation('runtime', resizeSync, activity)
+      const render = (camera: MirroredCameraState): Effect.Effect<void, BrowserRuntimeFailure> =>
+        browserRuntimeOperation('runtime', () => frameHandlers.render(camera), activity)
+      const advanceFrame = (frame: ProductionFrame): Effect.Effect<void, BrowserRuntimeFailure> =>
+        browserRuntimeOperation('runtime', () => frameHandlers.advanceFrame(frame), activity)
+      const attachWaterSurface = (geometry: THREE.BufferGeometry): Effect.Effect<THREE.Mesh, BrowserRuntimeFailure> =>
+        geometry instanceof THREE.BufferGeometry
+          ? browserRuntimeOperation('runtime', () => waterHandlers.attachWaterSurface(geometry), activity)
+          : Effect.fail(browserRuntimeError('runtime', 'invalid-input', geometry))
+      const detachWaterSurface = (mesh: THREE.Mesh): Effect.Effect<void, BrowserRuntimeFailure> =>
+        mesh instanceof THREE.Mesh
+          ? browserRuntimeOperation('runtime', () => waterHandlers.detachWaterSurface(mesh), activity)
+          : Effect.fail(browserRuntimeError('runtime', 'invalid-input', mesh))
+      const start = (readFrame: () => BrowserFrame | undefined): Effect.Effect<void, BrowserRuntimeFailure> =>
+        browserRuntimeOperation('runtime', () => animationHandlers.start(readFrame), activity)
+      const stop = (): Effect.Effect<void, BrowserRuntimeFailure> =>
+        browserRuntimeOperation('runtime', animationHandlers.stop)
+      const dispose = (): Effect.Effect<void, BrowserRuntimeFailure> =>
+        browserRuntimeOperation('runtime', disposeSync)
+      return {
+        advanceFrame,
+        attachWaterSurface,
+        camera: resources.surface.camera,
+        captureScreenshot,
+        detachWaterSurface,
+        dispose,
+        get gpuTimingSupported() {
+          return resources.gpuTiming.service.supported
+        },
+        get latestGpuTimeMs() {
+          return resources.gpuTiming.latestGpuTimeMs
+        },
+        get latestSsim() {
+          return resources.state.latestSsim
+        },
+        get quality() {
+          return resources.state.quality
+        },
+        get qualityPreset() {
+          return resources.state.qualityPreset
+        },
+        render,
+        resize,
+        scene: resources.surface.scene,
+        start,
+        stop,
+        threeRenderer: resources.surface.renderer,
+        get waterMeshes() {
+          return [...resources.state.waterMeshes]
+        },
+        world: resources.world,
+      }
+    },
+    catch: (cause) => browserRuntimeError('initialization', 'operation-failed', cause),
   })
-  const removeScreenshotShortcut = installPngScreenshotShortcut(
-    options.canvas.ownerDocument,
-    captureScreenshot,
-  )
-  const dispose = createDisposeHandler({
-    activity,
-    removeScreenshotShortcut,
-    resources,
-    stop: animationHandlers.stop,
-  })
-  installRuntime({
-    activity,
-    attachWaterSurface: waterHandlers.attachWaterSurface,
-    options,
-    resize,
-  })
-  return {
-    advanceFrame: frameHandlers.advanceFrame,
-    attachWaterSurface: waterHandlers.attachWaterSurface,
-    camera: resources.surface.camera,
-    captureScreenshot,
-    detachWaterSurface: waterHandlers.detachWaterSurface,
-    dispose,
-    get gpuTimingSupported() {
-      return resources.gpuTiming.service.supported
-    },
-    get latestGpuTimeMs() {
-      return resources.gpuTiming.latestGpuTimeMs
-    },
-    get latestSsim() {
-      return resources.state.latestSsim
-    },
-    get quality() {
-      return resources.state.quality
-    },
-    get qualityPreset() {
-      return resources.state.qualityPreset
-    },
-    render: frameHandlers.render,
-    resize,
-    scene: resources.surface.scene,
-    start: animationHandlers.start,
-    stop: animationHandlers.stop,
-    threeRenderer: resources.surface.renderer,
-    get waterMeshes() {
-      return [...resources.state.waterMeshes]
-    },
-    world: resources.world,
-  }
-}
 
-export const makeBrowserWorldRuntime = async (
+export const makeBrowserWorldRuntime = (
   options: BrowserWorldRuntimeOptions,
-): Promise<BrowserWorldRuntime> => {
-  const { quality, preset: qualityPreset } = resolveBrowserQuality(options.quality)
-  const maxPixelRatio = resolveBrowserMaxPixelRatio(options.maxPixelRatio, quality.pixelRatioCap)
-  const atlas = await resolveAtlas(options.atlas)
-  const state = makeRuntimeState({ canvas: options.canvas, maxPixelRatio, quality, qualityPreset })
-  const initialized = initializeBrowserWorld({ atlas, options, state })
-  const resources: BrowserRuntimeResources = {
-    applyPreset: initialized.applyPreset,
-    atlas,
-    gpuTiming: initialized.gpuTiming,
-    refraction: initialized.refraction,
-    state,
-    surface: initialized.surface,
-    world: initialized.world,
-  }
-  return createBrowserWorldRuntime(options, resources)
-}
+): Effect.Effect<BrowserWorldRuntime, BrowserRuntimeFailure> =>
+  Effect.gen(function* makeBrowserWorldRuntimeEffect() {
+    const { quality, preset: qualityPreset } = yield* Effect.fromResult(resolveBrowserQuality(options.quality))
+    const maxPixelRatio = yield* Effect.fromResult(
+      resolveBrowserMaxPixelRatio(options.maxPixelRatio, quality.pixelRatioCap),
+    )
+    const atlas = yield* resolveAtlas(options.atlas)
+    const state = yield* Effect.fromResult(
+      makeRuntimeState({ canvas: options.canvas, maxPixelRatio, quality, qualityPreset }),
+    )
+    const initialized = yield* initializeBrowserWorld({ atlas, options, state })
+    const resources: BrowserRuntimeResources = {
+      applyPreset: initialized.applyPreset,
+      atlas,
+      gpuTiming: initialized.gpuTiming,
+      refraction: initialized.refraction,
+      state,
+      surface: initialized.surface,
+      world: initialized.world,
+    }
+    return yield* createBrowserWorldRuntime(options, resources)
+  })

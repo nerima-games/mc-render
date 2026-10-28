@@ -1,8 +1,30 @@
 import * as THREE from 'three'
 import { describe, expect, it } from '@effect/vitest'
-import { Effect } from 'effect'
-import { measureWaterVisibility } from '../src/browser-water-visibility'
+import { Effect, Result, Schema } from 'effect'
+import * as FastCheck from 'fast-check'
+import {
+  BrowserWaterVisibilityResultSchema,
+  measureWaterVisibility as measureWaterVisibilityResult,
+} from '../src/browser-water-visibility'
 import { BEHIND_NEAR_PLANE_RATIO } from '../src/domain/water-refraction'
+
+const measureWaterVisibility = (
+  meshes: ReadonlySet<THREE.Mesh>,
+  camera: THREE.Camera,
+) => {
+  const actual = measureWaterVisibilityResult(meshes, camera)
+  const inspected = Schema.decodeUnknownResult(BrowserWaterVisibilityResultSchema, {
+    onExcessProperty: 'error',
+  })(actual)
+  expect(Result.isSuccess(inspected)).toBe(true)
+  if (Result.isFailure(inspected)) {
+    throw new Error(inspected.failure.message)
+  }
+  if (inspected.success._tag === 'Failure') {
+    throw new Error(JSON.stringify(inspected.success.failure))
+  }
+  return inspected.success.success
+}
 
 const makeCamera = (): THREE.PerspectiveCamera => {
   const camera = new THREE.PerspectiveCamera(90, 1, 0.1, 100)
@@ -74,6 +96,54 @@ describe('measureWaterVisibility', () => {
         screenRatio: BEHIND_NEAR_PLANE_RATIO,
         visibleMeshCount: 1,
       })
+    }),
+  )
+
+  it.effect('property: malformed mesh or camera inputs return strict failures', () =>
+    Effect.sync(() => {
+      const camera = makeCamera()
+      const malformedMeshes = FastCheck.constantFrom<unknown>(
+        null,
+        {},
+        new Set([{}]),
+      )
+      FastCheck.assert(
+        FastCheck.property(malformedMeshes, (meshes) => {
+          const actual = measureWaterVisibilityResult(meshes, camera)
+          const inspected = Schema.decodeUnknownResult(BrowserWaterVisibilityResultSchema, {
+            onExcessProperty: 'error',
+          })(actual)
+          expect(Result.isSuccess(inspected)).toBe(true)
+          if (Result.isFailure(inspected)) {
+            return
+          }
+          expect(inspected.success).toStrictEqual({
+            _tag: 'Failure',
+            _op: 'Failure',
+            failure: {
+              _tag: 'RefractionInputError',
+              operation: 'water-visibility',
+              reason: 'invalid-input',
+            },
+          })
+        }),
+      )
+      const invalidCamera = measureWaterVisibilityResult(new Set(), {})
+      const decodedCamera = Schema.decodeUnknownResult(BrowserWaterVisibilityResultSchema, {
+        onExcessProperty: 'error',
+      })(invalidCamera)
+      expect(Result.isSuccess(decodedCamera)).toBe(true)
+      if (Result.isSuccess(decodedCamera)) {
+        expect(decodedCamera.success).toStrictEqual({
+          _tag: 'Failure',
+          _op: 'Failure',
+          failure: {
+            _tag: 'RefractionInputError',
+            operation: 'water-visibility',
+            reason: 'invalid-input',
+          },
+        })
+      }
     }),
   )
 })

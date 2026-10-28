@@ -39,7 +39,7 @@
  * without a cast. That is not obvious — `strictFunctionTypes` makes listener
  * parameters contravariant, so a naive `(event: KeyboardEventLike) => void`
  * makes `Window` UNASSIGNABLE, and the adapter's users would paper over it with
- * `as unknown as`, which is where the type safety would actually have been lost.
+ * a double type assertion, which is where the type safety would actually have been lost.
  *
  * So the shapes below are built to be genuine SUPERTYPES of the DOM's own:
  *
@@ -53,8 +53,8 @@
  *     refuses to accept anything from;
  *   - `pointerLockElement` is `unknown`, because the adapter only compares it
  *     against `null`;
- *   - `requestPointerLock` returns `unknown`, because lib.DOM has changed it
- *     from `void` to `Promise<void>` and both must satisfy this;
+ *   - `requestPointerLock` returns `unknown` because DOM library versions differ
+ *     on whether the request completes synchronously or asynchronously;
  * DOM focus membership and movement are host-owned. `Event.target` remains
  * `unknown` so the host can resolve it without widening this adapter's DOM
  * surface.
@@ -103,7 +103,7 @@ export type DomListenerOptions = {
  * `string | undefined` inside the keydown handler; the benefit is that
  * `installInputListeners(window, ...)` compiles in a browser project with no
  * cast, and that the handler is forced to say what it does with an event that
- * lacks the field it needs. It drops it — an event handler must not throw, and
+ * lacks the field it needs. It drops it — an event handler must not fail unexpectedly, and
  * guessing is worse than dropping.
  */
 export type DomInputEvent = {
@@ -143,7 +143,7 @@ export type DomInputEvent = {
    *      parameters are contravariant under `strictFunctionTypes`, and a real
    *      `Window` would stop being assignable to `DomEventTarget` — silently,
    *      because `pnpm typecheck` has no DOM to be assignable from. The first
-   *      person to notice would reach for `as unknown as`.
+ *      person to notice would reach for a double type assertion.
    *
    * `unknown` accepts `EventTarget | null` trivially and keeps the proof in
    * `test/fixtures/dom-surface.ts` green, which is exactly the property the
@@ -199,11 +199,10 @@ export type DomDocument = DomEventTarget & {
  * to report as `unavailable` rather than crash on — an older browser, a
  * non-element, or a canvas that has not been created yet.
  *
- * The return type is `unknown` because it has changed: lib.DOM used to declare
- * `requestPointerLock(): void` and now declares
- * `requestPointerLock(options?: PointerLockOptions): Promise<void>`. Both are
- * assignable to `() => unknown`, so this file does not have to pick a browser
- * vintage — and the adapter, which must not care, is stopped from caring.
+ * The return type is `unknown` because DOM library versions disagree about
+ * whether the request completes synchronously or asynchronously. Both shapes
+ * are assignable to `() => unknown`, so this file does not have to pick a
+ * browser vintage, and the adapter is stopped from caring.
  */
 export type PointerLockTarget = {
   readonly requestPointerLock?: () => unknown

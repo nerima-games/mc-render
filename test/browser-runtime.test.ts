@@ -1,16 +1,40 @@
-import { Effect } from 'effect'
+import { Effect, Result, Schema } from 'effect'
+import * as FastCheck from 'fast-check'
 import * as THREE from 'three'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   GpuTimerService,
   GpuTimerServiceLayer,
-  makeBrowserWorldRuntime,
+  BrowserRuntimeUnknownResultSchema,
+  makeBrowserWorldRuntime as makeBrowserWorldRuntimeEffect,
   makeGpuTimerService,
 } from '../src/browser.js'
 import { mirroredCameraState } from '../src/domain/camera-mirror.js'
 import { QUALITY_PRESETS, type PostProcessingStep } from '../src/domain/post-processing.js'
 
 const testCamera = mirroredCameraState(undefined)
+
+const makeBrowserWorldRuntime = (options: Parameters<typeof makeBrowserWorldRuntimeEffect>[0]) =>
+  Effect.runPromise(makeBrowserWorldRuntimeEffect(options))
+
+const browserRuntimeFailureFromResult = (actual: unknown): unknown => {
+  const inspected = Schema.decodeUnknownResult(BrowserRuntimeUnknownResultSchema, {
+    onExcessProperty: 'error',
+  })(actual)
+  if (Result.isFailure(inspected)) {
+    throw new Error(inspected.failure.message)
+  }
+  if (inspected.success._tag === 'Success') {
+    throw new Error(JSON.stringify(inspected.success))
+  }
+  return inspected.success.failure
+}
+
+const browserRuntimeFailure = <Value, Failure>(effect: Effect.Effect<Value, Failure>): unknown =>
+  browserRuntimeFailureFromResult(Effect.runSync(Effect.result(effect)))
+
+const browserRuntimeFailureAsync = async <Value, Failure>(effect: Effect.Effect<Value, Failure>): Promise<unknown> =>
+  browserRuntimeFailureFromResult(await Effect.runPromise(Effect.result(effect)))
 
 const DEFAULT_EXTENSION = {
   GPU_DISJOINT_EXT: 0x8fbb,
@@ -93,6 +117,16 @@ describe('browser GPU timer service', () => {
     Effect.runSync(service.dispose)
   })
 
+  it('preserves an invalid timer extension as a typed Effect failure', () => {
+    const { gl } = makeTimerContext({ extension: 'extension' })
+
+    expect(browserRuntimeFailure(makeGpuTimerService(gl))).toStrictEqual({
+      _tag: 'BrowserRenderPolicyError',
+      operation: 'runtime',
+      reason: 'invalid-input',
+    })
+  })
+
   it('does not start overlapping queries and disposes an unfinished query', () => {
     const { gl, query } = makeTimerContext({ available: false })
     const service = Effect.runSync(makeGpuTimerService(gl))
@@ -125,7 +159,7 @@ describe('browser GPU timer service', () => {
     expect(unavailable.gl.beginQuery).not.toHaveBeenCalled()
   })
 
-  it('waits for query availability and ignores invalid elapsed values', () => {
+  it('waits for query availability and rejects invalid elapsed values', () => {
     const unavailable = makeTimerContext({ available: false })
     const service = Effect.runSync(makeGpuTimerService(unavailable.gl))
     Effect.runSync(service.begin)
@@ -137,7 +171,11 @@ describe('browser GPU timer service', () => {
     const invalidService = Effect.runSync(makeGpuTimerService(invalid.gl))
     Effect.runSync(invalidService.begin)
     Effect.runSync(invalidService.end)
-    expect(Effect.runSync(invalidService.poll)).toBeUndefined()
+    expect(browserRuntimeFailure(invalidService.poll)).toStrictEqual({
+      _tag: 'BrowserRenderPolicyError',
+      operation: 'runtime',
+      reason: 'not-finite',
+    })
     expect(invalid.gl.deleteQuery).toHaveBeenCalledWith(invalid.query)
   })
 
@@ -737,21 +775,47 @@ afterEach(() => {
   restoreGlobal('URL', originalUrl)
 })
 
-const browserFailureMessage = (cause: unknown): string => {
-  if (cause instanceof Error) {
-    return cause.message
-  }
-  return String(cause)
-}
-
 describe('browser world runtime', () => {
+  it('property: invalid custom pixel caps fail the public runtime Effect with tagged details', () => {
+    FastCheck.assert(
+      FastCheck.property(FastCheck.constantFrom(Number.NaN, Number.POSITIVE_INFINITY, 0.25, 3), (pixelRatioCap) => {
+        const actual = Effect.runSync(Effect.result(makeBrowserWorldRuntimeEffect({
+          atlas: new THREE.Texture(),
+          autoResize: false,
+          canvas: new HTMLCanvasElement(),
+          quality: { ...QUALITY_PRESETS.high, pixelRatioCap },
+        })))
+        const inspected = Schema.decodeUnknownResult(BrowserRuntimeUnknownResultSchema, {
+          onExcessProperty: 'error',
+        })(actual)
+        expect(Result.isSuccess(inspected)).toBe(true)
+        if (Result.isFailure(inspected)) {
+          return
+        }
+        expect(inspected.success).toStrictEqual({
+          _tag: 'Failure',
+          _op: 'Failure',
+          failure: {
+            _tag: 'BrowserRenderPolicyError',
+            operation: Number.isFinite(pixelRatioCap) ? 'pixel-ratio' : 'quality',
+            reason: Number.isFinite(pixelRatioCap) ? 'out-of-range' : 'invalid-input',
+          },
+        })
+      }),
+    )
+  })
+
   it('reports a malformed post-processing pass from the runtime boundary', async () => {
     const runtime = await makeBrowserWorldRuntime({ canvas: new HTMLCanvasElement(), atlas: new THREE.Texture() })
     try {
       Effect.runSync(runtime.world.setPostProcessingChain(JSON.parse('[{"effects":[],"pass":"unsupported"}]')))
-      expect(() => runtime.render(testCamera)).toThrow('Unsupported post-processing pass: unsupported')
+      expect(browserRuntimeFailure(runtime.render(testCamera))).toMatchObject({
+        _tag: 'BrowserRuntimeError',
+        operation: 'runtime',
+        reason: 'operation-failed',
+      })
     } finally {
-      runtime.dispose()
+      Effect.runSync(runtime.dispose())
     }
   })
 
@@ -766,12 +830,17 @@ describe('browser world runtime', () => {
 
     expect(runtime.qualityPreset).toBe('high')
     expect(runtime.gpuTimingSupported).toBe(true)
-    await expect(runtime.captureScreenshot()).rejects.toThrow('captureScreenshot requires a rendered frame')
-    runtime.render(testCamera)
+    expect(browserRuntimeFailure(runtime.captureScreenshot())).toStrictEqual({
+      _tag: 'BrowserRuntimeError',
+      operation: 'screenshot',
+      reason: 'not-rendered',
+      cause: undefined,
+    })
+    Effect.runSync(runtime.render(testCamera))
     expect(runtime.latestSsim).toBeLessThan(0.95)
     expect(browserMocks.settings.hiddenWaterWasRendered).toBe(true)
     expect(runtime.waterMeshes[0]?.visible).toBe(true)
-    const blob = await runtime.captureScreenshot()
+    const blob = await Effect.runPromise(runtime.captureScreenshot())
     expect(blob.type).toBe('image/png')
     expect(screenshotPixel).toBe(0)
 
@@ -807,7 +876,7 @@ describe('browser world runtime', () => {
 
     for (let frame = 0; frame < 19; frame += 1) {
       expect(runtime.qualityPreset).toBe('high')
-      runtime.render(testCamera)
+      Effect.runSync(runtime.render(testCamera))
     }
     expect(runtime.qualityPreset).toBe('medium')
     expect(runtime.quality).toStrictEqual(QUALITY_PRESETS.medium)
@@ -816,11 +885,11 @@ describe('browser world runtime', () => {
     if (!waterMesh) {
       throw new Error('initial water mesh was not attached')
     }
-    runtime.detachWaterSurface(waterMesh)
-    runtime.detachWaterSurface(waterMesh)
-    runtime.attachWaterSurface(new THREE.BufferGeometry())
+    Effect.runSync(runtime.detachWaterSurface(waterMesh))
+    Effect.runSync(runtime.detachWaterSurface(waterMesh))
+    Effect.runSync(runtime.attachWaterSurface(new THREE.BufferGeometry()))
 
-    runtime.resize()
+    Effect.runSync(runtime.resize())
     expect(observerState.observed).toBe(true)
     const frame = {
       camera: testCamera,
@@ -830,36 +899,44 @@ describe('browser world runtime', () => {
         cameraPosition: { worldX: 0, worldY: 0, worldZ: 0 },
       },
     }
-    runtime.advanceFrame({ ...frame.frame, deltaSecs: 0 })
-    runtime.start(() => frame)
+    Effect.runSync(runtime.advanceFrame({ ...frame.frame, deltaSecs: 0 }))
+    Effect.runSync(runtime.start(() => frame))
     const firstAnimation = frameCallbacks.get(nextFrameId - 1)
     if (!firstAnimation) {
       throw new Error('animation frame was not scheduled')
     }
     firstAnimation()
-    runtime.stop()
+    Effect.runSync(runtime.stop())
     expect(cancelledFrames.length).toBeGreaterThan(0)
-    runtime.start(() => undefined)
+    Effect.runSync(runtime.start(() => undefined))
     const emptyAnimation = frameCallbacks.get(nextFrameId - 1)
     if (!emptyAnimation) {
       throw new Error('animation frame was not scheduled')
     }
     emptyAnimation()
-    runtime.stop()
-    runtime.start(() => undefined)
+    Effect.runSync(runtime.stop())
+    Effect.runSync(runtime.start(() => undefined))
     const staleAnimation = frameCallbacks.get(nextFrameId - 1)
     if (!staleAnimation) {
       throw new Error('animation frame was not scheduled')
     }
-    runtime.dispose()
+    Effect.runSync(runtime.dispose())
     expect(observerState.disconnected).toBe(true)
     staleAnimation()
     expect(requireFakeDocument().listeners.has('keydown')).toBe(false)
     expect(runtime.latestGpuTimeMs).toBe(2.5)
-    expect(() => runtime.render(testCamera)).toThrow('browser world runtime is disposed')
-    expect(() => runtime.start(() => undefined)).toThrow('browser world runtime is disposed')
-    expect(() => runtime.resize()).toThrow('browser world runtime is disposed')
-    runtime.dispose()
+    expect(browserRuntimeFailure(runtime.render(testCamera))).toStrictEqual({
+      _tag: 'BrowserRenderPolicyError',
+      operation: 'runtime',
+      reason: 'disposed',
+    })
+    expect(browserRuntimeFailure(runtime.start(() => undefined))).toStrictEqual({
+      _tag: 'BrowserRenderPolicyError', operation: 'runtime', reason: 'disposed',
+    })
+    expect(browserRuntimeFailure(runtime.resize())).toStrictEqual({
+      _tag: 'BrowserRenderPolicyError', operation: 'runtime', reason: 'disposed',
+    })
+    Effect.runSync(runtime.dispose())
   })
 
   it('downgrades after sustained low FPS and skips adaptation for custom quality', async () => {
@@ -875,10 +952,10 @@ describe('browser world runtime', () => {
       cameraPosition: { worldX: 0, worldY: 0, worldZ: 0 },
     }
     for (let index = 0; index < 20; index += 1) {
-      runtime.advanceFrame(frame)
+      Effect.runSync(runtime.advanceFrame(frame))
     }
     expect(runtime.qualityPreset).toBe('medium')
-    runtime.dispose()
+    Effect.runSync(runtime.dispose())
 
     browserMocks.settings.activePixel = browserMocks.settings.referencePixel
     const customRuntime = await makeBrowserWorldRuntime({
@@ -888,11 +965,11 @@ describe('browser world runtime', () => {
       quality: { ...QUALITY_PRESETS.high, pixelRatioCap: 1.25 },
     })
     for (let index = 0; index < 20; index += 1) {
-      customRuntime.advanceFrame(frame)
+      Effect.runSync(customRuntime.advanceFrame(frame))
     }
     expect(customRuntime.qualityPreset).toBeUndefined()
-    customRuntime.render(testCamera)
-    customRuntime.dispose()
+    Effect.runSync(customRuntime.render(testCamera))
+    Effect.runSync(customRuntime.dispose())
   })
 
   it('reports screenshot failures when drawing-buffer capture is disabled or unavailable', async () => {
@@ -903,7 +980,12 @@ describe('browser world runtime', () => {
       preserveDrawingBuffer: false,
       quality: 'low',
     })
-    await expect(disabled.captureScreenshot()).rejects.toThrow('captureScreenshot requires preserveDrawingBuffer')
+    expect(browserRuntimeFailure(disabled.captureScreenshot())).toStrictEqual({
+      _tag: 'BrowserRuntimeError',
+      operation: 'screenshot',
+      reason: 'unavailable',
+      cause: undefined,
+    })
     const screenshotError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
     const failedShortcut = requireFakeDocument().listeners.get('keydown')
     if (typeof failedShortcut !== 'function') {
@@ -911,7 +993,7 @@ describe('browser world runtime', () => {
     }
     failedShortcut({ code: 'F2', repeat: false, altKey: false, ctrlKey: false, metaKey: false, shiftKey: false, target: null, preventDefault: () => undefined })
     await vi.waitFor(() => expect(screenshotError).toHaveBeenCalledOnce())
-    disabled.dispose()
+    Effect.runSync(disabled.dispose())
 
     const missingContext = await makeBrowserWorldRuntime({
       atlas: new THREE.Texture(),
@@ -919,10 +1001,14 @@ describe('browser world runtime', () => {
       canvas: new HTMLCanvasElement(),
       quality: 'low',
     })
-    missingContext.render(testCamera)
+    Effect.runSync(missingContext.render(testCamera))
     screenshotContextAvailable = false
-    await expect(missingContext.captureScreenshot()).rejects.toThrow('could not create a 2D screenshot canvas')
-    missingContext.dispose()
+    expect(browserRuntimeFailure(missingContext.captureScreenshot())).toMatchObject({
+      _tag: 'BrowserRuntimeError',
+      operation: 'screenshot',
+      reason: 'unavailable',
+    })
+    Effect.runSync(missingContext.dispose())
 
     screenshotContextAvailable = true
     const missingBlob = await makeBrowserWorldRuntime({
@@ -931,10 +1017,14 @@ describe('browser world runtime', () => {
       canvas: new HTMLCanvasElement(),
       quality: 'low',
     })
-    missingBlob.render(testCamera)
+    Effect.runSync(missingBlob.render(testCamera))
     screenshotBlobAvailable = false
-    await expect(missingBlob.captureScreenshot()).rejects.toThrow('screenshot canvas.toBlob returned no image')
-    missingBlob.dispose()
+    expect(await browserRuntimeFailureAsync(missingBlob.captureScreenshot())).toMatchObject({
+      _tag: 'BrowserRuntimeError',
+      operation: 'screenshot',
+      reason: 'encoding-failed',
+    })
+    Effect.runSync(missingBlob.dispose())
   })
 
   it('validates Three surface instances and requires WebGL2', async () => {
@@ -942,36 +1032,46 @@ describe('browser world runtime', () => {
     const camera = new THREE.PerspectiveCamera()
     const renderer = new THREE.WebGLRenderer()
     const cases = [
-      { surface: { renderer: {}, scene, camera }, message: 'Browser surface did not provide a THREE.WebGLRenderer' },
-      { surface: { renderer, scene: {}, camera }, message: 'Browser surface did not provide a THREE.Scene' },
-      { surface: { renderer, scene, camera: {} }, message: 'Browser surface did not provide a THREE.PerspectiveCamera' },
-      { surface: { renderer, scene, camera: new THREE.Camera() }, message: 'Browser surface did not provide a THREE.PerspectiveCamera' },
+      { surface: { renderer: {}, scene, camera } },
+      { surface: { renderer, scene: {}, camera } },
+      { surface: { renderer, scene, camera: {} } },
+      { surface: { renderer, scene, camera: new THREE.Camera() } },
     ]
 
-    const validationPromises = cases.map(({ surface }) => {
+    const validationFailures = cases.map(({ surface }) => {
       browserMocks.worldFactory.mockImplementationOnce((_three, _canvas, _viewport, _atlas, options) => {
         options.postProcessing(surface)
         return Effect.succeed({})
       })
-      return makeBrowserWorldRuntime({
+      return browserRuntimeFailure(makeBrowserWorldRuntimeEffect({
         atlas: new THREE.Texture(),
         autoResize: false,
         canvas: new HTMLCanvasElement(),
-      }).then(() => 'unexpected success', browserFailureMessage)
+      }))
     })
-    const validationResults = await Promise.all(validationPromises)
-    expect(validationResults).toStrictEqual(cases.map(({ message }) => message))
+    expect(validationFailures).toHaveLength(cases.length)
+    for (const failure of validationFailures) {
+      expect(failure).toMatchObject({
+        _tag: 'BrowserRuntimeError',
+        operation: 'initialization',
+        reason: 'operation-failed',
+      })
+    }
 
     browserMocks.settings.webgl2 = false
     browserMocks.worldFactory.mockImplementationOnce((_three, _canvas, _viewport, _atlas, options) => {
       options.postProcessing({ renderer, scene, camera })
       return Effect.succeed({})
     })
-    await expect(makeBrowserWorldRuntime({
+    const unsupportedWebGl = makeBrowserWorldRuntimeEffect({
       atlas: new THREE.Texture(),
       autoResize: false,
       canvas: new HTMLCanvasElement(),
-    })).rejects.toThrow('Browser renderer requires a WebGL2 context')
+    })
+    expect(browserRuntimeFailure(unsupportedWebGl)).toMatchObject({
+      _tag: 'BrowserRuntimeError',
+      operation: 'initialization',
+    })
   })
 
   it('loads URL atlases and creates owned atlas textures from RGBA data', async () => {
@@ -981,7 +1081,7 @@ describe('browser world runtime', () => {
       canvas: new HTMLCanvasElement(),
       quality: 'low',
     })
-    loaded.dispose()
+    Effect.runSync(loaded.dispose())
 
     const generated = await makeBrowserWorldRuntime({
       atlas: { data: new Uint8ClampedArray([1, 2, 3, 4]), width: 1, height: 1 },
@@ -989,14 +1089,14 @@ describe('browser world runtime', () => {
       canvas: new HTMLCanvasElement(),
       quality: 'low',
     })
-    generated.dispose()
+    Effect.runSync(generated.dispose())
 
     const defaultAtlas = await makeBrowserWorldRuntime({
       autoResize: false,
       canvas: new HTMLCanvasElement(),
       quality: 'low',
     })
-    defaultAtlas.dispose()
+    Effect.runSync(defaultAtlas.dispose())
   })
 
   it('builds the individual viewport and god-rays passes when the composite policy is disabled', async () => {
@@ -1006,9 +1106,9 @@ describe('browser world runtime', () => {
       canvas: new HTMLCanvasElement(),
       quality: { ...QUALITY_PRESETS.ultra, useCompositePass: false },
     })
-    runtime.render(testCamera)
+    Effect.runSync(runtime.render(testCamera))
     expect(runtime.latestSsim).toBeLessThan(0.95)
-    runtime.dispose()
+    Effect.runSync(runtime.dispose())
   })
 
   it('keeps rendering when optional composite uniforms are absent or not vector values', async () => {
@@ -1022,8 +1122,8 @@ describe('browser world runtime', () => {
       quality: 'ultra',
     })
 
-    expect(() => runtime.render(testCamera)).not.toThrow()
-    runtime.dispose()
+    expect(() => Effect.runSync(runtime.render(testCamera))).not.toThrow()
+    Effect.runSync(runtime.dispose())
   })
 
   it('renders without GPU timing when the timer extension is unavailable', async () => {
@@ -1036,20 +1136,20 @@ describe('browser world runtime', () => {
     })
 
     expect(runtime.gpuTimingSupported).toBe(false)
-    expect(() => runtime.render(testCamera)).not.toThrow()
+    expect(() => Effect.runSync(runtime.render(testCamera))).not.toThrow()
     expect(runtime.latestGpuTimeMs).toBeUndefined()
-    runtime.dispose()
+    Effect.runSync(runtime.dispose())
   })
 
   it('rejects a production world that does not provide its Three surface', async () => {
     browserMocks.worldFactory.mockImplementationOnce(() => Effect.succeed({
       setPostProcessingChain: () => Effect.void,
     }))
-    await expect(makeBrowserWorldRuntime({
+    expect(browserRuntimeFailure(makeBrowserWorldRuntimeEffect({
       atlas: new THREE.Texture(),
       autoResize: false,
       canvas: new HTMLCanvasElement(),
-    })).rejects.toThrow('browser world did not expose its Three surface')
+    }))).toStrictEqual({ _tag: 'BrowserRenderPolicyError', operation: 'runtime', reason: 'missing-value' })
   })
 
   it('keeps WebGL failures typed and rejects capture before the world is initialized', async () => {
@@ -1061,23 +1161,21 @@ describe('browser world runtime', () => {
       waterGeometry: new THREE.BufferGeometry(),
     })
     browserMocks.settings.throwOnGetTarget = true
-    expect(() => failedRender.render(testCamera)).toThrow('render target query failed')
-    browserMocks.settings.throwOnGetTarget = false
-    failedRender.dispose()
-
-    browserMocks.worldFactory.mockImplementationOnce((_three, _canvas, _viewport, _atlas, options) => {
-      const postProcessing = options.postProcessing({
-        renderer: new THREE.WebGLRenderer(),
-        scene: new THREE.Scene(),
-        camera: new THREE.PerspectiveCamera(),
-      })
-      postProcessing.render([])
-      return Effect.succeed({})
+    expect(browserRuntimeFailure(failedRender.render(testCamera))).toMatchObject({
+      _tag: 'BrowserRuntimeError',
+      operation: 'runtime',
+      reason: 'operation-failed',
     })
-    await expect(makeBrowserWorldRuntime({
+    browserMocks.settings.throwOnGetTarget = false
+    Effect.runSync(failedRender.dispose())
+
+    browserMocks.worldFactory.mockImplementationOnce(() =>
+      Effect.succeed({ setPostProcessingChain: () => Effect.void }),
+    )
+    expect(browserRuntimeFailure(makeBrowserWorldRuntimeEffect({
       atlas: new THREE.Texture(),
       autoResize: false,
       canvas: new HTMLCanvasElement(),
-    })).rejects.toThrow('browser world surface was not initialized')
+    }))).toMatchObject({ _tag: 'BrowserRenderPolicyError', operation: 'runtime', reason: 'missing-value' })
   })
 })
