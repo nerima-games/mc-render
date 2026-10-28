@@ -117,7 +117,7 @@ describe('input settings boundary', () => {
     const defaults = defaultBindings()
 
     expect(Result.isSuccess(decode(defaults))).toBe(true)
-    expect(Result.isFailure(decode({ ...defaults, jump: defaults.moveForward }))).toBe(true)
+    expect(Result.isFailure(decode({ ...defaults, jump: defaults['moveForward'] }))).toBe(true)
     expect(Result.isFailure(decode({ ...defaults, jump: ESCAPE_KEY_CODE }))).toBe(true)
     expect(Result.isFailure(decode({ ...defaults, jump: '' }))).toBe(true)
   })
