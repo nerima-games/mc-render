@@ -53,15 +53,15 @@ const ascendingPair = (left: number, right: number): readonly [number, number] =
   return [right, left]
 }
 
-const expectSuccess = <A, E>(
+const expectSuccess: <A, E>(
   result: Result.Result<A, E>,
-): asserts result is Result.Success<A, E> => {
+) => asserts result is Result.Success<A, E> = (result) => {
   expect(Result.isSuccess(result)).toBe(true)
 }
 
-const expectFailure = <A, E>(
+const expectFailure: <A, E>(
   result: Result.Result<A, E>,
-): asserts result is Result.Failure<A, E> => {
+) => asserts result is Result.Failure<A, E> = (result) => {
   expect(Result.isFailure(result)).toBe(true)
 }
 
