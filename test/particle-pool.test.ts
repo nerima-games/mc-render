@@ -48,7 +48,7 @@ import {
   ParticleSpawnSpecSchema,
   type ParticleFrameSnapshot,
   type ParticlePool,
-  type ParticleSpawnSpec,
+  type ParticleSpawnSpecEncoded,
   visibleParticleCount,
 } from '../src/domain/particle-pool'
 import { TILE_UV_SPAN, tileUvOrigin } from '../src/domain/texture-atlas'
@@ -66,7 +66,7 @@ const advanceParticles = (...args: Parameters<typeof advanceParticlesResult>) =>
   Result.getOrThrow(advanceParticlesResult(...args))
 const clearParticles = (...args: Parameters<typeof clearParticlesResult>) =>
   Result.getOrThrow(clearParticlesResult(...args))
-const particleSpawn = (overrides: Partial<ParticleSpawnSpec> = {}): ParticleSpawnSpec => ({
+const particleSpawn = (overrides: Partial<ParticleSpawnSpecEncoded> = {}): ParticleSpawnSpecEncoded => ({
   dimension: 'overworld',
   lifetimeSecs: 0.4,
   positionX: 1,
@@ -395,7 +395,7 @@ describe('spawning', () => {
 
       FastCheck.assert(
         FastCheck.property(FastCheck.integer(), (extra) => {
-          const spawn: ParticleSpawnSpec & { readonly extra: number } = {
+          const spawn: ParticleSpawnSpecEncoded & { readonly extra: number } = {
             dimension: 'overworld',
             lifetimeSecs: 0.4,
             positionX: 1,
@@ -555,6 +555,90 @@ describe('determinism', () => {
 })
 
 describe('integration', () => {
+  it.effect('expires a particle before an out-of-world update reaches its buffers', () =>
+    Effect.sync(() => {
+      const pool = makeParticlePool({ capacity: 1 })
+      expect(spawnParticle(pool, particleSpawn({
+        positionX: 30_000_000,
+        velocity: { x: 64, y: 0, z: 0 },
+      }))).toBe(true)
+
+      advanceParticles(pool, 0.1)
+
+      expect(pool.activeCount()).toBe(0)
+      expect(Array.from(pool.positions).every(Number.isFinite)).toBe(true)
+      expect(Array.from(pool.velocities).every(Number.isFinite)).toBe(true)
+      expect(Array.from(pool.lifetimesSecs).every(Number.isFinite)).toBe(true)
+    }),
+  )
+
+  it.effect('property: accepted particle spawns stay finite across arbitrary advances', () =>
+    Effect.sync(() => {
+      const numericBuffersStayFinite = (pool: ParticlePool): boolean =>
+        [
+          pool.colors,
+          pool.initialLifetimesSecs,
+          pool.lifetimesSecs,
+          pool.positions,
+          pool.scales,
+          pool.uvOffsets,
+          pool.velocities,
+        ].every((buffer) => Array.from(buffer).every(Number.isFinite))
+
+      FastCheck.assert(
+        FastCheck.property(
+          FastCheck.record({
+            positionX: FastCheck.double({ min: -30_000_000, max: 30_000_000, noNaN: true }),
+            positionY: FastCheck.double({ min: -30_000_000, max: 30_000_000, noNaN: true }),
+            positionZ: FastCheck.double({ min: -30_000_000, max: 30_000_000, noNaN: true }),
+            velocityDirectionX: FastCheck.double({ min: -1, max: 1, noNaN: true }),
+            velocityDirectionY: FastCheck.double({ min: -1, max: 1, noNaN: true }),
+            velocityDirectionZ: FastCheck.double({ min: -1, max: 1, noNaN: true }),
+            velocitySpeed: FastCheck.double({ min: 0, max: 63.9, noNaN: true }),
+            lifetimeSecs: FastCheck.double({ min: 0.0001, max: 10, noNaN: true }),
+            advanceSteps: FastCheck.array(
+              FastCheck.double({ min: 0, max: 1e100, noNaN: true }),
+              { maxLength: 256 },
+            ),
+          }),
+          ({ advanceSteps, lifetimeSecs, positionX, positionY, positionZ, velocityDirectionX, velocityDirectionY, velocityDirectionZ, velocitySpeed }) => {
+            const pool = makeParticlePool({ capacity: 1 })
+            const directionMagnitude = Math.hypot(velocityDirectionX, velocityDirectionY, velocityDirectionZ)
+            const velocityScale = directionMagnitude === 0 ? 0 : velocitySpeed / directionMagnitude
+            const spawn = particleSpawn({
+              lifetimeSecs,
+              positionX,
+              positionY,
+              positionZ,
+              velocity: {
+                x: velocityDirectionX * velocityScale,
+                y: velocityDirectionY * velocityScale,
+                z: velocityDirectionZ * velocityScale,
+              },
+            })
+            const decoded = Schema.decodeUnknownResult(ParticleSpawnSpecSchema, {
+              onExcessProperty: 'error',
+            })(spawn)
+            if (Result.isFailure(decoded) || !spawnParticle(pool, spawn)) {
+              return false
+            }
+            if (!numericBuffersStayFinite(pool)) {
+              return false
+            }
+
+            for (const dt of advanceSteps) {
+              const advanced = advanceParticlesResult(pool, dt)
+              if (Result.isFailure(advanced) || !numericBuffersStayFinite(pool)) {
+                return false
+              }
+            }
+            return true
+          },
+        ),
+        FAST_CHECK_OPTIONS,
+      )
+    }),
+  )
   it.effect('gravity pulls the vertical velocity down by g*dt', () =>
     Effect.sync(() => {
       const pool = makeParticlePool({ capacity: 4, seed: 7 })
@@ -968,26 +1052,38 @@ describe('C6 particle spawn state', () => {
     }),
   )
 
-  it.effect('accepts Float32 max and rejects out-of-range spawn data before acquiring slots', () =>
+  it.effect('accepts supported position and speed bounds and rejects out-of-range spawn data', () =>
     Effect.sync(() => {
-      const maximum = 3.4028234663852886e38
-      const justAbove = maximum * (1 + Number.EPSILON)
+      const worldMaximum = 30_000_000
+      const speedMaximum = 64
       const pool = makeParticlePool({ capacity: 4 })
 
       expect(spawnParticle(pool, particleSpawn({
-        positionX: maximum,
-        velocity: { x: 0, y: 0, z: 0 },
+        positionX: worldMaximum,
+        velocity: { x: speedMaximum, y: 0, z: 0 },
       }))).toBe(true)
-      expect(pool.positions[0]).toBe(maximum)
-      expect(isDecodedParticleInputFailure(spawnParticleResult(pool, particleSpawn({ positionX: justAbove })), 'spawn', 'invalid-spawn')).toBe(true)
-      expect(isDecodedParticleInputFailure(spawnParticleResult(pool, particleSpawn({ positionX: 1e39 })), 'spawn', 'invalid-spawn')).toBe(true)
-      expect(isDecodedParticleInputFailure(spawnParticleResult(pool, particleSpawn({ velocity: { x: 1e39, y: 0, z: 0 } })), 'spawn', 'invalid-spawn')).toBe(true)
-      expect(isDecodedParticleInputFailure(spawnParticleResult(pool, particleSpawn({ uvU: 1e39 })), 'spawn', 'invalid-spawn')).toBe(true)
+      expect(pool.positions[0]).toBe(worldMaximum)
+      expect(pool.velocities[0]).toBe(speedMaximum)
+
       expect(isDecodedParticleInputFailure(spawnParticleResult(pool, particleSpawn({
-        positionX: maximum,
-        follow: { id: 'mob-1', x: -maximum, y: 2, z: 3 },
+        positionX: worldMaximum + 1,
       })), 'spawn', 'invalid-spawn')).toBe(true)
-      expect(isDecodedParticleInputFailure(spawnBurstResult(pool, justAbove, 0, 0, 0, 0, 1), 'burst', 'invalid-position')).toBe(true)
+      expect(isDecodedParticleInputFailure(spawnParticleResult(pool, particleSpawn({
+        positionX: 3.4028234663852886e38,
+      })), 'spawn', 'invalid-spawn')).toBe(true)
+      expect(isDecodedParticleInputFailure(spawnParticleResult(pool, particleSpawn({
+        velocity: { x: speedMaximum + 1, y: 0, z: 0 },
+      })), 'spawn', 'invalid-spawn')).toBe(true)
+      expect(isDecodedParticleInputFailure(spawnParticleResult(pool, particleSpawn({
+        velocity: { x: 48, y: 48, z: 0 },
+      })), 'spawn', 'invalid-spawn')).toBe(true)
+      expect(isDecodedParticleInputFailure(spawnParticleResult(pool, particleSpawn({
+        lifetimeSecs: 10.1,
+      })), 'spawn', 'invalid-spawn')).toBe(true)
+      expect(isDecodedParticleInputFailure(spawnParticleResult(pool, particleSpawn({
+        follow: { id: 'mob-1', x: 60_000_001, y: 2, z: 3 },
+      })), 'spawn', 'invalid-spawn')).toBe(true)
+      expect(isDecodedParticleInputFailure(spawnBurstResult(pool, 30_000_001, 0, 0, 0, 0, 1), 'burst', 'invalid-position')).toBe(true)
 
       expect(pool.activeCount()).toBe(1)
       expect(pool.evictionCount()).toBe(0)

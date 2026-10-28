@@ -25,6 +25,7 @@ import {
   ParticlePoolInputErrorSchema,
   readSlot,
   type ParticleFrameSnapshot,
+  type ParticlePool,
 } from '../src/domain/particle-pool.js'
 
 const particlePoolMock = vi.hoisted(() => {
@@ -96,43 +97,41 @@ describe('ParticleRequestSchema', () => {
       expect(Result.isFailure(decodeDirection({ x: Number.NaN, y: 0, z: 0 }))).toBe(true)
       expect(Result.isSuccess(decodeLifetime(0.25))).toBe(true)
       expect(Result.isFailure(decodeLifetime(0))).toBe(true)
+      expect(Result.isFailure(decodeLifetime(10.1))).toBe(true)
       expect(Result.isFailure(decodeRequest({ kind: 'block-break', position: { x: 1, y: 2, z: 3 } }))).toBe(true)
     }),
   )
 
-  it.effect('accepts Float32 max and rejects positions or computed velocities above it', () =>
+  it.effect('accepts the supported world and speed bounds, and rejects values outside them', () =>
     Effect.sync(() => {
-      const maximum = 3.4028234663852886e38
-      const justAbove = maximum * (1 + Number.EPSILON)
+      const maximumWorldCoordinate = 30_000_000
       const decodeRequest = decodeParticleRequest
       const base = { dimension: 'overworld', y: 0, z: 0 }
 
       expect(Result.isSuccess(decodeRequest({
         kind: 'block-break',
-        position: { ...base, x: maximum },
-        direction: { x: maximum / 2, y: 0, z: 0 },
+        position: { ...base, x: maximumWorldCoordinate },
+        direction: { x: 32, y: 0, z: 0 },
+        lifetimeSeconds: 10,
       }))).toBe(true)
       expect(Result.isFailure(decodeRequest({
         kind: 'block-break',
-        position: { ...base, x: justAbove },
+        position: { ...base, x: maximumWorldCoordinate + 1 },
       }))).toBe(true)
       expect(Result.isFailure(decodeRequest({
         kind: 'block-break',
-        position: { ...base, x: Number.MAX_VALUE },
-      }))).toBe(true)
-      expect(Result.isFailure(decodeRequest({
-        kind: 'block-break',
-        position: { ...base, x: 1e39 },
-      }))).toBe(true)
-      expect(Result.isFailure(decodeRequest({
-        kind: 'block-break',
-        position: { ...base, x: 0 },
-        direction: { x: justAbove, y: 0, z: 0 },
+        position: { ...base, x: 3.4028234663852886e38 },
+        direction: { x: 1.7014117331926443e38, y: 0, z: 0 },
       }))).toBe(true)
       expect(Result.isFailure(decodeRequest({
         kind: 'block-break',
         position: { ...base, x: 0 },
-        direction: { x: 1e39, y: 0, z: 0 },
+        direction: { x: 32.01, y: 0, z: 0 },
+      }))).toBe(true)
+      expect(Result.isFailure(decodeRequest({
+        kind: 'block-break',
+        position: { ...base, x: 0 },
+        lifetimeSeconds: 10.1,
       }))).toBe(true)
       expect(Result.isFailure(decodeRequest({
         kind: 'explosion',
@@ -391,8 +390,8 @@ describe('ParticleServiceLive', () => {
     Effect.gen(function* () {
       const service = yield* ParticleService
       const pool = yield* ParticleServicePoolAccess
-      const maximum = 3.4028234663852886e38
-      const justAbove = maximum * (1 + Number.EPSILON)
+      const maximum = 30_000_000
+      const justAbove = maximum + 1
       const accepted = yield* service.spawn(particleRequest({
         position: position('overworld', maximum, 0, 0),
       }))
@@ -433,6 +432,88 @@ describe('ParticleServiceLive', () => {
     }).pipe(Effect.provide(ParticleServiceLive({ pool: { capacity: 32 } }))),
   )
 
+  it.effect('property: accepted requests stay finite across arbitrary advances', () =>
+    Effect.sync(() => {
+      const buffersStayFinite = (pool: ParticlePool): boolean =>
+        [
+          pool.colors,
+          pool.initialLifetimesSecs,
+          pool.lifetimesSecs,
+          pool.positions,
+          pool.scales,
+          pool.uvOffsets,
+          pool.velocities,
+        ].every((buffer) => Array.from(buffer).every(Number.isFinite))
+
+      FastCheck.assert(
+        FastCheck.property(
+          FastCheck.record({
+            kind: FastCheck.constantFrom('block-break', 'entity-hit', 'explosion', 'level-up'),
+            positionX: FastCheck.double({ min: -30_000_000, max: 30_000_000, noNaN: true }),
+            positionY: FastCheck.double({ min: -30_000_000, max: 30_000_000, noNaN: true }),
+            positionZ: FastCheck.double({ min: -30_000_000, max: 30_000_000, noNaN: true }),
+            directionX: FastCheck.double({ min: -1, max: 1, noNaN: true }),
+            directionY: FastCheck.double({ min: -1, max: 1, noNaN: true }),
+            directionZ: FastCheck.double({ min: -1, max: 1, noNaN: true }),
+            speed: FastCheck.double({ min: 0, max: 63.9, noNaN: true }),
+            lifetimeSeconds: FastCheck.double({ min: 0.0001, max: 10, noNaN: true }),
+            advanceSteps: FastCheck.array(
+              FastCheck.double({ min: 0, max: 1e100, noNaN: true }),
+              { maxLength: 256 },
+            ),
+          }),
+          (candidate) => {
+            const baseSpeed = PARTICLE_KIND_DEFAULTS[candidate.kind].baseSpeedMPerSecond
+            const directionMagnitude = Math.hypot(
+              candidate.directionX,
+              candidate.directionY,
+              candidate.directionZ,
+            )
+            const scale = directionMagnitude === 0
+              ? 0
+              : candidate.speed / (directionMagnitude * baseSpeed)
+            const request = decodeParticleRequest({
+              kind: candidate.kind,
+              position: {
+                dimension: 'overworld',
+                x: candidate.positionX,
+                y: candidate.positionY,
+                z: candidate.positionZ,
+              },
+              direction: {
+                x: candidate.directionX * scale,
+                y: candidate.directionY * scale,
+                z: candidate.directionZ * scale,
+              },
+              lifetimeSeconds: candidate.lifetimeSeconds,
+            })
+            if (Result.isFailure(request)) {
+              return false
+            }
+
+            return Effect.runSync(Effect.gen(function* () {
+              const service = yield* ParticleService
+              const pool = yield* ParticleServicePoolAccess
+              const spawned = yield* service.spawn(request.success)
+              if (spawned === 0 || !buffersStayFinite(pool)) {
+                return false
+              }
+
+              for (const dt of candidate.advanceSteps) {
+                const advanced = advanceParticlesResult(pool, dt)
+                if (Result.isFailure(advanced) || !buffersStayFinite(pool)) {
+                  return false
+                }
+              }
+              return true
+            }).pipe(Effect.provide(ParticleServiceLive({ pool: { capacity: 32 } }))))
+          },
+        ),
+        FAST_CHECK_OPTIONS,
+      )
+    }),
+  )
+
   it.effect('invalid mutable request data fails before a pool slot is written', () =>
     Effect.gen(function* () {
       const service = yield* ParticleService
@@ -451,33 +532,23 @@ describe('ParticleServiceLive', () => {
     }).pipe(Effect.provide(ParticleServiceLive({ pool: { capacity: 4 } }))),
   )
 
-  it.effect('propagates a followed-position Float32 offset failure through the service Effect', () =>
+  it.effect('rejects followed frames outside the supported world range', () =>
     Effect.gen(function* () {
       const service = yield* ParticleService
       const pool = yield* ParticleServicePoolAccess
-      const maximum = 3.4028234663852886e38
-      const request = Schema.decodeUnknownSync(ParticleRequestSchema)({
-        kind: 'entity-hit',
-        position: { dimension: 'overworld', x: maximum, y: 0, z: 0 },
-        followEntity: 'mob-1',
-      })
-      const target = { x: -maximum, y: 0, z: 0 }
+      const entityId = Schema.decodeUnknownSync(EntityIdSchema)('mob-1')
+      const result = yield* Effect.result(service.spawn(particleRequest({ followEntity: entityId })))
 
-      expect(Number.isFinite(request.position.x)).toBe(true)
-      expect(Number.isFinite(target.x)).toBe(true)
-      expect(Number.isFinite(request.position.x - target.x)).toBe(true)
-      expect(Math.abs(request.position.x - target.x)).toBeGreaterThan(maximum)
-      const result = yield* Effect.result(service.spawn(request))
       expect(Result.isFailure(result)).toBe(true)
       if (Result.isFailure(result)) {
-        expect(isParticlePoolInputFailure(result.failure, 'spawn', 'invalid-spawn')).toBe(true)
+        expect(isParticlePoolInputFailure(result.failure, 'render-context', 'invalid-frame')).toBe(true)
       }
       expect(pool.activeCount()).toBe(0)
     }).pipe(Effect.provide(ParticleServiceLive({
       pool: { capacity: 4 },
       renderContext: () => ({
         dimension: 'overworld',
-        entities: [{ id: 'mob-1', feetPosition: { x: -3.4028234663852886e38, y: 0, z: 0 } }],
+        entities: [{ id: 'mob-1', feetPosition: { x: 30_000_001, y: 0, z: 0 } }],
       }),
     }))),
   )

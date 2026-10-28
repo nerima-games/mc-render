@@ -12,21 +12,26 @@ import {
   type ParticlePool,
   type ParticlePoolInputError,
   type ParticlePoolOptions,
-  type ParticleSpawnSpec,
+  type ParticleSpawnSpecEncoded,
+  MAX_PARTICLE_LIFETIME_SECS,
+  MAX_PARTICLE_SPEED_M_PER_SECOND,
+  MAX_PARTICLE_WORLD_COORDINATE,
   makeParticlePool,
   spawnParticle,
 } from '../domain/particle-pool.js'
 
 export type ParticleKind = 'block-break' | 'entity-hit' | 'explosion' | 'level-up'
 
-const MINIMUM_PARTICLE_LIFETIME_SECONDS = 0
 const PARTICLE_REQUEST_REJECTED = 0
 const PARTICLE_REQUEST_ACCEPTED = 1
 const PARTICLE_LOOP_STEP = 1
-const MAX_PARTICLE_FLOAT32_VALUE = 3.4028234663852886e38
 
-const isParticleFloat32Vector = (x: number, y: number, z: number): boolean =>
-  Math.max(Math.abs(x), Math.abs(y), Math.abs(z)) <= MAX_PARTICLE_FLOAT32_VALUE
+const isParticleWorldPosition = (position: WorldPosition): boolean =>
+  Math.max(Math.abs(position.x), Math.abs(position.y), Math.abs(position.z)) <= MAX_PARTICLE_WORLD_COORDINATE
+
+const isParticleSpeed = (x: number, y: number, z: number): boolean =>
+  Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(z) &&
+  Math.hypot(x, y, z) <= MAX_PARTICLE_SPEED_M_PER_SECOND
 
 export const ParticleKindSchema: Schema.Codec<ParticleKind> = Schema.Literals([
   'block-break',
@@ -76,7 +81,7 @@ export const ParticleDirectionSchema: Schema.Codec<ParticleDirection, Readonly<{
 export type ParticleLifetimeSeconds = Brand.Branded<number, 'ParticleLifetimeSeconds'>
 
 export const ParticleLifetimeSecondsSchema: Schema.Codec<ParticleLifetimeSeconds, number> = Schema.Finite
-  .check(Schema.isGreaterThan(MINIMUM_PARTICLE_LIFETIME_SECONDS))
+  .check(Schema.isBetween({ maximum: MAX_PARTICLE_LIFETIME_SECS, minimum: Number.MIN_VALUE }))
   .pipe(Schema.brand('ParticleLifetimeSeconds'))
 
 export type ParticleRequest = Readonly<{
@@ -160,17 +165,19 @@ export type ParticleServiceLiveOptions = Readonly<{
   readonly renderContext?: (() => ParticleFrameSnapshot) | undefined
 }>
 
-const isParticleRequestFloat32Safe = (request: ParticleRequest): boolean => {
+const isParticleRequestParticleSafe = (request: ParticleRequest): boolean => {
   const { direction, position } = request
-  if (!isParticleFloat32Vector(position.x, position.y, position.z)) {
+  if (!isParticleWorldPosition(position)) {
+    return false
+  }
+  if (request.lifetimeSeconds !== undefined && request.lifetimeSeconds > MAX_PARTICLE_LIFETIME_SECS) {
     return false
   }
   if (direction === undefined) {
     return true
   }
   const speed = PARTICLE_KIND_DEFAULTS[request.kind].baseSpeedMPerSecond
-  return isParticleFloat32Vector(direction.x, direction.y, direction.z) &&
-    isParticleFloat32Vector(direction.x * speed, direction.y * speed, direction.z * speed)
+  return isParticleSpeed(direction.x * speed, direction.y * speed, direction.z * speed)
 }
 
 export const ParticleRequestSchema: Schema.Codec<ParticleRequest, ParticleRequestEncoded> = Schema.Struct({
@@ -181,7 +188,7 @@ export const ParticleRequestSchema: Schema.Codec<ParticleRequest, ParticleReques
   lifetimeSeconds: Schema.optional(ParticleLifetimeSecondsSchema),
   position: WorldPositionSchema,
 }).check(Schema.makeFilter<ParticleRequest>((request) =>
-  isParticleRequestFloat32Safe(request) || 'Particle positions and velocities must fit Float32 buffers'
+  isParticleRequestParticleSafe(request) || 'Particle positions, velocities, and lifetime must stay within supported bounds'
 ))
 
 const EMPTY_RENDER_CONTEXT: ParticleFrameSnapshot = { dimension: 'overworld', entities: [] }
@@ -192,7 +199,7 @@ const decodeParticleFrameSnapshot = Schema.decodeUnknownResult(ParticleFrameSnap
 const followLinkFor = (
   request: ParticleRequest,
   context: ParticleFrameSnapshot,
-): ParticleSpawnSpec['follow'] => {
+): ParticleSpawnSpecEncoded['follow'] => {
   const entityId: EntityId | undefined = request.followEntity
   if (entityId === undefined) {
     return undefined
@@ -213,7 +220,7 @@ const followLinkFor = (
 const velocityFor = (
   direction: ParticleDirection | undefined,
   speed: number,
-): ParticleSpawnSpec['velocity'] => {
+): ParticleSpawnSpecEncoded['velocity'] => {
   if (direction === undefined) {
     return undefined
   }
@@ -227,8 +234,8 @@ const velocityFor = (
 const particleSpawnSpecFor = (
   request: ParticleRequest,
   defaults: ParticleKindDefaults,
-  follow: ParticleSpawnSpec['follow'],
-): ParticleSpawnSpec => {
+  follow: ParticleSpawnSpecEncoded['follow'],
+): ParticleSpawnSpecEncoded => {
   const { direction, position } = request
   const velocity = velocityFor(direction, defaults.baseSpeedMPerSecond)
   return {
@@ -247,7 +254,7 @@ const particleSpawnSpecFor = (
 
 const spawnParticles = (
   pool: ParticlePool,
-  spawn: ParticleSpawnSpec,
+  spawn: ParticleSpawnSpecEncoded,
   requestedCount: number,
 ): Result.Result<
   typeof PARTICLE_REQUEST_REJECTED | typeof PARTICLE_REQUEST_ACCEPTED,

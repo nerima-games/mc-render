@@ -160,8 +160,8 @@
  */
 
 import { ATLAS_TILE_COUNT, TILE_UV_SPAN, tileUvOrigin } from './texture-atlas.js'
-import { Result, Schema } from 'effect'
-import type { Dimension } from '@nerima-games/mc-kernel'
+import { Brand, Result, Schema } from 'effect'
+import type { Dimension, PositionAxis } from '@nerima-games/mc-kernel'
 import { type MaterialSpec } from './material-policy.js'
 
 // --- Constants transcribed from the reference ------------------------------
@@ -300,7 +300,9 @@ const ZERO = 0
 const INITIAL_SPAWN_SEQUENCE = 0n
 /** The upper bound for normalized color and texture coordinates. */
 const UNIT_INTERVAL_MAXIMUM = 1
-const MAX_PARTICLE_FLOAT32_VALUE = 3.4028234663852886e38
+export const MAX_PARTICLE_WORLD_COORDINATE = 30_000_000
+export const MAX_PARTICLE_SPEED_M_PER_SECOND = 64
+export const MAX_PARTICLE_LIFETIME_SECS = 10
 
 /** The single-slot step used by every index-advancing loop and counter in this file. */
 const ONE_SLOT = 1
@@ -532,10 +534,12 @@ export type ParticleTint = Readonly<{
   readonly blue: number
 }>
 
+export type ParticleVelocityAxis = Brand.Branded<number, 'ParticleVelocityAxis'>
+
 export type ParticleVelocity = Readonly<{
-  readonly x: number
-  readonly y: number
-  readonly z: number
+  readonly x: ParticleVelocityAxis
+  readonly y: ParticleVelocityAxis
+  readonly z: ParticleVelocityAxis
 }>
 
 export type ParticleFollowTarget = Readonly<{
@@ -556,9 +560,9 @@ export type ParticleFollowLink = Readonly<{
 
 export type ParticleSpawnSpec = Readonly<{
   readonly dimension: Dimension
-  readonly positionX: number
-  readonly positionY: number
-  readonly positionZ: number
+  readonly positionX: PositionAxis
+  readonly positionY: PositionAxis
+  readonly positionZ: PositionAxis
   readonly uvU: number
   readonly uvV: number
   readonly tint: ParticleTint
@@ -567,21 +571,54 @@ export type ParticleSpawnSpec = Readonly<{
   readonly follow?: ParticleFollowLink | undefined
 }>
 
-const ParticleFloat32ValueSchema = Schema.Finite.check(
-  Schema.makeFilter<number>((value) =>
-    Math.abs(value) <= MAX_PARTICLE_FLOAT32_VALUE || 'Value must fit a Float32 particle buffer'
-  ),
-)
+export type ParticleSpawnSpecEncoded = Readonly<{
+  readonly dimension: Dimension
+  readonly positionX: number
+  readonly positionY: number
+  readonly positionZ: number
+  readonly uvU: number
+  readonly uvV: number
+  readonly tint: ParticleTint
+  readonly lifetimeSecs: number
+  readonly velocity?: Readonly<{ readonly x: number; readonly y: number; readonly z: number }> | undefined
+  readonly follow?: ParticleFollowLink | undefined
+}>
+
+export const ParticleWorldCoordinateSchema: Schema.Codec<PositionAxis, number> = Schema.Finite
+  .check(Schema.isBetween({
+    maximum: MAX_PARTICLE_WORLD_COORDINATE,
+    minimum: -MAX_PARTICLE_WORLD_COORDINATE,
+  }))
+  .pipe(Schema.brand('PositionAxis'))
+
+export const ParticleVelocityAxisSchema: Schema.Codec<ParticleVelocityAxis, number> = Schema.Finite
+  .check(Schema.isBetween({
+    maximum: MAX_PARTICLE_SPEED_M_PER_SECOND,
+    minimum: -MAX_PARTICLE_SPEED_M_PER_SECOND,
+  }))
+  .pipe(Schema.brand('ParticleVelocityAxis'))
+
+export const ParticleVelocitySchema: Schema.Codec<ParticleVelocity, Readonly<{
+  readonly x: number
+  readonly y: number
+  readonly z: number
+}>> = Schema.Struct({
+  x: ParticleVelocityAxisSchema,
+  y: ParticleVelocityAxisSchema,
+  z: ParticleVelocityAxisSchema,
+}).check(Schema.makeFilter<ParticleVelocity>((velocity) =>
+  Math.hypot(velocity.x, velocity.y, velocity.z) <= MAX_PARTICLE_SPEED_M_PER_SECOND ||
+    'Particle speed must stay within the supported limit'
+))
+
+const ParticleFollowOffsetSchema = Schema.Finite.check(Schema.isBetween({
+  maximum: MAX_PARTICLE_WORLD_COORDINATE * 2,
+  minimum: -MAX_PARTICLE_WORLD_COORDINATE * 2,
+}))
 
 const ParticleUvCoordinateSchema = Schema.Finite.check(
   Schema.isBetween({ maximum: UNIT_INTERVAL_MAXIMUM - TILE_UV_SPAN, minimum: ZERO }),
 )
-
-const ParticleFloat32VectorSchema = Schema.Struct({
-  x: ParticleFloat32ValueSchema,
-  y: ParticleFloat32ValueSchema,
-  z: ParticleFloat32ValueSchema,
-})
 
 const ParticleTintSchema = Schema.Struct({
   blue: Schema.Finite.check(Schema.isBetween({ maximum: UNIT_INTERVAL_MAXIMUM, minimum: ZERO })),
@@ -591,31 +628,34 @@ const ParticleTintSchema = Schema.Struct({
 
 const ParticleFollowLinkSchema = Schema.Struct({
   id: Schema.String,
-  x: ParticleFloat32ValueSchema,
-  y: ParticleFloat32ValueSchema,
-  z: ParticleFloat32ValueSchema,
+  x: ParticleFollowOffsetSchema,
+  y: ParticleFollowOffsetSchema,
+  z: ParticleFollowOffsetSchema,
 })
 
-export const ParticleSpawnSpecSchema: Schema.Codec<ParticleSpawnSpec> = Schema.Struct({
+export const ParticleSpawnSpecSchema: Schema.Codec<ParticleSpawnSpec, ParticleSpawnSpecEncoded> = Schema.Struct({
   dimension: Schema.Literals(['overworld', 'nether', 'end']),
   follow: Schema.optional(ParticleFollowLinkSchema),
-  lifetimeSecs: Schema.Finite.check(Schema.isGreaterThan(ZERO)),
-  positionX: ParticleFloat32ValueSchema,
-  positionY: ParticleFloat32ValueSchema,
-  positionZ: ParticleFloat32ValueSchema,
+  lifetimeSecs: Schema.Finite.check(Schema.isBetween({
+    maximum: MAX_PARTICLE_LIFETIME_SECS,
+    minimum: Number.MIN_VALUE,
+  })),
+  positionX: ParticleWorldCoordinateSchema,
+  positionY: ParticleWorldCoordinateSchema,
+  positionZ: ParticleWorldCoordinateSchema,
   tint: ParticleTintSchema,
   uvU: ParticleUvCoordinateSchema,
   uvV: ParticleUvCoordinateSchema,
-  velocity: Schema.optional(ParticleFloat32VectorSchema),
+  velocity: Schema.optional(ParticleVelocitySchema),
 }).check(Schema.makeFilter<ParticleSpawnSpec>((spawn) => {
   const { follow } = spawn
   if (follow === undefined) {
     return true
   }
-  return Math.abs(spawn.positionX - follow.x) <= MAX_PARTICLE_FLOAT32_VALUE &&
-    Math.abs(spawn.positionY - follow.y) <= MAX_PARTICLE_FLOAT32_VALUE &&
-    Math.abs(spawn.positionZ - follow.z) <= MAX_PARTICLE_FLOAT32_VALUE ||
-    'Follow offsets must fit Float32 particle buffers'
+  return Math.abs(spawn.positionX - follow.x) <= MAX_PARTICLE_WORLD_COORDINATE * 2 &&
+    Math.abs(spawn.positionY - follow.y) <= MAX_PARTICLE_WORLD_COORDINATE * 2 &&
+    Math.abs(spawn.positionZ - follow.z) <= MAX_PARTICLE_WORLD_COORDINATE * 2 ||
+    'Follow offsets must stay within the supported world range'
 }))
 
 const ParticleBurstCountSchema = Schema.Int.check(
@@ -623,9 +663,9 @@ const ParticleBurstCountSchema = Schema.Int.check(
 )
 
 const ParticlePositionSchema = Schema.Struct({
-  x: ParticleFloat32ValueSchema,
-  y: ParticleFloat32ValueSchema,
-  z: ParticleFloat32ValueSchema,
+  x: ParticleWorldCoordinateSchema,
+  y: ParticleWorldCoordinateSchema,
+  z: ParticleWorldCoordinateSchema,
 })
 
 const ParticleUvSchema = Schema.Struct({
@@ -654,9 +694,9 @@ export const ParticleFrameSnapshotSchema: Schema.Codec<ParticleFrameSnapshot> = 
   dimension: Schema.Literals(['overworld', 'nether', 'end']),
   entities: Schema.Array(Schema.Struct({
     feetPosition: Schema.Struct({
-      x: ParticleFloat32ValueSchema,
-      y: ParticleFloat32ValueSchema,
-      z: ParticleFloat32ValueSchema,
+      x: ParticleWorldCoordinateSchema,
+      y: ParticleWorldCoordinateSchema,
+      z: ParticleWorldCoordinateSchema,
     }),
     id: Schema.String,
   })),
@@ -956,8 +996,13 @@ const spawnValidatedParticle = (pool: ParticlePoolImpl, spawn: ParticleSpawnSpec
   writeParticle(pool, slot, spawn)
 }
 
-const isParticleFloat32Vector = (x: number, y: number, z: number): boolean =>
-  Math.max(Math.abs(x), Math.abs(y), Math.abs(z)) <= MAX_PARTICLE_FLOAT32_VALUE
+const isParticleWorldCoordinateVector = (x: number, y: number, z: number): boolean =>
+  Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(z) &&
+  Math.max(Math.abs(x), Math.abs(y), Math.abs(z)) <= MAX_PARTICLE_WORLD_COORDINATE
+
+const isParticleSpeedVector = (x: number, y: number, z: number): boolean =>
+  Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(z) &&
+  Math.hypot(x, y, z) <= MAX_PARTICLE_SPEED_M_PER_SECOND
 
 const particleBurstFailureReason = (
   count: number,
@@ -968,7 +1013,7 @@ const particleBurstFailureReason = (
   if (!Number.isSafeInteger(count) || count < ONE_SLOT) {
     return 'invalid-count'
   }
-  if (!isParticleFloat32Vector(positionX, positionY, positionZ)) {
+  if (!isParticleWorldCoordinateVector(positionX, positionY, positionZ)) {
     return 'invalid-position'
   }
   return 'invalid-uv'
@@ -976,7 +1021,7 @@ const particleBurstFailureReason = (
 
 export const spawnParticle = (
   pool: ParticlePool,
-  spawn: ParticleSpawnSpec,
+  spawn: ParticleSpawnSpecEncoded,
 ): Result.Result<boolean, ParticlePoolInputError> => {
   if (!isKnownParticlePool(pool)) {
     return Result.fail(particlePoolInputError('spawn', 'invalid-pool'))
@@ -1001,9 +1046,9 @@ export const spawnParticle = (
 const spawnRequestedParticles = (
   internals: ParticlePoolImpl,
   requested: number,
-  positionX: number,
-  positionY: number,
-  positionZ: number,
+  positionX: PositionAxis,
+  positionY: PositionAxis,
+  positionZ: PositionAxis,
   safeU: number,
   safeV: number,
 ): void => {
@@ -1143,18 +1188,33 @@ const expireSlot = (internals: ParticlePoolImpl, slot: number): void => {
  * `writeParticle`: this runs once per live particle per frame, and an object
  * per particle per frame is the allocation this file exists to avoid.
  */
-const integrateFreeParticlePosition = (internals: ParticlePoolImpl, slot: number, dt: number): void => {
+const integrateFreeParticlePosition = (internals: ParticlePoolImpl, slot: number, dt: number): boolean => {
   const vectorBase = slot * PARTICLE_VECTOR_STRIDE
-  const vy =
+  const nextVelocityX = readFloat(internals.velocities, vectorBase)
+  const nextVelocityY =
     readFloat(internals.velocities, vectorBase + SECOND_COMPONENT_OFFSET) - PARTICLE_GRAVITY_M_PER_S2 * dt
-  internals.velocities[vectorBase + SECOND_COMPONENT_OFFSET] = vy
-  internals.positions[vectorBase] =
-    readFloat(internals.positions, vectorBase) + readFloat(internals.velocities, vectorBase) * dt
-  internals.positions[vectorBase + SECOND_COMPONENT_OFFSET] =
-    readFloat(internals.positions, vectorBase + SECOND_COMPONENT_OFFSET) + vy * dt
-  internals.positions[vectorBase + THIRD_COMPONENT_OFFSET] =
-    readFloat(internals.positions, vectorBase + THIRD_COMPONENT_OFFSET) +
-    readFloat(internals.velocities, vectorBase + THIRD_COMPONENT_OFFSET) * dt
+  const nextVelocityZ = readFloat(internals.velocities, vectorBase + THIRD_COMPONENT_OFFSET)
+  const nextPositionX =
+    readFloat(internals.positions, vectorBase) + nextVelocityX * dt
+  const nextPositionY =
+    readFloat(internals.positions, vectorBase + SECOND_COMPONENT_OFFSET) + nextVelocityY * dt
+  const nextPositionZ =
+    readFloat(internals.positions, vectorBase + THIRD_COMPONENT_OFFSET) + nextVelocityZ * dt
+
+  if (
+    !isParticleSpeedVector(nextVelocityX, nextVelocityY, nextVelocityZ) ||
+    !isParticleWorldCoordinateVector(nextPositionX, nextPositionY, nextPositionZ)
+  ) {
+    return false
+  }
+
+  internals.velocities[vectorBase] = nextVelocityX
+  internals.velocities[vectorBase + SECOND_COMPONENT_OFFSET] = nextVelocityY
+  internals.velocities[vectorBase + THIRD_COMPONENT_OFFSET] = nextVelocityZ
+  internals.positions[vectorBase] = nextPositionX
+  internals.positions[vectorBase + SECOND_COMPONENT_OFFSET] = nextPositionY
+  internals.positions[vectorBase + THIRD_COMPONENT_OFFSET] = nextPositionZ
+  return true
 }
 
 const integrateSlot = (
@@ -1164,11 +1224,12 @@ const integrateSlot = (
   dt: number,
   followed: boolean,
   visible: boolean,
-): void => {
+): boolean => {
   internals.lifetimesSecs[slot] = nextRemaining
 
-  if (!followed) {
-    integrateFreeParticlePosition(internals, slot, dt)
+  if (!followed && !integrateFreeParticlePosition(internals, slot, dt)) {
+    expireSlot(internals, slot)
+    return true
   }
 
   if (visible) {
@@ -1176,20 +1237,28 @@ const integrateSlot = (
   } else {
     internals.scales[slot] = ZERO
   }
+  return false
 }
 
 const updatePositionFromFollowEntity = (
   internals: ParticlePoolImpl,
   slot: number,
   entity: ParticleFollowTarget,
-): void => {
+): boolean => {
   const vectorBase = slot * PARTICLE_VECTOR_STRIDE
   const offset = poolState(internals).followOffsets
-  internals.positions[vectorBase] = entity.feetPosition.x + readFloat(offset, vectorBase)
-  internals.positions[vectorBase + SECOND_COMPONENT_OFFSET] =
-    entity.feetPosition.y + readFloat(offset, vectorBase + SECOND_COMPONENT_OFFSET)
-  internals.positions[vectorBase + THIRD_COMPONENT_OFFSET] =
-    entity.feetPosition.z + readFloat(offset, vectorBase + THIRD_COMPONENT_OFFSET)
+  const nextX = entity.feetPosition.x + readFloat(offset, vectorBase)
+  const nextY = entity.feetPosition.y + readFloat(offset, vectorBase + SECOND_COMPONENT_OFFSET)
+  const nextZ = entity.feetPosition.z + readFloat(offset, vectorBase + THIRD_COMPONENT_OFFSET)
+
+  if (!isParticleWorldCoordinateVector(nextX, nextY, nextZ)) {
+    return false
+  }
+
+  internals.positions[vectorBase] = nextX
+  internals.positions[vectorBase + SECOND_COMPONENT_OFFSET] = nextY
+  internals.positions[vectorBase + THIRD_COMPONENT_OFFSET] = nextZ
+  return true
 }
 
 const findFollowEntity = (
@@ -1208,23 +1277,22 @@ const updateFollowPosition = (
   internals: ParticlePoolImpl,
   slot: number,
   frame: ParticleFrameSnapshot | undefined,
-): boolean => {
+): 'free' | 'followed' | 'expired' => {
   const followId = internals.followEntityIds[slot]
   if (
     followId === undefined ||
     frame === undefined ||
     internals.dimensions[slot] !== frame.dimension
   ) {
-    return followId !== undefined
+    return followId !== undefined ? 'followed' : 'free'
   }
 
   const entity = findFollowEntity(frame.entities, followId)
   if (entity === undefined) {
     internals.followEntityIds[slot] = undefined
-    return true
+    return 'followed'
   }
-  updatePositionFromFollowEntity(internals, slot, entity)
-  return true
+  return updatePositionFromFollowEntity(internals, slot, entity) ? 'followed' : 'expired'
 }
 
 const advanceLiveSlot = (
@@ -1240,10 +1308,13 @@ const advanceLiveSlot = (
     return true
   }
 
-  const followed = updateFollowPosition(internals, slot, frame)
+  const followPosition = updateFollowPosition(internals, slot, frame)
+  if (followPosition === 'expired') {
+    expireSlot(internals, slot)
+    return true
+  }
   const visible = frame === undefined || internals.dimensions[slot] === frame.dimension
-  integrateSlot(internals, slot, nextRemaining, dt, followed, visible)
-  return false
+  return integrateSlot(internals, slot, nextRemaining, dt, followPosition === 'followed', visible)
 }
 
 /**
