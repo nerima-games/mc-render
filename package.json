@@ -68,10 +68,10 @@
     "verify": "pnpm typecheck && pnpm lint && pnpm test"
   },
   "dependencies": {
-    "@nerima-games/mc-kernel": "0.10.0",
+    "@nerima-games/mc-kernel": "0.11.0",
     "@nerima-games/mc-meshing": "0.4.0",
-    "@nerima-games/mc-sim": "0.5.0",
-    "@nerima-games/mc-worldgen": "0.6.0",
+    "@nerima-games/mc-sim": "0.6.0",
+    "@nerima-games/mc-worldgen": "0.7.0",
     "effect": "4.0.5",
     "three": "0.186.1"
   },
@@ -83,7 +83,7 @@
     "@types/node": "26.6.5",
     "@types/three": "0.186.0",
     "@vitest/coverage-v8": "5.0.5",
-    "fast-check": "3.23.2",
+    "fast-check": "4.10.2",
     "knip": "6.42.1",
     "tsx": "4.23.15",
     "typescript": "7.0.2",

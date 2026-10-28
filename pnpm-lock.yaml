@@ -173,17 +173,17 @@ importers:
   .:
     dependencies:
       '@nerima-games/mc-kernel':
-        specifier: 0.10.0
-        version: 0.10.0
+        specifier: 0.11.0
+        version: 0.11.0
       '@nerima-games/mc-meshing':
         specifier: 0.4.0
         version: 0.4.0
       '@nerima-games/mc-sim':
-        specifier: 0.5.0
-        version: 0.5.0
-      '@nerima-games/mc-worldgen':
         specifier: 0.6.0
         version: 0.6.0
+      '@nerima-games/mc-worldgen':
+        specifier: 0.7.0
+        version: 0.7.0
       effect:
         specifier: 4.0.5
         version: 4.0.5
@@ -213,8 +213,8 @@ importers:
         specifier: 5.0.5
         version: 5.0.5(vitest@5.0.5)
       fast-check:
-        specifier: 3.23.2
-        version: 3.23.2
+        specifier: 4.10.2
+        version: 4.10.2
       knip:
         specifier: 6.42.1
         version: 6.42.1
@@ -537,12 +537,8 @@ packages:
       '@emnapi/core': ^1.7.1 || ^2.0.0-alpha.4
       '@emnapi/runtime': ^1.7.1 || ^2.0.0-alpha.4
 
-  '@nerima-games/mc-kernel@0.10.0':
-    resolution: {integrity: sha512-V8woH1DOe3srXGp73dZoGNLCWJxhCYbWszjrnjbv3lU25oIyC56IZi0jZ5PBypT02PohQSsv5ZvUCw9Pg5Y6Bw==, tarball: https://npm.pkg.github.com/download/@nerima-games/mc-kernel/0.10.0/7ea828b6e0b7197b0113ad8129ff74f56358267f}
-    engines: {node: '>=24.0.0', pnpm: '>=11.24.0'}
-
-  '@nerima-games/mc-kernel@0.8.0':
-    resolution: {integrity: sha512-qBokXIEUoxaIequphJ8XSzI3fDDGCHgbzbms8PyTucWQ45+DL5wA1FAPtIU0OHvVEU4Jf2JJngErf4hIrZbFsA==, tarball: https://npm.pkg.github.com/download/@nerima-games/mc-kernel/0.8.0/8b20dd2bef6e1ab2344ea3be1b1cc393114616c7}
+  '@nerima-games/mc-kernel@0.11.0':
+    resolution: {integrity: sha512-+oEf741ELbnk4H4hk91VtKei3JmbHBLEhBCx8uF0FyZ4cEsA1cbjGBxtLwqJ3kYeHHrQe1fKI8M+FL6rtQAc8A==, tarball: https://npm.pkg.github.com/download/@nerima-games/mc-kernel/0.11.0/d225a1924f55eb29f7e1f624a5a3f9ed1c85ba5f}
     engines: {node: '>=24.0.0', pnpm: '>=11.24.0'}
 
   '@nerima-games/mc-kernel@0.9.0':
@@ -553,36 +549,24 @@ packages:
     resolution: {integrity: sha512-rks3xavCDQys1xTHGfz4VpIrMeIrews0adgYJhPDddvlTtooLg9aynnGKa0AgufEAXsR5vurmesC0B3Q6a2zPA==, tarball: https://npm.pkg.github.com/download/@nerima-games/mc-meshing/0.4.0/d41542476de170e3e00ac87a06a4853822f99b70}
     engines: {node: '>=24.0.0', pnpm: '>=12.14.0'}
 
-  '@nerima-games/mc-noise@0.4.0':
-    resolution: {integrity: sha512-4I2vAEj66xmjcPzFI8ZJSIRMwHfnwtpdTQu4HTDvn7zEqtushNHC6AmlMgVwWdy4Rqym4bNdusaUYQGoJF6y+Q==, tarball: https://npm.pkg.github.com/download/@nerima-games/mc-noise/0.4.0/ebad5340a17a6e1cf7a1a7d0e23f5e3f053b3462}
-    engines: {node: '>=24.0.0', pnpm: '>=11.24.0'}
-
   '@nerima-games/mc-noise@0.5.0':
     resolution: {integrity: sha512-ouGlFjcb93fHm9l9GP5djSGmVorf6huVcveifozgAhTf5QSh9cqKh0MPpVsGMtgg98k7XSzDwF9mbjYR5kCrAg==, tarball: https://npm.pkg.github.com/download/@nerima-games/mc-noise/0.5.0/8bac15e8b6e274872a6e5d6dd2971b437dfa5f38}
     engines: {node: '>=24.0.0', pnpm: '>=11.24.0'}
 
-  '@nerima-games/mc-physics@0.3.0':
-    resolution: {integrity: sha512-khpp+bVWeIQpXAO6v6YpQ6xQWbThLn8JENFrXzSSk2G7aKrYwFqIc1mQaX4A1KoW3wM1gyYflYSrdWspjVxWDg==, tarball: https://npm.pkg.github.com/download/@nerima-games/mc-physics/0.3.0/49c6ecc01b575c117619b384937a79bcc47736e3}
-    engines: {node: '>=24.0.0', pnpm: '>=11.24.0'}
-
-  '@nerima-games/mc-save@0.5.0':
-    resolution: {integrity: sha512-SJXzqA9X6wS2PEudR+PkQAmfy+r98JNTyfnRskX0GJ+x3I/6Eu5SjDMb1az7b/9GWIo/t0jQ1AVHXW+6vKco6g==, tarball: https://npm.pkg.github.com/download/@nerima-games/mc-save/0.5.0/cc4ef28d801f5e39287da7a241db008f9a6338ce}
+  '@nerima-games/mc-physics@0.4.0':
+    resolution: {integrity: sha512-1jFQhB9fKQJg4IFYRcU5/vYZKgJp6BK7IvXI2NDWR9r7caPXivhc0LzprqWt13B58IShtwGFJR+uUqXanKlWwA==, tarball: https://npm.pkg.github.com/download/@nerima-games/mc-physics/0.4.0/79d3a173df143ae160c15a6bbda9ad5a646dc446}
     engines: {node: '>=24.0.0', pnpm: '>=11.24.0'}
 
   '@nerima-games/mc-save@0.6.0':
     resolution: {integrity: sha512-JHyuiNDmW2zzLBLqjEBOd/jcU/jsUaFwjGW4TxUEEo8A1kTtafCocNX2VZIocqoAC37raxLZTZj0+QyYkhyTVg==, tarball: https://npm.pkg.github.com/download/@nerima-games/mc-save/0.6.0/814f4af31ef6b26c7fe93f27ec0b29fdb4246308}
     engines: {node: '>=24.0.0', pnpm: '>=11.24.0'}
 
-  '@nerima-games/mc-sim@0.5.0':
-    resolution: {integrity: sha512-vnnaZB1cZwmeMkOR9taLa4Yny79yFUmRSn8QY9HK522H2yXmlIqSPWe1xJ4mdU9CnFctDWr8yuIz4k/1yieqGQ==, tarball: https://npm.pkg.github.com/download/@nerima-games/mc-sim/0.5.0/dddcafeba19a580189dd2512f064eda3da427661}
+  '@nerima-games/mc-sim@0.6.0':
+    resolution: {integrity: sha512-WzkA5rwq3h9z1ojywnsAiGmY11wm665HCYSWqY8ecsN70qGQPfZIrmPZUaWLZAQTnf3gckRLGfZOrKnz/kiHBQ==, tarball: https://npm.pkg.github.com/download/@nerima-games/mc-sim/0.6.0/5f2bf33d8a35715f61e6e877cd60bb05a26c91f6}
     engines: {node: '>=24.0.0', pnpm: '>=11.24.0'}
 
-  '@nerima-games/mc-worldgen@0.5.0':
-    resolution: {integrity: sha512-zvot5NC2htbHjeVvH0otlExH91Nk+Rs51Sn9dOBQq+87xbQnhkXMmQu9B9JuaLrTtqu3z5EEoUsnxnu/zOOb/g==, tarball: https://npm.pkg.github.com/download/@nerima-games/mc-worldgen/0.5.0/9cd8ade6eb441cf49725b35e639b8be6857f9c62}
-    engines: {node: '>=24.0.0', pnpm: '>=11.24.0'}
-
-  '@nerima-games/mc-worldgen@0.6.0':
-    resolution: {integrity: sha512-rK3DXHfDs0U+S3fkBcMOXI25oilAHwvB8djFVb0z66UYnv9ecNfAa69GIgdZVTLt1SBkHcnUqjiebPXlVJtCPQ==, tarball: https://npm.pkg.github.com/download/@nerima-games/mc-worldgen/0.6.0/966b8f0ba606b3ed46e0897a8c76fc91e9099926}
+  '@nerima-games/mc-worldgen@0.7.0':
+    resolution: {integrity: sha512-GBQFFKN7qHcsK015BxzHEMgDdZmAx+5tizVo9IG/tFAtDWs/agPjNULWIRFdLGonMnAIa8RlR9nUJxVL3ZQUiw==, tarball: https://npm.pkg.github.com/download/@nerima-games/mc-worldgen/0.7.0/eab297815f67f6c2ae34c780ec66c566632f77a5}
     engines: {node: '>=24.0.0', pnpm: '>=11.24.0'}
 
   '@oxc-parser/binding-android-arm-eabi@0.154.0':
@@ -921,9 +905,6 @@ packages:
   '@rolldown/pluginutils@1.0.1':
     resolution: {integrity: sha512-2j9bGt5Jh8hj+vPtgzPtl72j0yRxHAyumoo6TNfAjsLB04UtpSvPbPcDcBMxz7n+9CYB0c1GxQFxYRg2jimqGw==}
 
-  '@standard-schema/spec@1.1.0':
-    resolution: {integrity: sha512-l2aFy5jALhniG5HgqrD6jXLi/rUWrKvqN/qJx6yoJsgKhblVd+iqqU4RCXavm/jPityDo5TCvKMnpjKnOriy0w==}
-
   '@tweenjs/tween.js@23.1.3':
     resolution: {integrity: sha512-vJmvvwFxYuGnF2axRtPYocag6Clbb5YS7kLL+SO/TeVFzHqDIWrNKYtcsPMibjDx9O+bu+psAy9NKfWklassUA==}
 
@@ -1124,9 +1105,6 @@ packages:
     resolution: {integrity: sha512-Btj2BOOO83o3WyH59e8MgXsxEQVcarkUOpEYrubB0urwnN10yQ364rsiByU11nZlqWYZm05i/of7io4mzihBtQ==}
     engines: {node: '>=8'}
 
-  effect@3.22.1:
-    resolution: {integrity: sha512-TNoXushmPOBAjJlthF5d2QwnX2xBPEtcNJr5XKNKbRLbDvBcOYkXlYDfvGfSA0zriwLFuCll5MDtNMAdZL17PQ==}
-
   effect@4.0.5:
     resolution: {integrity: sha512-BY4/28NlpOd99yzmV741xbVGmp+1U7tks4oB7F/Png64bTa5tm5eCA6W0RiXsnuLDDoJpjfVSo4Dnq4BZb/89Q==}
 
@@ -1145,9 +1123,9 @@ packages:
     resolution: {integrity: sha512-KfYbmpRm0VbLjEvVa9yGwCi9GI34xvi7A/HXYWQO65CSD2u3MczUJSuwXKFIxlGsgBQizV9q5J9NHj4VG0n+pA==}
     engines: {node: '>=12.0.0'}
 
-  fast-check@3.23.2:
-    resolution: {integrity: sha512-h5+1OzzfCC3Ef7VbtKdcv7zsstUQwUDlYpUTvjeUsJAssPgLn7QzbboPtL5ro04Mq0rPOsMzl7q5hIbRs2wD1A==}
-    engines: {node: '>=8.0.0'}
+  fast-check@4.10.2:
+    resolution: {integrity: sha512-iK2f+YrcmoeGqk6fA0ea2bptcu/itMIm4NfEozq6N25+aG6h7s5HZbB/k1aV7b5w5sFLMCbbtRUsTVR+BgC3xw==}
+    engines: {node: '>=12.17.0'}
 
   fast-string-truncated-width@3.0.3:
     resolution: {integrity: sha512-0jjjIEL6+0jag3l2XWWizO64/aZVtpiGE3t0Zgqxv0DPuxiMjvB3M24fCyhZUO4KomJQPj3LTSUnDP3GpdwC0g==}
@@ -1344,8 +1322,8 @@ packages:
     resolution: {integrity: sha512-YUbWYCgErwnMAVkjUnYa+KlMBzGpHwiIt/DE7f0G33AuX2LH9UcTk6KgWxd3zRU+pN3u/C+Xl3EnMLM4Hea7Sg==}
     engines: {node: ^10 || ^12 || >=14}
 
-  pure-rand@6.1.0:
-    resolution: {integrity: sha512-bVWawvoZoBYpp6yIoQtQXHZjmz35RSVHnUOTefl8Vcjr8snTPY1wnpSPMWekcFwbxI6gtmT7rSYPFvz71ldiOA==}
+  pure-rand@8.4.2:
+    resolution: {integrity: sha512-vvuOGgcuPJAirlHvuQw1TrOiw7ptaIXXmIbNuiNOY6lNGJJH49PQ1Kj4nd783nPdQhQdicgOjVI2yI/9BD6/Ng==}
 
   resolve-pkg-maps@1.0.0:
     resolution: {integrity: sha512-seS2Tj26TBVOC2NIc2rOe2y2ZO7efxITtLZcGSOnHHNOQ7CkiUBfw0Iw2ck6xkIhPwLhKNLS8BO+hEpngQlqzw==}
@@ -1807,13 +1785,9 @@ snapshots:
       '@tybys/wasm-util': 0.10.3
     optional: true
 
-  '@nerima-games/mc-kernel@0.10.0':
+  '@nerima-games/mc-kernel@0.11.0':
     dependencies:
       effect: 4.0.5
-
-  '@nerima-games/mc-kernel@0.8.0':
-    dependencies:
-      effect: 3.22.1
 
   '@nerima-games/mc-kernel@0.9.0':
     dependencies:
@@ -1824,49 +1798,32 @@ snapshots:
       '@nerima-games/mc-kernel': 0.9.0
       effect: 4.0.5
 
-  '@nerima-games/mc-noise@0.4.0':
-    dependencies:
-      '@nerima-games/mc-kernel': 0.8.0
-      effect: 3.22.1
-
   '@nerima-games/mc-noise@0.5.0':
     dependencies:
       '@nerima-games/mc-kernel': 0.9.0
       effect: 4.0.5
 
-  '@nerima-games/mc-physics@0.3.0':
+  '@nerima-games/mc-physics@0.4.0':
     dependencies:
-      '@nerima-games/mc-kernel': 0.8.0
-      effect: 3.22.1
-
-  '@nerima-games/mc-save@0.5.0':
-    dependencies:
-      '@nerima-games/mc-kernel': 0.8.0
-      effect: 3.22.1
+      '@nerima-games/mc-kernel': 0.9.0
+      effect: 4.0.5
 
   '@nerima-games/mc-save@0.6.0':
     dependencies:
       '@nerima-games/mc-kernel': 0.9.0
       effect: 4.0.5
 
-  '@nerima-games/mc-sim@0.5.0':
+  '@nerima-games/mc-sim@0.6.0':
     dependencies:
-      '@nerima-games/mc-kernel': 0.8.0
-      '@nerima-games/mc-physics': 0.3.0
-      '@nerima-games/mc-save': 0.5.0
-      '@nerima-games/mc-worldgen': 0.5.0
-      effect: 3.22.1
+      '@nerima-games/mc-kernel': 0.11.0
+      '@nerima-games/mc-physics': 0.4.0
+      '@nerima-games/mc-save': 0.6.0
+      '@nerima-games/mc-worldgen': 0.7.0
+      effect: 4.0.5
 
-  '@nerima-games/mc-worldgen@0.5.0':
+  '@nerima-games/mc-worldgen@0.7.0':
     dependencies:
-      '@nerima-games/mc-kernel': 0.8.0
-      '@nerima-games/mc-noise': 0.4.0
-      '@nerima-games/mc-save': 0.5.0
-      effect: 3.22.1
-
-  '@nerima-games/mc-worldgen@0.6.0':
-    dependencies:
-      '@nerima-games/mc-kernel': 0.9.0
+      '@nerima-games/mc-kernel': 0.11.0
       '@nerima-games/mc-noise': 0.5.0
       '@nerima-games/mc-save': 0.6.0
       effect: 4.0.5
@@ -2044,8 +2001,6 @@ snapshots:
 
   '@rolldown/pluginutils@1.0.1': {}
 
-  '@standard-schema/spec@1.1.0': {}
-
   '@tweenjs/tween.js@23.1.3': {}
 
   '@tybys/wasm-util@0.10.3':
@@ -2183,11 +2138,6 @@ snapshots:
 
   detect-libc@2.1.2: {}
 
-  effect@3.22.1:
-    dependencies:
-      '@standard-schema/spec': 1.1.0
-      fast-check: 3.23.2
-
   effect@4.0.5: {}
 
   es-module-lexer@2.3.2: {}
@@ -2227,9 +2177,9 @@ snapshots:
 
   expect-type@1.4.0: {}
 
-  fast-check@3.23.2:
+  fast-check@4.10.2:
     dependencies:
-      pure-rand: 6.1.0
+      pure-rand: 8.4.2
 
   fast-string-truncated-width@3.0.3: {}
 
@@ -2430,7 +2380,7 @@ snapshots:
       picocolors: 1.1.1
       source-map-js: 1.2.2
 
-  pure-rand@6.1.0: {}
+  pure-rand@8.4.2: {}
 
   resolve-pkg-maps@1.0.0: {}
 
