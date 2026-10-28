@@ -212,7 +212,7 @@ const resolveGpuTimerExtension = (
 
 const resolveGpuTimerElapsedMilliseconds = (
   elapsedNanoseconds: unknown,
-): Effect.Effect<number, GpuTimerServiceFailure> => {
+): Effect.Effect<number | undefined, GpuTimerServiceFailure> => {
   const elapsedMilliseconds = millisecondsFromGpuNanoseconds(elapsedNanoseconds)
   if (Result.isFailure(elapsedMilliseconds)) {
     return Effect.fail(elapsedMilliseconds.failure)
