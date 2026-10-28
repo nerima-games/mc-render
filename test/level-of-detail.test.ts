@@ -8,7 +8,7 @@
  *
  * The tests are in the order the argument runs:
  *
- *   1. the tier rule itself — total, coarsest-first, saturating
+ *   1. input validation and the tier rule — coarsest-first, saturating
  *   2. §3.5(a)'s published table, RECOMPUTED rather than quoted
  *   3. the "sub-pixel" claim, refuted by that computation
  *   4. the dead-tier defect at `renderDistance = 4`, pinned as arithmetic
@@ -17,7 +17,7 @@
  *   7. the canonical vocabulary agrees with `world-renderer.ts`
  */
 import { describe, expect, it } from '@effect/vitest'
-import { Effect } from 'effect'
+import { Effect, Result, Schema } from 'effect'
 import * as FastCheck from 'fast-check'
 import {
   LOD1_DISTANCE_CHUNKS,
@@ -27,6 +27,10 @@ import {
   chunkDistance,
   distanceForScreenErrorPixels,
   lodForDistance,
+  LodForDistanceResultSchema,
+  LodThresholdsResultSchema,
+  LodTierCensusResultSchema,
+  UnreachableLodTiersResultSchema,
   lodScreenErrorPixels,
   lodThresholdsForRenderDistance,
   lodTierCensus,
@@ -48,6 +52,149 @@ const ascendingPair = (left: number, right: number): readonly [number, number] =
   }
   return [right, left]
 }
+
+const expectSuccess = <A, E>(
+  result: Result.Result<A, E>,
+): asserts result is Result.Success<A, E> => {
+  expect(Result.isSuccess(result)).toBe(true)
+}
+
+const expectFailure = <A, E>(
+  result: Result.Result<A, E>,
+): asserts result is Result.Failure<A, E> => {
+  expect(Result.isFailure(result)).toBe(true)
+}
+
+const lod = (distance: number, thresholds: LodThresholds) => {
+  const result = lodForDistance(distance, thresholds)
+  expectSuccess(result)
+  return result.success
+}
+
+const thresholdsFor = (renderDistance: number) => {
+  const result = lodThresholdsForRenderDistance(renderDistance)
+  expectSuccess(result)
+  return result.success
+}
+
+const censusFor = (renderDistance: number, thresholds: LodThresholds) => {
+  const result = lodTierCensus(renderDistance, thresholds)
+  expectSuccess(result)
+  return result.success
+}
+
+const unreachableFor = (renderDistance: number, thresholds: LodThresholds) => {
+  const result = unreachableLodTiers(renderDistance, thresholds)
+  expectSuccess(result)
+  return result.success
+}
+
+const decodeThresholdsResult = Schema.decodeUnknownResult(LodThresholdsResultSchema, {
+  onExcessProperty: 'error',
+})
+const decodeLodResult = Schema.decodeUnknownResult(LodForDistanceResultSchema, {
+  onExcessProperty: 'error',
+})
+const decodeCensusResult = Schema.decodeUnknownResult(LodTierCensusResultSchema, {
+  onExcessProperty: 'error',
+})
+const decodeUnreachableResult = Schema.decodeUnknownResult(UnreachableLodTiersResultSchema, {
+  onExcessProperty: 'error',
+})
+
+const invalidRenderDistance = FastCheck.oneof(
+  FastCheck.integer({ min: -64, max: -1 }),
+  FastCheck.double({ min: 0, max: 256, noNaN: true }).filter((value) => !Number.isSafeInteger(value)),
+  FastCheck.constantFrom(Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY),
+)
+
+const invalidDistance = FastCheck.oneof(
+  FastCheck.integer({ min: -64, max: -1 }),
+  FastCheck.constantFrom(Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY),
+)
+
+const invalidThresholds = FastCheck.oneof(
+  FastCheck.integer({ min: -64, max: -1 }).map((lod1) => ({ lod1, lod2: 1 })),
+  FastCheck.constantFrom(Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY).map(
+    (lod1) => ({ lod1, lod2: 1 }),
+  ),
+  FastCheck.integer({ min: 0, max: 64 }).map((lod1) => ({ lod1, lod2: 1, unexpected: true })),
+)
+
+describe('LOD result schemas', () => {
+  it.effect('decode every API result and reject missing or excess fields', () =>
+    Effect.sync(() => {
+      const thresholds = lodThresholdsForRenderDistance(4)
+      expectSuccess(thresholds)
+      expectSuccess(decodeThresholdsResult(thresholds))
+
+      const level = lodForDistance(4, REFERENCE_LOD_THRESHOLDS)
+      expectSuccess(level)
+      expectSuccess(decodeLodResult(level))
+
+      const census = lodTierCensus(4, REFERENCE_LOD_THRESHOLDS)
+      expectSuccess(census)
+      expectSuccess(decodeCensusResult(census))
+
+      const unreachable = unreachableLodTiers(4, REFERENCE_LOD_THRESHOLDS)
+      expectSuccess(unreachable)
+      expectSuccess(decodeUnreachableResult(unreachable))
+
+      expectFailure(decodeThresholdsResult({
+        _tag: 'Success',
+        _op: 'Success',
+        success: { lod1: 2 },
+      }))
+      expectFailure(decodeThresholdsResult({
+        _tag: 'Success',
+        _op: 'Success',
+        success: { lod1: 2, lod2: 4, unexpected: true },
+      }))
+      expectFailure(decodeLodResult({
+        _tag: 'Success',
+        _op: 'Success',
+        success: 1,
+        unexpected: true,
+      }))
+      expectFailure(decodeLodResult({
+        _tag: 'Failure',
+        _op: 'Failure',
+        failure: {
+          _tag: 'LodInputError',
+          operation: 'distance',
+          reason: 'invalid-distance',
+          unexpected: true,
+        },
+      }))
+      expectFailure(decodeLodResult({
+        _tag: 'Failure',
+        _op: 'Failure',
+        failure: { _tag: 'LodInputError', operation: 'distance' },
+      }))
+      expectFailure(decodeLodResult({ _tag: 'Success', success: 1 }))
+      expectFailure(decodeCensusResult({
+        _tag: 'Success',
+        _op: 'Success',
+        success: { 0: 1, 1: 2 },
+      }))
+      expectFailure(decodeCensusResult({
+        _tag: 'Success',
+        _op: 'Success',
+        success: { 0: 1, 1: 2, 2: 3, unexpected: 4 },
+      }))
+      expectFailure(decodeUnreachableResult({
+        _tag: 'Success',
+        _op: 'Success',
+        success: [1],
+        unexpected: true,
+      }))
+      expectFailure(decodeUnreachableResult({
+        _tag: 'Success',
+        _op: 'Success',
+      }))
+    }),
+  )
+})
 
 describe('chunkDistance', () => {
   it.effect('is the Chebyshev norm, so the loaded square and the tier rings agree', () =>
@@ -89,7 +236,7 @@ describe('chunkDistance', () => {
 describe('lodForDistance', () => {
   it.effect('places the reference bands where the reference places them', () =>
     Effect.sync(() => {
-      const at = (distance: number) => lodForDistance(distance, REFERENCE_LOD_THRESHOLDS)
+      const at = (distance: number) => lod(distance, REFERENCE_LOD_THRESHOLDS)
       expect([at(0), at(3)]).toStrictEqual([0, 0])
       // The boundaries are INCLUSIVE at the near end: `d >= LOD1` is the
       // reference's comparison, so 4 is the first LOD 1 chunk, not the last
@@ -99,24 +246,51 @@ describe('lodForDistance', () => {
     }),
   )
 
-  it.effect('REGRESSION: is total — no distance, however strange, throws or returns undefined', () =>
+  it.effect('returns a strict schema-valid failure for invalid distances', () =>
     Effect.sync(() => {
-      // The rule this repository already follows in `aoShade` and
-      // `mouseButtonForIndex`: a renderer that throws on an odd number takes the
-      // whole frame down for a bookkeeping error.
-      for (const distance of [-1, -0, Number.NaN, Number.POSITIVE_INFINITY, 0.5, 1e308]) {
-        expect(LOD_LEVELS).toContain(lodForDistance(distance, REFERENCE_LOD_THRESHOLDS))
-      }
+      FastCheck.assert(
+        FastCheck.property(invalidDistance, (distance) => {
+          const result = lodForDistance(distance, REFERENCE_LOD_THRESHOLDS)
+          expectFailure(result)
+          expect(result.failure.reason).toBe('invalid-distance')
+
+          const decoded = decodeLodResult(result)
+          expectSuccess(decoded)
+          expect(decoded.success._tag).toBe('Failure')
+        }),
+        { seed: 0, numRuns: 200 },
+      )
     }),
   )
 
-  it.effect('sends NaN to the FINEST tier, which is the safe direction', () =>
+  it.effect('returns a strict schema-valid failure for invalid threshold pairs', () =>
     Effect.sync(() => {
-      // NaN fails both `>=` comparisons and falls through. That is not an
-      // accident of operator semantics being tolerated — it is the direction
-      // worth having: an uninterpretable distance draws the chunk properly and
-      // costs frame time, rather than drawing it coarsely and looking broken.
-      expect(lodForDistance(Number.NaN, REFERENCE_LOD_THRESHOLDS)).toBe(0)
+      FastCheck.assert(
+        FastCheck.property(invalidThresholds, (thresholds) => {
+          const result = lodForDistance(4, thresholds)
+          expectFailure(result)
+          expect(result.failure.reason).toBe('invalid-thresholds')
+
+          const decoded = decodeLodResult(result)
+          expectSuccess(decoded)
+          expect(decoded.success._tag).toBe('Failure')
+
+          const census = lodTierCensus(4, thresholds)
+          expectFailure(census)
+          expect(census.failure.reason).toBe('invalid-thresholds')
+          const decodedCensus = decodeCensusResult(census)
+          expectSuccess(decodedCensus)
+          expect(decodedCensus.success._tag).toBe('Failure')
+
+          const unreachable = unreachableLodTiers(4, thresholds)
+          expectFailure(unreachable)
+          expect(unreachable.failure.reason).toBe('invalid-thresholds')
+          const decodedUnreachable = decodeUnreachableResult(unreachable)
+          expectSuccess(decodedUnreachable)
+          expect(decodedUnreachable.success._tag).toBe('Failure')
+        }),
+        { seed: 0, numRuns: 200 },
+      )
     }),
   )
 
@@ -128,9 +302,9 @@ describe('lodForDistance', () => {
       // would return LOD 1 for a distant chunk — the direction that costs frame
       // time instead of fidelity.
       const crossed: LodThresholds = { lod1: 8, lod2: 4 }
-      expect(lodForDistance(10, crossed)).toBe(2)
-      expect(lodForDistance(4, crossed)).toBe(2)
-      expect(lodForDistance(3, crossed)).toBe(0)
+      expect(lod(10, crossed)).toBe(2)
+      expect(lod(4, crossed)).toBe(2)
+      expect(lod(3, crossed)).toBe(0)
     }),
   )
 
@@ -145,10 +319,10 @@ describe('lodForDistance', () => {
           arbitraryDistance,
           arbitraryDistance,
           (renderDistance, left, right) => {
-            const thresholds = lodThresholdsForRenderDistance(renderDistance)
+            const thresholds = thresholdsFor(renderDistance)
             const [near, far] = ascendingPair(left, right)
-            expect(lodForDistance(near, thresholds)).toBeLessThanOrEqual(
-              lodForDistance(far, thresholds),
+            expect(lod(near, thresholds)).toBeLessThanOrEqual(
+              lod(far, thresholds),
             )
           },
         ),
@@ -287,9 +461,9 @@ describe('the dead tier at renderDistance = 4', () => {
       // `renderDistance = 4` is where the reference's adaptive quality drops
       // when the frame budget is missed, so the strongest tier is switched off
       // in exactly the setting that needs it.
-      const census = lodTierCensus(4, REFERENCE_LOD_THRESHOLDS)
+      const census = censusFor(4, REFERENCE_LOD_THRESHOLDS)
       expect(census[2]).toBe(0)
-      expect(unreachableLodTiers(4, REFERENCE_LOD_THRESHOLDS)).toStrictEqual([2])
+      expect(unreachableFor(4, REFERENCE_LOD_THRESHOLDS)).toStrictEqual([2])
     }),
   )
 
@@ -300,7 +474,7 @@ describe('the dead tier at renderDistance = 4', () => {
       // and the total is (2R+1)^2 because the rings partition the square.
       FastCheck.assert(
         FastCheck.property(FastCheck.integer({ min: 0, max: 32 }), (renderDistance) => {
-          const census = lodTierCensus(renderDistance, lodThresholdsForRenderDistance(renderDistance))
+          const census = censusFor(renderDistance, thresholdsFor(renderDistance))
           // `reduce<number>`: `LOD_LEVELS` is a tuple of `0 | 1 | 2`, so an
           // unannotated reduce infers that union as the accumulator and a sum
           // of 81 is not assignable to it.
@@ -316,13 +490,43 @@ describe('the dead tier at renderDistance = 4', () => {
     Effect.sync(() => {
       // The published rows: renderDistance 4 gives 49/81 at LOD 0, 32/81 at
       // LOD 1 and 0/81 at LOD 2; renderDistance 8 gives 49/289, 176/289, 64/289.
-      expect(lodTierCensus(4, REFERENCE_LOD_THRESHOLDS)).toStrictEqual({ 0: 49, 1: 32, 2: 0 })
-      expect(lodTierCensus(8, REFERENCE_LOD_THRESHOLDS)).toStrictEqual({ 0: 49, 1: 176, 2: 64 })
+      expect(censusFor(4, REFERENCE_LOD_THRESHOLDS)).toStrictEqual({ 0: 49, 1: 32, 2: 0 })
+      expect(censusFor(8, REFERENCE_LOD_THRESHOLDS)).toStrictEqual({ 0: 49, 1: 176, 2: 64 })
     }),
   )
 })
 
 describe('lodThresholdsForRenderDistance', () => {
+  it.effect('returns schema-valid failures for invalid render distances', () =>
+    Effect.sync(() => {
+      FastCheck.assert(
+        FastCheck.property(invalidRenderDistance, (renderDistance) => {
+          const thresholds = lodThresholdsForRenderDistance(renderDistance)
+          expectFailure(thresholds)
+          expect(thresholds.failure.reason).toBe('invalid-render-distance')
+          const decodedThresholds = decodeThresholdsResult(thresholds)
+          expectSuccess(decodedThresholds)
+          expect(decodedThresholds.success._tag).toBe('Failure')
+
+          const census = lodTierCensus(renderDistance, REFERENCE_LOD_THRESHOLDS)
+          expectFailure(census)
+          expect(census.failure.reason).toBe('invalid-render-distance')
+          const decodedCensus = decodeCensusResult(census)
+          expectSuccess(decodedCensus)
+          expect(decodedCensus.success._tag).toBe('Failure')
+
+          const unreachable = unreachableLodTiers(renderDistance, REFERENCE_LOD_THRESHOLDS)
+          expectFailure(unreachable)
+          expect(unreachable.failure.reason).toBe('invalid-render-distance')
+          const decodedUnreachable = decodeUnreachableResult(unreachable)
+          expectSuccess(decodedUnreachable)
+          expect(decodedUnreachable.success._tag).toBe('Failure')
+        }),
+        { seed: 0, numRuns: 200 },
+      )
+    }),
+  )
+
   it.effect('REGRESSION: no tier is unreachable at any render distance above 1', () =>
     Effect.sync(() => {
       // §3.5(b)'s remedy, and the ONLY claim being made for the ratio rule:
@@ -331,7 +535,7 @@ describe('lodThresholdsForRenderDistance', () => {
       // test deliberately does not pretend otherwise.
       FastCheck.assert(
         FastCheck.property(FastCheck.integer({ min: 2, max: 64 }), (renderDistance) => {
-          expect(unreachableLodTiers(renderDistance, lodThresholdsForRenderDistance(renderDistance))).toStrictEqual([])
+          expect(unreachableFor(renderDistance, thresholdsFor(renderDistance))).toStrictEqual([])
         }),
         { seed: 0, numRuns: 200 },
       )
@@ -340,7 +544,7 @@ describe('lodThresholdsForRenderDistance', () => {
 
   it.effect('fixes the case the reference thresholds fail', () =>
     Effect.sync(() => {
-      const census = lodTierCensus(4, lodThresholdsForRenderDistance(4))
+      const census = censusFor(4, thresholdsFor(4))
       expect(census[2]).toBeGreaterThan(0)
       // The outermost ring, which is 8R chunks — the coarsest tier lands
       // exactly on the band furthest from the player at every setting.
@@ -356,7 +560,7 @@ describe('lodThresholdsForRenderDistance', () => {
       // visible, and where the 11 px of §3.5(a) becomes metres.
       FastCheck.assert(
         FastCheck.property(FastCheck.integer({ min: 0, max: 64 }), (renderDistance) => {
-          expect(lodForDistance(0, lodThresholdsForRenderDistance(renderDistance))).toBe(0)
+          expect(lod(0, thresholdsFor(renderDistance))).toBe(0)
         }),
         { seed: 0, numRuns: 200 },
       )
@@ -369,11 +573,11 @@ describe('lodThresholdsForRenderDistance', () => {
       // chunks step 0 -> 2. Correct for a two-ring world — there is no room for
       // a graduated middle — but it IS a discontinuity, and pinning it here is
       // what makes it a decision somebody can revisit rather than a surprise.
-      expect(lodThresholdsForRenderDistance(1)).toStrictEqual({ lod1: 1, lod2: 1 })
-      expect(lodTierCensus(1, lodThresholdsForRenderDistance(1))).toStrictEqual({ 0: 1, 1: 0, 2: 8 })
+      expect(thresholdsFor(1)).toStrictEqual({ lod1: 1, lod2: 1 })
+      expect(censusFor(1, thresholdsFor(1))).toStrictEqual({ 0: 1, 1: 0, 2: 8 })
       // At renderDistance 0 only the player's chunk is loaded, so LOD 1 and 2
       // are both empty and `unreachableLodTiers` says so rather than hiding it.
-      expect(unreachableLodTiers(0, lodThresholdsForRenderDistance(0))).toStrictEqual([1, 2])
+      expect(unreachableFor(0, thresholdsFor(0))).toStrictEqual([1, 2])
     }),
   )
 
@@ -381,7 +585,7 @@ describe('lodThresholdsForRenderDistance', () => {
     Effect.sync(() => {
       FastCheck.assert(
         FastCheck.property(FastCheck.integer({ min: 0, max: 256 }), (renderDistance) => {
-          const { lod1, lod2 } = lodThresholdsForRenderDistance(renderDistance)
+          const { lod1, lod2 } = thresholdsFor(renderDistance)
           expect(lod1).toBeLessThanOrEqual(lod2)
           expect(lod1).toBeGreaterThanOrEqual(1)
         }),
