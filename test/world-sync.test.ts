@@ -13,7 +13,7 @@
  * as nothing, and so reads as "the world generator only made one chunk".
  */
 import { describe, expect, it } from '@effect/vitest'
-import { Effect, Ref } from 'effect'
+import { Effect, Ref, Result, Schema } from 'effect'
 import * as FastCheck from 'fast-check'
 import {
   makeWorldRenderer,
@@ -22,6 +22,8 @@ import {
 } from '../src/application/world-renderer'
 import {
   EMPTY_SYNC_REPORT,
+  BudgetedDirtySourceInputErrorSchema,
+  BudgetedDirtySourceResultSchema,
   attachWorldRenderer,
   chunkKeyOf,
   chunkOrigin,
@@ -30,6 +32,7 @@ import {
   type ChunkRef,
   type DirtyBatch,
   type DirtySource,
+  type BudgetedDirtySourceInputError,
 } from '../src/application/world-sync'
 import { CHUNK_SIZE } from '@nerima-games/mc-meshing'
 import type { CrossPlantQuad, GeometryQuad, MeshQuad, QuadColor } from '../src/domain/chunk-geometry'
@@ -387,6 +390,11 @@ describe('attachWorldRenderer', () => {
 describe('makeBudgetedDirtySource', () => {
   const chunk = (cx: number, cz: number): ChunkRef => chunkCoord(cx, cz)
   const drain = (source: DirtySource): DirtyBatch => Effect.runSync(source.drain)
+  const expectSuccess: <A, E>(
+    result: Result.Result<A, E>,
+  ) => asserts result is Result.Success<A, E> = (result) => {
+    expect(Result.isSuccess(result)).toBe(true)
+  }
 
   const staticSource = (...batches: ReadonlyArray<DirtyBatch>): DirtySource => {
     const remaining = [...batches]
@@ -395,17 +403,56 @@ describe('makeBudgetedDirtySource', () => {
     }
   }
 
-  it.effect('requires a positive integer frame budget', () =>
+  const budgetedSource = (source: DirtySource, budget: number) => {
+    const result = makeBudgetedDirtySource(source, budget)
+    expectSuccess(result)
+    return result.success
+  }
+
+  const decodeBudgetedSourceResult = Schema.decodeUnknownResult(BudgetedDirtySourceResultSchema, {
+    onExcessProperty: 'error',
+  })
+  const invalidBudgets = FastCheck.oneof(
+    FastCheck.integer({ min: -1000, max: 0 }),
+    FastCheck.double({ min: -1000, max: 1000, noNaN: true }).filter(
+      (budget) => !Number.isInteger(budget) || budget < 1,
+    ),
+    FastCheck.constantFrom(Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY),
+  )
+
+  it.effect('returns a strict typed failure for every invalid frame budget', () =>
     Effect.sync(() => {
-      expect(() => makeBudgetedDirtySource(staticSource(), 0)).toThrow(RangeError)
-      expect(() => makeBudgetedDirtySource(staticSource(), -1)).toThrow(RangeError)
-      expect(() => makeBudgetedDirtySource(staticSource(), 1.5)).toThrow(RangeError)
+      FastCheck.assert(
+        FastCheck.property(invalidBudgets, (budget) => {
+          const result = makeBudgetedDirtySource(staticSource(), budget)
+          const inspected = decodeBudgetedSourceResult(result)
+          return (
+            Result.isSuccess(inspected) &&
+            inspected.success._tag === 'Failure' &&
+            inspected.success.failure._tag === 'BudgetedDirtySourceInputError' &&
+            inspected.success.failure.reason === 'invalid-frame-budget'
+          )
+        }),
+        { seed: 0x5eed, numRuns: 100 },
+      )
+
+      const error: BudgetedDirtySourceInputError = {
+        _tag: 'BudgetedDirtySourceInputError',
+        reason: 'invalid-frame-budget',
+      }
+      const decodedError = Schema.decodeUnknownResult(BudgetedDirtySourceInputErrorSchema, {
+        onExcessProperty: 'error',
+      })(error)
+      expect(Result.isSuccess(decodedError)).toBe(true)
+      expect(
+        Result.isFailure(decodeBudgetedSourceResult({ ...Result.fail(error), unexpected: true })),
+      ).toBe(true)
     }),
   )
 
   it.effect('prioritizes removals and carries the remaining changes to later frames', () =>
     Effect.sync(() => {
-      const source = makeBudgetedDirtySource(
+      const source = budgetedSource(
         staticSource({
           changed: [chunk(1, 0), chunk(2, 0), chunk(3, 0)],
           removed: [chunk(4, 0), chunk(5, 0)],
@@ -423,7 +470,7 @@ describe('makeBudgetedDirtySource', () => {
   it.effect('coalesces updates by chunk, and a later change replaces an earlier removal', () =>
     Effect.sync(() => {
       const target = chunk(7, -2)
-      const source = makeBudgetedDirtySource(
+      const source = budgetedSource(
         staticSource(
           { changed: [target, chunk(8, -2)], removed: [] },
           { changed: [target], removed: [target] },
@@ -441,7 +488,7 @@ describe('makeBudgetedDirtySource', () => {
 
   it.effect('enqueue renders a chunk loaded before the wrapped source ever notifies', () =>
     Effect.sync(() => {
-      const source = makeBudgetedDirtySource(staticSource({ changed: [], removed: [] }), 1)
+      const source = budgetedSource(staticSource({ changed: [], removed: [] }), 1)
 
       source.enqueue({ changed: [chunk(8, -3)], removed: [] })
 
@@ -492,7 +539,7 @@ describe('makeBudgetedDirtySource', () => {
                   return { changed: [dirtiedChunk], removed: [] }
                 }),
               }
-              const budgeted = makeBudgetedDirtySource(source, budget)
+              const budgeted = budgetedSource(source, budget)
 
               // One call per event to feed them all in, plus enough more to
               // drain whatever backlog that built up, plus one to confirm it

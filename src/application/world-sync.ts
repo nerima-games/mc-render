@@ -48,7 +48,7 @@ import {
 } from '../domain/chunk-geometry.js'
 import { type ChunkCoord, chunkCoord } from '@nerima-games/mc-kernel'
 import { type ChunkGeometryUpdate, type ChunkKey, type WorldRenderer } from './world-renderer.js'
-import { Effect, Ref, Semaphore } from 'effect'
+import { Effect, Ref, Result, Schema, Semaphore } from 'effect'
 import { CHUNK_SIZE } from '@nerima-games/mc-meshing'
 import { chunkKeyOf as worldgenChunkKeyOf } from '@nerima-games/mc-worldgen'
 
@@ -413,6 +413,45 @@ export type BudgetedDirtySource = DirtySource & {
   readonly enqueue: (batch: DirtyBatch) => void
 }
 
+export type BudgetedDirtySourceInputError = {
+  readonly _tag: 'BudgetedDirtySourceInputError'
+  readonly reason: 'invalid-frame-budget'
+}
+
+export const BudgetedDirtySourceInputErrorSchema: Schema.Codec<BudgetedDirtySourceInputError> = Schema.Struct({
+  _tag: Schema.Literal('BudgetedDirtySourceInputError'),
+  reason: Schema.Literal('invalid-frame-budget'),
+})
+
+type BudgetedDirtySourceResultShape =
+  | {
+      readonly _tag: 'Success'
+      readonly _op: 'Success'
+      readonly success: { readonly drain: unknown; readonly enqueue: unknown }
+    }
+  | {
+      readonly _tag: 'Failure'
+      readonly _op: 'Failure'
+      readonly failure: BudgetedDirtySourceInputError
+    }
+
+/** Decode with `onExcessProperty: 'error'` to enforce exact result and error shapes. */
+export const BudgetedDirtySourceResultSchema: Schema.Codec<BudgetedDirtySourceResultShape> = Schema.Union([
+  Schema.Struct({
+    _tag: Schema.Literal('Success'),
+    _op: Schema.Literal('Success'),
+    success: Schema.Struct({
+      drain: Schema.Unknown,
+      enqueue: Schema.Unknown,
+    }),
+  }),
+  Schema.Struct({
+    _tag: Schema.Literal('Failure'),
+    _op: Schema.Literal('Failure'),
+    failure: BudgetedDirtySourceInputErrorSchema,
+  }),
+])
+
 const MIN_UPDATES_PER_FRAME = 1
 
 /** Insertion order is the queue order, so a budget always takes from the front. */
@@ -430,9 +469,9 @@ const takeBudgeted = (pending: Map<string, ChunkRef>, budget: number): ReadonlyA
 export const makeBudgetedDirtySource = (
   source: DirtySource,
   maxUpdatesPerFrame: number,
-): BudgetedDirtySource => {
+): Result.Result<BudgetedDirtySource, BudgetedDirtySourceInputError> => {
   if (!Number.isInteger(maxUpdatesPerFrame) || maxUpdatesPerFrame < MIN_UPDATES_PER_FRAME) {
-    throw new RangeError('maxUpdatesPerFrame must be a positive integer')
+    return Result.fail({ _tag: 'BudgetedDirtySourceInputError', reason: 'invalid-frame-budget' })
   }
 
   const pendingChanged = new Map<string, ChunkRef>()
@@ -451,7 +490,7 @@ export const makeBudgetedDirtySource = (
     }
   }
 
-  return {
+  return Result.succeed({
     drain: Effect.gen(function* () {
       merge(yield* source.drain)
       const removed = takeBudgeted(pendingRemoved, maxUpdatesPerFrame)
@@ -459,5 +498,5 @@ export const makeBudgetedDirtySource = (
       return { changed, removed }
     }),
     enqueue: merge,
-  }
+  })
 }
