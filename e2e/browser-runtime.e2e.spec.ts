@@ -10,6 +10,7 @@ const CANVAS_HEIGHT = 240
 const PIXEL_RATIO = 1
 const FRAME_RATE = 60
 const FRAME_COUNT = 12
+const GPU_TIMER_POLL_FRAME_LIMIT = 60
 const FRAME_DELTA_SECS = ONE / FRAME_RATE
 const NO_QUERY_RESULT = -1
 const BELOW_THRESHOLD_WATER_SIZE = 0.01
@@ -211,7 +212,7 @@ const inspectRefraction = async (options: RefractionRuntimeOptions): Promise<Ref
   }
 }
 
-const inspectGpuTimer = async (options: BrowserRuntimeOptions & Readonly<{ frameCount: number }>): Promise<GpuTimerResult> => {
+const inspectGpuTimer = async (options: BrowserRuntimeOptions & Readonly<{ frameCount: number; maxPollFrames: number }>): Promise<GpuTimerResult> => {
   const browser = globalThis as unknown as BrowserWithAnimationFrame
   const [runtimeModule, effectModule] = await Promise.all([
     import(new URL('/src/browser.ts', browser.location.href).href),
@@ -243,9 +244,25 @@ const inspectGpuTimer = async (options: BrowserRuntimeOptions & Readonly<{ frame
       await effectModule.Effect.runPromise(runtime.render(options.camera))
       await tools.renderFrames(remaining - options.one)
     },
+    pollForGpuTime: async (remaining: number): Promise<void> => {
+      if (
+        remaining === options.zero ||
+        !runtime.gpuTimingSupported ||
+        runtime.latestGpuTimeMs !== undefined
+      ) {
+        return
+      }
+      await tools.nextFrame()
+      await effectModule.Effect.runPromise(runtime.render(options.camera))
+      await tools.pollForGpuTime(remaining - options.one)
+    },
   }
   try {
-    await tools.renderFrames(options.frameCount)
+    if (runtime.gpuTimingSupported) {
+      await tools.pollForGpuTime(options.maxPollFrames)
+    } else {
+      await tools.renderFrames(options.frameCount)
+    }
     return {
       gpuTimingSupported: runtime.gpuTimingSupported,
       latestGpuTimeMs: runtime.latestGpuTimeMs,
@@ -380,14 +397,19 @@ test('GPU timer uses a completed query when available and keeps rendering withou
     canvasHeight: CANVAS_HEIGHT,
     canvasWidth: CANVAS_WIDTH,
     frameCount: FRAME_COUNT,
+    maxPollFrames: GPU_TIMER_POLL_FRAME_LIMIT,
     maxPixelRatio: PIXEL_RATIO,
     one: ONE,
     zero: ZERO,
   })
-  if (result.gpuTimingSupported && result.latestGpuTimeMs !== undefined) {
-    expect(Number.isFinite(result.latestGpuTimeMs)).toBe(true)
-    expect(result.latestGpuTimeMs).toBeGreaterThanOrEqual(ZERO)
-  } else if (!result.gpuTimingSupported) {
+  if (result.gpuTimingSupported) {
+    expect(result.latestGpuTimeMs).toBeDefined()
+    if (result.latestGpuTimeMs !== undefined) {
+      expect(Number.isFinite(result.latestGpuTimeMs)).toBe(true)
+      expect(result.latestGpuTimeMs).toBeGreaterThanOrEqual(ZERO)
+    }
+  } else {
+    expect(result.gpuTimingSupported).toBe(false)
     expect(result.latestGpuTimeMs).toBeUndefined()
   }
 })
