@@ -94,6 +94,27 @@ describe('makeChunkStoreMesher', () => {
     }),
   )
 
+  it.effect('returns InvalidChunkBlocksLength for a short worldgen chunk', () =>
+    Effect.gen(function* () {
+      const resident = chunk(0, 0, [])
+      const shortChunk = {
+        ...resident,
+        blocks: resident.blocks.subarray(0, resident.blocks.length - 1),
+      }
+
+      const result = yield* Effect.result(makeChunkStoreMesher(storeOf(shortChunk))(chunkCoord(0, 0)))
+
+      expect(Result.isFailure(result)).toBe(true)
+      if (Result.isFailure(result)) {
+        expect(result.failure).toMatchObject({
+          _tag: 'InvalidChunkBlocksLength',
+          actual: resident.blocks.length - 1,
+          expected: resident.blocks.length,
+        })
+      }
+    }),
+  )
+
   it.effect('derives fluid and cross-plant routing from kernel properties', () =>
     Effect.gen(function* () {
       const waterId = BLOCK_IDS.find((blockId) => Result.getOrThrow(propertyOfBlockId(blockId, 'fluid')) === 'water')

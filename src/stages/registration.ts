@@ -342,7 +342,7 @@ export const renderStages = ({
     // At the edge of the screen when the player turns.
     run: () =>
       Effect.gen(function* () {
-        yield* chunkSync.update
+        yield* chunkSync.update.pipe(Effect.orDie)
       }),
   },
   {

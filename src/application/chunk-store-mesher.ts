@@ -24,7 +24,9 @@ import {
   meshChunk,
 } from '@nerima-games/mc-meshing'
 import {
+  type ChunkMesh,
   type ChunkMesher,
+  type ChunkMesherError,
   type SyncOptions,
   type WorldRendererAttachment,
   attachWorldRenderer,
@@ -263,19 +265,20 @@ const meshWorldgenChunk = (
   worldgenChunk: ReadonlyChunk,
   worldgenNeighbours: ReadonlyWorldgenChunkNeighbours,
   config: RenderMeshConfig,
-) => {
+): Result.Result<ChunkMesh, ChunkMesherError> => {
   const chunkView = toChunkView(worldgenChunk)
   const meshingNeighbours = toMeshingNeighbours(worldgenNeighbours)
-  const layers = Result.getOrThrow(meshChunk(chunkView, meshingNeighbours, config))
-  const blockShapeKinds = config.blockShapeKinds ?? EMPTY_BLOCK_SHAPE_KINDS
-  const quads = [...layers.opaque, ...layers.water, ...layers.transparentSolid].filter(
-    (quad) => !blockShapeKinds.has(quad.blockId),
-  )
-  const blockShapes = meshBlockShapes(chunkView, meshingNeighbours, blockShapeKinds)
-  return Object.assign(quads, {
-    blockShapes,
-    crossPlants: layers.crossPlants,
-    fluids: layers.fluids,
+  return Result.map(meshChunk(chunkView, meshingNeighbours, config), (layers) => {
+    const blockShapeKinds = config.blockShapeKinds ?? EMPTY_BLOCK_SHAPE_KINDS
+    const quads = [...layers.opaque, ...layers.water, ...layers.transparentSolid].filter(
+      (quad) => !blockShapeKinds.has(quad.blockId),
+    )
+    const blockShapes = meshBlockShapes(chunkView, meshingNeighbours, blockShapeKinds)
+    return Object.assign(quads, {
+      blockShapes,
+      crossPlants: layers.crossPlants,
+      fluids: layers.fluids,
+    })
   })
 }
 
@@ -293,7 +296,7 @@ export const makeChunkStoreMesher = (
       }
 
       const worldgenNeighbours = yield* store.neighbours(coord)
-      return meshWorldgenChunk(worldgenChunk, worldgenNeighbours, config)
+      return yield* Effect.fromResult(meshWorldgenChunk(worldgenChunk, worldgenNeighbours, config))
     })
 
 /** `options` with a light-sampling `colorForChunk` filled in, unless the caller already supplied one (or a flat `color`). */
