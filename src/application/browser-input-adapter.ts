@@ -119,7 +119,7 @@ import {
   type PointerLockTarget,
   isPointerLockHeld,
 } from './dom-surface.js'
-import { Effect, Layer, Scope } from 'effect'
+import { Effect, Layer, Result, Schema, Scope } from 'effect'
 import {
   type FocusNavigationDirection,
   focusNavigationDirectionForCode,
@@ -396,14 +396,16 @@ const resolvedMouseButton = (index: number | undefined) => {
   if (typeof index === 'undefined') {
     return
   }
-  return mouseButtonForIndex(index)
+  const result = mouseButtonForIndex(index)
+  return Result.isFailure(result) ? undefined : result.success
 }
 
 const resolvedWheelDeltaMode = (index: number | undefined) => {
   if (typeof index === 'undefined') {
     return
   }
-  return wheelDeltaModeForIndex(index)
+  const result = wheelDeltaModeForIndex(index)
+  return Result.isFailure(result) ? undefined : result.success
 }
 
 const translateKeyEvent = (
@@ -952,31 +954,37 @@ const ignore = (): void => {
  * becoming an unhandled rejection that takes the host down.
  */
 /** The try/catch/thenable-swallowing core of one pointer-lock request. */
-const attemptPointerLockRequest = (canvas: PointerLockTarget): PointerLockRequestOutcome => {
-  if (typeof canvas.requestPointerLock !== 'function') {
-    return 'unavailable'
-  }
-  try {
-    /* Called as a method so that `this` is the canvas, which is what the DOM
-       requires and what a `const request = canvas.requestPointerLock` would
-       have quietly broken. */
-    const result: unknown = canvas.requestPointerLock()
-    if (isThenable(result)) {
-      result.then(ignore, ignore)
-    }
-    return 'sent'
-  } catch {
-    return 'unavailable'
-  }
-}
+const attemptPointerLockRequest = (canvas: PointerLockTarget): Effect.Effect<PointerLockRequestOutcome> =>
+  Effect.match(
+    Effect.try({
+      try: (): PointerLockRequestOutcome => {
+        if (typeof canvas.requestPointerLock !== 'function') {
+          return 'unavailable'
+        }
+        /* Called as a method so that `this` is the canvas, which is what the DOM
+           requires and what a `const request = canvas.requestPointerLock` would
+           have quietly broken. */
+        const result: unknown = canvas.requestPointerLock()
+        if (isThenable(result)) {
+          result.then(ignore, ignore)
+        }
+        return 'sent'
+      },
+      catch: () => 'unavailable',
+    }),
+    {
+      onFailure: () => 'unavailable',
+      onSuccess: (outcome) => outcome,
+    },
+  )
 
 export const makeBrowserPointerLockPort = (options: BrowserPointerLockOptions): PointerLockPort => ({
-  request: Effect.sync((): PointerLockRequestOutcome => {
+  request: Effect.gen(function* requestPointerLock() {
     const { canvas } = options
     if (typeof options.allowsPointerLock !== 'undefined' && !options.allowsPointerLock()) {
       return 'unavailable'
     }
-    return attemptPointerLockRequest(canvas)
+    return yield* attemptPointerLockRequest(canvas)
   }),
 })
 
@@ -1123,7 +1131,7 @@ export const TOUCH_CONTROL_ACTIONS: readonly [
 
 export type TouchControlAction = (typeof TOUCH_CONTROL_ACTIONS)[number]
 
-export type TouchControlTargets<Target = unknown> = Readonly<Record<TouchControlAction, Target>>
+export type TouchControlTargets<Target = unknown> = Readonly<Partial<Record<TouchControlAction, Target>>>
 
 /**
  * Build a `TouchControlTarget` roster from a host's `{action: element}` map.
@@ -1132,41 +1140,116 @@ export type TouchControlTargets<Target = unknown> = Readonly<Record<TouchControl
  * catches an action with no binding (see its own header — this is the check
  * answerable without a browser), and the two loops below catch a target the
  * host forgot to assign and a target the host assigned to two actions. A
- * roster is data a host writes by hand, and all three are typo classes, not
- * runtime conditions.
+ * roster is data a host writes by hand, and all three are validated while the
+ * host builds the roster.
  *
  * `bindings` defaults to `defaultBindings()` rather than being hardcoded to
  * it — the lowered original always checked the DEFAULT table, which can only
- * ever pass (every `TOUCH_CONTROL_ACTIONS` entry has a default binding, so
- * the throw below was unreachable from any caller and untestable). A host
+ * ever pass because every `TOUCH_CONTROL_ACTIONS` entry has a default binding.
+ * A host
  * that remapped its keys should validate its roster against what its player
  * ACTUALLY has bound, not the table nobody is using; the parameter also
- * makes the rejection reachable from a test.
+ * makes the typed rejection reachable from a test.
  */
 const NO_UNAVAILABLE_TOUCH_ACTIONS = 0
+
+export type TouchControlRosterError =
+  | {
+      readonly _tag: 'TouchControlRosterError'
+      readonly reason: 'unbound-actions'
+      readonly actions: ReadonlyArray<TouchControlAction>
+    }
+  | {
+      readonly _tag: 'TouchControlRosterError'
+      readonly reason: 'missing-target'
+      readonly action: TouchControlAction
+    }
+  | {
+      readonly _tag: 'TouchControlRosterError'
+      readonly reason: 'shared-target'
+      readonly owner: TouchControlAction
+      readonly action: TouchControlAction
+    }
+
+type TouchControlRosterResultShape =
+  | {
+      readonly _tag: 'Success'
+      readonly _op: 'Success'
+      readonly success: ReadonlyArray<TouchControlTarget>
+    }
+  | {
+      readonly _tag: 'Failure'
+      readonly _op: 'Failure'
+      readonly failure: TouchControlRosterError
+    }
+
+export const TouchControlRosterErrorSchema: Schema.Codec<TouchControlRosterError> = Schema.Union([
+  Schema.Struct({
+    _tag: Schema.Literal('TouchControlRosterError'),
+    reason: Schema.Literal('unbound-actions'),
+    actions: Schema.Array(Schema.Literals(TOUCH_CONTROL_ACTIONS)),
+  }),
+  Schema.Struct({
+    _tag: Schema.Literal('TouchControlRosterError'),
+    reason: Schema.Literal('missing-target'),
+    action: Schema.Literals(TOUCH_CONTROL_ACTIONS),
+  }),
+  Schema.Struct({
+    _tag: Schema.Literal('TouchControlRosterError'),
+    reason: Schema.Literal('shared-target'),
+    owner: Schema.Literals(TOUCH_CONTROL_ACTIONS),
+    action: Schema.Literals(TOUCH_CONTROL_ACTIONS),
+  }),
+])
+
+export const TouchControlRosterResultSchema: Schema.Codec<
+  TouchControlRosterResultShape
+> = Schema.Union([
+  Schema.Struct({
+    _tag: Schema.Literal('Success'),
+    _op: Schema.Literal('Success'),
+    success: Schema.Array(
+      Schema.Struct({
+        action: Schema.Literals(TOUCH_CONTROL_ACTIONS),
+        target: Schema.Unknown,
+      }),
+    ),
+  }),
+  Schema.Struct({
+    _tag: Schema.Literal('Failure'),
+    _op: Schema.Literal('Failure'),
+    failure: TouchControlRosterErrorSchema,
+  }),
+])
 
 export const createTouchControlRoster = <Target>(
   targets: TouchControlTargets<Target>,
   bindings: Bindings = defaultBindings(),
-): ReadonlyArray<TouchControlTarget> => {
+): Result.Result<ReadonlyArray<TouchControlTarget>, TouchControlRosterError> => {
   const unavailable = unboundTouchActions(bindings, TOUCH_CONTROL_ACTIONS)
   if (unavailable.length > NO_UNAVAILABLE_TOUCH_ACTIONS) {
-    throw new Error(`Touch controls have no input binding: ${unavailable.join(', ')}`)
+    return Result.fail({
+      _tag: 'TouchControlRosterError',
+      reason: 'unbound-actions',
+      actions: unavailable,
+    })
   }
 
   const owners = new Map<unknown, TouchControlAction>()
-  return TOUCH_CONTROL_ACTIONS.map((action) => {
+  const roster: TouchControlTarget[] = []
+  for (const action of TOUCH_CONTROL_ACTIONS) {
     const target = targets[action]
     if (target === null || target === undefined) {
-      throw new Error(`Touch control target is missing: ${action}`)
+      return Result.fail({ _tag: 'TouchControlRosterError', reason: 'missing-target', action })
     }
     const owner = owners.get(target)
     if (owner !== undefined) {
-      throw new Error(`Touch control target is shared by ${owner} and ${action}`)
+      return Result.fail({ _tag: 'TouchControlRosterError', reason: 'shared-target', owner, action })
     }
     owners.set(target, action)
-    return { action, target }
-  })
+    roster.push({ action, target })
+  }
+  return Result.succeed(roster)
 }
 
 /**

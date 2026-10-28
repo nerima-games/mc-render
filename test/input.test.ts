@@ -14,14 +14,20 @@
  * something pointer-lock behaviour cannot be tested against.
  */
 import { describe, expect, it } from '@effect/vitest'
-import { Effect, Ref } from 'effect'
+import { Effect, Ref, Result, Schema } from 'effect'
+import * as FastCheck from 'fast-check'
 import {
   acquiresPointerLock,
   actionForKey,
   bindingFor,
   defaultBindings,
   decodeBindings,
-  InputSettingsDecodeError,
+  BindingsDecodeResultSchema,
+  HotbarSelectionResultSchema,
+  MouseButtonForIndexResultSchema,
+  RemapOutcomeSchema,
+  WheelDeltaModeForIndexResultSchema,
+  WheelNotchesResultSchema,
   ESCAPE_KEY_CODE,
   ESCAPE_OWNER,
   FOCUS_NAVIGATION_KEY_CODE,
@@ -49,7 +55,6 @@ import {
   WHEEL_PIXELS_PER_NOTCH,
   wrapHotbarSelection,
   type Bindings,
-  type InputAction,
 } from '../src/domain/input-bindings'
 import {
   consumeNativeInput,
@@ -68,15 +73,38 @@ import {
 } from '../src/application/input-service'
 import { PREVENT_DEFAULT_EVENTS, mayPreventDefault } from '../src/application/browser-input-adapter'
 
+const resultValue = <Value, Error>(result: Result.Result<Value, Error>): Value | undefined =>
+  Result.isSuccess(result) ? result.success : undefined
+
+const FAST_CHECK_OPTIONS = { numRuns: 100, seed: 0x5eed }
+
 describe('input settings boundary', () => {
   it('decodes complete JSON-shaped bindings and rejects malformed values', () => {
     const bindings = defaultBindings()
-    expect(decodeBindings(bindings)).toStrictEqual(bindings)
-    expect(() => decodeBindings(null)).toThrow(InputSettingsDecodeError)
-    expect(() => decodeBindings({ ...bindings, jump: '' })).toThrow(InputSettingsDecodeError)
-    expect(() => decodeBindings({ ...bindings, jump: undefined })).toThrow(InputSettingsDecodeError)
-    expect(() => decodeBindings({ ...bindings, jump: 'Escape' })).toThrow(InputSettingsDecodeError)
-    expect(() => decodeBindings({ ...bindings, jump: bindings['moveForward'] })).toThrow(InputSettingsDecodeError)
+    const decoded = decodeBindings(bindings)
+    expect(Result.isSuccess(decoded)).toBe(true)
+    if (Result.isSuccess(decoded)) {
+      expect(decoded.success).toStrictEqual(bindings)
+    }
+
+    const invalidBindings = FastCheck.oneof(
+      FastCheck.constant(null),
+      FastCheck.string().map((extra) => ({ ...bindings, unexpected: extra })),
+      FastCheck.constantFrom(...INPUT_ACTIONS.filter((action) => action !== 'escape' && action !== 'jump'))
+        .map((action) => ({ ...bindings, jump: bindings[action] })),
+      FastCheck.constantFrom('', ESCAPE_KEY_CODE, FOCUS_NAVIGATION_KEY_CODE)
+        .map((code) => ({ ...bindings, jump: code })),
+    )
+    FastCheck.assert(
+      FastCheck.property(invalidBindings, (input) => {
+        const result = decodeBindings(input)
+        const inspected = Schema.decodeUnknownResult(BindingsDecodeResultSchema, {
+          onExcessProperty: 'error',
+        })(result)
+        return Result.isSuccess(inspected) && inspected.success._tag === 'Failure'
+      }),
+      FAST_CHECK_OPTIONS,
+    )
   })
 })
 
@@ -236,19 +264,40 @@ describe('key remapping', () => {
     }),
   )
 
-  it.effect('remap rejects an action name outside INPUT_ACTIONS, e.g. from a stale settings UI', () =>
+  it.effect('remap rejects unknown actions and invalid keys', () =>
     Effect.sync(() => {
-      // `action` is typed as `InputAction`, a closed union, so nothing inside
-      // this codebase can call `remap` with an unknown action past the type
-      // checker. A settings menu built against an older/newer version of this
-      // module is not inside this codebase, and can. `ownershipRemapRejection`
-      // must reject it by name rather than writing a binding table entry
-      // nothing will ever read back through `bindingFor`.
-      const outcome = remap(defaultBindings(), 'flyToTheMoon' as InputAction, 'KeyQ')
+      FastCheck.assert(
+        FastCheck.property(FastCheck.string().map((action) => `unknown:${action}`), (action) => {
+          const outcome = remap(defaultBindings(), action, 'KeyQ')
+          const inspected = Schema.decodeUnknownResult(RemapOutcomeSchema, {
+            onExcessProperty: 'error',
+          })(outcome)
+          return (
+            Result.isSuccess(inspected) &&
+            inspected.success.kind === 'rejected' &&
+            inspected.success.rejection.reason === 'unknown-action'
+          )
+        }),
+        FAST_CHECK_OPTIONS,
+      )
 
-      expect(outcome.kind).toBe('rejected')
-      expect(outcome.kind === 'rejected' && outcome.rejection.reason).toBe('unknown-action')
-      expect(outcome.kind === 'rejected' && outcome.rejection.message).toContain('flyToTheMoon')
+      FastCheck.assert(
+        FastCheck.property(
+          FastCheck.constantFrom<unknown>(null, undefined, 0, false, '', {}),
+          (key) => {
+            const outcome = remap(defaultBindings(), 'jump', key)
+            const inspected = Schema.decodeUnknownResult(RemapOutcomeSchema, {
+              onExcessProperty: 'error',
+            })(outcome)
+            return (
+              Result.isSuccess(inspected) &&
+              inspected.success.kind === 'rejected' &&
+              inspected.success.rejection.reason === 'invalid-key'
+            )
+          },
+        ),
+        FAST_CHECK_OPTIONS,
+      )
     }),
   )
 
@@ -441,15 +490,26 @@ describe('mouse buttons are gameplay input, in the same code space as keys', () 
 
   it.effect('MouseEvent.button numbers are translated to names in exactly one place', () =>
     Effect.sync(() => {
-      // 0 left, 1 middle, 2 right — the DOM numbering, which the adapter
-      // receives and nothing past this function ever sees.
-      expect(mouseButtonForIndex(0)).toBe('MouseLeft')
-      expect(mouseButtonForIndex(1)).toBe('MouseMiddle')
-      expect(mouseButtonForIndex(2)).toBe('MouseRight')
-      // Thumb buttons and anything else a device reports are dropped at the
-      // boundary rather than becoming state nothing can read.
-      expect(mouseButtonForIndex(3)).toBeUndefined()
-      expect(mouseButtonForIndex(-1)).toBeUndefined()
+      expect(resultValue(mouseButtonForIndex(0))).toBe('MouseLeft')
+      expect(resultValue(mouseButtonForIndex(1))).toBe('MouseMiddle')
+      expect(resultValue(mouseButtonForIndex(2))).toBe('MouseRight')
+
+      const invalidIndices = FastCheck.oneof(
+        FastCheck.integer({ min: -1000, max: -1 }),
+        FastCheck.integer({ min: MOUSE_BUTTONS.length, max: 1000 }),
+        FastCheck.constantFrom(Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, 0.5, 2.5),
+        FastCheck.constantFrom<unknown>(null, undefined, '0', false, {}),
+      )
+      FastCheck.assert(
+        FastCheck.property(invalidIndices, (index) => {
+          const result = mouseButtonForIndex(index)
+          const inspected = Schema.decodeUnknownResult(MouseButtonForIndexResultSchema, {
+            onExcessProperty: 'error',
+          })(result)
+          return Result.isSuccess(inspected) && inspected.success._tag === 'Failure'
+        }),
+        FAST_CHECK_OPTIONS,
+      )
     }),
   )
 
@@ -866,13 +926,29 @@ describe('the wheel is a DELTA — not an edge, not a level', () => {
 
   it.effect('deltaMode is NORMALISED: 100 pixels, 3 lines and 1 page are each one notch', () =>
     Effect.sync(() => {
-      // The same physical detent, in the three units browsers report it in.
-      // Divide by the wrong one and the hotbar either never moves (pixels
-      // treated as lines) or jumps 33 slots (lines treated as pixels).
-      expect(notchesForWheelDelta(WHEEL_PIXELS_PER_NOTCH, 'pixel')).toBe(1)
-      expect(notchesForWheelDelta(WHEEL_LINES_PER_NOTCH, 'line')).toBe(1)
-      expect(notchesForWheelDelta(1, 'page')).toBe(1)
-      expect(notchesForWheelDelta(-WHEEL_PIXELS_PER_NOTCH, 'pixel')).toBe(-1)
+      expect(resultValue(notchesForWheelDelta(WHEEL_PIXELS_PER_NOTCH, 'pixel'))).toBe(1)
+      expect(resultValue(notchesForWheelDelta(WHEEL_LINES_PER_NOTCH, 'line'))).toBe(1)
+      expect(resultValue(notchesForWheelDelta(1, 'page'))).toBe(1)
+      expect(resultValue(notchesForWheelDelta(-WHEEL_PIXELS_PER_NOTCH, 'pixel'))).toBe(-1)
+
+      const invalidDeltas = FastCheck.constantFrom(
+        Number.NaN,
+        Number.POSITIVE_INFINITY,
+        Number.NEGATIVE_INFINITY,
+        null,
+        undefined,
+        '100',
+      )
+      FastCheck.assert(
+        FastCheck.property(invalidDeltas, (delta) => {
+          const result = notchesForWheelDelta(delta, 'pixel')
+          const inspected = Schema.decodeUnknownResult(WheelNotchesResultSchema, {
+            onExcessProperty: 'error',
+          })(result)
+          return Result.isSuccess(inspected) && inspected.success._tag === 'Failure'
+        }),
+        FAST_CHECK_OPTIONS,
+      )
     }),
   )
 
@@ -891,14 +967,39 @@ describe('the wheel is a DELTA — not an edge, not a level', () => {
 
   it.effect('WheelEvent.deltaMode numbers are translated to names in exactly one place', () =>
     Effect.sync(() => {
-      // DOM_DELTA_PIXEL 0, DOM_DELTA_LINE 1, DOM_DELTA_PAGE 2 — the same
-      // number→name boundary `mouseButtonForIndex` is.
-      expect(wheelDeltaModeForIndex(0)).toBe('pixel')
-      expect(wheelDeltaModeForIndex(1)).toBe('line')
-      expect(wheelDeltaModeForIndex(2)).toBe('page')
-      expect(wheelDeltaModeForIndex(3)).toBeUndefined()
-      expect(wheelDeltaModeForIndex(-1)).toBeUndefined()
+      expect(resultValue(wheelDeltaModeForIndex(0))).toBe('pixel')
+      expect(resultValue(wheelDeltaModeForIndex(1))).toBe('line')
+      expect(resultValue(wheelDeltaModeForIndex(2))).toBe('page')
       expect(WHEEL_DELTA_MODES).toStrictEqual(['pixel', 'line', 'page'])
+
+      const invalidIndices = FastCheck.oneof(
+        FastCheck.integer({ min: -1000, max: -1 }),
+        FastCheck.integer({ min: WHEEL_DELTA_MODES.length, max: 1000 }),
+        FastCheck.constantFrom(Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, 0.5, 2.5),
+        FastCheck.constantFrom<unknown>(null, undefined, '0', false, {}),
+      )
+      FastCheck.assert(
+        FastCheck.property(invalidIndices, (index) => {
+          const result = wheelDeltaModeForIndex(index)
+          const inspected = Schema.decodeUnknownResult(WheelDeltaModeForIndexResultSchema, {
+            onExcessProperty: 'error',
+          })(result)
+          return Result.isSuccess(inspected) && inspected.success._tag === 'Failure'
+        }),
+        FAST_CHECK_OPTIONS,
+      )
+
+      const invalidModes = FastCheck.constantFrom<unknown>(null, undefined, 'pixels', false, {})
+      FastCheck.assert(
+        FastCheck.property(invalidModes, (mode) => {
+          const result = notchesForWheelDelta(1, mode)
+          const inspected = Schema.decodeUnknownResult(WheelNotchesResultSchema, {
+            onExcessProperty: 'error',
+          })(result)
+          return Result.isSuccess(inspected) && inspected.success._tag === 'Failure'
+        }),
+        FAST_CHECK_OPTIONS,
+      )
     }),
   )
 
@@ -1188,15 +1289,15 @@ describe('hotbar selection', () => {
 
   it.effect('wrapping FORWARD past the last slot returns to the first', () =>
     Effect.sync(() => {
-      expect(wrapHotbarSelection(8, 1, 9)).toBe(0)
-      expect(wrapHotbarSelection(8, 2, 9)).toBe(1)
+      expect(resultValue(wrapHotbarSelection(8, 1, 9))).toBe(0)
+      expect(resultValue(wrapHotbarSelection(8, 2, 9))).toBe(1)
     }),
   )
 
   it.effect('wrapping BACKWARD past the first slot returns to the last', () =>
     Effect.sync(() => {
-      expect(wrapHotbarSelection(0, -1, 9)).toBe(8)
-      expect(wrapHotbarSelection(0, -2, 9)).toBe(7)
+      expect(resultValue(wrapHotbarSelection(0, -1, 9))).toBe(8)
+      expect(resultValue(wrapHotbarSelection(0, -2, 9))).toBe(7)
     }),
   )
 
@@ -1211,15 +1312,15 @@ describe('hotbar selection', () => {
       expect((0 + -3 + 9) % 9).toBe(6)
       expect((0 + -12 + 9) % 9).toBe(-3)
 
-      expect(wrapHotbarSelection(0, -3, 9)).toBe(6)
-      expect(wrapHotbarSelection(0, -12, 9)).toBe(6)
-      expect(wrapHotbarSelection(0, 21, 9)).toBe(3)
+      expect(resultValue(wrapHotbarSelection(0, -3, 9))).toBe(6)
+      expect(resultValue(wrapHotbarSelection(0, -12, 9))).toBe(6)
+      expect(resultValue(wrapHotbarSelection(0, 21, 9))).toBe(3)
     }),
   )
 
   it.effect('a step of zero selects nothing new', () =>
     Effect.sync(() => {
-      expect(wrapHotbarSelection(4, 0, 9)).toBe(4)
+      expect(resultValue(wrapHotbarSelection(4, 0, 9))).toBe(4)
     }),
   )
 
@@ -1227,17 +1328,31 @@ describe('hotbar selection', () => {
     Effect.sync(() => {
       // The hotbar's length belongs to whoever owns the inventory. Only the
       // arithmetic lives here, so a five-slot hotbar needs no new code.
-      expect(wrapHotbarSelection(4, 1, 5)).toBe(0)
-      expect(wrapHotbarSelection(0, -1, 5)).toBe(4)
+      expect(resultValue(wrapHotbarSelection(4, 1, 5))).toBe(0)
+      expect(resultValue(wrapHotbarSelection(0, -1, 5))).toBe(4)
     }),
   )
 
-  it.effect('a degenerate size selects slot 0 rather than throwing in an event handler', () =>
+  it.effect('invalid hotbar selection inputs return typed failures', () =>
     Effect.sync(() => {
-      expect(wrapHotbarSelection(3, 1, 0)).toBe(0)
-      expect(wrapHotbarSelection(3, 1, -1)).toBe(0)
-      expect(wrapHotbarSelection(3, 1, Number.NaN)).toBe(0)
-      expect(wrapHotbarSelection(Number.NaN, Number.NaN, 9)).toBe(0)
+      const invalidInputs = FastCheck.oneof(
+        FastCheck.tuple(FastCheck.constant(3), FastCheck.constant(1), FastCheck.constantFrom(0, -1, Number.NaN, Number.POSITIVE_INFINITY)),
+        FastCheck.tuple(FastCheck.constantFrom(Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY), FastCheck.constant(1), FastCheck.constant(9)),
+        FastCheck.tuple(FastCheck.constant(3), FastCheck.constantFrom(Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY), FastCheck.constant(9)),
+        FastCheck.tuple(FastCheck.constantFrom<unknown>(null, undefined, '3', {}), FastCheck.constant(1), FastCheck.constant(9)),
+        FastCheck.tuple(FastCheck.constant(3), FastCheck.constantFrom<unknown>(null, undefined, '1', {}), FastCheck.constant(9)),
+        FastCheck.tuple(FastCheck.constant(3), FastCheck.constant(1), FastCheck.constantFrom<unknown>('9', null, {}, -1, 0)),
+      )
+      FastCheck.assert(
+        FastCheck.property(invalidInputs, ([current, steps, size]) => {
+          const result = wrapHotbarSelection(current, steps, size)
+          const inspected = Schema.decodeUnknownResult(HotbarSelectionResultSchema, {
+            onExcessProperty: 'error',
+          })(result)
+          return Result.isSuccess(inspected) && inspected.success._tag === 'Failure'
+        }),
+        FAST_CHECK_OPTIONS,
+      )
     }),
   )
 })

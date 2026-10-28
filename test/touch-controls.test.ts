@@ -56,7 +56,7 @@
  * from a tap.
  */
 import { describe, expect, it } from '@effect/vitest'
-import { Effect } from 'effect'
+import { Effect, Result, Schema } from 'effect'
 import {
   acquiresPointerLock,
   bindingFor,
@@ -80,6 +80,7 @@ import {
   advanceTouchLook,
   consumeTouchLook,
   createTouchControlRoster,
+  TouchControlRosterResultSchema,
   installInputListeners,
   resetTouchLook,
   resolveClickLanding,
@@ -708,44 +709,80 @@ describe('createTouchControlRoster', () => {
 
   it.effect('builds one roster entry per TOUCH_CONTROL_ACTIONS, target intact', () =>
     Effect.sync(() => {
-      const roster = createTouchControlRoster(fullTargets)
-
-      expect(roster).toHaveLength(TOUCH_CONTROL_ACTIONS.length)
-      for (const action of TOUCH_CONTROL_ACTIONS) {
-        expect(roster.find((entry) => entry.action === action)?.target).toBe(fullTargets[action])
+      const result = createTouchControlRoster(fullTargets)
+      expect(Result.isSuccess(result)).toBe(true)
+      if (Result.isSuccess(result)) {
+        expect(result.success).toHaveLength(TOUCH_CONTROL_ACTIONS.length)
+        for (const action of TOUCH_CONTROL_ACTIONS) {
+          expect(result.success.find((entry) => entry.action === action)?.target).toBe(fullTargets[action])
+        }
       }
     }),
   )
 
-  it.effect('rejects a target map missing an action', () =>
+  it.effect('returns a typed error when a target is missing', () =>
     Effect.sync(() => {
       const { jump: _dropped, ...partial } = fullTargets
-
-      expect(() =>
-        createTouchControlRoster(partial as unknown as Readonly<Record<TouchControlAction, unknown>>),
-      ).toThrowError(/jump/u)
+      const result = createTouchControlRoster(partial)
+      const inspected = Schema.decodeUnknownResult(TouchControlRosterResultSchema, {
+        onExcessProperty: 'error',
+      })(result)
+      expect(Result.isSuccess(inspected)).toBe(true)
+      if (Result.isSuccess(inspected)) {
+        expect(inspected.success._tag).toBe('Failure')
+        if (inspected.success._tag === 'Failure') {
+          expect(inspected.success.failure).toStrictEqual({
+            _tag: 'TouchControlRosterError',
+            reason: 'missing-target',
+            action: 'jump',
+          })
+        }
+      }
     }),
   )
 
-  it.effect('rejects two actions sharing one target', () =>
+  it.effect('returns a typed error when actions share one target', () =>
     Effect.sync(() => {
       const sharedTarget = { name: 'shared' }
       const shared = { ...fullTargets, attack: sharedTarget, use: sharedTarget }
-
-      expect(() => createTouchControlRoster(shared)).toThrowError(/attack.*use|use.*attack/u)
+      const result = createTouchControlRoster(shared)
+      const inspected = Schema.decodeUnknownResult(TouchControlRosterResultSchema, {
+        onExcessProperty: 'error',
+      })(result)
+      expect(Result.isSuccess(inspected)).toBe(true)
+      if (Result.isSuccess(inspected)) {
+        expect(inspected.success._tag).toBe('Failure')
+        if (inspected.success._tag === 'Failure') {
+          expect(inspected.success.failure).toStrictEqual({
+            _tag: 'TouchControlRosterError',
+            reason: 'shared-target',
+            owner: 'attack',
+            action: 'use',
+          })
+        }
+      }
     }),
   )
 
-  it.effect(
-    'rejects an action with no binding at all, checked against the CALLER-SUPPLIED bindings — second angle: this branch is unreachable under defaultBindings() alone, which is why the parameter exists',
-    () =>
-      Effect.sync(() => {
-        // The same "strip one binding" idiom this file already uses above
-        // (`stripped: Bindings = { ...defaultBindings(), X: undefined as never }`).
-        const noJumpBinding: Bindings = { ...defaultBindings(), jump: undefined as never }
-
-        expect(() => createTouchControlRoster(fullTargets, noJumpBinding)).toThrowError(/jump/u)
-      }),
+  it.effect('rejects an action with no binding in the caller-supplied map', () =>
+    Effect.sync(() => {
+      const noJumpBinding: Bindings = { ...defaultBindings(), jump: undefined as never }
+      const result = createTouchControlRoster(fullTargets, noJumpBinding)
+      const inspected = Schema.decodeUnknownResult(TouchControlRosterResultSchema, {
+        onExcessProperty: 'error',
+      })(result)
+      expect(Result.isSuccess(inspected)).toBe(true)
+      if (Result.isSuccess(inspected)) {
+        expect(inspected.success._tag).toBe('Failure')
+        if (inspected.success._tag === 'Failure') {
+          expect(inspected.success.failure).toStrictEqual({
+            _tag: 'TouchControlRosterError',
+            reason: 'unbound-actions',
+            actions: ['jump'],
+          })
+        }
+      }
+    }),
   )
 })
 

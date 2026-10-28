@@ -1,5 +1,6 @@
 import {
   DEFAULT_GAMEPAD_BINDINGS,
+  type GamepadAxesInputError,
   type GamepadBindings,
   type GamepadSnapshot,
   ZERO_GAMEPAD_AXES,
@@ -8,13 +9,13 @@ import {
   normalizeGamepadAxes,
 } from '../domain/gamepad-input.js'
 import { GAMEPLAY_LISTENER_TARGET, type InputAction } from '../domain/input-bindings.js'
-import { Effect } from 'effect'
+import { Effect, Result } from 'effect'
 import type { InputServiceApi } from './input-service.js'
 
 export type GamepadSource = () => ReadonlyArray<GamepadSnapshot | null>
 
 export type GamepadInputAdapter = {
-  readonly poll: Effect.Effect<void>
+  readonly poll: Effect.Effect<void, GamepadAxesInputError>
   readonly reset: Effect.Effect<void>
 }
 
@@ -29,10 +30,10 @@ const bindingForButtonIndex = (
   bindings: GamepadBindings,
 ): InputAction | undefined => {
   const button = gamepadButtonForIndex(index)
-  if (typeof button === 'undefined') {
+  if (Result.isFailure(button)) {
     return NO_BOUND_GAMEPAD_ACTION
   }
-  return bindings[button]
+  return bindings[button.success]
 }
 
 /** Which dispatch `kind` a button's press-state transition produces, if any. */
@@ -112,10 +113,11 @@ export const makeGamepadInputAdapter = (
         return
       }
 
-      yield* input.dispatch({
-        axes: normalizeGamepadAxes(pad.axes),
-        kind: 'gamepadtick',
-      })
+      const axes = normalizeGamepadAxes(pad.axes)
+      if (Result.isFailure(axes)) {
+        return yield* Effect.fail(axes.failure)
+      }
+      yield* input.dispatch({ axes: axes.success, kind: 'gamepadtick' })
 
       yield* processGamepadButtons({ bindings, input, pad, previousButtons })
     }),
