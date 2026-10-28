@@ -409,7 +409,7 @@ describe('PORTED #35: the same claim through the browser adapter', () => {
       }
 
       const input = yield* makeInputService()
-      installInputListeners(targets, input, { pointerLockTarget: canvas, touchControls: MOBILE_CONTROLS })
+      installInputListeners(targets, input, { pointerLockTarget: canvas, touchControls: MOBILE_CONTROLS, runSync: Effect.runSync })
 
       const fire = (type: string, element: unknown): void => {
         for (const call of added.filter((candidate) => candidate.type === type)) {
@@ -442,7 +442,7 @@ describe('PORTED #35: the same claim through the browser adapter', () => {
         document: { ...target, pointerLockElement: null, activeElement: null },
       }
       const input = yield* makeInputService()
-      installInputListeners(targets, input, { pointerLockTarget: canvas, touchControls: MOBILE_CONTROLS })
+      installInputListeners(targets, input, { pointerLockTarget: canvas, touchControls: MOBILE_CONTROLS, runSync: Effect.runSync })
 
       const fire = (type: string, event: DomInputEvent): void => {
         for (const call of added.filter((candidate) => candidate.type === type)) {
@@ -471,7 +471,7 @@ describe('PORTED #35: the same claim through the browser adapter', () => {
         document: { ...target, pointerLockElement: null, activeElement: null },
       }
       const input = yield* makeInputService()
-      installInputListeners(targets, input, { pointerLockTarget: canvas, touchControls: MOBILE_CONTROLS })
+      installInputListeners(targets, input, { pointerLockTarget: canvas, touchControls: MOBILE_CONTROLS, runSync: Effect.runSync })
       const fire = (type: string, event: DomInputEvent): void => {
         for (const call of added.filter((candidate) => candidate.type === type)) {
           call.listener(event)

@@ -111,6 +111,8 @@ export type JobOutcome<TResult> =
   | { readonly _tag: 'failed'; readonly error: unknown }
 
 export type WorkerPoolOptions<TPayload = never, TResult = never> = {
+  /** Synchronous Effect runner supplied by the host's entrypoint. */
+  readonly runSync: typeof Effect.runSync
   /**
    * How many jobs may WAIT. Does not bound how many may run — that is the
    * worker count.
@@ -434,7 +436,7 @@ const makeWorkerFailureHandlers = <TPayload, TResult>({
     if (replaceWorker === undefined) {
       return Result.succeed(undefined)
     }
-    const replacement = Effect.runSync(Effect.result(Effect.try({
+    const replacement = options.runSync(Effect.result(Effect.try({
       catch: (reason) => reason,
       try: () => replaceWorker(workerIndex),
     })))
@@ -516,7 +518,7 @@ const makeWorkerFailureHandlers = <TPayload, TResult>({
   const failureHandlers: WorkerFailureHandlers<TPayload, TResult> = {
     attachPort: ({ port, workerIndex, generation }) => {
       port.onMessage((response) => {
-        Effect.runSync(Ref.update(state, (current) => {
+        options.runSync(Ref.update(state, (current) => {
           if (current.shuttingDown || activePorts[workerIndex] !== port || portGenerations[workerIndex] !== generation) { return current }
           const next = applyWorkerResponse(current, workerIndex, response)
           pump(next, activePorts)
@@ -526,7 +528,7 @@ const makeWorkerFailureHandlers = <TPayload, TResult>({
       port.onError?.((reason) => failureHandlers.handleFailure({ failedPort: port, generation, reason, workerIndex }))
     },
     handleFailure: (failure) => {
-      Effect.runSync(Ref.update(state, (current) => {
+      options.runSync(Ref.update(state, (current) => {
         applyWorkerFailure(current, failure, failureHandlers.attachPort)
         return current
       }))
@@ -570,7 +572,7 @@ const enqueueJob = <TPayload, TResult>(
  */
 export const makeWorkerPool = <TPayload, TResult>(
   ports: ReadonlyArray<WorkerPort<WorkerRequest<TPayload>, WorkerResponse<TResult>>>,
-  options: WorkerPoolOptions<TPayload, TResult> = {},
+  options: WorkerPoolOptions<TPayload, TResult>,
 ): Effect.Effect<WorkerPool<TPayload, TResult>> =>
   Effect.gen(function* () {
     const maxQueued = options.maxQueued ?? DEFAULT_MAX_QUEUED
@@ -634,7 +636,7 @@ export const makeWorkerPool = <TPayload, TResult>(
 
       submit: (key, payload) =>
         Effect.callback<JobOutcome<TResult>>((resume) => {
-          Effect.runSync(
+          options.runSync(
             Ref.update(state, (current) => {
               if (current.shuttingDown) {
                 resume(Effect.succeed({ _tag: 'cancelled' as const }))

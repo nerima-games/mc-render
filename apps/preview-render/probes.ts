@@ -414,85 +414,81 @@ const registrationLayerProbe = Effect.gen(function* () {
 // RND-7 — the scratch discipline
 // ---------------------------------------------------------------------------
 
-const scratchProbe = (): ReadonlyArray<string> => {
-  const scratch = makeScratchMap<string, number>('probe', 8)
-  const outcomeLabel = <A>(outcome: Result.Result<A, ScratchMisuseError>): string =>
-    Result.isFailure(outcome) ? outcome.failure.violation.rule : 'success'
-  const capture = <A>(effect: Effect.Effect<A, ScratchMisuseError>): Result.Result<A, ScratchMisuseError> =>
-    Effect.runSync(Effect.result(effect))
+const scratchProbe = (): Effect.Effect<ReadonlyArray<string>, ScratchMisuseError> =>
+  Effect.gen(function* () {
+    const scratch = makeScratchMap<string, number>('probe', 8)
+    const outcomeLabel = <A>(outcome: Result.Result<A, ScratchMisuseError>): string =>
+      Result.isFailure(outcome) ? outcome.failure.violation.rule : 'success'
+    const capture = <A>(effect: Effect.Effect<A, ScratchMisuseError>) => Effect.result(effect)
 
-  const reentrant = capture(
-    withScratch(scratch, () => withScratch(scratch, (inner) => inner.size())),
-  )
-  const identity = capture(withScratch(scratch, (buffer) => Effect.succeed(buffer)))
+    const reentrant = yield* capture(
+      withScratch(scratch, () => withScratch(scratch, (inner) => inner.size())),
+    )
+    const identity = yield* capture(withScratch(scratch, (buffer) => Effect.succeed(buffer)))
 
-  const wrapped = Effect.runSync(
-    withScratch(scratch, (buffer) =>
+    const wrapped = yield* withScratch(scratch, (buffer) =>
       Effect.flatMap(buffer.set('a', 1), () => Effect.succeed({ escaped: buffer })),
-    ),
-  )
-  const wrappedUse = capture(wrapped.escaped.size())
+    )
+    const wrappedUse = yield* capture(wrapped.escaped.size())
 
-  const closure = Effect.runSync(
-    withScratch(scratch, (buffer) =>
+    const closure = yield* withScratch(scratch, (buffer) =>
       Effect.flatMap(buffer.set('b', 2), () =>
         Effect.flatMap(buffer.set('c', 3), () => Effect.succeed(() => buffer.size())),
       ),
-    ),
-  )
-  const closureAfterLease = capture(closure())
+    )
+    const closureAfterLease = yield* capture(closure())
 
-  const deferred = Effect.runSync(withScratch(scratch, (buffer) => Effect.succeed(buffer.size())))
-  const deferredResult = capture(deferred)
+    const deferred = yield* withScratch(scratch, (buffer) => Effect.succeed(buffer.size()))
+    const deferredResult = yield* capture(deferred)
 
-  const foreign = capture(
-    withScratch(
-      { name: 'foreign', usageCount: () => 0, borrowedCount: () => 0 } as ScratchMap<string, number>,
-      (buffer) => buffer.size(),
-    ),
-  )
+    const foreign = yield* capture(
+      withScratch(
+        { name: 'foreign', usageCount: () => 0, borrowedCount: () => 0 } as ScratchMap<string, number>,
+        (buffer) => buffer.size(),
+      ),
+    )
 
-  const directRead = 'buffer' in scratch ? 'exposed' : 'not exposed'
-  const usage = scratch.usageCount()
+    const directRead = 'buffer' in scratch ? 'exposed' : 'not exposed'
+    const usage = scratch.usageCount()
 
-  return [
-    ...section(
-      'SCRATCH-DISCIPLINE',
-      'withScratch guards the borrow. Which lease violations does it report?',
-    ),
-    `   ${cell('attempt', 44)}${cell('result', 22)}`,
-    `   ${cell('re-entrant borrow', 44)}${cell(outcomeLabel(reentrant), 22)}   typed failure`,
-    `   ${cell('return the buffer itself', 44)}${cell(outcomeLabel(identity), 22)}   typed failure`,
-    `   ${cell('return { escaped: buffer }', 44)}${cell(outcomeLabel(wrappedUse), 22)}   typed failure on use`,
-    `   ${cell('deferred closure after lease', 44)}${cell(outcomeLabel(closureAfterLease), 22)}   typed failure on use`,
-    `   ${cell('deferred Effect after lease', 44)}${cell(outcomeLabel(deferredResult), 22)}   typed failure on use`,
-    `   ${cell('raw buffer field outside any borrow', 44)}${cell(directRead, 22)}   not exposed`,
-    `   ${cell('a ScratchMap built elsewhere', 44)}${cell(outcomeLabel(foreign), 22)}   typed failure`,
-    '',
-    `   usageCount() after the borrows above: ${String(usage)}`,
-    '',
-    '   RND-7 is enforced by an effectful lease-checked Map view. A wrapper, closure, or deferred',
-    '   Effect may retain the view, but each later operation fails through the typed error channel.',
-    '   The public ScratchMap has no raw buffer field.',
-    '',
-    '   The deferred-callback row is the sharpest one. `withScratch` brackets the lease, so an',
-    '   unevaluated Effect can be returned and run later; its read then receives the typed failure',
-    '   instead of observing a cleared or refilled buffer.',
-    '',
-    '   The lease-checked facade is created once per scratch buffer. The hot path still clears and',
-    '   reuses the native Map; the facade owns the lease checks.',
-    '',
-    '   A foreign ScratchMap is rejected through the same ownership check. `snapshotScratch` is',
-    '   the explicit copying API for values that must survive the lease; callers never receive',
-    '   the native backing Map itself.',
-    '',
-    '   usageCount is documented as "Frames this buffer has served". It increments in `enter()`,',
-    '   i.e. once per BORROW — and a borrow that ends in an escape failure has already counted.',
-    '',
-    '   Every row above is pinned by test/frame-scratch.test.ts, including wrappers, closures,',
-    '   deferred Effects, foreign handles, and the absence of a public raw buffer.',
-  ]
-}
+    return [
+      ...section(
+        'SCRATCH-DISCIPLINE',
+        'withScratch guards the borrow. Which lease violations does it report?',
+      ),
+      `   ${cell('attempt', 44)}${cell('result', 22)}`,
+      `   ${cell('re-entrant borrow', 44)}${cell(outcomeLabel(reentrant), 22)}   typed failure`,
+      `   ${cell('return the buffer itself', 44)}${cell(outcomeLabel(identity), 22)}   typed failure`,
+      `   ${cell('return { escaped: buffer }', 44)}${cell(outcomeLabel(wrappedUse), 22)}   typed failure on use`,
+      `   ${cell('deferred closure after lease', 44)}${cell(outcomeLabel(closureAfterLease), 22)}   typed failure on use`,
+      `   ${cell('deferred Effect after lease', 44)}${cell(outcomeLabel(deferredResult), 22)}   typed failure on use`,
+      `   ${cell('raw buffer field outside any borrow', 44)}${cell(directRead, 22)}   not exposed`,
+      `   ${cell('a ScratchMap built elsewhere', 44)}${cell(outcomeLabel(foreign), 22)}   typed failure`,
+      '',
+      `   usageCount() after the borrows above: ${String(usage)}`,
+      '',
+      '   RND-7 is enforced by an effectful lease-checked Map view. A wrapper, closure, or deferred',
+      '   Effect may retain the view, but each later operation fails through the typed error channel.',
+      '   The public ScratchMap has no raw buffer field.',
+      '',
+      '   The deferred-callback row is the sharpest one. `withScratch` brackets the lease, so an',
+      '   unevaluated Effect can be returned and run later; its read then receives the typed failure',
+      '   instead of observing a cleared or refilled buffer.',
+      '',
+      '   The lease-checked facade is created once per scratch buffer. The hot path still clears and',
+      '   reuses the native Map; the facade owns the lease checks.',
+      '',
+      '   A foreign ScratchMap is rejected through the same ownership check. `snapshotScratch` is',
+      '   the explicit copying API for values that must survive the lease; callers never receive',
+      '   the native backing Map itself.',
+      '',
+      '   usageCount is documented as "Frames this buffer has served". It increments in `enter()`,',
+      '   i.e. once per BORROW — and a borrow that ends in an escape failure has already counted.',
+      '',
+      '   Every row above is pinned by test/frame-scratch.test.ts, including wrappers, closures,',
+      '   deferred Effects, foreign handles, and the absence of a public raw buffer.',
+    ]
+  })
 
 // ---------------------------------------------------------------------------
 // post-FX, for completeness
@@ -579,7 +575,8 @@ const FOOTER: ReadonlyArray<string> = [
   '   the input state machine in particular has no other home: Playwright cannot do pointer lock.',
 ]
 
-export const statsReport: Effect.Effect<ReadonlyArray<string>, PlayerServiceInputError | InputValidationError> = Effect.gen(function* () {
+export const statsReport: Effect.Effect<ReadonlyArray<string>, PlayerServiceInputError | InputValidationError | ScratchMisuseError> = Effect.gen(function* () {
+  const scratch = yield* scratchProbe()
   return [
     ...HEADER,
     ...(yield* lockMachineProbe),
@@ -587,7 +584,7 @@ export const statsReport: Effect.Effect<ReadonlyArray<string>, PlayerServiceInpu
     ...(yield* blurProbe),
     ...(yield* mirrorProbe),
     ...(yield* registrationLayerProbe),
-    ...scratchProbe(),
+    ...scratch,
     ...postFxProbe(),
     ...FOOTER,
   ]

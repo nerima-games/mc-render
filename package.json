@@ -50,7 +50,7 @@
     "three"
   ],
   "scripts": {
-    "benchmark": "tsx scripts/benchmark-chunk-updates.ts",
+    "benchmark": "tsx apps/benchmark-chunk-updates/main.ts",
     "build": "node scripts/clean-dist.mjs && tsc -p tsconfig.release.json --pretty false && tsc -p tsconfig.browser-release.json --pretty false",
     "build:web": "vite build",
     "dev:web": "vite",

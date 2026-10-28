@@ -17,11 +17,17 @@ import { describe, expect, it } from '@effect/vitest'
 import { Effect, Fiber } from 'effect'
 import {
   DEFAULT_MAX_QUEUED,
-  makeWorkerPool,
+  makeWorkerPool as makeWorkerPoolWithRunner,
+  type WorkerPoolOptions,
   type WorkerPort,
   type WorkerRequest,
   type WorkerResponse,
 } from '../src/application/worker-pool'
+
+const makeWorkerPool = <TPayload, TResult>(
+  ports: ReadonlyArray<WorkerPort<WorkerRequest<TPayload>, WorkerResponse<TResult>>>,
+  options: Omit<WorkerPoolOptions<TPayload, TResult>, 'runSync'> = {},
+) => makeWorkerPoolWithRunner(ports, { ...options, runSync: Effect.runSync })
 
 type Payload = { readonly chunk: string }
 type Result = { readonly quads: number }

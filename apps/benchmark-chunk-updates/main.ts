@@ -1,9 +1,9 @@
 import { performance } from 'node:perf_hooks'
 import { Effect } from 'effect'
 import { BlockId, ChunkAxis, chunkCoord, chunkKeyOf } from '@nerima-games/mc-kernel'
-import { makeWorldRenderer, type ChunkGeometryUpdate } from '../src/application/world-renderer'
-import { buildChunkGeometry, type MeshQuad } from '../src/domain/chunk-geometry'
-import { FAKE_CANVAS, makeFakeThree } from '../test/support/fake-three'
+import { makeWorldRenderer, type ChunkGeometryUpdate } from '../../src/application/world-renderer'
+import { buildChunkGeometry, type MeshQuad } from '../../src/domain/chunk-geometry'
+import { FAKE_CANVAS, makeFakeThree } from '../../test/support/fake-three'
 
 const VIEWPORT = { width: 1280, height: 720 }
 const CHUNK_COUNTS = [81, 289, 1089] as const

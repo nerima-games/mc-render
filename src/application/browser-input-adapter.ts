@@ -629,11 +629,14 @@ const suppressionFor = (
  * that wanted to `preventDefault()` after an await has already lost the right
  * to.
  *
- * `Effect.runSync` inside the handlers is safe by construction rather than by
- * luck: `dispatch` is a `Ref.update`, `shouldSuppressWheelScroll` is a
- * `Ref.get`, and neither can fail, suspend or need a service.
+ * The handlers use the host's synchronous runner. The effects it runs are safe
+ * by construction rather than by luck: `dispatch` is a `Ref.update`,
+ * `shouldSuppressWheelScroll` is a `Ref.get`, and neither can fail, suspend or
+ * need a service.
  */
 export type InstallInputListenersOptions = {
+  /** Synchronous Effect runner supplied by the host's entrypoint. */
+  readonly runSync: typeof Effect.runSync
   /**
    * Resolve a browser target to the public focus DTO. The host owns DOM
    * membership and returns `undefined` when focus is outside its UI.
@@ -676,6 +679,7 @@ const ONE_FINGER_HOLDING = 1
 
 type TouchDispatchState = {
   readonly input: InputServiceApi
+  readonly runSync: typeof Effect.runSync
   readonly touchActionCounts: Map<InputAction, number>
   readonly touchActions: Map<number, InputAction>
   readonly touchControls: ReadonlyArray<TouchControlTarget>
@@ -697,7 +701,7 @@ const dispatchTouchPress = (
   const count = state.touchActionCounts.get(action) ?? NO_FINGERS_HOLDING
   state.touchActionCounts.set(action, count + ONE_FINGER_HOLDING)
   if (count === NO_FINGERS_HOLDING) {
-    Effect.runSync(state.input.dispatch({ action, kind: 'touchpress', target }))
+    state.runSync(state.input.dispatch({ action, kind: 'touchpress', target }))
   }
 }
 
@@ -714,7 +718,7 @@ const dispatchTouchRelease = (
   const count = state.touchActionCounts.get(action)
   if (count === undefined || count <= ONE_FINGER_HOLDING) {
     state.touchActionCounts.delete(action)
-    Effect.runSync(state.input.dispatch({ action, kind: 'touchrelease', target }))
+    state.runSync(state.input.dispatch({ action, kind: 'touchrelease', target }))
     return
   }
   state.touchActionCounts.set(action, count - ONE_FINGER_HOLDING)
@@ -772,12 +776,13 @@ const dispatchFocusNavigationIntent = (dispatch: FocusNavigationDispatch): void 
 export const installInputListeners = (
   targets: BrowserInputTargets,
   input: InputServiceApi,
-  options: InstallInputListenersOptions = {},
+  options: InstallInputListenersOptions,
 ): InstalledInputListeners => {
-  const { pointerLockTarget } = options
+  const { pointerLockTarget, runSync } = options
   const touchControls = options.touchControls ?? []
   const touchState: TouchDispatchState = {
     input,
+    runSync,
     touchActionCounts: new Map<InputAction, number>(),
     touchActions: new Map<number, InputAction>(),
     touchControls,
@@ -796,7 +801,7 @@ export const installInputListeners = (
          when the event turns out to be untranslatable. A wheel whose
          `deltaMode` cannot be named must still not scroll the page out from
          under a locked canvas. */
-      if (typeof suppression !== 'undefined' && Effect.runSync(suppression)) {
+      if (typeof suppression !== 'undefined' && runSync(suppression)) {
         event.preventDefault()
       }
 
@@ -825,7 +830,7 @@ export const installInputListeners = (
         touchControls,
       })
       if (typeof translated !== 'undefined') {
-        Effect.runSync(input.dispatch(translated))
+        runSync(input.dispatch(translated))
       }
 
       /* AFTER the ordinary dispatch above, not instead of it: the raw
@@ -894,7 +899,7 @@ export const installInputListeners = (
 export const scopedInputListeners = (
   targets: BrowserInputTargets,
   input: InputServiceApi,
-  options: InstallInputListenersOptions = {},
+  options: InstallInputListenersOptions,
 ): Effect.Effect<InstalledInputListeners, never, Scope.Scope> =>
   Effect.acquireRelease(
     Effect.sync(() => installInputListeners(targets, input, options)),
@@ -1010,6 +1015,8 @@ export const makeBrowserPointerLockPort = (options: BrowserPointerLockOptions): 
  */
 export type BrowserInputOptions = {
   readonly targets: BrowserInputTargets
+  /** The synchronous Effect runner owned by the host's runtime boundary. */
+  readonly runSync: typeof Effect.runSync
   readonly canvas?: PointerLockTarget
   readonly allowsPointerLock?: () => boolean
   readonly bindings?: Bindings
@@ -1072,6 +1079,7 @@ export const browserInputLayer = (options: BrowserInputOptions): Layer.Layer<Inp
          — the declaration it already had to make now also scopes the
          acquisition (DN-16 §5(b)). */
       yield* scopedInputListeners(options.targets, input, {
+        runSync: options.runSync,
         ...(options.clickLandingForTarget && {
           clickLandingForTarget: options.clickLandingForTarget,
         }),

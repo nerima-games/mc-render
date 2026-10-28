@@ -3,7 +3,7 @@
  *
  * Lowered from mc-compose's `vite.config.ts` (Wave 1, W1-L5): both apps moved
  * here import `@nerima-games/mc-render`'s own source directly now (see each
- * app's `preview.ts` / `probe.ts`), so the build that proves they run belongs
+ * app's `main.ts` entrypoints), so the build that proves they run belongs
  * beside the source it draws, not in the composed game's config.
  *
  * `outDir: 'build'`, not `dist/`: `dist/` is `tsc -p tsconfig.release.json`'s

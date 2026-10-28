@@ -237,10 +237,10 @@ const previewPosition = (
 
 export type Machine = {
   readonly config: MachineConfig
-  readonly advance: (steps: number) => Promise<void>
+  readonly advance: (steps: number) => Effect.Effect<void, PlayerServiceInputError | CameraPoseError>
   /** Feed one event the operator typed, outside the script. */
-  readonly inject: (thing: InputEvent | Command) => Promise<void>
-  readonly view: () => Promise<MachineView>
+  readonly inject: (thing: InputEvent | Command) => Effect.Effect<void, PlayerServiceInputError | CameraPoseError>
+  readonly view: () => Effect.Effect<MachineView, PlayerServiceInputError | CameraPoseError>
 }
 
 const LOG_LIMIT = 10
@@ -324,227 +324,227 @@ const INPUT_EVENT_KINDS: ReadonlySet<string> = new Set([
 
 const isInputEventKind = (kind: string): boolean => INPUT_EVENT_KINDS.has(kind)
 
-export const makeMachine = async (config: MachineConfig): Promise<Machine> => {
-  const poseCapturedAtRef = await Effect.runPromise(Ref.make<MonotonicTimeSecs | undefined>(undefined))
-  const player = await Effect.runPromise(makePreviewPlayerService(poseCapturedAtRef))
+export const makeMachine = (
+  config: MachineConfig,
+): Effect.Effect<Machine, PlayerServiceInputError> =>
+  Effect.gen(function* () {
+    const poseCapturedAtRef = yield* Ref.make<MonotonicTimeSecs | undefined>(undefined)
+    const player = yield* makePreviewPlayerService(poseCapturedAtRef)
 
-  const service: InputServiceApi = await Effect.runPromise(
-    makeInputService(defaultBindings(), portFor(config.lockPort)),
-  )
-  const renderState = await Effect.runPromise(makeRenderFrameState())
-  const stages = renderStages({ input: service, player, state: renderState })
-  const cameraMirrorStage = stages.find(({ id }) => id === RENDER_STAGE_IDS.cameraMirror)
-  if (cameraMirrorStage === undefined) {
-    throw new Error('preview render stages did not register render:camera-mirror')
-  }
+    const service: InputServiceApi = yield* makeInputService(defaultBindings(), portFor(config.lockPort))
+    const renderState = yield* makeRenderFrameState()
+    const stages = renderStages({ input: service, player, state: renderState })
+    const cameraMirrorStage = stages.find(({ id }) => id === RENDER_STAGE_IDS.cameraMirror)
+    if (cameraMirrorStage === undefined) {
+      throw new Error('preview render stages did not register render:camera-mirror')
+    }
 
-  const book: Book = {
-    step: 0,
-    lastThing: '(nothing yet)',
-    clockSecs: 0,
-    player,
-    renderState,
-    cameraMirrorStage,
-    playerPose: undefined,
-    poseNeverPublished: true,
-    lastFrameSnapshot: undefined,
-    lastFrameSnapshotAtStep: undefined,
-    frameReading: undefined,
-    notchesReported: 0,
-    notchesConsumed: 0,
-    log: [],
-  }
+    const book: Book = {
+      step: 0,
+      lastThing: '(nothing yet)',
+      clockSecs: 0,
+      player,
+      renderState,
+      cameraMirrorStage,
+      playerPose: undefined,
+      poseNeverPublished: true,
+      lastFrameSnapshot: undefined,
+      lastFrameSnapshotAtStep: undefined,
+      frameReading: undefined,
+      notchesReported: 0,
+      notchesConsumed: 0,
+      log: [],
+    }
 
-  const scenario = scenarioFor(config.scenario)
+    const scenario = scenarioFor(config.scenario)
 
-  const runCommand = (command: Command): Effect.Effect<void, PlayerServiceInputError> => {
-    switch (command.kind) {
-      case 'requestLock':
-        return service.requestPointerLock.pipe(
-          Effect.tap((state) =>
-            Effect.sync(() => {
-              push(book, `requestPointerLock -> ${state}`, state === 'requested' ? 'command' : 'reject')
-            }),
-          ),
-          Effect.asVoid,
-        )
-
-      case 'frameAsk':
-        // `stages/registration.ts`'s `render:input`, in miniature: the landings
-        // are what the predicate reads, and a click on UI or on nothing is
-        // reported and then declined.
-        return Effect.gen(function* () {
-          const snapshot = yield* service.snapshot
-          const state = yield* service.pointerLockState
-          const acting = snapshot.uiClickLandings.filter(({ button, landing }) =>
-            acquiresPointerLock(button, state, landing),
+    const runCommand = (command: Command): Effect.Effect<void, PlayerServiceInputError> => {
+      switch (command.kind) {
+        case 'requestLock':
+          return service.requestPointerLock.pipe(
+            Effect.tap((state) =>
+              Effect.sync(() => {
+                push(book, `requestPointerLock -> ${state}`, state === 'requested' ? 'command' : 'reject')
+              }),
+            ),
+            Effect.asVoid,
           )
-          if (acting.length === 0) {
-            const seen = snapshot.uiClickLandings
-              .map((click) => `${click.button}@${click.landing}`)
-              .join(' ')
-            push(
-              book,
-              `render:input asked for nothing (state ${state}; clicks: ${seen === '' ? '(none)' : seen})`,
-              'reject',
-            )
-            return
-          }
-          const next = yield* service.requestPointerLock
-          push(book, `render:input asked -> ${next}`, next === 'requested' ? 'command' : 'reject')
-        })
 
-      case 'readSnapshot':
-        return service.snapshot.pipe(
-          Effect.tap((snapshot) =>
-            Effect.sync(() => {
-              book.lastFrameSnapshot = snapshot
-              book.lastFrameSnapshotAtStep = book.step
-              // The reading this "frame" acted on, kept so the `endFrame` step
-              // can hand it BACK — which is the whole contract. Reading it here
-              // for the log costs nothing, because `snapshot` is a pure read.
-              book.frameReading = snapshot
-              book.notchesReported += snapshot.wheelSteps
+        case 'frameAsk':
+          // `stages/registration.ts`'s `render:input`, in miniature: the landings
+          // are what the predicate reads, and a click on UI or on nothing is
+          // reported and then declined.
+          return Effect.gen(function* () {
+            const snapshot = yield* service.snapshot
+            const state = yield* service.pointerLockState
+            const acting = snapshot.uiClickLandings.filter(({ button, landing }) =>
+              acquiresPointerLock(button, state, landing),
+            )
+            if (acting.length === 0) {
+              const seen = snapshot.uiClickLandings
+                .map((click) => `${click.button}@${click.landing}`)
+                .join(' ')
               push(
                 book,
-                `snapshot: ${String(snapshot.wheelSteps)} wheel step(s), ${String(snapshot.justPressed.size)} edge(s)`,
-                'command',
+                `render:input asked for nothing (state ${state}; clicks: ${seen === '' ? '(none)' : seen})`,
+                'reject',
               )
-            }),
-          ),
-          Effect.asVoid,
-        )
+              return
+            }
+            const next = yield* service.requestPointerLock
+            push(book, `render:input asked -> ${next}`, next === 'requested' ? 'command' : 'reject')
+          })
 
-      case 'endFrame':
-        // Read the accumulator on BOTH sides of endFrame, so the difference is a
-        // number the app can print rather than a claim it makes. That is only
-        // measurable at all because `snapshot` is a PURE read: if the service
-        // remembered what it last reported, these two instrumentation reads
-        // would themselves decide how much the endFrame between them consumed,
-        // and this app would reproduce the `lost-notch` finding through its own
-        // overlay. See `endFrame` in application/input-service.ts.
-        //
-        // The frame's own reading — the one a `readSnapshot` step took — is what
-        // gets handed back, and it is CLEARED afterwards: a frame that never
-        // read the wheel must consume nothing.
-        return Effect.gen(function* () {
-          const before = (yield* service.snapshot).wheelNotches
-          yield* service.endFrame(book.frameReading)
-          book.frameReading = undefined
-          const after = (yield* service.snapshot).wheelNotches
-          const consumed = Math.round(before - after)
-          book.notchesConsumed += consumed
-          push(book, `endFrame: consumed ${String(consumed)} whole notch(es)`, 'command')
-        })
-
-      case 'clearHeld':
-        return service.clearHeld.pipe(
-          Effect.andThen(Effect.sync(() => { push(book, 'clearHeld', 'command') })),
-        )
-
-      case 'rebind':
-        return service
-          .rebind(command.action as InputAction, command.code)
-          .pipe(
-            Effect.tap((outcome) =>
+        case 'readSnapshot':
+          return service.snapshot.pipe(
+            Effect.tap((snapshot) =>
               Effect.sync(() => {
+                book.lastFrameSnapshot = snapshot
+                book.lastFrameSnapshotAtStep = book.step
+                // The reading this "frame" acted on, kept so the `endFrame` step
+                // can hand it BACK — which is the whole contract. Reading it here
+                // for the log costs nothing, because `snapshot` is a pure read.
+                book.frameReading = snapshot
+                book.notchesReported += snapshot.wheelSteps
                 push(
                   book,
-                  outcome.kind === 'ok'
-                    ? `rebind ${command.action} -> ${command.code}: ok`
-                    : `rebind ${command.action} -> ${command.code}: ${outcome.rejection.reason}`,
-                  outcome.kind === 'ok' ? 'command' : 'reject',
+                  `snapshot: ${String(snapshot.wheelSteps)} wheel step(s), ${String(snapshot.justPressed.size)} edge(s)`,
+                  'command',
                 )
               }),
             ),
             Effect.asVoid,
           )
 
-      case 'resetBindings':
-        return service.resetBindings.pipe(
-          Effect.andThen(Effect.sync(() => { push(book, 'resetBindings', 'command') })),
-        )
+        case 'endFrame':
+          // Read the accumulator on BOTH sides of endFrame, so the difference is a
+          // number the app can print rather than a claim it makes. That is only
+          // measurable at all because `snapshot` is a PURE read: if the service
+          // remembered what it last reported, these two instrumentation reads
+          // would themselves decide how much the endFrame between them consumed,
+          // and this app would reproduce the `lost-notch` finding through its own
+          // overlay. See `endFrame` in application/input-service.ts.
+          //
+          // The frame's own reading — the one a `readSnapshot` step took — is what
+          // gets handed back, and it is CLEARED afterwards: a frame that never
+          // read the wheel must consume nothing.
+          return Effect.gen(function* () {
+            const before = (yield* service.snapshot).wheelNotches
+            yield* service.endFrame(book.frameReading)
+            book.frameReading = undefined
+            const after = (yield* service.snapshot).wheelNotches
+            const consumed = Math.round(before - after)
+            book.notchesConsumed += consumed
+            push(book, `endFrame: consumed ${String(consumed)} whole notch(es)`, 'command')
+          })
 
-      case 'advanceClock':
-        return Effect.sync(() => {
-          book.clockSecs += command.seconds
-          push(book, `clock -> ${book.clockSecs.toFixed(3)} s`, 'command')
-        })
-
-      case 'publishPose':
-        return Effect.gen(function* () {
-          const previous = yield* book.player.pose
-          yield* book.player.restore(
-            {
-              feetPosition: yield* previewPosition(command.x, command.y, command.z),
-              yawRadians: command.yawRadians ?? previous.yawRadians,
-              pitchRadians: command.pitchRadians ?? previous.pitchRadians,
-            },
-            INITIAL_PLAYER_DIMENSION,
+        case 'clearHeld':
+          return service.clearHeld.pipe(
+            Effect.andThen(Effect.sync(() => { push(book, 'clearHeld', 'command') })),
           )
-          yield* Ref.set(poseCapturedAtRef, MonotonicTimeSecs(book.clockSecs))
-          book.poseNeverPublished = false
-          push(book, `mc-sim published a pose stamped ${book.clockSecs.toFixed(3)} s`, 'command')
-        })
 
-      case 'note':
-        return Effect.sync(() => {
-          push(book, command.text, 'note')
-        })
+        case 'rebind':
+          return service
+            .rebind(command.action as InputAction, command.code)
+            .pipe(
+              Effect.tap((outcome) =>
+                Effect.sync(() => {
+                  push(
+                    book,
+                    outcome.kind === 'ok'
+                      ? `rebind ${command.action} -> ${command.code}: ok`
+                      : `rebind ${command.action} -> ${command.code}: ${outcome.rejection.reason}`,
+                    outcome.kind === 'ok' ? 'command' : 'reject',
+                  )
+                }),
+              ),
+              Effect.asVoid,
+            )
 
-      default:
+        case 'resetBindings':
+          return service.resetBindings.pipe(
+            Effect.andThen(Effect.sync(() => { push(book, 'resetBindings', 'command') })),
+          )
+
+        case 'advanceClock':
+          return Effect.sync(() => {
+            book.clockSecs += command.seconds
+            push(book, `clock -> ${book.clockSecs.toFixed(3)} s`, 'command')
+          })
+
+        case 'publishPose':
+          return Effect.gen(function* () {
+            const previous = yield* book.player.pose
+            yield* book.player.restore(
+              {
+                feetPosition: yield* previewPosition(command.x, command.y, command.z),
+                yawRadians: command.yawRadians ?? previous.yawRadians,
+                pitchRadians: command.pitchRadians ?? previous.pitchRadians,
+              },
+              INITIAL_PLAYER_DIMENSION,
+            )
+            yield* Ref.set(poseCapturedAtRef, MonotonicTimeSecs(book.clockSecs))
+            book.poseNeverPublished = false
+            push(book, `mc-sim published a pose stamped ${book.clockSecs.toFixed(3)} s`, 'command')
+          })
+
+        case 'note':
+          return Effect.sync(() => {
+            push(book, command.text, 'note')
+          })
+
+        default:
+          return Effect.void
+      }
+    }
+
+    const runThing = (thing: InputEvent | Command): Effect.Effect<void, PlayerServiceInputError> =>
+      'kind' in thing && isInputEventKind(thing.kind)
+        ? service.dispatch(thing as InputEvent).pipe(
+            Effect.andThen(
+              Effect.sync(() => {
+                push(book, describeEvent(thing as InputEvent), 'event')
+              }),
+            ),
+          )
+        : runCommand(thing as Command)
+
+    const runCameraMirror = (): Effect.Effect<void, CameraPoseError> => {
+      if (book.poseNeverPublished) {
         return Effect.void
+      }
+      const clockLayer = FixedClockLayer({
+        monotonicSecs: MonotonicTimeSecs(book.clockSecs),
+        wallClockEpochMillis: EpochMillis(0),
+      })
+      return Effect.gen(function* () {
+        book.playerPose = yield* book.player.cameraPose.pipe(Effect.provide(clockLayer))
+        yield* book.cameraMirrorStage.run(DeltaTimeSecs(0)).pipe(Effect.provide(clockLayer))
+      })
     }
-  }
 
-  const runThing = (thing: InputEvent | Command): Effect.Effect<void, PlayerServiceInputError> =>
-    'kind' in thing && isInputEventKind(thing.kind)
-      ? service.dispatch(thing as InputEvent).pipe(
-          Effect.andThen(
-            Effect.sync(() => {
-              push(book, describeEvent(thing as InputEvent), 'event')
-            }),
-          ),
-        )
-      : runCommand(thing as Command)
-
-  const runCameraMirror = (): Effect.Effect<void, CameraPoseError> => {
-    if (book.poseNeverPublished) {
-      return Effect.void
-    }
-    const clockLayer = FixedClockLayer({
-      monotonicSecs: MonotonicTimeSecs(book.clockSecs),
-      wallClockEpochMillis: EpochMillis(0),
+    const oneStep = Effect.gen(function* () {
+      const scripted: ScriptedStep | undefined = stepAt(scenario, book.step)
+      if (scripted !== undefined) {
+        const thing = 'event' in scripted.what ? scripted.what.event : scripted.what.command
+        book.lastThing =
+          'event' in scripted.what
+            ? describeEvent(scripted.what.event)
+            : describeCommand(scripted.what.command)
+        yield* runThing(thing)
+      }
+      yield* runCameraMirror()
+      book.step += 1
     })
-    return Effect.gen(function* () {
-      book.playerPose = yield* book.player.cameraPose.pipe(Effect.provide(clockLayer))
-      yield* book.cameraMirrorStage.run(DeltaTimeSecs(0)).pipe(Effect.provide(clockLayer))
-    })
-  }
 
-  const oneStep = Effect.gen(function* () {
-    const scripted: ScriptedStep | undefined = stepAt(scenario, book.step)
-    if (scripted !== undefined) {
-      const thing = 'event' in scripted.what ? scripted.what.event : scripted.what.command
-      book.lastThing =
-        'event' in scripted.what
-          ? describeEvent(scripted.what.event)
-          : describeCommand(scripted.what.command)
-      yield* runThing(thing)
+    const advance = (steps: number): Effect.Effect<void, PlayerServiceInputError | CameraPoseError> => {
+      const count = Math.max(0, Math.trunc(steps))
+      return count === 0
+        ? Effect.void
+        : Effect.repeat(oneStep, Schedule.recurs(count - 1)).pipe(Effect.asVoid)
     }
-    yield* runCameraMirror()
-    book.step += 1
-  })
 
-  const advance = (steps: number): Promise<void> => {
-    const count = Math.max(0, Math.trunc(steps))
-    return count === 0
-      ? Promise.resolve()
-      : Effect.runPromise(Effect.repeat(oneStep, Schedule.recurs(count - 1)).pipe(Effect.asVoid))
-  }
-
-  const inject = (thing: InputEvent | Command): Promise<void> =>
-    Effect.runPromise(
+    const inject = (thing: InputEvent | Command): Effect.Effect<void, PlayerServiceInputError | CameraPoseError> =>
       runThing(thing).pipe(
         Effect.andThen(
           Effect.sync(() => {
@@ -554,11 +554,9 @@ export const makeMachine = async (config: MachineConfig): Promise<Machine> => {
                 : describeCommand(thing as Command)
           }),
         ),
-      ),
-    )
+      )
 
-  const view = (): Promise<MachineView> =>
-    Effect.runPromise(
+    const view = (): Effect.Effect<MachineView, PlayerServiceInputError | CameraPoseError> =>
       Effect.gen(function* () {
         const snapshot = yield* service.snapshot
         const bindings = yield* service.bindings
@@ -613,11 +611,10 @@ export const makeMachine = async (config: MachineConfig): Promise<Machine> => {
           poseNeverPublished: book.poseNeverPublished,
           log: [...book.log],
         } satisfies MachineView
-      }),
-    )
+      })
 
-  return { config, advance, inject, view }
-}
+    return { config, advance, inject, view }
+  })
 
 /** Which action a raw code currently means, for the live key echo. */
 export const meaningOf = (bindings: Bindings, code: InputCode): string => {

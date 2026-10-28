@@ -735,19 +735,30 @@ const listenerOptionsFor: (eventName: string) => DomListenerOptions
 const TRANSLATED_DOM_EVENTS: ReadonlyArray<string>
 
 const translateDomEvent: (planned, event: DomInputEvent, context) => InputEvent | undefined
-const installInputListeners: (targets, input: InputServiceApi, options?) => InstalledInputListeners
-const scopedInputListeners: (targets, input, options?) => Effect<InstalledInputListeners, never, Scope>
+type InstallInputListenersOptions = {
+  runSync: typeof Effect.runSync
+  focusTargetForElement?; clickLandingForTarget?; onFocusNavigationDirection?
+  pointerLockTarget?; touchControls?
+}
+const installInputListeners: (targets, input: InputServiceApi, options: InstallInputListenersOptions) => InstalledInputListeners
+const scopedInputListeners: (targets, input, options: InstallInputListenersOptions) => Effect<InstalledInputListeners, never, Scope>
 
 type BrowserPointerLockOptions = { canvas: PointerLockTarget; allowsPointerLock?: () => boolean }
 const makeBrowserPointerLockPort: (options) => PointerLockPort
 
 type BrowserInputOptions = {
-  targets; canvas?; allowsPointerLock?; bindings?
+  targets; runSync: typeof Effect.runSync; canvas?; allowsPointerLock?; bindings?
   focusTargetForElement?; clickLandingForTarget?; onFocusNavigationDirection?
   touchControls?
 }
 const browserInputLayer: (options: BrowserInputOptions) => Layer<InputService>
+```
 
+The host supplies `Effect.runSync` so DOM handlers can dispatch input and read
+scroll-suppression state before the browser processes the event. The adapter
+passes only synchronous effects with no typed error channel to the runner.
+
+```typescript
 // The renderer compares the target with the canvas and delegates UI membership
 // classification to the host.
 const resolveClickLanding: (

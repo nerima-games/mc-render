@@ -40,8 +40,8 @@ import {
   type InputServiceApi,
 } from '../src/application/input-service'
 import {
-  browserInputLayer,
-  installInputListeners,
+  browserInputLayer as browserInputLayerWithRunner,
+  installInputListeners as installInputListenersWithRunner,
   listenerOptionsFor,
   makeBrowserPointerLockPort,
   mayPreventDefault,
@@ -55,6 +55,16 @@ import {
   type TouchControlTarget,
 } from '../src/application/browser-input-adapter'
 import type { DomInputEvent, DomListener, DomListenerOptions } from '../src/application/dom-surface'
+
+const browserInputLayer = (
+  options: Omit<Parameters<typeof browserInputLayerWithRunner>[0], 'runSync'>,
+) => browserInputLayerWithRunner({ ...options, runSync: Effect.runSync })
+
+const installInputListeners = (
+  targets: Parameters<typeof installInputListenersWithRunner>[0],
+  input: Parameters<typeof installInputListenersWithRunner>[1],
+  options: Omit<Parameters<typeof installInputListenersWithRunner>[2], 'runSync'> = {},
+) => installInputListenersWithRunner(targets, input, { ...options, runSync: Effect.runSync })
 
 // ---------------------------------------------------------------------------
 // The fake DOM
@@ -315,7 +325,7 @@ describe('REGRESSION: teardown removes exactly what setup added', () => {
 
       yield* Effect.scoped(
         Effect.gen(function* () {
-          yield* scopedInputListeners(dom.targets, input)
+          yield* scopedInputListeners(dom.targets, input, { runSync: Effect.runSync })
           expect(dom.live()).toHaveLength(LISTENER_PLAN.length)
         }),
       )

@@ -58,7 +58,7 @@ const TILE_PIXELS = 16
 /**
  * A camera looking down at the fixture from one corner.
  *
- * CAST for the same reason `apps/shader-probe/probe.ts` casts: `position` and
+ * CAST for the same reason `apps/shader-probe/main.ts` casts: `position` and
  * `sourceCapturedAtSecs` are kernel's branded types and mc-render deliberately
  * does not re-export kernel's vocabulary. A brand has no runtime
  * representation and the renderer reads six numbers off this.
@@ -333,6 +333,7 @@ const main = async (): Promise<void> => {
   // nothing about the module.
   const scope = Effect.runSync(Scope.make())
   const inputLayer = browserInputLayer({
+    runSync: Effect.runSync,
     targets: { window, document },
     canvas,
     allowsPointerLock: () => true,

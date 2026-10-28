@@ -1356,10 +1356,12 @@ DN-15 の代入可能性の証明をやり直す価値は無い。
 
 **mx-ui は変わらない。** リスナも `stopPropagation()` も要らず、
 DN-UI-4 の「`addEventListener` を持たない」は無傷である。
-**ホストも新しい宣言をしない。** `browserInputLayer` が `options.canvas` を
-ロック要求の宛先とクリックのスコープの**両方**に渡す。
-`installInputListeners` を直に呼ぶホスト（Port を自前で組む場合）だけが
-第 4 引数で canvas をもう一度渡す必要がある。
+**ブラウザーのホストは同期 runner を渡す。** `browserInputLayer` の
+`runSync` にホストのEffect実行境界を渡す。DOMイベントハンドラーはイベントが戻る前に
+入力を反映し、スクロール抑止を判定する必要があるためである。
+`options.canvas` はロック要求の宛先とクリックのスコープの両方に使う。
+`installInputListeners` を直に呼ぶホスト（Port を自前で組む場合）は、
+optionsに `runSync` と `pointerLockTarget` を渡す。
 旧設計では §5(a)（グループ内の矢印キー移動）を mx-ui との未決事項として記録していた。
 W4-R5 は、DOM membership と focus movement を mx-ui、key-to-intent vocabulary を mc-render が所有すると定めた。
 

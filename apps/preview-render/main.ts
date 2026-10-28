@@ -292,7 +292,7 @@ const drawInto = async (state: State, options: PreviewOptions): Promise<Readonly
   if (state.showHelp) {
     return [...USAGE, '', dim('press any key to return')]
   }
-  const view = await state.machine.view()
+  const view = await Effect.runPromise(state.machine.view())
   return renderFrame(view, state.view, state.scenario, state.toggles, styleFor(options), frameWidth(options))
 }
 
@@ -350,13 +350,13 @@ const runInteractive = (state: State, options: PreviewOptions): void => {
 
     const steps = stepsForKey(key)
     if (steps !== undefined) {
-      busyThen(() => state.machine.advance(steps))
+      busyThen(() => Effect.runPromise(state.machine.advance(steps)))
       return
     }
 
     const injected = eventForKey(key)
     if (injected !== undefined) {
-      busyThen(() => state.machine.inject(injected))
+      busyThen(() => Effect.runPromise(state.machine.inject(injected)))
       return
     }
 
@@ -370,7 +370,7 @@ const runInteractive = (state: State, options: PreviewOptions): void => {
     if (key === '[' || key === ']') {
       const scenario = cycleScenario(state.scenario, key === '[' ? -1 : 1)
       busyThen(() =>
-        makeMachine({ scenario, lockPort: options.lockPort }).then((machine) => {
+        Effect.runPromise(makeMachine({ scenario, lockPort: options.lockPort })).then((machine) => {
           state.machine = machine
           state.scenario = scenario
         }),
@@ -436,9 +436,9 @@ const main = async (): Promise<number> => {
     return 0
   }
 
-  const machine = await makeMachine({ scenario: options.scenario, lockPort: options.lockPort })
+  const machine = await Effect.runPromise(makeMachine({ scenario: options.scenario, lockPort: options.lockPort }))
   if (options.at > 0) {
-    await machine.advance(options.at)
+    await Effect.runPromise(machine.advance(options.at))
   }
 
   const state: State = {
