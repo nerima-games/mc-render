@@ -55,7 +55,7 @@
  * decision `maxSpeedWithoutTunnelling` makes in mc-physics: prefer the rule
  * that cannot produce the pathological case over the rule that is tidier.
  */
-import { Effect, Ref } from 'effect'
+import { Effect, Ref, Result } from 'effect'
 
 /**
  * A worker, reduced to what this file calls.
@@ -429,36 +429,38 @@ const makeWorkerFailureHandlers = <TPayload, TResult>({
   const createReplacement = (
     failedPort: PoolWorkerPort<TPayload, TResult>,
     workerIndex: number,
-  ): PoolWorkerPort<TPayload, TResult> | undefined => {
+  ): Result.Result<PoolWorkerPort<TPayload, TResult> | undefined, unknown> => {
     const { replaceWorker } = options
     if (replaceWorker === undefined) {
-      return undefined
+      return Result.succeed(undefined)
     }
-    try {
-      const replacement = replaceWorker(workerIndex)
-      if (replacement === failedPort) {
-        return undefined
-      }
+    const replacement = Effect.runSync(Effect.result(Effect.try({
+      try: () => replaceWorker(workerIndex),
+      catch: (reason) => reason,
+    })))
+    if (Result.isFailure(replacement)) {
       return replacement
-    } catch {
-      return undefined
     }
+    return Result.succeed(replacement.success === failedPort ? undefined : replacement.success)
   }
 
   const restoreFailedWorker = (
     current: PoolState<TPayload, TResult>,
     failure: WorkerFailure<TPayload, TResult>,
-  ): RestoredWorker<TPayload, TResult> | undefined => {
+  ): Result.Result<RestoredWorker<TPayload, TResult> | undefined, unknown> => {
     const { failedPort, workerIndex } = failure
     const replacement = createReplacement(failedPort, workerIndex)
-    const generation = portGenerations.at(workerIndex)
-    if (replacement === undefined || generation === undefined) {
-      return undefined
+    if (Result.isFailure(replacement)) {
+      return replacement
     }
-    activePorts[workerIndex] = replacement
+    const generation = portGenerations.at(workerIndex)
+    if (replacement.success === undefined || generation === undefined) {
+      return Result.succeed(undefined)
+    }
+    activePorts[workerIndex] = replacement.success
     current.idle.push(workerIndex)
     current.restarted += ONE_AFFECTED_JOB
-    return { generation, port: replacement }
+    return Result.succeed({ generation, port: replacement.success })
   }
 
   const invalidateFailedWorker = (
@@ -491,11 +493,14 @@ const makeWorkerFailureHandlers = <TPayload, TResult>({
     }
     invalidateFailedWorker(current, failure)
     const restored = restoreFailedWorker(current, failure)
-    if (restored === undefined) {
+    if (Result.isFailure(restored)) {
+      current.deadWorkers += ONE_AFFECTED_JOB
+      failQueuedWithoutWorkers(current, restored.failure, activePorts.some((candidate) => candidate !== undefined))
+    } else if (restored.success === undefined) {
       current.deadWorkers += ONE_AFFECTED_JOB
       failQueuedWithoutWorkers(current, failure.reason, activePorts.some((candidate) => candidate !== undefined))
     } else {
-      attach({ ...restored, workerIndex: failure.workerIndex })
+      attach({ ...restored.success, workerIndex: failure.workerIndex })
     }
     pump(current, activePorts)
   }

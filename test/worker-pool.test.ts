@@ -396,25 +396,30 @@ describe('worker failure', () => {
     }),
   )
 
-  it.effect('treats a replacement factory exception as no replacement', () =>
+  it.effect('fails queued work with the replacement factory failure', () =>
     Effect.gen(function* () {
       const [worker] = workers(1)
       if (worker === undefined) {
         throw new Error('no worker')
       }
+      const workerFailure = new Error('worker exited')
+      const replacementFailure = new Error('replacement factory failed')
       const pool = yield* makeWorkerPool([worker], {
         replaceWorker: () => {
-          throw new Error('replacement factory failed')
+          throw replacementFailure
         },
       })
-      const failed = yield* Effect.forkChild(pool.submit('factory-error', { chunk: 'factory-error' }))
+      const running = yield* Effect.forkChild(pool.submit('running', { chunk: 'running' }))
+      yield* settle
+      const queued = yield* Effect.forkChild(pool.submit('queued', { chunk: 'queued' }))
       yield* settle
 
-      worker.fail(new Error('worker exited'))
+      worker.fail(workerFailure)
       yield* settle
 
-      expect(yield* Fiber.join(failed)).toStrictEqual({ _tag: 'failed', error: expect.any(Error) })
-      expect(yield* pool.stats).toMatchObject({ failed: 1, restarted: 0, deadWorkers: 1 })
+      expect(yield* Fiber.join(running)).toStrictEqual({ _tag: 'failed', error: workerFailure })
+      expect(yield* Fiber.join(queued)).toStrictEqual({ _tag: 'failed', error: replacementFailure })
+      expect(yield* pool.stats).toMatchObject({ failed: 2, restarted: 0, deadWorkers: 1, queued: 0 })
     }),
   )
 
