@@ -14,7 +14,7 @@
  * derive their names from `particleShaderSource()` rather than restating them.
  */
 import { describe, expect, it } from '@effect/vitest'
-import { Effect, Result } from 'effect'
+import { Effect, Result, Schema } from 'effect'
 import { makeParticleSystem } from '../src/application/particle-system'
 import {
   PARTICLE_INSTANCE_ATTRIBUTES,
@@ -27,6 +27,9 @@ import {
   PARTICLE_UV_STRIDE,
   PARTICLE_VECTOR_STRIDE,
   makeParticlePool as makeParticlePoolResult,
+  ParticleBurstCountSchema,
+  ParticleUvCoordinateSchema,
+  ParticleWorldCoordinateSchema,
   spawnBurst as spawnBurstResult,
 } from '../src/domain/particle-pool'
 import { makeFakeThree, type FakeInstancedAttribute } from './support/fake-three'
@@ -34,8 +37,19 @@ import { makeFakeThree, type FakeInstancedAttribute } from './support/fake-three
 const ATLAS = { id: 'atlas-texture' }
 const makeParticlePool = (...args: Parameters<typeof makeParticlePoolResult>) =>
   Result.getOrThrow(makeParticlePoolResult(...args))
-const spawnBurst = (...args: Parameters<typeof spawnBurstResult>) =>
-  Result.getOrThrow(spawnBurstResult(...args))
+const decodePosition = Schema.decodeUnknownSync(ParticleWorldCoordinateSchema)
+const decodeUv = Schema.decodeUnknownSync(ParticleUvCoordinateSchema)
+const decodeCount = Schema.decodeUnknownSync(ParticleBurstCountSchema)
+const spawnBurst = (pool: Parameters<typeof spawnBurstResult>[0], x: number, y: number, z: number, u: number, v: number, count: number) =>
+  Result.getOrThrow(spawnBurstResult(
+    pool,
+    decodePosition(x),
+    decodePosition(y),
+    decodePosition(z),
+    decodeUv(u),
+    decodeUv(v),
+    decodeCount(count),
+  ))
 
 const instancedAttribute = (
   geometry: { readonly attributes: Map<string, unknown> },

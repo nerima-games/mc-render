@@ -1,3 +1,5 @@
+import { Effect } from 'effect'
+import type { DeltaTimeSecs, Dimension } from '@nerima-games/mc-kernel'
 import {
   DEFAULT_DIMENSION,
   type RenderEnvironmentPlan,
@@ -31,9 +33,6 @@ import type {
   ThreeVector3,
 } from './three-surface.js'
 import { type WorldRenderer, type WorldRendererOptions, makeWorldRenderer } from './world-renderer.js'
-import type { Dimension } from '@nerima-games/mc-kernel'
-import { Effect } from 'effect'
-
 /**
  * Production renderer composition.
  *
@@ -50,7 +49,7 @@ type TransformableThreeMesh = ThreeMesh & {
 
 export type ProductionFrame = {
   readonly elapsedSecs: number
-  readonly deltaSecs: number
+  readonly deltaSecs: DeltaTimeSecs
   readonly cameraPosition: Readonly<{ worldX: number; worldY: number; worldZ: number }>
   /** Defaults to the renderer's current dimension, initially `overworld`. */
   readonly dimension?: Dimension | undefined

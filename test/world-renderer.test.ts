@@ -26,11 +26,17 @@ import {
   makeProductionWorldRenderer,
   makeWorldRenderer,
   NO_DRAW_TARGET,
+  type ProductionFrame,
   SKY_CLEAR_ALPHA,
   SKY_CLEAR_COLOR,
 } from '../src/application/world-renderer'
 import {
+  ParticleBurstCountSchema,
+  ParticleDeltaSecsSchema,
+  type ParticlePoolInputError,
   ParticlePoolInputErrorSchema,
+  ParticleUvCoordinateSchema,
+  ParticleWorldCoordinateSchema,
   spawnBurst as spawnBurstResult,
 } from '../src/domain/particle-pool'
 import { FAKE_CANVAS, makeFakeThree } from './support/fake-three'
@@ -43,8 +49,25 @@ import type { ThreeScene } from '../src/application/three-surface'
 import { angleRadians, blockId, chunkCoord, position } from './support/kernel-brands'
 
 const VIEWPORT = { width: 1280, height: 720 }
-const spawnBurst = (...args: Parameters<typeof spawnBurstResult>) =>
-  Result.getOrThrow(spawnBurstResult(...args))
+const decodePosition = Schema.decodeUnknownSync(ParticleWorldCoordinateSchema)
+const decodeUv = Schema.decodeUnknownSync(ParticleUvCoordinateSchema)
+const decodeCount = Schema.decodeUnknownSync(ParticleBurstCountSchema)
+const decodeDelta = Schema.decodeUnknownSync(ParticleDeltaSecsSchema)
+const advanceFrameWithRawInput = (
+  advanceFrame: (frame: ProductionFrame) => Effect.Effect<void, ParticlePoolInputError>,
+  frame: unknown,
+): Effect.Effect<void, ParticlePoolInputError> =>
+  Function.prototype.apply.call(advanceFrame, undefined, [frame])
+const spawnBurst = (pool: Parameters<typeof spawnBurstResult>[0], x: number, y: number, z: number, u: number, v: number, count: number) =>
+  Result.getOrThrow(spawnBurstResult(
+    pool,
+    decodePosition(x),
+    decodePosition(y),
+    decodePosition(z),
+    decodeUv(u),
+    decodeUv(v),
+    decodeCount(count),
+  ))
 
 const isParticlePoolInputFailure = (
   error: unknown,
@@ -1201,7 +1224,7 @@ describe('makeProductionWorldRenderer', () => {
       spawnBurst(renderer.particlePool, 1, 2, 3, 0, 0, 1)
       yield* renderer.advanceFrame({
         elapsedSecs: 2,
-        deltaSecs: 0.1,
+        deltaSecs: decodeDelta(0.1),
         cameraPosition: { worldX: 4, worldY: 5, worldZ: 6 },
       })
       expect(renderer.waterUniforms['uTime']?.value).toBe(2)
@@ -1234,7 +1257,7 @@ describe('makeProductionWorldRenderer', () => {
       yield* renderer.setEnvironment(planRenderEnvironment(0.5))
       yield* renderer.advanceFrame({
         elapsedSecs: 1,
-        deltaSecs: 0.01,
+        deltaSecs: decodeDelta(0.01),
         cameraPosition: { worldX: 1, worldY: 2, worldZ: 3 },
       })
       yield* renderer.resize(320, 200)
@@ -1263,7 +1286,7 @@ describe('makeProductionWorldRenderer', () => {
         { name: 'terrain-atlas' },
         { particles: { capacity: 2 } },
       )
-      const invalidStepResult = yield* Effect.result(renderer.advanceFrame({
+      const invalidStepResult = yield* Effect.result(advanceFrameWithRawInput(renderer.advanceFrame, {
         elapsedSecs: 1,
         deltaSecs: -0.01,
         cameraPosition: { worldX: 0, worldY: 0, worldZ: 0 },

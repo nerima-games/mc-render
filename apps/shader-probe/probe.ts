@@ -54,7 +54,7 @@
  * opening the page sees the same thing the test does.
  */
 import * as THREE from 'three'
-import { Effect, Result } from 'effect'
+import { Effect, Result, Schema } from 'effect'
 import { BlockId, ChunkKey } from '@nerima-games/mc-kernel'
 import { makeParticleSystem } from '../../src/application/particle-system.js'
 import {
@@ -64,7 +64,13 @@ import {
 } from '../../src/application/world-renderer.js'
 import { buildChunkGeometry } from '../../src/domain/chunk-geometry.js'
 import type { MirroredCameraState } from '../../src/domain/camera-mirror.js'
-import { makeParticlePool, spawnBurst } from '../../src/domain/particle-pool.js'
+import {
+  makeParticlePool,
+  ParticleBurstCountSchema,
+  ParticleUvCoordinateSchema,
+  ParticleWorldCoordinateSchema,
+  spawnBurst,
+} from '../../src/domain/particle-pool.js'
 import type { MeshQuad } from '../../src/domain/meshing-vocabulary.js'
 
 const VIEWPORT = { width: 320, height: 180 }
@@ -206,7 +212,18 @@ const probeParticleShader = async (canvas: HTMLCanvasElement): Promise<ProbeResu
   }
 
   const pool = poolResult.success
-  const spawnResult = spawnBurst(pool, 0, 0, -4, 0, 0, 4)
+  const decodePosition = Schema.decodeUnknownSync(ParticleWorldCoordinateSchema)
+  const decodeUv = Schema.decodeUnknownSync(ParticleUvCoordinateSchema)
+  const decodeCount = Schema.decodeUnknownSync(ParticleBurstCountSchema)
+  const spawnResult = spawnBurst(
+    pool,
+    decodePosition(0),
+    decodePosition(0),
+    decodePosition(-4),
+    decodeUv(0),
+    decodeUv(0),
+    decodeCount(4),
+  )
   if (Result.isFailure(spawnResult)) {
     return {
       name: 'particle',

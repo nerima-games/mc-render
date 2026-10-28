@@ -18,7 +18,7 @@ import { Effect, Result, Schema } from 'effect'
 import * as FastCheck from 'fast-check'
 import { requiresForceSinglePass } from '../src/domain/material-policy'
 import {
-  advanceParticles as advanceParticlesResult,
+  advanceParticles as advanceParticlesTypedResult,
   clearParticles as clearParticlesResult,
   DEFAULT_BURST_PARTICLES,
   DEFAULT_PARTICLE_SEED,
@@ -40,12 +40,17 @@ import {
   PARTICLE_WRITES_DEPTH,
   readSlot,
   spawnParticle as spawnParticleResult,
-  spawnBlockBurst as spawnBlockBurstResult,
-  spawnBurst as spawnBurstResult,
+  spawnBlockBurst as spawnBlockBurstTypedResult,
+  spawnBurst as spawnBurstTypedResult,
   ParticlePoolInputErrorSchema,
   ParticlePoolInputResultSchema,
   ParticlePoolOptionsSchema,
+  ParticleBurstCountSchema,
+  ParticleDeltaSecsSchema,
   ParticleSpawnSpecSchema,
+  ParticleTileIndexSchema,
+  ParticleUvCoordinateSchema,
+  ParticleWorldCoordinateSchema,
   type ParticleFrameSnapshot,
   type ParticlePool,
   type ParticleSpawnSpecEncoded,
@@ -58,12 +63,73 @@ const makeParticlePool = (...args: Parameters<typeof makeParticlePoolResult>) =>
   Result.getOrThrow(makeParticlePoolResult(...args))
 const spawnParticle = (...args: Parameters<typeof spawnParticleResult>) =>
   Result.getOrThrow(spawnParticleResult(...args))
-const spawnBlockBurst = (...args: Parameters<typeof spawnBlockBurstResult>) =>
-  Result.getOrThrow(spawnBlockBurstResult(...args))
-const spawnBurst = (...args: Parameters<typeof spawnBurstResult>) =>
-  Result.getOrThrow(spawnBurstResult(...args))
-const advanceParticles = (...args: Parameters<typeof advanceParticlesResult>) =>
-  Result.getOrThrow(advanceParticlesResult(...args))
+const decodePosition = Schema.decodeUnknownSync(ParticleWorldCoordinateSchema)
+const decodeUv = Schema.decodeUnknownSync(ParticleUvCoordinateSchema)
+const decodeCount = Schema.decodeUnknownSync(ParticleBurstCountSchema)
+const decodeTile = Schema.decodeUnknownSync(ParticleTileIndexSchema)
+const decodeDelta = Schema.decodeUnknownSync(ParticleDeltaSecsSchema)
+const spawnBurstResult = (...args: [
+  pool: ParticlePool,
+  positionX: number,
+  positionY: number,
+  positionZ: number,
+  uvU: number,
+  uvV: number,
+  count?: number,
+]): ReturnType<typeof spawnBurstTypedResult> =>
+  Function.prototype.apply.call(spawnBurstTypedResult, undefined, args)
+const spawnBlockBurstResult = (...args: [
+  pool: ParticlePool,
+  positionX: number,
+  positionY: number,
+  positionZ: number,
+  tileIndex: number,
+  count?: number,
+]): ReturnType<typeof spawnBlockBurstTypedResult> =>
+  Function.prototype.apply.call(spawnBlockBurstTypedResult, undefined, args)
+const advanceParticlesResult = (...args: [
+  pool: ParticlePool,
+  dtSecs: number,
+  frame?: ParticleFrameSnapshot,
+]): ReturnType<typeof advanceParticlesTypedResult> =>
+  Function.prototype.apply.call(advanceParticlesTypedResult, undefined, args)
+const spawnBlockBurst = (
+  pool: ParticlePool,
+  x: number,
+  y: number,
+  z: number,
+  tileIndex: number,
+  count = DEFAULT_BURST_PARTICLES,
+) => Result.getOrThrow(spawnBlockBurstTypedResult(
+  pool,
+  decodePosition(x),
+  decodePosition(y),
+  decodePosition(z),
+  decodeTile(tileIndex),
+  decodeCount(count),
+))
+const spawnBurst = (
+  pool: ParticlePool,
+  x: number,
+  y: number,
+  z: number,
+  u: number,
+  v: number,
+  count = DEFAULT_BURST_PARTICLES,
+) => Result.getOrThrow(spawnBurstTypedResult(
+  pool,
+  decodePosition(x),
+  decodePosition(y),
+  decodePosition(z),
+  decodeUv(u),
+  decodeUv(v),
+  decodeCount(count),
+))
+const advanceParticles = (
+  pool: ParticlePool,
+  dtSecs: number,
+  frame?: ParticleFrameSnapshot,
+) => Result.getOrThrow(advanceParticlesTypedResult(pool, decodeDelta(dtSecs), frame))
 const clearParticles = (...args: Parameters<typeof clearParticlesResult>) =>
   Result.getOrThrow(clearParticlesResult(...args))
 const particleSpawn = (overrides: Partial<ParticleSpawnSpecEncoded> = {}): ParticleSpawnSpecEncoded => ({
@@ -604,7 +670,10 @@ describe('integration', () => {
           ({ advanceSteps, lifetimeSecs, positionX, positionY, positionZ, velocityDirectionX, velocityDirectionY, velocityDirectionZ, velocitySpeed }) => {
             const pool = makeParticlePool({ capacity: 1 })
             const directionMagnitude = Math.hypot(velocityDirectionX, velocityDirectionY, velocityDirectionZ)
-            const velocityScale = directionMagnitude === 0 ? 0 : velocitySpeed / directionMagnitude
+            let velocityScale = 0
+            if (directionMagnitude !== 0) {
+              velocityScale = velocitySpeed / directionMagnitude
+            }
             const spawn = particleSpawn({
               lifetimeSecs,
               positionX,

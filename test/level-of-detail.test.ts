@@ -24,7 +24,9 @@ import {
   LOD2_DISTANCE_CHUNKS,
   REFERENCE_LOD_THRESHOLDS,
   REFERENCE_VIEWING_CONDITIONS,
-  chunkDistance,
+  chunkDistance as chunkDistanceResult,
+  ChunkXZSchema,
+  type ChunkXZ,
   distanceForScreenErrorPixels,
   lodForDistance,
   LodForDistanceResultSchema,
@@ -63,6 +65,15 @@ const expectFailure: <A, E>(
   result: Result.Result<A, E>,
 ) => asserts result is Result.Failure<A, E> = (result) => {
   expect(Result.isFailure(result)).toBe(true)
+}
+
+const chunk = (cx: number, cz: number): ChunkXZ =>
+  Schema.decodeUnknownSync(ChunkXZSchema)({ cx, cz })
+
+const chunkDistance = (from: ChunkXZ, to: ChunkXZ): number => {
+  const result = chunkDistanceResult(from, to)
+  expectSuccess(result)
+  return result.success
 }
 
 const lod = (distance: number, thresholds: LodThresholds) => {
@@ -197,6 +208,18 @@ describe('LOD result schemas', () => {
 })
 
 describe('chunkDistance', () => {
+  it.effect('decodes kernel chunk coordinates and rejects unsafe axes or the legacy shape', () =>
+    Effect.sync(() => {
+      const decodeChunk = Schema.decodeUnknownResult(ChunkXZSchema, { onExcessProperty: 'error' })
+
+      expect(Result.isSuccess(decodeChunk({ cx: 0, cz: 0 }))).toBe(true)
+      expect(Result.isFailure(decodeChunk({ cx: 1.5, cz: 0 }))).toBe(true)
+      expect(Result.isFailure(decodeChunk({ cx: Number.MAX_SAFE_INTEGER + 1, cz: 0 }))).toBe(true)
+      expect(Result.isFailure(decodeChunk({ chunkX: 0, chunkZ: 0 }))).toBe(true)
+      expect(Result.isFailure(decodeChunk({ cx: 0, cz: 0, extra: true }))).toBe(true)
+    }),
+  )
+
   it.effect('is the Chebyshev norm, so the loaded square and the tier rings agree', () =>
     Effect.sync(() => {
       // The norm is load-bearing, not stylistic: `renderDistance = R` loads a
@@ -204,11 +227,11 @@ describe('chunkDistance', () => {
       // that square. A Euclidean norm would put the corners of the loaded region
       // in a coarser tier than same-ring neighbours — four diagonal seams that
       // track the player.
-      expect(chunkDistance({ chunkX: 0, chunkZ: 0 }, { chunkX: 3, chunkZ: 3 })).toBe(3)
-      expect(chunkDistance({ chunkX: 0, chunkZ: 0 }, { chunkX: 3, chunkZ: 0 })).toBe(3)
+      expect(chunkDistance(chunk(0, 0), chunk(3, 3))).toBe(3)
+      expect(chunkDistance(chunk(0, 0), chunk(3, 0))).toBe(3)
       // Euclidean would give 4.24 for the diagonal above, and any threshold
       // between 3 and 4.24 would separate the two cases this line joins.
-      expect(chunkDistance({ chunkX: 0, chunkZ: 0 }, { chunkX: -3, chunkZ: 2 })).toBe(3)
+      expect(chunkDistance(chunk(0, 0), chunk(-3, 2))).toBe(3)
     }),
   )
 
@@ -221,8 +244,8 @@ describe('chunkDistance', () => {
           FastCheck.integer({ min: -64, max: 64 }),
           FastCheck.integer({ min: -64, max: 64 }),
           (ax, az, bx, bz) => {
-            const left = { chunkX: ax, chunkZ: az }
-            const right = { chunkX: bx, chunkZ: bz }
+            const left = chunk(ax, az)
+            const right = chunk(bx, bz)
             expect(chunkDistance(left, right)).toBe(chunkDistance(right, left))
             expect(chunkDistance(left, right) === 0).toBe(ax === bx && az === bz)
           },

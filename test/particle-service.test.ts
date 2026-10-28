@@ -20,7 +20,8 @@ import {
   PARTICLE_KIND_DEFAULTS,
 } from '../src/application/particle-service.js'
 import {
-  advanceParticles as advanceParticlesResult,
+  advanceParticles as advanceParticlesTypedResult,
+  ParticleDeltaSecsSchema,
   ParticleFrameSnapshotSchema,
   ParticlePoolInputErrorSchema,
   readSlot,
@@ -56,8 +57,15 @@ const FAST_CHECK_OPTIONS = { numRuns: 100, seed: 0x5eed }
 const decodeParticleRequest = Schema.decodeUnknownResult(ParticleRequestSchema, {
   onExcessProperty: 'error',
 })
-const advanceParticles = (...args: Parameters<typeof advanceParticlesResult>) =>
-  Result.getOrThrow(advanceParticlesResult(...args))
+const decodeDelta = Schema.decodeUnknownSync(ParticleDeltaSecsSchema)
+const advanceParticlesResult = (
+  pool: ParticlePool,
+  dtSecs: number,
+  frame?: ParticleFrameSnapshot,
+): ReturnType<typeof advanceParticlesTypedResult> =>
+  Function.prototype.apply.call(advanceParticlesTypedResult, undefined, [pool, dtSecs, frame])
+const advanceParticles = (pool: ParticlePool, dtSecs: number, frame?: ParticleFrameSnapshot) =>
+  Result.getOrThrow(advanceParticlesTypedResult(pool, decodeDelta(dtSecs), frame))
 
 const isParticlePoolInputFailure = (
   error: unknown,
@@ -469,9 +477,10 @@ describe('ParticleServiceLive', () => {
               candidate.directionY,
               candidate.directionZ,
             )
-            const scale = directionMagnitude === 0
-              ? 0
-              : candidate.speed / (directionMagnitude * baseSpeed)
+            let scale = 0
+            if (directionMagnitude !== 0) {
+              scale = candidate.speed / (directionMagnitude * baseSpeed)
+            }
             const request = decodeParticleRequest({
               kind: candidate.kind,
               position: {

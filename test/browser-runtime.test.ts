@@ -10,9 +10,11 @@ import {
   makeGpuTimerService,
 } from '../src/browser.js'
 import { mirroredCameraState } from '../src/domain/camera-mirror.js'
+import { ParticleDeltaSecsSchema } from '../src/domain/particle-pool.js'
 import { QUALITY_PRESETS, type PostProcessingStep } from '../src/domain/post-processing.js'
 
 const testCamera = mirroredCameraState(undefined)
+const decodeDelta = Schema.decodeUnknownSync(ParticleDeltaSecsSchema)
 
 const makeBrowserWorldRuntime = (options: Parameters<typeof makeBrowserWorldRuntimeEffect>[0]) =>
   Effect.runPromise(makeBrowserWorldRuntimeEffect(options))
@@ -1010,11 +1012,11 @@ describe('browser world runtime', () => {
       camera: testCamera,
       frame: {
         elapsedSecs: 1,
-        deltaSecs: 0.021,
+        deltaSecs: decodeDelta(0.021),
         cameraPosition: { worldX: 0, worldY: 0, worldZ: 0 },
       },
     }
-    Effect.runSync(runtime.advanceFrame({ ...frame.frame, deltaSecs: 0 }))
+    Effect.runSync(runtime.advanceFrame({ ...frame.frame, deltaSecs: decodeDelta(0) }))
     Effect.runSync(runtime.start(() => frame))
     const firstAnimation = frameCallbacks.get(nextFrameId - 1)
     if (!firstAnimation) {
@@ -1063,7 +1065,7 @@ describe('browser world runtime', () => {
     })
     const frame = {
       elapsedSecs: 1,
-      deltaSecs: 0.021,
+      deltaSecs: decodeDelta(0.021),
       cameraPosition: { worldX: 0, worldY: 0, worldZ: 0 },
     }
     for (let index = 0; index < 20; index += 1) {

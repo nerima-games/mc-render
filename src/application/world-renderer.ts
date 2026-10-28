@@ -71,7 +71,7 @@ import {
   type RenderEnvironmentPlan,
   planRenderEnvironment,
 } from '../domain/render-environment.js'
-import { type Dimension, type ChunkKey as KernelChunkKey } from '@nerima-games/mc-kernel'
+import { type DeltaTimeSecs, type Dimension, type ChunkKey as KernelChunkKey } from '@nerima-games/mc-kernel'
 export type ChunkKey = KernelChunkKey
 import { Effect, Ref } from 'effect'
 import {
@@ -1396,7 +1396,7 @@ export const makeWorldRenderer = <
 
 export type ProductionFrame = {
   readonly elapsedSecs: number
-  readonly deltaSecs: number
+  readonly deltaSecs: DeltaTimeSecs
   readonly cameraPosition: Readonly<{ worldX: number; worldY: number; worldZ: number }>
 }
 

@@ -121,25 +121,35 @@
  * cache belongs to whatever owns the chunk meshes, not to the level rule.
  */
 import { CHUNK_SIZE, LOD_LEVELS, type LodLevel, STEP_FOR_LOD } from '@nerima-games/mc-meshing'
+import { type ChunkAxis, type ChunkCoord } from '@nerima-games/mc-kernel'
 import { Result, Schema } from 'effect'
 
 /** The three tiers, named — derived from `LOD_LEVELS` rather than re-spelling `0, 1, 2`. */
 const [LOD_LEVEL_FINEST, LOD_LEVEL_MIDDLE, LOD_LEVEL_COARSEST] = LOD_LEVELS
 
 /**
- * A chunk coordinate pair. Not a world position — the units are CHUNKS.
- *
- * Declared here rather than mirrored from mc-kernel's `ChunkCoord`, and the
- * reason is worth a line: this file needs only "two integers to subtract", and
- * kernel's coordinate types are branded, so mirroring one would oblige every
- * caller to brand its inputs before it could ask which tier a chunk is at.
- * This local coordinate pair mirrors only what this repository USES; a brand
- * imposed for a subtraction is not use.
+ * Chunk-space coordinates use mc-kernel's branded axes. Decode external values
+ * here so an unsafe integer cannot enter the distance calculation.
  */
-export type ChunkXZ = {
-  readonly chunkX: number
-  readonly chunkZ: number
-}
+export type ChunkXZ = ChunkCoord
+
+const ChunkAxisSchema: Schema.Codec<ChunkAxis, number> = Schema.Int
+  .check(Schema.makeFilter<number>((value) =>
+    Number.isSafeInteger(value) || 'ChunkAxis must be a safe integer'
+  ))
+  .pipe(Schema.brand('ChunkAxis'))
+
+export const ChunkXZSchema: Schema.Codec<ChunkXZ, Readonly<{
+  readonly cx: number
+  readonly cz: number
+}>> = Schema.Struct({
+  cx: ChunkAxisSchema,
+  cz: ChunkAxisSchema,
+})
+
+const decodeChunkXZResult = Schema.decodeUnknownResult(ChunkXZSchema, {
+  onExcessProperty: 'error',
+})
 
 /**
  * Distance in chunks, in the CHEBYSHEV (L-infinity) norm: the larger of the two
@@ -161,8 +171,24 @@ export type ChunkXZ = {
  * `Math.abs` and not a squared comparison: the value is returned, not only
  * compared, because `lodScreenErrorPixels` takes it as a divisor.
  */
-export const chunkDistance = (from: ChunkXZ, to: ChunkXZ): number =>
-  Math.max(Math.abs(from.chunkX - to.chunkX), Math.abs(from.chunkZ - to.chunkZ))
+export const chunkDistance = (
+  from: ChunkXZ,
+  to: ChunkXZ,
+): Result.Result<number, LodInputError> => {
+  const decodedFrom = decodeChunkXZResult(from)
+  const decodedTo = decodeChunkXZResult(to)
+  if (Result.isFailure(decodedFrom) || Result.isFailure(decodedTo)) {
+    return Result.fail({
+      _tag: 'LodInputError',
+      operation: 'chunk-distance',
+      reason: 'invalid-chunk-coordinate',
+    })
+  }
+  return Result.succeed(Math.max(
+    Math.abs(decodedFrom.success.cx - decodedTo.success.cx),
+    Math.abs(decodedFrom.success.cz - decodedTo.success.cz),
+  ))
+}
 
 /**
  * The distance at which each tier takes over, in chunks.
@@ -189,20 +215,22 @@ export const LodThresholdsSchema: Schema.Codec<LodThresholds> = Schema.Struct({
 
 export type LodInputError = {
   readonly _tag: 'LodInputError'
-  readonly operation: 'thresholds' | 'distance' | 'census'
+  readonly operation: 'thresholds' | 'distance' | 'census' | 'chunk-distance'
   readonly reason:
     | 'invalid-render-distance'
     | 'invalid-distance'
     | 'invalid-thresholds'
+    | 'invalid-chunk-coordinate'
 }
 
 export const LodInputErrorSchema: Schema.Codec<LodInputError> = Schema.Struct({
   _tag: Schema.Literal('LodInputError'),
-  operation: Schema.Literals(['thresholds', 'distance', 'census']),
+  operation: Schema.Literals(['thresholds', 'distance', 'census', 'chunk-distance']),
   reason: Schema.Literals([
     'invalid-render-distance',
     'invalid-distance',
     'invalid-thresholds',
+    'invalid-chunk-coordinate',
   ]),
 })
 
