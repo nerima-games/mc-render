@@ -451,7 +451,7 @@ const makeWorkerFailureHandlers = <TPayload, TResult>({
     const { failedPort, workerIndex } = failure
     const replacement = createReplacement(failedPort, workerIndex)
     if (Result.isFailure(replacement)) {
-      return replacement
+      return Result.fail(replacement.failure)
     }
     const generation = portGenerations.at(workerIndex)
     if (replacement.success === undefined || generation === undefined) {
