@@ -10,13 +10,14 @@
  * actually running on this path.
  */
 import { describe, expect, it } from '@effect/vitest'
-import { Cause, Effect, Exit, Schema } from 'effect'
+import { Effect, Result, Schema } from 'effect'
 import { ParticleRequestSchema } from '../src/application/particle-service'
 import { makeProductionWorldRenderer } from '../src/application/world-renderer-production'
 import {
   applyChunkShaderEnvironment,
   makeChunkShaderMaterial,
   makeWaterMaterial,
+  RendererMaterialPolicyErrorSchema,
 } from '../src/application/world-renderer-materials'
 import { readSlot, spawnBurst } from '../src/domain/particle-pool'
 import { planRenderEnvironment } from '../src/domain/render-environment'
@@ -171,7 +172,7 @@ describe('makeProductionWorldRenderer (the shipped composition)', () => {
   )
 
   it.effect(
-    'REGRESSION: fails loudly if the shared water/particle materials lost forceSinglePass',
+    'REGRESSION: returns a typed failure if shared materials lost forceSinglePass',
     () =>
       Effect.gen(function* () {
         // The one call `makeProductionWorldRenderer` makes that the duplicate
@@ -189,16 +190,21 @@ describe('makeProductionWorldRenderer (the shipped composition)', () => {
           },
         }
 
-        // `assertRendererMaterialPolicies` throws a plain `Error`, which
-        // `Effect.gen` turns into a DEFECT rather than a typed failure —
-        // `Effect.exit` is what observes that without the test itself dying.
-        const exit = yield* Effect.exit(
+        const outcome = yield* Effect.result(
           makeProductionWorldRenderer(badThree, FAKE_CANVAS, VIEWPORT, { name: 'terrain-atlas' }),
         )
 
-        expect(Exit.isFailure(exit)).toBe(true)
-        if (Exit.isFailure(exit)) {
-          expect(Cause.hasDies(exit.cause)).toBe(true)
+        expect(Result.isFailure(outcome)).toBe(true)
+        if (Result.isFailure(outcome)) {
+          const decoded = Schema.decodeUnknownSync(RendererMaterialPolicyErrorSchema, {
+            onExcessProperty: 'error',
+          })(outcome.failure)
+          expect(decoded._tag).toBe('RendererMaterialPolicyError')
+          expect(decoded.violations.map(({ materialName }) => materialName)).toStrictEqual([
+            'waterSurfaceMaterial',
+            'particleMaterial',
+          ])
+          expect(decoded.violations.every(({ verdict }) => verdict.kind === 'must-force-single-pass')).toBe(true)
         }
       }),
   )

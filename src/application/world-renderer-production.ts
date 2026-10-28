@@ -27,10 +27,11 @@ import {
   assertRendererMaterialPolicies,
   makeChunkShaderMaterial,
   makeWaterMaterial,
+  type RendererMaterialPolicyError,
 } from './world-renderer-materials.js'
 import { type WorldRenderer, type WorldRendererOptions, makeWorldRenderer } from './world-renderer.js'
 import type { Dimension } from '@nerima-games/mc-kernel'
-import { Effect } from 'effect'
+import { Effect, Result } from 'effect'
 
 /**
  * Production renderer composition.
@@ -91,7 +92,7 @@ export const makeProductionWorldRenderer = <
   viewport: Viewport,
   atlasTexture: unknown,
   options: ProductionWorldRendererOptions = {},
-): Effect.Effect<ProductionWorldRenderer<TShaderMaterial>> => {
+): Effect.Effect<ProductionWorldRenderer<TShaderMaterial>, RendererMaterialPolicyError> => {
   let activeDimension = options.dimension ?? DEFAULT_DIMENSION
   let particleFrame: ParticleFrameSnapshot = { dimension: activeDimension, entities: [] }
   const buildRenderer = Effect.gen(function* buildProductionRenderer() {
@@ -100,7 +101,10 @@ export const makeProductionWorldRenderer = <
     const particleService = yield* ParticleService
     const particlePool = yield* ParticleServicePoolAccess
     const particles = yield* makeParticleSystem(three, particlePool, atlasTexture)
-    assertRendererMaterialPolicies(water.material, particles.material)
+    const materialPolicy = assertRendererMaterialPolicies(water.material, particles.material)
+    if (Result.isFailure(materialPolicy)) {
+      return yield* Effect.fail(materialPolicy.failure)
+    }
     const { particles: _particles, ...rendererOptions } = options
     const renderer = yield* makeWorldRenderer(three, canvas, viewport, {
       ...rendererOptions,

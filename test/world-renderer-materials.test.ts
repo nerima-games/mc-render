@@ -1,8 +1,9 @@
 import { describe, expect, it } from '@effect/vitest'
-import { Effect } from 'effect'
+import { Effect, Result, Schema } from 'effect'
 import {
   assertRendererMaterialPolicies,
   findRendererMaterialPolicyViolations,
+  RendererMaterialPolicyResultSchema,
 } from '../src/application/world-renderer-materials'
 import type { ThreeMaterial } from '../src/application/three-surface'
 
@@ -17,6 +18,11 @@ describe('renderer material policy assertions', () => {
   it.effect('accepts the production water and particle flags', () =>
     Effect.sync(() => {
       expect(findRendererMaterialPolicyViolations(makeMaterial(true), makeMaterial(true))).toStrictEqual([])
+      const result = assertRendererMaterialPolicies(makeMaterial(true), makeMaterial(true))
+      expect(Result.isSuccess(result)).toBe(true)
+      expect(
+        Schema.decodeUnknownSync(RendererMaterialPolicyResultSchema, { onExcessProperty: 'error' })(result),
+      ).toStrictEqual({ _tag: 'Success', _op: 'Success', success: undefined })
     }),
   )
 
@@ -32,11 +38,22 @@ describe('renderer material policy assertions', () => {
     }),
   )
 
-  it.effect('fails loudly when a required flag is missing', () =>
+  it.effect('returns a typed failure when a required flag is missing', () =>
     Effect.sync(() => {
-      expect(() => assertRendererMaterialPolicies(makeMaterial(false), makeMaterial(true))).toThrow(
-        /waterSurfaceMaterial/,
-      )
+      const result = assertRendererMaterialPolicies(makeMaterial(false), makeMaterial(true))
+      expect(Result.isFailure(result)).toBe(true)
+      if (Result.isFailure(result)) {
+        const decoded = Schema.decodeUnknownSync(RendererMaterialPolicyResultSchema, {
+          onExcessProperty: 'error',
+        })(result)
+        expect(decoded._tag).toBe('Failure')
+        if (decoded._tag === 'Failure') {
+          expect(decoded.failure.violations.map(({ materialName }) => materialName)).toStrictEqual([
+            'waterSurfaceMaterial',
+          ])
+          expect(decoded.failure.violations.every(({ verdict }) => verdict.kind === 'must-force-single-pass')).toBe(true)
+        }
+      }
     }),
   )
 })

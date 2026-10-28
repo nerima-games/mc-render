@@ -1,3 +1,4 @@
+import { Result, Schema } from 'effect'
 import {
   CHUNK_SHADER_UNIFORMS,
   chunkShaderSource,
@@ -39,7 +40,63 @@ export type RendererMaterialPolicyFinding = {
   readonly verdict: MaterialPolicyVerdict
 }
 
-const NO_RENDERER_MATERIAL_POLICY_VIOLATIONS = 0
+export type RendererMaterialPolicyError = {
+  readonly _tag: 'RendererMaterialPolicyError'
+  readonly violations: ReadonlyArray<RendererMaterialPolicyFinding>
+}
+
+type RendererMaterialPolicyResultShape<Success> =
+  | {
+      readonly _tag: 'Success'
+      readonly _op: 'Success'
+      readonly success: Success
+    }
+  | {
+      readonly _tag: 'Failure'
+      readonly _op: 'Failure'
+      readonly failure: RendererMaterialPolicyError
+    }
+
+const MaterialPolicyVerdictSchema: Schema.Codec<MaterialPolicyVerdict> = Schema.Union([
+  Schema.Struct({
+    kind: Schema.Literal('ok'),
+    reason: Schema.String,
+  }),
+  Schema.Struct({
+    kind: Schema.Literal('must-force-single-pass'),
+    reason: Schema.String,
+  }),
+  Schema.Struct({
+    kind: Schema.Literal('review-sharing'),
+    reason: Schema.String,
+  }),
+])
+
+export const RendererMaterialPolicyFindingSchema: Schema.Codec<RendererMaterialPolicyFinding> = Schema.Struct({
+  materialName: Schema.String,
+  verdict: MaterialPolicyVerdictSchema,
+})
+
+export const RendererMaterialPolicyErrorSchema: Schema.Codec<RendererMaterialPolicyError> = Schema.Struct({
+  _tag: Schema.Literal('RendererMaterialPolicyError'),
+  violations: Schema.Array(RendererMaterialPolicyFindingSchema),
+})
+
+/** Decode Result schemas with `onExcessProperty: 'error'` to enforce exact shapes. */
+export const RendererMaterialPolicyResultSchema: Schema.Codec<
+  RendererMaterialPolicyResultShape<void>
+> = Schema.Union([
+  Schema.Struct({
+    _tag: Schema.Literal('Success'),
+    _op: Schema.Literal('Success'),
+    success: Schema.Undefined,
+  }),
+  Schema.Struct({
+    _tag: Schema.Literal('Failure'),
+    _op: Schema.Literal('Failure'),
+    failure: RendererMaterialPolicyErrorSchema,
+  }),
+])
 
 type RendererMaterialPolicyBinding = RendererMaterialPolicyFinding & {
   readonly material: ThreeMaterial
@@ -71,20 +128,20 @@ export const findRendererMaterialPolicyViolations = (
     )
     .map(({ materialName, verdict }) => ({ materialName, verdict }))
 
-/** Fail at renderer construction if a shared cutout/flat material lost its flag. */
+/** Report a renderer-construction failure if a shared cutout/flat material lost its flag. */
 export const assertRendererMaterialPolicies = (
   waterMaterial: ThreeMaterial,
   particleMaterial: ThreeMaterial,
-): void => {
+): Result.Result<void, RendererMaterialPolicyError> => {
   const violations = findRendererMaterialPolicyViolations(waterMaterial, particleMaterial)
-  if (violations.length === NO_RENDERER_MATERIAL_POLICY_VIOLATIONS) {
-    return
+  if (violations.length === 0) {
+    return Result.succeed(undefined)
   }
 
-  const details = violations
-    .map(({ materialName, verdict }) => `${materialName}: ${verdict.reason}`)
-    .join('; ')
-  throw new Error(`Renderer material policy violation: ${details}`)
+  return Result.fail({
+    _tag: 'RendererMaterialPolicyError',
+    violations,
+  })
 }
 
 /** Update the shared shader's stable uniform boxes without rebuilding it. */
