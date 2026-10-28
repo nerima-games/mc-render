@@ -680,7 +680,7 @@ describe('integration', () => {
             velocityDirectionX: FastCheck.double({ min: -1, max: 1, noNaN: true }),
             velocityDirectionY: FastCheck.double({ min: -1, max: 1, noNaN: true }),
             velocityDirectionZ: FastCheck.double({ min: -1, max: 1, noNaN: true }),
-            velocitySpeed: FastCheck.double({ min: 0, max: 63.9, noNaN: true }),
+            velocitySpeed: FastCheck.double({ min: 0, max: 64, noNaN: true }),
             lifetimeSecs: FastCheck.double({ min: 0.0001, max: 10, noNaN: true }),
             advanceSteps: FastCheck.array(
               FastCheck.double({ min: 0, max: 1e100, noNaN: true }),
@@ -719,6 +719,90 @@ describe('integration', () => {
               const advanced = advanceParticlesResult(pool, dt)
               if (Result.isFailure(advanced) || !numericBuffersStayFinite(pool)) {
                 return false
+              }
+            }
+            return true
+          },
+        ),
+        FAST_CHECK_OPTIONS,
+      )
+    }),
+  )
+  it.effect('property: particle boundaries accept limits and reject adjacent values without writes', () =>
+    Effect.sync(() => {
+      const worldMaximum = 30_000_000
+      const boundaryCases = [
+        { positionX: worldMaximum, positionY: 0, positionZ: 0, speed: 0, accepted: true },
+        { positionX: worldMaximum + 1, positionY: 0, positionZ: 0, speed: 0, accepted: false },
+        { positionX: 0, positionY: worldMaximum, positionZ: 0, speed: 0, accepted: true },
+        { positionX: 0, positionY: worldMaximum + 1, positionZ: 0, speed: 0, accepted: false },
+        { positionX: 0, positionY: 0, positionZ: worldMaximum, speed: 0, accepted: true },
+        { positionX: 0, positionY: 0, positionZ: worldMaximum + 1, speed: 0, accepted: false },
+        { positionX: 0, positionY: 0, positionZ: 0, speed: 64, accepted: true },
+        { positionX: 0, positionY: 0, positionZ: 0, speed: 65, accepted: false },
+      ] as const
+      const buffers = (pool: ParticlePool): number[][] =>
+        [
+          pool.colors,
+          pool.initialLifetimesSecs,
+          pool.lifetimesSecs,
+          pool.positions,
+          pool.scales,
+          pool.uvOffsets,
+          pool.velocities,
+        ].map((buffer) => Array.from(buffer))
+      const buffersStayFinite = (pool: ParticlePool): boolean =>
+        buffers(pool).every((buffer) => buffer.every(Number.isFinite))
+      const buffersMatch = (pool: ParticlePool, expected: readonly (readonly number[])[]): boolean =>
+        buffers(pool).every((buffer, index) => {
+          const previous = expected[index]
+          return previous !== undefined &&
+            buffer.length === previous.length &&
+            buffer.every((value, componentIndex) => Object.is(value, previous[componentIndex]))
+        })
+
+      FastCheck.assert(
+        FastCheck.property(
+          FastCheck.record({
+            boundaryCase: FastCheck.constantFrom(...boundaryCases),
+            advanceSteps: FastCheck.array(
+              FastCheck.double({ min: 0, max: 1e100, noNaN: true }),
+              { maxLength: 256 },
+            ),
+          }),
+          ({ advanceSteps, boundaryCase }) => {
+            const cases = [
+              boundaryCase,
+              ...boundaryCases.filter((candidate) => candidate !== boundaryCase),
+            ]
+            for (const candidate of cases) {
+              const pool = makeParticlePool({ capacity: 1 })
+              const beforeSpawn = buffers(pool)
+              const result = spawnParticleResult(pool, particleSpawn({
+                lifetimeSecs: 10,
+                positionX: candidate.positionX,
+                positionY: candidate.positionY,
+                positionZ: candidate.positionZ,
+                velocity: { x: candidate.speed, y: 0, z: 0 },
+              }))
+
+              if (!candidate.accepted) {
+                if (
+                  !isDecodedParticleInputFailure(result, 'spawn', 'invalid-spawn') ||
+                  !buffersMatch(pool, beforeSpawn)
+                ) {
+                  return false
+                }
+              } else {
+                if (Result.isFailure(result) || !result.success || !buffersStayFinite(pool)) {
+                  return false
+                }
+                for (const dt of advanceSteps) {
+                  const advanced = advanceParticlesResult(pool, dt)
+                  if (Result.isFailure(advanced) || !buffersStayFinite(pool)) {
+                    return false
+                  }
+                }
               }
             }
             return true

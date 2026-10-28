@@ -358,6 +358,143 @@ describe('ParticleServiceLive', () => {
     }).pipe(Effect.provide(ParticleServiceLive({ pool: { capacity: 8 } }))),
   )
 
+  it.effect('property: service boundaries accept limits and reject adjacent values without writes', () =>
+    Effect.sync(() => {
+      const worldMaximum = 30_000_000
+      const direction = (x: number) =>
+        Schema.decodeUnknownSync(ParticleDirectionSchema)({ x, y: 0, z: 0 })
+      const boundaryRequests = [
+        {
+          request: particleRequest({
+            kind: 'level-up',
+            position: position('overworld', worldMaximum, 0, 0),
+          }),
+          accepted: true,
+        },
+        {
+          request: particleRequest({
+            kind: 'level-up',
+            position: position('overworld', worldMaximum + 1, 0, 0),
+          }),
+          accepted: false,
+        },
+        {
+          request: particleRequest({
+            kind: 'level-up',
+            position: position('overworld', 0, worldMaximum, 0),
+          }),
+          accepted: true,
+        },
+        {
+          request: particleRequest({
+            kind: 'level-up',
+            position: position('overworld', 0, worldMaximum + 1, 0),
+          }),
+          accepted: false,
+        },
+        {
+          request: particleRequest({
+            kind: 'level-up',
+            position: position('overworld', 0, 0, worldMaximum),
+          }),
+          accepted: true,
+        },
+        {
+          request: particleRequest({
+            kind: 'level-up',
+            position: position('overworld', 0, 0, worldMaximum + 1),
+          }),
+          accepted: false,
+        },
+        {
+          request: particleRequest({
+            kind: 'level-up',
+            position: position('overworld', 0, 0, 0),
+            direction: direction(64),
+          }),
+          accepted: true,
+        },
+        {
+          request: particleRequest({
+            kind: 'level-up',
+            position: position('overworld', 0, 0, 0),
+            direction: direction(65),
+          }),
+          accepted: false,
+        },
+      ] as const
+
+      const buffers = (pool: ParticlePool): number[][] =>
+        [
+          pool.colors,
+          pool.initialLifetimesSecs,
+          pool.lifetimesSecs,
+          pool.positions,
+          pool.scales,
+          pool.uvOffsets,
+          pool.velocities,
+        ].map((buffer) => Array.from(buffer))
+      const buffersStayFinite = (pool: ParticlePool): boolean =>
+        buffers(pool).every((buffer) => buffer.every(Number.isFinite))
+      const buffersMatch = (pool: ParticlePool, expected: readonly (readonly number[])[]): boolean =>
+        buffers(pool).every((buffer, index) => {
+          const previous = expected[index]
+          return previous !== undefined &&
+            buffer.length === previous.length &&
+            buffer.every((value, componentIndex) => Object.is(value, previous[componentIndex]))
+        })
+
+      FastCheck.assert(
+        FastCheck.property(
+          FastCheck.record({
+            boundaryRequest: FastCheck.constantFrom(...boundaryRequests),
+            advanceSteps: FastCheck.array(
+              FastCheck.double({ min: 0, max: 1e100, noNaN: true }),
+              { maxLength: 256 },
+            ),
+          }),
+          ({ advanceSteps, boundaryRequest }) =>
+            Effect.runSync(Effect.gen(function* () {
+              const service = yield* ParticleService
+              const pool = yield* ParticleServicePoolAccess
+              const cases = [
+                boundaryRequest,
+                ...boundaryRequests.filter((candidate) => candidate !== boundaryRequest),
+              ]
+              for (const candidate of cases) {
+                const beforeSpawn = buffers(pool)
+                const result = yield* Effect.result(service.spawn(candidate.request))
+
+                if (!candidate.accepted) {
+                  if (
+                    Result.isSuccess(result) ||
+                    !isParticlePoolInputFailure(result.failure, 'request', 'invalid-request') ||
+                    !buffersMatch(pool, beforeSpawn)
+                  ) {
+                    return false
+                  }
+                } else if (
+                  Result.isFailure(result) ||
+                  result.success === 0 ||
+                  !buffersStayFinite(pool)
+                ) {
+                  return false
+                }
+              }
+
+              for (const dt of advanceSteps) {
+                const advanced = advanceParticlesResult(pool, dt)
+                if (Result.isFailure(advanced) || !buffersStayFinite(pool)) {
+                  return false
+                }
+              }
+              return true
+            }).pipe(Effect.provide(ParticleServiceLive({ pool: { capacity: 128 } })))),
+        ),
+        FAST_CHECK_OPTIONS,
+      )
+    }),
+  )
   it.effect('property: invalid render contexts fail through the public typed error schema', () => {
     let frame: unknown = { dimension: 'overworld', entities: [] }
     return Effect.gen(function* () {
@@ -484,7 +621,7 @@ describe('ParticleServiceLive', () => {
             directionX: FastCheck.double({ min: -1, max: 1, noNaN: true }),
             directionY: FastCheck.double({ min: -1, max: 1, noNaN: true }),
             directionZ: FastCheck.double({ min: -1, max: 1, noNaN: true }),
-            speed: FastCheck.double({ min: 0, max: 63.9, noNaN: true }),
+            speed: FastCheck.double({ min: 0, max: 64, noNaN: true }),
             lifetimeSeconds: FastCheck.double({ min: 0.0001, max: 10, noNaN: true }),
             advanceSteps: FastCheck.array(
               FastCheck.double({ min: 0, max: 1e100, noNaN: true }),
