@@ -196,16 +196,39 @@ const probeWaterShader = async (canvas: HTMLCanvasElement): Promise<ProbeResult>
 }
 
 const probeParticleShader = async (canvas: HTMLCanvasElement): Promise<ProbeResult> => {
+  const poolResult = makeParticlePool({ capacity: 16 })
+  if (Result.isFailure(poolResult)) {
+    return {
+      name: 'particle',
+      compiled: false,
+      errors: [`particle pool input failed: ${poolResult.failure.reason}`],
+    }
+  }
+
+  const pool = poolResult.success
+  const spawnResult = spawnBurst(pool, 0, 0, -4, 0, 0, 4)
+  if (Result.isFailure(spawnResult)) {
+    return {
+      name: 'particle',
+      compiled: false,
+      errors: [`particle spawn input failed: ${spawnResult.failure.reason}`],
+    }
+  }
+  if (spawnResult.success !== 4) {
+    return {
+      name: 'particle',
+      compiled: false,
+      errors: [`particle probe expected 4 spawned instances, received ${String(spawnResult.success)}`],
+    }
+  }
+
   const errors = await captureErrors(async () => {
     const renderer = new THREE.WebGLRenderer({ canvas })
     const scene = new THREE.Scene()
     const camera = new THREE.PerspectiveCamera(75, 16 / 9, 0.1, 300)
 
-    const pool = makeParticlePool({ capacity: 16 })
     // A live particle, so `instanceCount` is non-zero and the instanced
     // attributes are actually consumed by a draw.
-    spawnBurst(pool, 0, 0, -4, 0, 0, 4)
-
     const system = await Effect.runPromise(
       makeParticleSystem<
         HTMLCanvasElement,

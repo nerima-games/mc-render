@@ -79,7 +79,13 @@ import {
   type MobVisualPartPlan,
   planMobVisual,
 } from '../domain/mob-visual.js'
-import { type ParticlePool, type ParticlePoolOptions, advanceParticles, makeParticlePool } from '../domain/particle-pool.js'
+import {
+  type ParticlePool,
+  type ParticlePoolInputError,
+  type ParticlePoolOptions,
+  advanceParticles,
+  makeParticlePool,
+} from '../domain/particle-pool.js'
 import { type ParticleSystem, makeParticleSystem } from './particle-system.js'
 import type {
   ThreeBufferGeometry,
@@ -1400,7 +1406,7 @@ export type ProductionWorldRenderer<TShaderMaterial extends ThreeMaterial> = Wor
   readonly waterUniforms: Record<string, ThreeUniform>
   readonly particlePool: ParticlePool
   readonly particles: ParticleSystem
-  readonly advanceFrame: (frame: ProductionFrame) => Effect.Effect<void>
+  readonly advanceFrame: (frame: ProductionFrame) => Effect.Effect<void, ParticlePoolInputError>
 }
 
 export type ProductionWorldRendererOptions = Omit<
@@ -1429,11 +1435,11 @@ export const makeProductionWorldRenderer = <
   viewport: Viewport,
   atlasTexture: unknown,
   options: ProductionWorldRendererOptions = {},
-): Effect.Effect<ProductionWorldRenderer<TShaderMaterial>> =>
+): Effect.Effect<ProductionWorldRenderer<TShaderMaterial>, ParticlePoolInputError> =>
   Effect.gen(function* buildProductionRenderer() {
+    const particlePool = yield* Effect.fromResult(makeParticlePool(options.particles))
     const chunk = makeChunkShaderMaterial(three, atlasTexture)
     const water = makeWaterMaterial(three, viewport)
-    const particlePool = makeParticlePool(options.particles)
     const particles = yield* makeParticleSystem(three, particlePool, atlasTexture)
     const { particles: _particles, ...rendererOptions } = options
     const renderer = yield* makeWorldRenderer(three, canvas, viewport, {
@@ -1449,8 +1455,8 @@ export const makeProductionWorldRenderer = <
 
     return {
       ...renderer,
-      advanceFrame: (frame) => Effect.sync(() => {
-        advanceParticles(particlePool, frame.deltaSecs)
+      advanceFrame: (frame) => Effect.gen(function* advanceProductionFrame() {
+        yield* Effect.fromResult(advanceParticles(particlePool, frame.deltaSecs))
         const time = water.uniforms['uTime']
         const cameraPosition = water.uniforms['uCameraPosition']
         if (time) {time.value = frame.elapsedSecs}

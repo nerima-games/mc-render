@@ -1,4 +1,4 @@
-import { Brand, Context, Effect, Layer, Schema } from 'effect'
+import { Brand, Context, Effect, Layer, Result, Schema } from 'effect'
 import {
   type EntityId,
   EntityIdSchema,
@@ -9,8 +9,10 @@ import {
   PARTICLE_LIFETIME_SECS,
   type ParticleFrameSnapshot,
   type ParticlePool,
+  type ParticlePoolInputError,
   type ParticlePoolOptions,
   type ParticleSpawnSpec,
+  ParticleFrameSnapshotSchema,
   makeParticlePool,
   spawnParticle,
 } from '../domain/particle-pool.js'
@@ -130,7 +132,10 @@ export const PARTICLE_KIND_DEFAULTS: Readonly<Record<ParticleKind, ParticleKindD
 }
 
 export type ParticleServiceApi = {
-  readonly spawn: (request: ParticleRequest) => Effect.Effect<typeof PARTICLE_REQUEST_REJECTED | typeof PARTICLE_REQUEST_ACCEPTED>
+  readonly spawn: (request: ParticleRequest) => Effect.Effect<
+    typeof PARTICLE_REQUEST_REJECTED | typeof PARTICLE_REQUEST_ACCEPTED,
+    ParticlePoolInputError
+  >
 }
 
 const ParticleServiceBase: Context.ServiceClass<
@@ -180,6 +185,9 @@ export const ParticleRequestSchema: Schema.Codec<ParticleRequest, ParticleReques
 ))
 
 const EMPTY_RENDER_CONTEXT: ParticleFrameSnapshot = { dimension: 'overworld', entities: [] }
+const decodeParticleFrameSnapshot = Schema.decodeUnknownResult(ParticleFrameSnapshotSchema, {
+  onExcessProperty: 'error',
+})
 
 const followLinkFor = (
   request: ParticleRequest,
@@ -237,52 +245,45 @@ const particleSpawnSpecFor = (
   }
 }
 
-const isParticleSpawnFloat32Safe = (spawn: ParticleSpawnSpec): boolean => {
-  const { follow, positionX, positionY, positionZ, velocity } = spawn
-  return isParticleFloat32Vector(positionX, positionY, positionZ) &&
-    (velocity === undefined || isParticleFloat32Vector(velocity.x, velocity.y, velocity.z)) &&
-    (follow === undefined || isParticleFloat32Vector(
-      positionX - follow.x,
-      positionY - follow.y,
-      positionZ - follow.z,
-    ))
-}
-
 const spawnParticles = (
   pool: ParticlePool,
   spawn: ParticleSpawnSpec,
   requestedCount: number,
-): typeof PARTICLE_REQUEST_REJECTED | typeof PARTICLE_REQUEST_ACCEPTED => {
+): Result.Result<
+  typeof PARTICLE_REQUEST_REJECTED | typeof PARTICLE_REQUEST_ACCEPTED,
+  ParticlePoolInputError
+> => {
   const count = Math.min(requestedCount, pool.capacity)
   let accepted = false
   for (let particle = 0; particle < count; particle += PARTICLE_LOOP_STEP) {
-    accepted = spawnParticle(pool, spawn) || accepted
+    const result = spawnParticle(pool, spawn)
+    if (Result.isFailure(result)) {
+      return Result.fail(result.failure)
+    }
+    accepted = result.success || accepted
   }
-  if (!accepted) {
-    return PARTICLE_REQUEST_REJECTED
-  }
-  return PARTICLE_REQUEST_ACCEPTED
+  return Result.succeed(accepted ? PARTICLE_REQUEST_ACCEPTED : PARTICLE_REQUEST_REJECTED)
 }
 
 const spawnParticleRequest = (
   pool: ParticlePool,
   request: ParticleRequest,
   context: ParticleFrameSnapshot,
-): typeof PARTICLE_REQUEST_REJECTED | typeof PARTICLE_REQUEST_ACCEPTED => {
+): Result.Result<
+  typeof PARTICLE_REQUEST_REJECTED | typeof PARTICLE_REQUEST_ACCEPTED,
+  ParticlePoolInputError
+> => {
   if (request.position.dimension !== context.dimension) {
-    return PARTICLE_REQUEST_REJECTED
+    return Result.succeed(PARTICLE_REQUEST_REJECTED)
   }
 
   const follow = followLinkFor(request, context)
   if (request.followEntity !== undefined && follow === undefined) {
-    return PARTICLE_REQUEST_REJECTED
+    return Result.succeed(PARTICLE_REQUEST_REJECTED)
   }
 
   const defaults = PARTICLE_KIND_DEFAULTS[request.kind]
   const spawn = particleSpawnSpecFor(request, defaults, follow)
-  if (!isParticleSpawnFloat32Safe(spawn)) {
-    return PARTICLE_REQUEST_REJECTED
-  }
   return spawnParticles(pool, spawn, defaults.particleCount)
 }
 
@@ -290,16 +291,42 @@ const makeParticleService = (
   pool: ParticlePool,
   readRenderContext: () => ParticleFrameSnapshot,
 ): ParticleServiceApi => ({
-  spawn: (request) => Effect.sync(() =>
-    spawnParticleRequest(pool, request, readRenderContext())
-  ),
+  spawn: (request) => Effect.suspend(() => {
+    const decoded = Schema.decodeUnknownResult(ParticleRequestSchema, {
+      onExcessProperty: 'error',
+    })(request)
+    if (Result.isFailure(decoded)) {
+      return Effect.fail({
+        _tag: 'ParticlePoolInputError',
+        operation: 'request',
+        reason: 'invalid-request',
+      } satisfies ParticlePoolInputError)
+    }
+    return Effect.try({
+      try: () => decodeParticleFrameSnapshot(readRenderContext()),
+      catch: () => ({
+        _tag: 'ParticlePoolInputError',
+        operation: 'render-context',
+        reason: 'render-context-failed',
+      } satisfies ParticlePoolInputError),
+    }).pipe(Effect.flatMap((context) => {
+      if (Result.isFailure(context)) {
+        return Effect.fail({
+          _tag: 'ParticlePoolInputError',
+          operation: 'render-context',
+          reason: 'invalid-frame',
+        } satisfies ParticlePoolInputError)
+      }
+      return Effect.fromResult(spawnParticleRequest(pool, decoded.success, context.success))
+    }))
+  }),
 })
 
 export const ParticleServiceLive = (
   options: ParticleServiceLiveOptions = {},
-): Layer.Layer<ParticleService | ParticleServicePoolAccess> =>
-  Layer.effectContext(Effect.sync(() => {
-    const pool = makeParticlePool(options.pool)
+): Layer.Layer<ParticleService | ParticleServicePoolAccess, ParticlePoolInputError> =>
+  Layer.effectContext(Effect.gen(function* () {
+    const pool = yield* Effect.fromResult(makeParticlePool(options.pool))
     const service = makeParticleService(
       pool,
       options.renderContext ?? (() => EMPTY_RENDER_CONTEXT),

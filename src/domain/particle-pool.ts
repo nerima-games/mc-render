@@ -1,6 +1,6 @@
 /**
- * The instanced particle pool: fixed capacity, drop-oldest, no frame-path
- * allocation, and a seeded generator.
+ * The instanced particle pool: fixed capacity, drop-oldest, allocation-free
+ * per-particle loops, and a seeded generator.
  *
  * ---------------------------------------------------------------------------
  * plan.md §3.9
@@ -129,9 +129,9 @@
  * ---------------------------------------------------------------------------
  *
  * `domain/frame-scratch.ts` holds this repository's argument about per-frame
- * allocation and the pool obeys it: `spawnBurst` and `advanceParticles` allocate
- * NOTHING, return numbers rather than objects, and write into buffers fixed at
- * construction.
+ * allocation. The pool writes into buffers fixed at construction and avoids
+ * per-particle allocation; its public mutators return one typed Result per call
+ * so invalid input remains visible to callers.
  *
  * It does not use a `ScratchMap`, and the reason is a real difference rather
  * than an exemption. A `ScratchMap` solves "a keyed collection whose CONTENTS are
@@ -159,7 +159,8 @@
  * row, and this file does not pretend to cover them.
  */
 
-import { TILE_UV_SPAN, tileUvOrigin } from './texture-atlas.js'
+import { Result, Schema } from 'effect'
+import { ATLAS_TILE_COUNT, TILE_UV_SPAN, tileUvOrigin } from './texture-atlas.js'
 import type { Dimension } from '@nerima-games/mc-kernel'
 import { type MaterialSpec } from './material-policy.js'
 
@@ -299,6 +300,7 @@ const ZERO = 0
 const INITIAL_SPAWN_SEQUENCE = 0n
 /** The upper bound accepted for each RGB tint channel. */
 const MAX_PARTICLE_TINT_CHANNEL = 1
+const MAX_PARTICLE_FLOAT32_VALUE = 3.4028234663852886e38
 
 /** The single-slot step used by every index-advancing loop and counter in this file. */
 const ONE_SLOT = 1
@@ -310,21 +312,14 @@ const PRNG_OUTPUT_OFFSET = 1
 const NORMALISED_SEED_FALLBACK = ONE_SLOT
 
 /**
- * Fold any number into the generator's legal state, `[1, PRNG_MODULUS - 1]`.
+ * Fold a validated safe integer seed into `[1, PRNG_MODULUS - 1]`.
  *
- * Zero is the generator's fixed point, so it maps to 1 rather than being
- * accepted; a non-number lands on the same value rather than poisoning every
- * subsequent draw with NaN. The inert direction, as everywhere else here.
+ * Zero is the generator's fixed point, so it maps to 1. Non-finite and
+ * fractional seeds are rejected by `ParticlePoolOptionsSchema` before here.
  */
 const normaliseSeed = (seed: number): number => {
-  if (!Number.isFinite(seed)) {
-    return NORMALISED_SEED_FALLBACK
-  }
   const folded = Math.abs(Math.trunc(seed)) % PRNG_MODULUS
-  if (folded === ZERO) {
-    return NORMALISED_SEED_FALLBACK
-  }
-  return folded
+  return folded === ZERO ? NORMALISED_SEED_FALLBACK : folded
 }
 
 // --- The pool ---------------------------------------------------------------
@@ -394,13 +389,9 @@ type ParticleState = {
 }
 const particleStates = new WeakMap<object, ParticleState>()
 
-const poolState = (pool: ParticlePool): ParticleState => {
-  const state = particleStates.get(pool)
-  if (state === undefined) {
-    throw new Error('Particle pool was not created by makeParticlePool')
-  }
-  return state
-}
+const poolState = (pool: ParticlePool): ParticleState => particleStates.get(pool)! // All public mutators check factory identity first.
+
+const isKnownParticlePool = (pool: ParticlePool): boolean => particleStates.has(pool)
 
 /** Construction-time options. Not on the frame path, so an object is fine here. */
 export type ParticlePoolOptions = {
@@ -411,10 +402,102 @@ export type ParticlePoolOptions = {
    * reason about — filling 512 slots to observe one eviction is a test nobody
    * reads. Production has no reason to pass it.
    */
-  readonly capacity?: number
+  readonly capacity?: number | undefined
   /** The generator's starting state. Defaults to `DEFAULT_PARTICLE_SEED`. */
-  readonly seed?: number
+  readonly seed?: number | undefined
 }
+
+export type ParticlePoolInputOperation =
+  | 'pool'
+  | 'spawn'
+  | 'burst'
+  | 'block-burst'
+  | 'advance'
+  | 'clear'
+  | 'request'
+  | 'render-context'
+
+export type ParticlePoolInputReason =
+  | 'invalid-options'
+  | 'invalid-capacity'
+  | 'invalid-seed'
+  | 'invalid-pool'
+  | 'invalid-spawn'
+  | 'invalid-count'
+  | 'invalid-position'
+  | 'invalid-uv'
+  | 'invalid-tile-index'
+  | 'invalid-delta'
+  | 'invalid-request'
+  | 'invalid-frame'
+  | 'render-context-failed'
+
+export type ParticlePoolInputError = Readonly<{
+  readonly _tag: 'ParticlePoolInputError'
+  readonly operation: ParticlePoolInputOperation
+  readonly reason: ParticlePoolInputReason
+}>
+
+export const ParticlePoolInputErrorSchema: Schema.Codec<ParticlePoolInputError> = Schema.Struct({
+  _tag: Schema.Literal('ParticlePoolInputError'),
+  operation: Schema.Literals([
+    'pool',
+    'spawn',
+    'burst',
+    'block-burst',
+    'advance',
+    'clear',
+    'request',
+    'render-context',
+  ]),
+  reason: Schema.Literals([
+    'invalid-options',
+    'invalid-capacity',
+    'invalid-seed',
+    'invalid-pool',
+    'invalid-spawn',
+    'invalid-count',
+    'invalid-position',
+    'invalid-uv',
+    'invalid-tile-index',
+    'invalid-delta',
+    'invalid-request',
+    'invalid-frame',
+    'render-context-failed',
+  ]),
+})
+
+export const ParticlePoolOptionsSchema: Schema.Codec<ParticlePoolOptions> = Schema.Struct({
+  capacity: Schema.optional(
+    Schema.Int.check(Schema.isBetween({ maximum: PARTICLE_POOL_CAPACITY, minimum: 1 })),
+  ),
+  seed: Schema.optional(Schema.Int.check(
+    Schema.isBetween({ maximum: Number.MAX_SAFE_INTEGER, minimum: Number.MIN_SAFE_INTEGER }),
+  )),
+})
+
+type ParticlePoolInputResultShape<Success> =
+  | Readonly<{ readonly _tag: 'Success'; readonly _op: 'Success'; readonly success: Success }>
+  | Readonly<{ readonly _tag: 'Failure'; readonly _op: 'Failure'; readonly failure: ParticlePoolInputError }>
+
+/** Decode Result values with `onExcessProperty: 'error'` to enforce exact envelopes. */
+export const ParticlePoolInputResultSchema: Schema.Codec<ParticlePoolInputResultShape<unknown>> = Schema.Union([
+  Schema.Struct({
+    _tag: Schema.Literal('Success'),
+    _op: Schema.Literal('Success'),
+    success: Schema.Unknown,
+  }),
+  Schema.Struct({
+    _tag: Schema.Literal('Failure'),
+    _op: Schema.Literal('Failure'),
+    failure: ParticlePoolInputErrorSchema,
+  }),
+])
+
+const particlePoolInputError = (
+  operation: ParticlePoolInputOperation,
+  reason: ParticlePoolInputReason,
+): ParticlePoolInputError => ({ _tag: 'ParticlePoolInputError', operation, reason })
 
 
 export type ParticleTint = Readonly<{
@@ -458,10 +541,100 @@ export type ParticleSpawnSpec = Readonly<{
   readonly follow?: ParticleFollowLink | undefined
 }>
 
+const ParticleFloat32ValueSchema = Schema.Finite.check(
+  Schema.makeFilter<number>((value) =>
+    Math.abs(value) <= MAX_PARTICLE_FLOAT32_VALUE || 'Value must fit a Float32 particle buffer'
+  ),
+)
+
+const ParticleUvCoordinateSchema = Schema.Finite.check(
+  Schema.isBetween({ maximum: 1 - TILE_UV_SPAN, minimum: ZERO }),
+)
+
+const ParticleFloat32VectorSchema = Schema.Struct({
+  x: ParticleFloat32ValueSchema,
+  y: ParticleFloat32ValueSchema,
+  z: ParticleFloat32ValueSchema,
+})
+
+const ParticleTintSchema = Schema.Struct({
+  blue: Schema.Finite.check(Schema.isBetween({ maximum: MAX_PARTICLE_TINT_CHANNEL, minimum: ZERO })),
+  green: Schema.Finite.check(Schema.isBetween({ maximum: MAX_PARTICLE_TINT_CHANNEL, minimum: ZERO })),
+  red: Schema.Finite.check(Schema.isBetween({ maximum: MAX_PARTICLE_TINT_CHANNEL, minimum: ZERO })),
+})
+
+const ParticleFollowLinkSchema = Schema.Struct({
+  id: Schema.String,
+  x: ParticleFloat32ValueSchema,
+  y: ParticleFloat32ValueSchema,
+  z: ParticleFloat32ValueSchema,
+})
+
+export const ParticleSpawnSpecSchema: Schema.Codec<ParticleSpawnSpec> = Schema.Struct({
+  dimension: Schema.Literals(['overworld', 'nether', 'end']),
+  follow: Schema.optional(ParticleFollowLinkSchema),
+  lifetimeSecs: Schema.Finite.check(Schema.isGreaterThan(ZERO)),
+  positionX: ParticleFloat32ValueSchema,
+  positionY: ParticleFloat32ValueSchema,
+  positionZ: ParticleFloat32ValueSchema,
+  tint: ParticleTintSchema,
+  uvU: ParticleUvCoordinateSchema,
+  uvV: ParticleUvCoordinateSchema,
+  velocity: Schema.optional(ParticleFloat32VectorSchema),
+}).check(Schema.makeFilter<ParticleSpawnSpec>((spawn) => {
+  const { follow } = spawn
+  if (follow === undefined) {
+    return true
+  }
+  return Math.abs(spawn.positionX - follow.x) <= MAX_PARTICLE_FLOAT32_VALUE &&
+    Math.abs(spawn.positionY - follow.y) <= MAX_PARTICLE_FLOAT32_VALUE &&
+    Math.abs(spawn.positionZ - follow.z) <= MAX_PARTICLE_FLOAT32_VALUE ||
+    'Follow offsets must fit Float32 particle buffers'
+}))
+
+const ParticleBurstCountSchema = Schema.Int.check(
+  Schema.isBetween({ maximum: Number.MAX_SAFE_INTEGER, minimum: ONE_SLOT }),
+)
+
+const ParticlePositionSchema = Schema.Struct({
+  x: ParticleFloat32ValueSchema,
+  y: ParticleFloat32ValueSchema,
+  z: ParticleFloat32ValueSchema,
+})
+
+const ParticleUvSchema = Schema.Struct({
+  u: ParticleUvCoordinateSchema,
+  v: ParticleUvCoordinateSchema,
+})
+
+const ParticleBurstInputSchema = Schema.Struct({
+  count: ParticleBurstCountSchema,
+  position: ParticlePositionSchema,
+  uv: ParticleUvSchema,
+})
+
+const ParticleDeltaSecsSchema = Schema.Finite.check(Schema.isGreaterThanOrEqualTo(ZERO))
+
+const ParticleTileIndexSchema = Schema.Int.check(
+  Schema.isBetween({ maximum: ATLAS_TILE_COUNT - ONE_SLOT, minimum: ZERO }),
+)
+
 export type ParticleFrameSnapshot = Readonly<{
   readonly dimension: Dimension
   readonly entities: ReadonlyArray<ParticleFollowTarget>
 }>
+
+export const ParticleFrameSnapshotSchema: Schema.Codec<ParticleFrameSnapshot> = Schema.Struct({
+  dimension: Schema.Literals(['overworld', 'nether', 'end']),
+  entities: Schema.Array(Schema.Struct({
+    feetPosition: Schema.Struct({
+      x: ParticleFloat32ValueSchema,
+      y: ParticleFloat32ValueSchema,
+      z: ParticleFloat32ValueSchema,
+    }),
+    id: Schema.String,
+  })),
+})
 
 export const DEFAULT_PARTICLE_TINT: ParticleTint = { blue: 1, green: 1, red: 1 }
 
@@ -478,22 +651,9 @@ const readFloat = (buffer: ArrayLike<number>, index: number): number =>
 /**
  * Allocate a pool. The only function here that allocates persistent buffers.
  *
- * Allocate the pool buffers and one state object once. Everything after this
- * point writes into those buffers.
+ * Allocate the pool buffers and one state object once. Particle state after
+ * construction stays in those buffers and private pool state.
  */
-/**
- * A pool of zero or of half a slot is a programmer error rather than a state
- * to model, and the inert direction for it is one slot: the pool still works,
- * every spawn evicts, and the mistake shows up as visibly-wrong output rather
- * than as a zero-length buffer that makes every later index silently `0`.
- */
-const resolvePoolCapacity = (requested: number): number => {
-  if (Number.isInteger(requested) && requested > ZERO) {
-    return requested
-  }
-  return ONE_SLOT
-}
-
 type ParticlePoolBuffers = Pick<
   ParticlePool,
   | 'capacity'
@@ -552,11 +712,26 @@ class ParticlePoolImpl implements ParticlePool {
   }
 }
 
-export const makeParticlePool = (options?: ParticlePoolOptions): ParticlePool => {
-  const requested = options?.capacity ?? PARTICLE_POOL_CAPACITY
-  const capacity = resolvePoolCapacity(requested)
+export const makeParticlePool = (
+  options?: ParticlePoolOptions,
+): Result.Result<ParticlePool, ParticlePoolInputError> => {
+  const decoded = Schema.decodeUnknownResult(ParticlePoolOptionsSchema, {
+    onExcessProperty: 'error',
+  })(options === undefined ? {} : options)
+  if (Result.isFailure(decoded)) {
+    const capacity = options?.capacity
+    const seed = options?.seed
+    const reason = capacity !== undefined &&
+        (!Number.isSafeInteger(capacity) || capacity < ONE_SLOT || capacity > PARTICLE_POOL_CAPACITY)
+      ? 'invalid-capacity'
+      : seed !== undefined && !Number.isSafeInteger(seed)
+        ? 'invalid-seed'
+        : 'invalid-options'
+    return Result.fail(particlePoolInputError('pool', reason))
+  }
 
-  return new ParticlePoolImpl(options, capacity)
+  const capacity = decoded.success.capacity ?? PARTICLE_POOL_CAPACITY
+  return Result.succeed(new ParticlePoolImpl(decoded.success, capacity))
 }
 
 /**
@@ -636,22 +811,11 @@ const acquireSlot = (pool: ParticlePool): number => {
   return findOldestSlot(pool)
 }
 
-/** The lowest count `spawnBurst` will treat as a request rather than a no-op. */
-const MIN_BURST_COUNT = 1
-
 /** Offset of the second component (y, or v) within a stride-3 or stride-2 buffer entry. */
 const SECOND_COMPONENT_OFFSET = 1
 
 /** Offset of the third component (z) within a stride-3 buffer entry. */
 const THIRD_COMPONENT_OFFSET = 2
-
-/** `value` if finite, `fallback` otherwise. */
-const resolveFiniteOr = (value: number, fallback: number): number => {
-  if (Number.isFinite(value)) {
-    return value
-  }
-  return fallback
-}
 
 /**
  * Position write for one particle. Positional params, not an options object:
@@ -763,96 +927,31 @@ const writeParticle = (internals: ParticlePool, slot: number, spawn: ParticleSpa
   writeParticleLifetime(internals, slot, spawn)
 }
 
-const MAX_PARTICLE_FLOAT32_VALUE = 3.4028234663852886e38
-
-const isParticleFloat32Value = (value: number): boolean =>
-  Math.abs(value) <= MAX_PARTICLE_FLOAT32_VALUE
+const spawnValidatedParticle = (pool: ParticlePool, spawn: ParticleSpawnSpec): void => {
+  const slot = acquireSlot(pool)
+  writeParticle(pool, slot, spawn)
+}
 
 const isParticleFloat32Vector = (x: number, y: number, z: number): boolean =>
   Math.max(Math.abs(x), Math.abs(y), Math.abs(z)) <= MAX_PARTICLE_FLOAT32_VALUE
 
-const isParticleVectorFloat32Safe = (vector: ParticleVelocity | undefined): boolean =>
-  vector === undefined || isParticleFloat32Vector(vector.x, vector.y, vector.z)
-
-const isParticlePositionFloat32Safe = (spawn: ParticleSpawnSpec): boolean =>
-  isParticleFloat32Vector(spawn.positionX, spawn.positionY, spawn.positionZ)
-
-/**
- * Resolve how many particles a burst should spawn, or `0` if the request is
- * invalid (a non-finite/too-small `count`, or a position outside Float32 range).
- *
- * COUNT HANDLING DIVERGES FROM THE REFERENCE, deliberately. It clamps with
- * `Math.max(1, Math.min(MAX_PARTICLES, Math.floor(count)))` (particle-system.ts:129),
- * so `spawnBurst(..., 0)` spawns ONE particle: asking for nothing gets you
- * something. That is a defect rather than a decision — nothing in the reference
- * defends it — and a caller computing a count from, say, a block's hardness will
- * hit the zero case and get a stray fleck. Here, a count that is zero, negative
- * or not a number spawns nothing and returns 0.
- *
- * A non-finite or out-of-range spawn point would write NaN or Infinity into the
- * position buffer. That value propagates through later integration and into the
- * instance matrix, removing the whole InstancedMesh from the screen. Refuse the
- * burst instead.
- *
- * A burst larger than the pool would evict its own earlier particles and end
- * with `capacity` of them, so clamping here makes the return value honest
- * rather than reporting spawns that were immediately overwritten.
- */
-const resolveSpawnRequest = (
+export const spawnParticle = (
   pool: ParticlePool,
-  count: number,
-  positionX: number,
-  positionY: number,
-  positionZ: number,
-): number => {
-  if (!Number.isFinite(count) || count < MIN_BURST_COUNT) {
-    return ZERO
+  spawn: ParticleSpawnSpec,
+): Result.Result<boolean, ParticlePoolInputError> => {
+  if (!isKnownParticlePool(pool)) {
+    return Result.fail(particlePoolInputError('spawn', 'invalid-pool'))
   }
-  if (!isParticleFloat32Vector(positionX, positionY, positionZ)) {
-    return ZERO
+
+  const decoded = Schema.decodeUnknownResult(ParticleSpawnSpecSchema, {
+    onExcessProperty: 'error',
+  })(spawn)
+  if (Result.isFailure(decoded)) {
+    return Result.fail(particlePoolInputError('spawn', 'invalid-spawn'))
   }
-  return Math.min(Math.floor(count), pool.capacity)
-}
 
-
-const isValidParticleTintChannel = (channel: number): boolean =>
-  Number.isFinite(channel) && channel >= ZERO && channel <= MAX_PARTICLE_TINT_CHANNEL
-
-const isValidParticleTint = (spawn: ParticleSpawnSpec): boolean =>
-  isValidParticleTintChannel(spawn.tint.red) &&
-  isValidParticleTintChannel(spawn.tint.green) &&
-  isValidParticleTintChannel(spawn.tint.blue)
-
-const isValidParticleFollow = (spawn: ParticleSpawnSpec): boolean => {
-  const { follow } = spawn
-  if (follow === undefined) {
-    return true
-  }
-  return isParticleFloat32Vector(follow.x, follow.y, follow.z) &&
-    isParticleFloat32Vector(
-      spawn.positionX - follow.x,
-      spawn.positionY - follow.y,
-      spawn.positionZ - follow.z,
-    )
-}
-
-const isValidParticleSpawn = (spawn: ParticleSpawnSpec): boolean =>
-  isParticlePositionFloat32Safe(spawn) &&
-  isParticleFloat32Value(spawn.uvU) &&
-  isParticleFloat32Value(spawn.uvV) &&
-  Number.isFinite(spawn.lifetimeSecs) &&
-  spawn.lifetimeSecs > ZERO &&
-  isValidParticleTint(spawn) &&
-  isParticleVectorFloat32Safe(spawn.velocity) &&
-  isValidParticleFollow(spawn)
-
-export const spawnParticle = (pool: ParticlePool, spawn: ParticleSpawnSpec): boolean => {
-  if (!isValidParticleSpawn(spawn)) {
-    return false
-  }
-  const slot = acquireSlot(pool)
-  writeParticle(pool, slot, spawn)
-  return true
+  spawnValidatedParticle(pool, decoded.success)
+  return Result.succeed(true)
 }
 
 /**
@@ -881,22 +980,24 @@ const spawnRequestedParticles = (
   }
 
   for (let spawned = 0; spawned < requested; spawned += ONE_SLOT) {
-    spawnParticle(internals, spawn)
+    spawnValidatedParticle(internals, spawn)
   }
 }
 
 /**
- * Spawn a burst at a point. ALLOCATES NOTHING.
+ * Spawn a burst at a point without per-particle allocation. The public Result
+ * is one tagged value per burst.
  *
- * Positional arguments rather than a `BurstSpawn` object, and a `number` return
- * rather than a result record, for that reason — a burst fires on the frame path
- * whenever a block is hit, and an object per hit is an allocation per hit.
+ * Positional arguments rather than a `BurstSpawn` object keep the call site
+ * allocation-free. Invalid input is returned as a typed failure rather than
+ * normalized into a successful no-op.
  *
  * `uvU` / `uvV` are an atlas tile origin; `spawnBlockBurst` below is the
  * convenience that turns a tile index into one.
  *
- * Returns the number of particles actually spawned. See `resolveSpawnRequest`
- * for how an invalid request is distinguished from a legitimately small one.
+ * Returns a typed input failure for invalid count, position or UV values, or
+ * the number of particles spawned for a valid request. Oversized valid counts
+ * are capped at pool capacity so the result describes particles left alive.
  */
 export const spawnBurst = (
   pool: ParticlePool,
@@ -906,18 +1007,38 @@ export const spawnBurst = (
   uvU: number,
   uvV: number,
   count: number = DEFAULT_BURST_PARTICLES,
-): number => {
-  const internals = pool
-  const requested = resolveSpawnRequest(pool, count, positionX, positionY, positionZ)
-  if (requested === ZERO) {
-    return ZERO
+): Result.Result<number, ParticlePoolInputError> => {
+  if (!isKnownParticlePool(pool)) {
+    return Result.fail(particlePoolInputError('burst', 'invalid-pool'))
   }
 
-  const safeU = resolveFiniteOr(uvU, ZERO)
-  const safeV = resolveFiniteOr(uvV, ZERO)
-  spawnRequestedParticles(internals, requested, positionX, positionY, positionZ, safeU, safeV)
+  const decoded = Schema.decodeUnknownResult(ParticleBurstInputSchema, {
+    onExcessProperty: 'error',
+  })({
+    count,
+    position: { x: positionX, y: positionY, z: positionZ },
+    uv: { u: uvU, v: uvV },
+  })
+  if (Result.isFailure(decoded)) {
+    const reason = !Number.isSafeInteger(count) || count < ONE_SLOT
+      ? 'invalid-count'
+      : !isParticleFloat32Vector(positionX, positionY, positionZ)
+        ? 'invalid-position'
+        : 'invalid-uv'
+    return Result.fail(particlePoolInputError('burst', reason))
+  }
 
-  return requested
+  const requested = Math.min(decoded.success.count, pool.capacity)
+  spawnRequestedParticles(
+    pool,
+    requested,
+    decoded.success.position.x,
+    decoded.success.position.y,
+    decoded.success.position.z,
+    decoded.success.uv.u,
+    decoded.success.uv.v,
+  )
+  return Result.succeed(requested)
 }
 
 /**
@@ -925,8 +1046,9 @@ export const spawnBurst = (
  *
  * The convenience over `spawnBurst`, and the only place particle code touches
  * the atlas. It allocates one `UvOrigin` per burst — per BLOCK HIT, not per
- * frame and not per particle — which is the boundary this file draws: the frame
- * path allocates nothing, an input event may allocate a small constant amount.
+ * frame and not per particle — which is the boundary this file draws: the
+ * per-particle loop allocates nothing, while an input event may allocate a small
+ * constant amount.
  * A caller in a genuinely hot loop can call `spawnBurst` with a hoisted origin.
  *
  * `max-params` stays un-silenced despite the allocation allowance above: an
@@ -942,9 +1064,22 @@ export const spawnBlockBurst = (
   positionZ: number,
   tileIndex: number,
   count: number = DEFAULT_BURST_PARTICLES,
-): number => {
-  const origin = tileUvOrigin(tileIndex)
-  return spawnBurst(pool, positionX, positionY, positionZ, origin.u, origin.v, count)
+): Result.Result<number, ParticlePoolInputError> => {
+  if (!isKnownParticlePool(pool)) {
+    return Result.fail(particlePoolInputError('block-burst', 'invalid-pool'))
+  }
+
+  const decodedTileIndex = Schema.decodeUnknownResult(ParticleTileIndexSchema)(tileIndex)
+  if (Result.isFailure(decodedTileIndex)) {
+    return Result.fail(particlePoolInputError('block-burst', 'invalid-tile-index'))
+  }
+
+  const origin = tileUvOrigin(decodedTileIndex.success)
+  const result = spawnBurst(pool, positionX, positionY, positionZ, origin.u, origin.v, count)
+  if (Result.isFailure(result)) {
+    return Result.fail({ ...result.failure, operation: 'block-burst' })
+  }
+  return result
 }
 
 /**
@@ -1094,33 +1229,38 @@ const advanceSlot = (
 }
 
 /**
- * Integrate one frame. ALLOCATES NOTHING.
+ * Integrate one frame without per-slot allocation.
  *
  * Returns the number of particles that expired during this step, which is what
  * a caller needs to decide whether the mesh's instance buffer must be re-uploaded
- * and is a `number`, so returning it costs nothing.
+ * and is the success value of the typed Result.
  *
- * `dtSecs` is clamped to `[0, MAX_PARTICLE_STEP_SECS]`, and a NON-FINITE `dtSecs`
- * ADVANCES NOTHING. That last part is a divergence from the reference, whose
+ * Finite `dtSecs` is clamped to `[0, MAX_PARTICLE_STEP_SECS]`. Invalid deltas
+ * return a typed failure and leave the pool untouched. That is a divergence
+ * from the reference, whose
  * clamp is `Math.max(0, Math.min(dtSecs, 0.1))` (particle-system.ts:166) —
  * `Math.min(NaN, 0.1)` is NaN and `Math.max(0, NaN)` is NaN, so a single
  * non-finite frame delta writes NaN into every live particle's position and
- * velocity and the pool never recovers. The inert direction for a delta nobody
- * can interpret is to not move, which is what mx-gameplay's `normaliseSeed` and
- * this file's own `readFloat` both do with the same class of input.
+ * velocity and the pool never recovers. A bad delta is an input error rather
+ * than a request to freeze the simulation silently.
  */
 export const advanceParticles = (
   pool: ParticlePool,
   dtSecs: number,
   frame?: ParticleFrameSnapshot | undefined,
-): number => {
-  if (!Number.isFinite(dtSecs)) {
-    return ZERO
+): Result.Result<number, ParticlePoolInputError> => {
+  if (!isKnownParticlePool(pool)) {
+    return Result.fail(particlePoolInputError('advance', 'invalid-pool'))
   }
-  const dt = Math.max(ZERO, Math.min(dtSecs, MAX_PARTICLE_STEP_SECS))
+
+  const decodedDelta = Schema.decodeUnknownResult(ParticleDeltaSecsSchema)(dtSecs)
+  if (Result.isFailure(decodedDelta)) {
+    return Result.fail(particlePoolInputError('advance', 'invalid-delta'))
+  }
+  const dt = Math.min(decodedDelta.success, MAX_PARTICLE_STEP_SECS)
 
   const internals = pool
-  let expired = 0
+  let expired = ZERO
 
   for (let slot = 0; slot < pool.capacity; slot += ONE_SLOT) {
     if (advanceSlot(internals, slot, dt, frame)) {
@@ -1130,7 +1270,7 @@ export const advanceParticles = (
 
   poolState(internals).active = Math.max(ZERO, poolState(internals).active - expired)
 
-  return expired
+  return Result.succeed(expired)
 }
 
 /**
@@ -1161,7 +1301,11 @@ const clearParticleState = (pool: ParticlePool): void => {
   state.nextSpawnSequence = INITIAL_SPAWN_SEQUENCE
 }
 
-export const clearParticles = (pool: ParticlePool): void => {
+export const clearParticles = (pool: ParticlePool): Result.Result<void, ParticlePoolInputError> => {
+  if (!isKnownParticlePool(pool)) {
+    return Result.fail(particlePoolInputError('clear', 'invalid-pool'))
+  }
+
   pool.lifetimesSecs.fill(ZERO)
   pool.initialLifetimesSecs.fill(ZERO)
   pool.scales.fill(ZERO)
@@ -1169,6 +1313,7 @@ export const clearParticles = (pool: ParticlePool): void => {
   pool.dimensions.fill(undefined)
   pool.followEntityIds.fill(undefined)
   clearParticleState(pool)
+  return Result.succeed(undefined)
 }
 
 /** True when `slot` holds a live particle. */

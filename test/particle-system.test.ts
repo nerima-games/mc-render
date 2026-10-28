@@ -14,7 +14,7 @@
  * derive their names from `particleShaderSource()` rather than restating them.
  */
 import { describe, expect, it } from '@effect/vitest'
-import { Effect } from 'effect'
+import { Effect, Result } from 'effect'
 import { makeParticleSystem } from '../src/application/particle-system'
 import {
   PARTICLE_INSTANCE_ATTRIBUTES,
@@ -26,12 +26,16 @@ import {
   PARTICLE_COLOR_STRIDE,
   PARTICLE_UV_STRIDE,
   PARTICLE_VECTOR_STRIDE,
-  makeParticlePool,
-  spawnBurst,
+  makeParticlePool as makeParticlePoolResult,
+  spawnBurst as spawnBurstResult,
 } from '../src/domain/particle-pool'
 import { makeFakeThree, type FakeInstancedAttribute } from './support/fake-three'
 
 const ATLAS = { id: 'atlas-texture' }
+const makeParticlePool = (...args: Parameters<typeof makeParticlePoolResult>) =>
+  Result.getOrThrow(makeParticlePoolResult(...args))
+const spawnBurst = (...args: Parameters<typeof spawnBurstResult>) =>
+  Result.getOrThrow(spawnBurstResult(...args))
 
 const instancedAttribute = (
   geometry: { readonly attributes: Map<string, unknown> },

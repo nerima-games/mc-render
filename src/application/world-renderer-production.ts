@@ -5,6 +5,7 @@ import {
 import {
   type ParticleFrameSnapshot,
   type ParticlePool,
+  type ParticlePoolInputError,
   type ParticlePoolOptions,
   advanceParticles,
 } from '../domain/particle-pool.js'
@@ -63,7 +64,7 @@ export type ProductionWorldRenderer<TShaderMaterial extends ThreeMaterial> = Wor
   readonly particleService: ParticleService['Service']
   readonly particles: ParticleSystem<TShaderMaterial>
   readonly setEnvironment: (environment: RenderEnvironmentPlan) => Effect.Effect<void>
-  readonly advanceFrame: (frame: ProductionFrame) => Effect.Effect<void>
+  readonly advanceFrame: (frame: ProductionFrame) => Effect.Effect<void, ParticlePoolInputError>
 }
 
 export type ProductionWorldRendererOptions = Omit<
@@ -92,7 +93,10 @@ export const makeProductionWorldRenderer = <
   viewport: Viewport,
   atlasTexture: unknown,
   options: ProductionWorldRendererOptions = {},
-): Effect.Effect<ProductionWorldRenderer<TShaderMaterial>, RendererMaterialPolicyError> => {
+): Effect.Effect<
+  ProductionWorldRenderer<TShaderMaterial>,
+  RendererMaterialPolicyError | ParticlePoolInputError
+> => {
   let activeDimension = options.dimension ?? DEFAULT_DIMENSION
   let particleFrame: ParticleFrameSnapshot = { dimension: activeDimension, entities: [] }
   const buildRenderer = Effect.gen(function* buildProductionRenderer() {
@@ -126,7 +130,7 @@ export const makeProductionWorldRenderer = <
           dimension: activeDimension,
           entities: entities.map(({ feetPosition, id }) => ({ feetPosition, id })),
         }
-        advanceParticles(particlePool, frame.deltaSecs, particleFrame)
+        yield* Effect.fromResult(advanceParticles(particlePool, frame.deltaSecs, particleFrame))
         const time = water.uniforms['uTime']
         const cameraPosition = water.uniforms['uCameraPosition']
         if (time) {time.value = frame.elapsedSecs}

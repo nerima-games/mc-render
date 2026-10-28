@@ -10,21 +10,21 @@
  *   - DETERMINISM. The seeded generator exists so two runs of one scenario
  *     agree. A test that only checked the bounds would pass against
  *     `Math.random()`.
- *   - THE TWO DIVERGENCES from the reference — a zero-count burst, and a
- *     non-finite frame delta — each pinned as a REGRESSION so nobody
- *     "corrects" them back.
+ *   - INVALID INPUT. A zero-count burst and invalid frame deltas fail with a
+ *     typed Result before they can become a no-op or poison particle state.
  */
 import { describe, expect, it } from '@effect/vitest'
-import { Effect } from 'effect'
+import { Effect, Result, Schema } from 'effect'
+import * as FastCheck from 'fast-check'
 import { requiresForceSinglePass } from '../src/domain/material-policy'
 import {
-  advanceParticles,
-  clearParticles,
+  advanceParticles as advanceParticlesResult,
+  clearParticles as clearParticlesResult,
   DEFAULT_BURST_PARTICLES,
   DEFAULT_PARTICLE_SEED,
   evictionOrderIsSpawnOrder,
   isSlotActive,
-  makeParticlePool,
+  makeParticlePool as makeParticlePoolResult,
   MAX_PARTICLE_STEP_SECS,
   PARTICLE_GRAVITY_M_PER_S2,
   PARTICLE_LIFETIME_SECS,
@@ -39,15 +39,51 @@ import {
   PARTICLE_VECTOR_STRIDE,
   PARTICLE_WRITES_DEPTH,
   readSlot,
-  spawnParticle,
-  spawnBlockBurst,
-  spawnBurst,
+  spawnParticle as spawnParticleResult,
+  spawnBlockBurst as spawnBlockBurstResult,
+  spawnBurst as spawnBurstResult,
+  ParticlePoolInputErrorSchema,
+  ParticlePoolInputResultSchema,
+  ParticlePoolOptionsSchema,
+  ParticleSpawnSpecSchema,
   type ParticleFrameSnapshot,
   type ParticlePool,
   type ParticleSpawnSpec,
   visibleParticleCount,
 } from '../src/domain/particle-pool'
 import { TILE_UV_SPAN, tileUvOrigin } from '../src/domain/texture-atlas'
+
+const FAST_CHECK_OPTIONS = { numRuns: 100, seed: 0x5eed }
+const makeParticlePool = (...args: Parameters<typeof makeParticlePoolResult>) =>
+  Result.getOrThrow(makeParticlePoolResult(...args))
+const spawnParticle = (...args: Parameters<typeof spawnParticleResult>) =>
+  Result.getOrThrow(spawnParticleResult(...args))
+const spawnBlockBurst = (...args: Parameters<typeof spawnBlockBurstResult>) =>
+  Result.getOrThrow(spawnBlockBurstResult(...args))
+const spawnBurst = (...args: Parameters<typeof spawnBurstResult>) =>
+  Result.getOrThrow(spawnBurstResult(...args))
+const advanceParticles = (...args: Parameters<typeof advanceParticlesResult>) =>
+  Result.getOrThrow(advanceParticlesResult(...args))
+const clearParticles = (...args: Parameters<typeof clearParticlesResult>) =>
+  Result.getOrThrow(clearParticlesResult(...args))
+
+const isDecodedParticleInputFailure = (
+  result: ReturnType<typeof makeParticlePoolResult> | ReturnType<typeof spawnBurstResult> |
+    ReturnType<typeof spawnParticleResult> | ReturnType<typeof spawnBlockBurstResult> |
+    ReturnType<typeof advanceParticlesResult> | ReturnType<typeof clearParticlesResult>,
+  operation: 'pool' | 'spawn' | 'burst' | 'block-burst' | 'advance' | 'clear',
+  reason: 'invalid-capacity' | 'invalid-seed' | 'invalid-options' | 'invalid-pool' | 'invalid-spawn' |
+    'invalid-count' | 'invalid-position' | 'invalid-uv' | 'invalid-tile-index' | 'invalid-delta',
+): boolean => {
+  const decoded = Schema.decodeUnknownResult(ParticlePoolInputResultSchema, {
+    onExcessProperty: 'error',
+  })(result)
+  return Result.isSuccess(decoded) && decoded.success._tag === 'Failure' &&
+    Result.isSuccess(Schema.decodeUnknownResult(ParticlePoolInputErrorSchema, {
+      onExcessProperty: 'error',
+    })(decoded.success.failure)) && decoded.success.failure.operation === operation &&
+    decoded.success.failure.reason === reason
+}
 
 /** Every live slot's remaining lifetime, ascending. Oldest first. */
 const remainingLifetimes = (pool: ParticlePool): ReadonlyArray<number> => {
@@ -134,10 +170,70 @@ describe('a fresh pool', () => {
 
   it.effect('refuses a capacity that is not a positive integer, rather than making a zero-length buffer', () =>
     Effect.sync(() => {
-      expect(makeParticlePool({ capacity: 0 }).capacity).toBe(1)
-      expect(makeParticlePool({ capacity: -4 }).capacity).toBe(1)
-      expect(makeParticlePool({ capacity: 2.5 }).capacity).toBe(1)
-      expect(makeParticlePool({ capacity: Number.NaN }).capacity).toBe(1)
+      expect(isDecodedParticleInputFailure(makeParticlePoolResult({ capacity: 0 }), 'pool', 'invalid-capacity')).toBe(true)
+      expect(isDecodedParticleInputFailure(makeParticlePoolResult({ capacity: -4 }), 'pool', 'invalid-capacity')).toBe(true)
+      expect(isDecodedParticleInputFailure(makeParticlePoolResult({ capacity: 2.5 }), 'pool', 'invalid-capacity')).toBe(true)
+      expect(isDecodedParticleInputFailure(makeParticlePoolResult({ capacity: Number.NaN }), 'pool', 'invalid-capacity')).toBe(true)
+    }),
+  )
+
+  it.effect('property: invalid capacities, seeds, and extra option fields fail their decoded Result', () =>
+    Effect.sync(() => {
+      FastCheck.assert(
+        FastCheck.property(
+          FastCheck.constantFrom(0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, PARTICLE_POOL_CAPACITY + 1),
+          (capacity) => {
+            const decodedOptions = Schema.decodeUnknownResult(ParticlePoolOptionsSchema, {
+              onExcessProperty: 'error',
+            })({ capacity })
+            return Result.isFailure(decodedOptions) && isDecodedParticleInputFailure(
+              makeParticlePoolResult({ capacity }),
+              'pool',
+              'invalid-capacity',
+            )
+          },
+        ),
+        FAST_CHECK_OPTIONS,
+      )
+
+      FastCheck.assert(
+        FastCheck.property(
+          FastCheck.constantFrom(
+            Number.NaN,
+            Number.POSITIVE_INFINITY,
+            Number.NEGATIVE_INFINITY,
+            0.5,
+            Number.MAX_SAFE_INTEGER + 1,
+            Number.MIN_SAFE_INTEGER - 1,
+          ),
+          (seed) => {
+            const decodedOptions = Schema.decodeUnknownResult(ParticlePoolOptionsSchema, {
+              onExcessProperty: 'error',
+            })({ seed })
+            return Result.isFailure(decodedOptions) && isDecodedParticleInputFailure(
+              makeParticlePoolResult({ seed }),
+              'pool',
+              'invalid-seed',
+            )
+          },
+        ),
+        FAST_CHECK_OPTIONS,
+      )
+
+      FastCheck.assert(
+        FastCheck.property(FastCheck.integer(), (extra) => {
+          const options = { capacity: 4, extra }
+          const decodedOptions = Schema.decodeUnknownResult(ParticlePoolOptionsSchema, {
+            onExcessProperty: 'error',
+          })(options)
+          return Result.isFailure(decodedOptions) && isDecodedParticleInputFailure(
+            makeParticlePoolResult(options),
+            'pool',
+            'invalid-options',
+          )
+        }),
+        FAST_CHECK_OPTIONS,
+      )
     }),
   )
 })
@@ -197,14 +293,15 @@ describe('spawning', () => {
     }),
   )
 
-  it.effect('REGRESSION: a burst of zero spawns NOTHING (the reference spawns one)', () =>
+  it.effect('fails zero and invalid burst counts before mutating the pool', () =>
     Effect.sync(() => {
       // particle-system.ts:129 clamps with Math.max(1, ...), so asking for zero
-      // particles produces one stray fleck. See domain/particle-pool.ts.
+      // particles produces one stray fleck. The pool rejects invalid counts at
+      // its public boundary.
       const pool = makeParticlePool({ capacity: 8 })
-      expect(spawnBurst(pool, 0, 0, 0, 0, 0, 0)).toBe(0)
-      expect(spawnBurst(pool, 0, 0, 0, 0, 0, -3)).toBe(0)
-      expect(spawnBurst(pool, 0, 0, 0, 0, 0, Number.NaN)).toBe(0)
+      expect(isDecodedParticleInputFailure(spawnBurstResult(pool, 0, 0, 0, 0, 0, 0), 'burst', 'invalid-count')).toBe(true)
+      expect(isDecodedParticleInputFailure(spawnBurstResult(pool, 0, 0, 0, 0, 0, -3), 'burst', 'invalid-count')).toBe(true)
+      expect(isDecodedParticleInputFailure(spawnBurstResult(pool, 0, 0, 0, 0, 0, Number.NaN), 'burst', 'invalid-count')).toBe(true)
       expect(pool.activeCount()).toBe(0)
     }),
   )
@@ -222,8 +319,122 @@ describe('spawning', () => {
       // A NaN position reaches the instance matrix and removes the WHOLE
       // InstancedMesh from the screen, not one particle.
       const pool = makeParticlePool({ capacity: 8 })
-      expect(spawnBurst(pool, Number.NaN, 0, 0, 0, 0)).toBe(0)
-      expect(spawnBurst(pool, 0, Number.POSITIVE_INFINITY, 0, 0, 0)).toBe(0)
+      expect(isDecodedParticleInputFailure(spawnBurstResult(pool, Number.NaN, 0, 0, 0, 0), 'burst', 'invalid-position')).toBe(true)
+      expect(isDecodedParticleInputFailure(spawnBurstResult(pool, 0, Number.POSITIVE_INFINITY, 0, 0, 0), 'burst', 'invalid-position')).toBe(true)
+      expect(pool.activeCount()).toBe(0)
+    }),
+  )
+
+  it.effect('property: invalid burst count, position, UV, and spawn extras are decoded failures', () =>
+    Effect.sync(() => {
+      const pool = makeParticlePool({ capacity: 8 })
+      FastCheck.assert(
+        FastCheck.property(
+          FastCheck.constantFrom(0, -1, 0.5, Number.NaN, Number.POSITIVE_INFINITY, Number.MAX_SAFE_INTEGER + 1),
+          (count) => isDecodedParticleInputFailure(
+            spawnBurstResult(pool, 0, 0, 0, 0, 0, count),
+            'burst',
+            'invalid-count',
+          ),
+        ),
+        FAST_CHECK_OPTIONS,
+      )
+
+      FastCheck.assert(
+        FastCheck.property(
+          FastCheck.constantFrom(Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, 3.4028236e38),
+          (positionX) => isDecodedParticleInputFailure(
+            spawnBurstResult(pool, positionX, 0, 0, 0, 0, 1),
+            'burst',
+            'invalid-position',
+          ),
+        ),
+        FAST_CHECK_OPTIONS,
+      )
+
+      FastCheck.assert(
+        FastCheck.property(
+          FastCheck.constantFrom(
+            Number.NaN,
+            Number.POSITIVE_INFINITY,
+            Number.NEGATIVE_INFINITY,
+            -Number.EPSILON,
+            1 - TILE_UV_SPAN + Number.EPSILON,
+          ),
+          (uvU) => isDecodedParticleInputFailure(
+            spawnBurstResult(pool, 0, 0, 0, uvU, 0, 1),
+            'burst',
+            'invalid-uv',
+          ),
+        ),
+        FAST_CHECK_OPTIONS,
+      )
+
+      FastCheck.assert(
+        FastCheck.property(
+          FastCheck.constantFrom(-1, 256, 0.5, Number.NaN, Number.POSITIVE_INFINITY),
+          (tileIndex) => isDecodedParticleInputFailure(
+            spawnBlockBurstResult(pool, 0, 0, 0, tileIndex, 1),
+            'block-burst',
+            'invalid-tile-index',
+          ),
+        ),
+        FAST_CHECK_OPTIONS,
+      )
+
+      FastCheck.assert(
+        FastCheck.property(FastCheck.integer(), (extra) => {
+          const spawn: ParticleSpawnSpec & { readonly extra: number } = {
+            dimension: 'overworld',
+            lifetimeSecs: 0.4,
+            positionX: 1,
+            positionY: 2,
+            positionZ: 3,
+            tint: { blue: 0.3, green: 0.2, red: 0.1 },
+            uvU: 0.25,
+            uvV: 0.5,
+            extra,
+          }
+          const decodedSpawn = Schema.decodeUnknownResult(ParticleSpawnSpecSchema, {
+            onExcessProperty: 'error',
+          })(spawn)
+          return Result.isFailure(decodedSpawn) && isDecodedParticleInputFailure(
+            spawnParticleResult(pool, spawn),
+            'spawn',
+            'invalid-spawn',
+          )
+        }),
+        FAST_CHECK_OPTIONS,
+      )
+
+      FastCheck.assert(
+        FastCheck.property(
+          FastCheck.constantFrom(-1, Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY),
+          (dtSecs) => isDecodedParticleInputFailure(
+            advanceParticlesResult(pool, dtSecs),
+            'advance',
+            'invalid-delta',
+          ),
+        ),
+        FAST_CHECK_OPTIONS,
+      )
+
+      FastCheck.assert(
+        FastCheck.property(FastCheck.integer(), (extra) => {
+          const result = {
+            _tag: 'Failure',
+            _op: 'Failure',
+            failure: { _tag: 'ParticlePoolInputError', operation: 'advance', reason: 'invalid-delta' },
+            extra,
+          }
+          const decoded = Schema.decodeUnknownResult(ParticlePoolInputResultSchema, {
+            onExcessProperty: 'error',
+          })(result)
+          return Result.isFailure(decoded)
+        }),
+        FAST_CHECK_OPTIONS,
+      )
+
       expect(pool.activeCount()).toBe(0)
     }),
   )
@@ -239,14 +450,15 @@ describe('spawning', () => {
     }),
   )
 
-  it.effect('a non-finite UV origin is treated as zero rather than propagating NaN into the atlas offset', () =>
+  it.effect('a non-finite UV origin is rejected instead of becoming the neutral origin', () =>
     Effect.sync(() => {
       const pool = makeParticlePool({ capacity: 4 })
-      spawnBurst(pool, 0, 0, 0, Number.NaN, Number.POSITIVE_INFINITY, 1)
-
-      const particle = readSlot(pool, 0)
-      expect(particle?.uvU).toBe(0)
-      expect(particle?.uvV).toBe(0)
+      expect(isDecodedParticleInputFailure(
+        spawnBurstResult(pool, 0, 0, 0, Number.NaN, Number.POSITIVE_INFINITY, 1),
+        'burst',
+        'invalid-uv',
+      )).toBe(true)
+      expect(pool.activeCount()).toBe(0)
     }),
   )
 })
@@ -295,13 +507,13 @@ describe('determinism', () => {
     }),
   )
 
-  it.effect('a non-finite seed is folded rather than propagated as NaN', () =>
+  it.effect('a non-finite seed is rejected rather than folded into a valid seed', () =>
     Effect.sync(() => {
-      const pool = makeParticlePool({ capacity: 4, seed: Number.NaN })
-      spawnBurst(pool, 0, 0, 0, 0, 0, 4)
-      for (let slot = 0; slot < 4; slot += 1) {
-        expect(Number.isFinite(readSlot(pool, slot)?.velocityY ?? Number.NaN)).toBe(true)
-      }
+      expect(isDecodedParticleInputFailure(
+        makeParticlePoolResult({ capacity: 4, seed: Number.NaN }),
+        'pool',
+        'invalid-seed',
+      )).toBe(true)
     }),
   )
 
@@ -414,15 +626,23 @@ describe('integration', () => {
     }),
   )
 
-  it.effect('REGRESSION: a non-finite dt advances NOTHING (the reference writes NaN everywhere)', () =>
+  it.effect('a non-finite dt fails without changing particle state', () =>
     Effect.sync(() => {
       // particle-system.ts:166's Math.max(0, Math.min(NaN, 0.1)) is NaN, and one
       // bad frame delta poisons every live particle permanently.
       const pool = makeParticlePool({ capacity: 4, seed: 7 })
       spawnBurst(pool, 1, 2, 3, 0, 0, 2)
 
-      expect(advanceParticles(pool, Number.NaN)).toBe(0)
-      expect(advanceParticles(pool, Number.POSITIVE_INFINITY)).toBe(0)
+      expect(isDecodedParticleInputFailure(
+        advanceParticlesResult(pool, Number.NaN),
+        'advance',
+        'invalid-delta',
+      )).toBe(true)
+      expect(isDecodedParticleInputFailure(
+        advanceParticlesResult(pool, Number.POSITIVE_INFINITY),
+        'advance',
+        'invalid-delta',
+      )).toBe(true)
 
       expect(readSlot(pool, 0)?.positionX).toBe(1)
       expect(readSlot(pool, 0)?.positionY).toBe(2)
@@ -431,11 +651,11 @@ describe('integration', () => {
     }),
   )
 
-  it.effect('a negative dt is clamped to zero rather than running time backwards', () =>
+  it.effect('a negative dt fails rather than running time backwards', () =>
     Effect.sync(() => {
       const pool = makeParticlePool({ capacity: 4, seed: 7 })
       spawnBurst(pool, 0, 0, 0, 0, 0, 1)
-      advanceParticles(pool, -5)
+      expect(isDecodedParticleInputFailure(advanceParticlesResult(pool, -5), 'advance', 'invalid-delta')).toBe(true)
       expect(readSlot(pool, 0)?.remainingSecs).toBeCloseTo(PARTICLE_LIFETIME_SECS, 6)
     }),
   )
@@ -658,10 +878,14 @@ describe('clearing', () => {
 })
 
 describe('reading slots', () => {
-  it.effect('rejects a proxy without registered factory identity', () =>
+  it.effect('rejects a proxy without registered factory identity in every mutator', () =>
     Effect.sync(() => {
       const forged = new Proxy(makeParticlePool({ capacity: 1 }), {})
-      expect(() => advanceParticles(forged, 0)).toThrow('not created by makeParticlePool')
+      expect(isDecodedParticleInputFailure(advanceParticlesResult(forged, 0), 'advance', 'invalid-pool')).toBe(true)
+      expect(isDecodedParticleInputFailure(spawnParticleResult(forged, particleSpawn()), 'spawn', 'invalid-pool')).toBe(true)
+      expect(isDecodedParticleInputFailure(spawnBurstResult(forged, 0, 0, 0, 0, 0, 1), 'burst', 'invalid-pool')).toBe(true)
+      expect(isDecodedParticleInputFailure(spawnBlockBurstResult(forged, 0, 0, 0, 1, 1), 'block-burst', 'invalid-pool')).toBe(true)
+      expect(isDecodedParticleInputFailure(clearParticlesResult(forged), 'clear', 'invalid-pool')).toBe(true)
     }),
   )
 
@@ -746,15 +970,15 @@ describe('C6 particle spawn state', () => {
         velocity: { x: 0, y: 0, z: 0 },
       }))).toBe(true)
       expect(pool.positions[0]).toBe(maximum)
-      expect(spawnParticle(pool, particleSpawn({ positionX: justAbove }))).toBe(false)
-      expect(spawnParticle(pool, particleSpawn({ positionX: 1e39 }))).toBe(false)
-      expect(spawnParticle(pool, particleSpawn({ velocity: { x: 1e39, y: 0, z: 0 } }))).toBe(false)
-      expect(spawnParticle(pool, particleSpawn({ uvU: 1e39 }))).toBe(false)
-      expect(spawnParticle(pool, particleSpawn({
+      expect(isDecodedParticleInputFailure(spawnParticleResult(pool, particleSpawn({ positionX: justAbove })), 'spawn', 'invalid-spawn')).toBe(true)
+      expect(isDecodedParticleInputFailure(spawnParticleResult(pool, particleSpawn({ positionX: 1e39 })), 'spawn', 'invalid-spawn')).toBe(true)
+      expect(isDecodedParticleInputFailure(spawnParticleResult(pool, particleSpawn({ velocity: { x: 1e39, y: 0, z: 0 } })), 'spawn', 'invalid-spawn')).toBe(true)
+      expect(isDecodedParticleInputFailure(spawnParticleResult(pool, particleSpawn({ uvU: 1e39 })), 'spawn', 'invalid-spawn')).toBe(true)
+      expect(isDecodedParticleInputFailure(spawnParticleResult(pool, particleSpawn({
         positionX: maximum,
         follow: { id: 'mob-1', x: -maximum, y: 2, z: 3 },
-      }))).toBe(false)
-      expect(spawnBurst(pool, justAbove, 0, 0, 0, 0, 1)).toBe(0)
+      })), 'spawn', 'invalid-spawn')).toBe(true)
+      expect(isDecodedParticleInputFailure(spawnBurstResult(pool, justAbove, 0, 0, 0, 0, 1), 'burst', 'invalid-position')).toBe(true)
 
       expect(pool.activeCount()).toBe(1)
       expect(pool.evictionCount()).toBe(0)

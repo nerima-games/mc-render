@@ -19,11 +19,28 @@ import {
   makeWaterMaterial,
   RendererMaterialPolicyErrorSchema,
 } from '../src/application/world-renderer-materials'
-import { readSlot, spawnBurst } from '../src/domain/particle-pool'
+import {
+  ParticlePoolInputErrorSchema,
+  readSlot,
+  spawnBurst as spawnBurstResult,
+} from '../src/domain/particle-pool'
 import { planRenderEnvironment } from '../src/domain/render-environment'
 import { FAKE_CANVAS, makeFakeThree } from './support/fake-three'
 
 const VIEWPORT = { width: 1280, height: 720 }
+const spawnBurst = (...args: Parameters<typeof spawnBurstResult>) =>
+  Result.getOrThrow(spawnBurstResult(...args))
+const isParticlePoolInputFailure = (
+  error: unknown,
+  operation: 'pool' | 'advance',
+  reason: 'invalid-capacity' | 'invalid-delta',
+): boolean => {
+  const decoded = Schema.decodeUnknownResult(ParticlePoolInputErrorSchema, {
+    onExcessProperty: 'error',
+  })(error)
+  return Result.isSuccess(decoded) && decoded.success.operation === operation &&
+    decoded.success.reason === reason
+}
 
 describe('makeProductionWorldRenderer (the shipped composition)', () => {
   it.effect('uses the layer service pool for both accepted requests and rendered instances', () =>
@@ -230,6 +247,41 @@ describe('makeChunkShaderMaterial and makeWaterMaterial default sun intensity', 
 
       expect(defaulted.uniforms['uSunIntensity']?.value).toBe(1)
       expect(explicit.uniforms['uSunIntensity']?.value).toBe(0.5)
+    }),
+  )
+
+  it.effect('propagates invalid pool configuration and frame delta as typed Effect failures', () =>
+    Effect.gen(function* () {
+      const invalidPoolResult = yield* Effect.result(makeProductionWorldRenderer(
+        makeFakeThree(),
+        FAKE_CANVAS,
+        VIEWPORT,
+        { name: 'terrain-atlas' },
+        { particles: { capacity: 0 } },
+      ))
+      expect(Result.isFailure(invalidPoolResult)).toBe(true)
+      if (Result.isFailure(invalidPoolResult)) {
+        expect(isParticlePoolInputFailure(invalidPoolResult.failure, 'pool', 'invalid-capacity')).toBe(true)
+      }
+
+      const renderer = yield* makeProductionWorldRenderer(
+        makeFakeThree(),
+        FAKE_CANVAS,
+        VIEWPORT,
+        { name: 'terrain-atlas' },
+        { particles: { capacity: 2 } },
+      )
+      const invalidStepResult = yield* Effect.result(renderer.advanceFrame({
+        elapsedSecs: 1,
+        deltaSecs: -0.01,
+        cameraPosition: { worldX: 0, worldY: 0, worldZ: 0 },
+      }))
+      expect(Result.isFailure(invalidStepResult)).toBe(true)
+      if (Result.isFailure(invalidStepResult)) {
+        expect(isParticlePoolInputFailure(invalidStepResult.failure, 'advance', 'invalid-delta')).toBe(true)
+      }
+      expect(renderer.waterUniforms['uTime']?.value).toBe(0)
+      yield* renderer.dispose
     }),
   )
 })
