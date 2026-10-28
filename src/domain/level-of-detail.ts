@@ -180,9 +180,11 @@ export type LodThresholds = {
   readonly lod2: number
 }
 
+const ZERO_DISTANCE_CHUNKS = 0
+
 export const LodThresholdsSchema: Schema.Codec<LodThresholds> = Schema.Struct({
-  lod1: Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0)),
-  lod2: Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0)),
+  lod1: Schema.Finite.check(Schema.isGreaterThanOrEqualTo(ZERO_DISTANCE_CHUNKS)),
+  lod2: Schema.Finite.check(Schema.isGreaterThanOrEqualTo(ZERO_DISTANCE_CHUNKS)),
 })
 
 export type LodInputError = {
@@ -223,13 +225,13 @@ export const LodThresholdsResultSchema: Schema.Codec<
   LodResultShape<LodThresholds, LodInputError>
 > = Schema.Union([
   Schema.Struct({
-    _tag: Schema.Literal('Success'),
     _op: Schema.Literal('Success'),
+    _tag: Schema.Literal('Success'),
     success: LodThresholdsSchema,
   }),
   Schema.Struct({
-    _tag: Schema.Literal('Failure'),
     _op: Schema.Literal('Failure'),
+    _tag: Schema.Literal('Failure'),
     failure: LodInputErrorSchema,
   }),
 ])
@@ -238,19 +240,19 @@ export const LodForDistanceResultSchema: Schema.Codec<
   LodResultShape<LodLevel, LodInputError>
 > = Schema.Union([
   Schema.Struct({
-    _tag: Schema.Literal('Success'),
     _op: Schema.Literal('Success'),
+    _tag: Schema.Literal('Success'),
     success: LodLevelSchema,
   }),
   Schema.Struct({
-    _tag: Schema.Literal('Failure'),
     _op: Schema.Literal('Failure'),
+    _tag: Schema.Literal('Failure'),
     failure: LodInputErrorSchema,
   }),
 ])
 
 const isValidRenderDistance = (renderDistance: number): boolean =>
-  Number.isSafeInteger(renderDistance) && renderDistance >= 0
+  Number.isSafeInteger(renderDistance) && renderDistance >= ZERO_DISTANCE_CHUNKS
 
 const lodInputError = (
   operation: LodInputError['operation'],
@@ -347,7 +349,7 @@ export const lodForDistance = (
   distanceChunks: number,
   thresholds: LodThresholds,
 ): Result.Result<LodLevel, LodInputError> => {
-  if (!Number.isFinite(distanceChunks) || distanceChunks < 0) {
+  if (!Number.isFinite(distanceChunks) || distanceChunks < ZERO_DISTANCE_CHUNKS) {
     return Result.fail(lodInputError('distance', 'invalid-distance'))
   }
 
@@ -491,7 +493,7 @@ export const distanceForScreenErrorPixels = (
 /** How many of the loaded chunks fall in each tier. Indexed by `LodLevel`. */
 export type LodTierCensus = Readonly<Record<LodLevel, number>>
 
-const LodTierCountSchema = Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0))
+const LodTierCountSchema = Schema.Finite.check(Schema.isGreaterThanOrEqualTo(ZERO_DISTANCE_CHUNKS))
 
 export const LodTierCensusSchema: Schema.Codec<LodTierCensus> = Schema.Struct({
   0: LodTierCountSchema,
@@ -503,13 +505,13 @@ export const LodTierCensusResultSchema: Schema.Codec<
   LodResultShape<LodTierCensus, LodInputError>
 > = Schema.Union([
   Schema.Struct({
-    _tag: Schema.Literal('Success'),
     _op: Schema.Literal('Success'),
+    _tag: Schema.Literal('Success'),
     success: LodTierCensusSchema,
   }),
   Schema.Struct({
-    _tag: Schema.Literal('Failure'),
     _op: Schema.Literal('Failure'),
+    _tag: Schema.Literal('Failure'),
     failure: LodInputErrorSchema,
   }),
 ])
@@ -518,13 +520,13 @@ export const UnreachableLodTiersResultSchema: Schema.Codec<
   LodResultShape<ReadonlyArray<LodLevel>, LodInputError>
 > = Schema.Union([
   Schema.Struct({
-    _tag: Schema.Literal('Success'),
     _op: Schema.Literal('Success'),
+    _tag: Schema.Literal('Success'),
     success: Schema.Array(LodLevelSchema),
   }),
   Schema.Struct({
-    _tag: Schema.Literal('Failure'),
     _op: Schema.Literal('Failure'),
+    _tag: Schema.Literal('Failure'),
     failure: LodInputErrorSchema,
   }),
 ])
