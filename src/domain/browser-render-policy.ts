@@ -1,9 +1,9 @@
-import { Effect, Result, Schema } from 'effect'
 import {
   type AdaptiveQualityChange,
   type AdaptiveQualityState,
   advanceAdaptiveQuality,
 } from './adaptive-quality.js'
+import { Effect, Result, Schema } from 'effect'
 import {
   type GraphicsQuality,
   type PostProcessingPass,
@@ -18,8 +18,8 @@ import {
   advanceSsimAdaptiveQuality,
 } from './ssim-adaptive-quality.js'
 import {
-  refractionRunsOnFrame,
   normalizeRefractionMinScreenRatio,
+  refractionRunsOnFrame,
   shouldRunRefractionRatioGate,
 } from './water-refraction.js'
 
@@ -83,40 +83,40 @@ const browserRenderPolicyError = (
 ): BrowserRenderPolicyError => ({ _tag: 'BrowserRenderPolicyError', operation, reason })
 
 export const BrowserNumberResultSchema: Schema.Codec<BrowserResultShape<number, BrowserRenderPolicyError>> = Schema.Union([
-  Schema.Struct({ _tag: Schema.Literal('Success'), _op: Schema.Literal('Success'), success: Schema.Finite }),
-  Schema.Struct({ _tag: Schema.Literal('Failure'), _op: Schema.Literal('Failure'), failure: BrowserRenderPolicyErrorSchema }),
+  Schema.Struct({ _op: Schema.Literal('Success'), _tag: Schema.Literal('Success'), success: Schema.Finite }),
+  Schema.Struct({ _op: Schema.Literal('Failure'), _tag: Schema.Literal('Failure'), failure: BrowserRenderPolicyErrorSchema }),
 ])
 
 export const BrowserOptionalNumberResultSchema: Schema.Codec<BrowserResultShape<number | undefined, BrowserRenderPolicyError>> = Schema.Union([
-  Schema.Struct({ _tag: Schema.Literal('Success'), _op: Schema.Literal('Success'), success: Schema.UndefinedOr(Schema.Finite) }),
-  Schema.Struct({ _tag: Schema.Literal('Failure'), _op: Schema.Literal('Failure'), failure: BrowserRenderPolicyErrorSchema }),
+  Schema.Struct({ _op: Schema.Literal('Success'), _tag: Schema.Literal('Success'), success: Schema.UndefinedOr(Schema.Finite) }),
+  Schema.Struct({ _op: Schema.Literal('Failure'), _tag: Schema.Literal('Failure'), failure: BrowserRenderPolicyErrorSchema }),
 ])
 
 export const BrowserBooleanResultSchema: Schema.Codec<BrowserResultShape<boolean, BrowserRenderPolicyError>> = Schema.Union([
-  Schema.Struct({ _tag: Schema.Literal('Success'), _op: Schema.Literal('Success'), success: Schema.Boolean }),
-  Schema.Struct({ _tag: Schema.Literal('Failure'), _op: Schema.Literal('Failure'), failure: BrowserRenderPolicyErrorSchema }),
+  Schema.Struct({ _op: Schema.Literal('Success'), _tag: Schema.Literal('Success'), success: Schema.Boolean }),
+  Schema.Struct({ _op: Schema.Literal('Failure'), _tag: Schema.Literal('Failure'), failure: BrowserRenderPolicyErrorSchema }),
 ])
 export const BrowserVoidResultSchema: Schema.Codec<BrowserResultShape<void, BrowserRenderPolicyError>> = Schema.Union([
-  Schema.Struct({ _tag: Schema.Literal('Success'), _op: Schema.Literal('Success'), success: Schema.Undefined }),
-  Schema.Struct({ _tag: Schema.Literal('Failure'), _op: Schema.Literal('Failure'), failure: BrowserRenderPolicyErrorSchema }),
+  Schema.Struct({ _op: Schema.Literal('Success'), _tag: Schema.Literal('Success'), success: Schema.Undefined }),
+  Schema.Struct({ _op: Schema.Literal('Failure'), _tag: Schema.Literal('Failure'), failure: BrowserRenderPolicyErrorSchema }),
 ])
 export const BrowserUnknownResultSchema: Schema.Codec<BrowserResultShape<unknown, BrowserRenderPolicyError>> = Schema.Union([
-  Schema.Struct({ _tag: Schema.Literal('Success'), _op: Schema.Literal('Success'), success: Schema.Unknown }),
-  Schema.Struct({ _tag: Schema.Literal('Failure'), _op: Schema.Literal('Failure'), failure: BrowserRenderPolicyErrorSchema }),
+  Schema.Struct({ _op: Schema.Literal('Success'), _tag: Schema.Literal('Success'), success: Schema.Unknown }),
+  Schema.Struct({ _op: Schema.Literal('Failure'), _tag: Schema.Literal('Failure'), failure: BrowserRenderPolicyErrorSchema }),
 ])
 
 const GraphicsQualitySchema: Schema.Codec<GraphicsQuality> = Schema.Struct({
-  composerRenderTarget: Schema.Literals(['ldr', 'hdr']),
-  godRaysSamples: Schema.Finite,
-  bloomStrength: Schema.Finite,
-  refractionThrottleFrames: Schema.Finite,
-  refractionMinScreenRatio: Schema.Finite,
-  pixelRatioCap: Schema.Finite,
-  ssaoEnabled: Schema.Boolean,
-  godRaysEnabled: Schema.Boolean,
   bloomEnabled: Schema.Boolean,
+  bloomStrength: Schema.Finite,
+  composerRenderTarget: Schema.Literals(['ldr', 'hdr']),
   dofEnabled: Schema.Boolean,
+  godRaysEnabled: Schema.Boolean,
+  godRaysSamples: Schema.Finite,
+  pixelRatioCap: Schema.Finite,
+  refractionMinScreenRatio: Schema.Finite,
+  refractionThrottleFrames: Schema.Finite,
   smaaEnabled: Schema.Boolean,
+  ssaoEnabled: Schema.Boolean,
   useCompositePass: Schema.Boolean,
 })
 type BrowserRefractionCaptureInput = {
@@ -196,8 +196,8 @@ const makeBrowserVector2 = <Vector2>(
   x: number,
   y: number,
 ): Result.Result<Vector2, BrowserRenderPolicyError> => Result.try({
-  try: () => factory(x, y),
   catch: () => browserRenderPolicyError('runtime', 'invalid-input'),
+  try: () => factory(x, y),
 })
 
 const isBrowserVector2Factory = (value: unknown): value is BrowserVector2Factory<unknown> =>
@@ -236,11 +236,11 @@ export type BrowserScreenshotShortcutInput = {
 }
 
 export const BrowserScreenshotShortcutInputSchema: Schema.Codec<BrowserScreenshotShortcutInput> = Schema.Struct({
-  code: Schema.String,
-  repeat: Schema.Boolean,
   altKey: Schema.Boolean,
+  code: Schema.String,
   ctrlKey: Schema.Boolean,
   metaKey: Schema.Boolean,
+  repeat: Schema.Boolean,
   shiftKey: Schema.Boolean,
 })
 
@@ -294,13 +294,13 @@ export const BrowserGodRaysShaderSchema: Schema.Codec<BrowserGodRaysShader<unkno
 
 export const BrowserGodRaysShaderResultSchema: Schema.Codec<BrowserResultShape<BrowserGodRaysShader<unknown>, BrowserRenderPolicyError>> = Schema.Union([
   Schema.Struct({
-    _tag: Schema.Literal('Success'),
     _op: Schema.Literal('Success'),
+    _tag: Schema.Literal('Success'),
     success: BrowserGodRaysShaderSchema,
   }),
   Schema.Struct({
-    _tag: Schema.Literal('Failure'),
     _op: Schema.Literal('Failure'),
+    _tag: Schema.Literal('Failure'),
     failure: BrowserRenderPolicyErrorSchema,
   }),
 ])
@@ -308,8 +308,8 @@ export const BrowserGodRaysShaderResultSchema: Schema.Codec<BrowserResultShape<B
 export const BrowserCompositeShaderSchema: Schema.Codec<BrowserCompositeShader<unknown>> = Schema.Struct({
   fragmentShader: Schema.String,
   uniforms: Schema.Struct({
-    tDiffuse: Schema.Struct({ value: Schema.Null }),
     tDepth: Schema.Struct({ value: Schema.Null }),
+    tDiffuse: Schema.Struct({ value: Schema.Null }),
     uAperture: Schema.Struct({ value: Schema.Finite }),
     uBloomEnabled: Schema.Struct({ value: Schema.Boolean }),
     uBloomStrength: Schema.Struct({ value: Schema.Finite }),
@@ -331,8 +331,8 @@ export const BrowserCompositeShaderSchema: Schema.Codec<BrowserCompositeShader<u
   vertexShader: Schema.String,
 })
 export const BrowserCompositeShaderResultSchema: Schema.Codec<BrowserResultShape<BrowserCompositeShader<unknown>, BrowserRenderPolicyError>> = Schema.Union([
-  Schema.Struct({ _tag: Schema.Literal('Success'), _op: Schema.Literal('Success'), success: BrowserCompositeShaderSchema }),
-  Schema.Struct({ _tag: Schema.Literal('Failure'), _op: Schema.Literal('Failure'), failure: BrowserRenderPolicyErrorSchema }),
+  Schema.Struct({ _op: Schema.Literal('Success'), _tag: Schema.Literal('Success'), success: BrowserCompositeShaderSchema }),
+  Schema.Struct({ _op: Schema.Literal('Failure'), _tag: Schema.Literal('Failure'), failure: BrowserRenderPolicyErrorSchema }),
 ])
 
 type BrowserCompositeShader<Vector2> = {
@@ -423,6 +423,92 @@ export const createBrowserGodRaysShader = <Vector2>(
   })
 }
 
+export type BrowserQualitySelection = QualityPreset | GraphicsQuality | undefined
+
+const QualityPresetSchema: Schema.Codec<QualityPreset> = Schema.Literals(['low', 'medium', 'high', 'ultra'])
+type ResolvedBrowserQuality = { readonly preset: QualityPreset | undefined; readonly quality: GraphicsQuality }
+const ResolvedBrowserQualitySchema: Schema.Codec<ResolvedBrowserQuality> = Schema.Struct({
+  preset: Schema.UndefinedOr(QualityPresetSchema),
+  quality: GraphicsQualitySchema,
+})
+export const BrowserQualityResultSchema: Schema.Codec<BrowserResultShape<ResolvedBrowserQuality, BrowserRenderPolicyError>> = Schema.Union([
+  Schema.Struct({ _op: Schema.Literal('Success'), _tag: Schema.Literal('Success'), success: ResolvedBrowserQualitySchema }),
+  Schema.Struct({ _op: Schema.Literal('Failure'), _tag: Schema.Literal('Failure'), failure: BrowserRenderPolicyErrorSchema }),
+])
+
+export const resolveBrowserPixelRatioCap = (value: unknown): Result.Result<number, BrowserRenderPolicyError> => {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return Result.fail(browserRenderPolicyError('pixel-ratio', 'not-finite'))
+  }
+  if (value < MIN_PIXEL_RATIO_CAP || value > DEFAULT_MAX_PIXEL_RATIO) {
+    return Result.fail(browserRenderPolicyError('pixel-ratio', 'out-of-range'))
+  }
+  return Result.succeed(value)
+}
+
+const validateBrowserQualityVisualValues = (
+  quality: GraphicsQuality,
+): Result.Result<void, BrowserRenderPolicyError> => {
+  const bloomStrength = validateBrowserBloomStrength(quality.bloomStrength)
+  if (Result.isFailure(bloomStrength)) {
+    return Result.fail(bloomStrength.failure)
+  }
+  const godRaySamples = validateBrowserGodRaySamples(quality.godRaysSamples)
+  if (Result.isFailure(godRaySamples)) {
+    return Result.fail(godRaySamples.failure)
+  }
+  const pixelRatioCap = resolveBrowserPixelRatioCap(quality.pixelRatioCap)
+  if (Result.isFailure(pixelRatioCap)) {
+    return Result.fail(pixelRatioCap.failure)
+  }
+  return Result.succeed(undefined)
+}
+
+const validateBrowserQualityRefraction = (
+  quality: GraphicsQuality,
+): Result.Result<void, BrowserRenderPolicyError> => {
+  const minScreenRatio = normalizeRefractionMinScreenRatio(quality.refractionMinScreenRatio)
+  if (Result.isFailure(minScreenRatio)) {
+    return Result.fail(browserRenderPolicyError('refraction', 'invalid-refraction-input'))
+  }
+  if (!Number.isInteger(quality.refractionThrottleFrames) || quality.refractionThrottleFrames < ZERO) {
+    return Result.fail(browserRenderPolicyError('refraction', 'invalid-refraction-input'))
+  }
+  return Result.succeed(undefined)
+}
+
+const resolveBrowserQualityObject = (selection: unknown): Result.Result<ResolvedBrowserQuality, BrowserRenderPolicyError> => {
+  const quality = Schema.decodeUnknownResult(GraphicsQualitySchema, { onExcessProperty: 'error' })(selection)
+  if (Result.isFailure(quality)) {
+    return Result.fail(browserRenderPolicyError('quality', 'invalid-input'))
+  }
+  const visualValues = validateBrowserQualityVisualValues(quality.success)
+  if (Result.isFailure(visualValues)) {
+    return Result.fail(visualValues.failure)
+  }
+  const refraction = validateBrowserQualityRefraction(quality.success)
+  if (Result.isFailure(refraction)) {
+    return Result.fail(refraction.failure)
+  }
+  return Result.succeed({ preset: undefined, quality: quality.success })
+}
+
+export const resolveBrowserQuality = (
+  selection: unknown,
+): Result.Result<ResolvedBrowserQuality, BrowserRenderPolicyError> => {
+  if (selection === undefined) {
+    return Result.succeed({ preset: DEFAULT_QUALITY_PRESET, quality: QUALITY_PRESETS[DEFAULT_QUALITY_PRESET] })
+  }
+  if (typeof selection === 'string') {
+    const preset = Schema.decodeUnknownResult(QualityPresetSchema)(selection)
+    if (Result.isFailure(preset)) {
+      return Result.fail(browserRenderPolicyError('quality', 'invalid-input'))
+    }
+    return Result.succeed({ preset: preset.success, quality: QUALITY_PRESETS[preset.success] })
+  }
+  return resolveBrowserQualityObject(selection)
+}
+
 type BrowserCompositeShaderInput = {
   readonly camera: unknown
   readonly effects: ReadonlyArray<PostProcessingPass>
@@ -436,40 +522,74 @@ const BrowserCompositeShaderInputSchema: Schema.Codec<BrowserCompositeShaderInpu
   effects: Schema.Array(Schema.Literals(['render', 'gtao', 'godRays', 'bloom', 'bokeh', 'composite', 'smaa', 'output'])),
   makeVector2: Schema.Unknown,
   quality: GraphicsQualitySchema,
-  viewport: Schema.Struct({ width: Schema.Finite, height: Schema.Finite }),
+  viewport: Schema.Struct({ height: Schema.Finite, width: Schema.Finite }),
 })
 
-export const createBrowserCompositeShader = (
-  options: unknown,
-): Result.Result<BrowserCompositeShader<unknown>, BrowserRenderPolicyError> => {
+type BrowserCompositeShaderSetup = {
+  readonly camera: { readonly far: number; readonly near: number }
+  readonly effects: ReadonlyArray<PostProcessingPass>
+  readonly makeVector2: BrowserVector2Factory<unknown>
+  readonly quality: GraphicsQuality
+  readonly viewport: BrowserCompositeShaderInput['viewport']
+}
+
+const BrowserCompositeCameraSchema: Schema.Codec<{ readonly far: number; readonly near: number }> = Schema.Struct({
+  far: Schema.Finite,
+  near: Schema.Finite,
+})
+
+type DecodedBrowserCompositeShaderInput = Omit<BrowserCompositeShaderInput, 'camera'> & {
+  readonly camera: { readonly far: number; readonly near: number }
+}
+
+const decodeBrowserCompositeShaderInput = (options: unknown): Result.Result<DecodedBrowserCompositeShaderInput, BrowserRenderPolicyError> => {
   const decoded = Schema.decodeUnknownResult(BrowserCompositeShaderInputSchema, { onExcessProperty: 'error' })(options)
   if (Result.isFailure(decoded)) {
     return Result.fail(browserRenderPolicyError('runtime', 'invalid-input'))
   }
-  const cameraClips = Schema.decodeUnknownResult(Schema.Struct({ far: Schema.Finite, near: Schema.Finite }))(
-    decoded.success.camera,
-  )
-  if (Result.isFailure(cameraClips)) {
+  const camera = Schema.decodeUnknownResult(BrowserCompositeCameraSchema)(decoded.success.camera)
+  if (Result.isFailure(camera)) {
     return Result.fail(browserRenderPolicyError('runtime', 'invalid-input'))
   }
-  const { effects, makeVector2, quality: inputQuality, viewport } = decoded.success
-  const camera = cameraClips.success
+  const { effects, makeVector2, quality, viewport } = decoded.success
+  return Result.succeed({ camera: camera.success, effects, makeVector2, quality, viewport })
+}
+
+const hasValidBrowserCompositeShaderGeometry = (
+  camera: DecodedBrowserCompositeShaderInput['camera'],
+  viewport: BrowserCompositeShaderInput['viewport'],
+  makeVector2: unknown,
+): makeVector2 is BrowserVector2Factory<unknown> =>
+  camera.near > POSITIVE_NUMBER_BOUNDARY &&
+  camera.far > camera.near &&
+  Number.isInteger(viewport.width) &&
+  Number.isInteger(viewport.height) &&
+  viewport.width > POSITIVE_NUMBER_BOUNDARY &&
+  viewport.height > POSITIVE_NUMBER_BOUNDARY &&
+  isBrowserVector2Factory(makeVector2)
+
+const resolveBrowserCompositeShaderSetup = (options: unknown): Result.Result<BrowserCompositeShaderSetup, BrowserRenderPolicyError> => {
+  const decoded = decodeBrowserCompositeShaderInput(options)
+  if (Result.isFailure(decoded)) {
+    return Result.fail(decoded.failure)
+  }
+  const { camera, effects, makeVector2, quality: inputQuality, viewport } = decoded.success
   const resolvedQuality = resolveBrowserQuality(inputQuality)
   if (Result.isFailure(resolvedQuality)) {
     return Result.fail(resolvedQuality.failure)
   }
-  const { quality } = resolvedQuality.success
-  if (
-    camera.near <= 0 ||
-    camera.far <= camera.near ||
-    !Number.isInteger(viewport.width) ||
-    !Number.isInteger(viewport.height) ||
-    viewport.width <= 0 ||
-    viewport.height <= 0 ||
-    !isBrowserVector2Factory(makeVector2)
-  ) {
+  if (!hasValidBrowserCompositeShaderGeometry(camera, viewport, makeVector2)) {
     return Result.fail(browserRenderPolicyError('runtime', 'invalid-input'))
   }
+  return Result.succeed({ camera, effects, makeVector2, quality: resolvedQuality.success.quality, viewport })
+}
+
+type BrowserCompositeShaderPositions = { readonly lightPosition: unknown; readonly resolution: unknown }
+
+const makeBrowserCompositeShaderPositions = (
+  makeVector2: BrowserVector2Factory<unknown>,
+  viewport: BrowserCompositeShaderInput['viewport'],
+): Result.Result<BrowserCompositeShaderPositions, BrowserRenderPolicyError> => {
   const resolution = makeBrowserVector2<unknown>(makeVector2, viewport.width, viewport.height)
   if (Result.isFailure(resolution)) {
     return Result.fail(resolution.failure)
@@ -482,6 +602,22 @@ export const createBrowserCompositeShader = (
   if (Result.isFailure(lightPosition)) {
     return Result.fail(lightPosition.failure)
   }
+  return Result.succeed({ lightPosition: lightPosition.success, resolution: resolution.success })
+}
+
+export const createBrowserCompositeShader = (
+  options: unknown,
+): Result.Result<BrowserCompositeShader<unknown>, BrowserRenderPolicyError> => {
+  const setup = resolveBrowserCompositeShaderSetup(options)
+  if (Result.isFailure(setup)) {
+    return Result.fail(setup.failure)
+  }
+  const positions = makeBrowserCompositeShaderPositions(setup.success.makeVector2, setup.success.viewport)
+  if (Result.isFailure(positions)) {
+    return Result.fail(positions.failure)
+  }
+  const { camera, effects, quality } = setup.success
+  const { lightPosition, resolution } = positions.success
   return Result.succeed({
   fragmentShader: `
     #include <packing>
@@ -584,10 +720,10 @@ export const createBrowserCompositeShader = (
     uFarClip: { value: camera.far },
     uFocus: { value: BROWSER_RENDER_DEFAULTS.bokehFocus },
     uGodRaysEnabled: { value: effects.includes('godRays') },
-    uLightPosition: { value: lightPosition.success },
+    uLightPosition: { value: lightPosition },
     uMaxBlur: { value: BROWSER_RENDER_DEFAULTS.bokehMaxBlur },
     uNearClip: { value: camera.near },
-    uResolution: { value: resolution.success },
+    uResolution: { value: resolution },
     uSamples: { value: quality.godRaysSamples },
     uWeight: { value: BROWSER_RENDER_DEFAULTS.godRaysWeight },
   },
@@ -599,67 +735,6 @@ export const createBrowserCompositeShader = (
     }
   `,
   })
-}
-
-export type BrowserQualitySelection = QualityPreset | GraphicsQuality | undefined
-
-const QualityPresetSchema: Schema.Codec<QualityPreset> = Schema.Literals(['low', 'medium', 'high', 'ultra'])
-type ResolvedBrowserQuality = { readonly preset: QualityPreset | undefined; readonly quality: GraphicsQuality }
-const ResolvedBrowserQualitySchema: Schema.Codec<ResolvedBrowserQuality> = Schema.Struct({
-  preset: Schema.UndefinedOr(QualityPresetSchema),
-  quality: GraphicsQualitySchema,
-})
-export const BrowserQualityResultSchema: Schema.Codec<BrowserResultShape<ResolvedBrowserQuality, BrowserRenderPolicyError>> = Schema.Union([
-  Schema.Struct({ _tag: Schema.Literal('Success'), _op: Schema.Literal('Success'), success: ResolvedBrowserQualitySchema }),
-  Schema.Struct({ _tag: Schema.Literal('Failure'), _op: Schema.Literal('Failure'), failure: BrowserRenderPolicyErrorSchema }),
-])
-export const resolveBrowserQuality = (
-  selection: unknown,
-): Result.Result<ResolvedBrowserQuality, BrowserRenderPolicyError> => {
-  if (selection === undefined) {
-    return Result.succeed({ preset: DEFAULT_QUALITY_PRESET, quality: QUALITY_PRESETS[DEFAULT_QUALITY_PRESET] })
-  }
-  if (typeof selection === 'string') {
-    const preset = Schema.decodeUnknownResult(QualityPresetSchema)(selection)
-    if (Result.isFailure(preset)) {
-      return Result.fail(browserRenderPolicyError('quality', 'invalid-input'))
-    }
-    return Result.succeed({ preset: preset.success, quality: QUALITY_PRESETS[preset.success] })
-  }
-  const quality = Schema.decodeUnknownResult(GraphicsQualitySchema, { onExcessProperty: 'error' })(selection)
-  if (Result.isFailure(quality)) {
-    return Result.fail(browserRenderPolicyError('quality', 'invalid-input'))
-  }
-  const bloomStrength = validateBrowserBloomStrength(quality.success.bloomStrength)
-  if (Result.isFailure(bloomStrength)) {
-    return Result.fail(bloomStrength.failure)
-  }
-  const godRaySamples = validateBrowserGodRaySamples(quality.success.godRaysSamples)
-  if (Result.isFailure(godRaySamples)) {
-    return Result.fail(godRaySamples.failure)
-  }
-  const pixelRatioCap = resolveBrowserPixelRatioCap(quality.success.pixelRatioCap)
-  if (Result.isFailure(pixelRatioCap)) {
-    return Result.fail(pixelRatioCap.failure)
-  }
-  const minScreenRatio = normalizeRefractionMinScreenRatio(quality.success.refractionMinScreenRatio)
-  if (Result.isFailure(minScreenRatio)) {
-    return Result.fail(browserRenderPolicyError('refraction', 'invalid-refraction-input'))
-  }
-  if (!Number.isInteger(quality.success.refractionThrottleFrames) || quality.success.refractionThrottleFrames < 0) {
-    return Result.fail(browserRenderPolicyError('refraction', 'invalid-refraction-input'))
-  }
-  return Result.succeed({ preset: undefined, quality: quality.success })
-}
-
-export const resolveBrowserPixelRatioCap = (value: unknown): Result.Result<number, BrowserRenderPolicyError> => {
-  if (typeof value !== 'number' || !Number.isFinite(value)) {
-    return Result.fail(browserRenderPolicyError('pixel-ratio', 'not-finite'))
-  }
-  if (value < MIN_PIXEL_RATIO_CAP || value > DEFAULT_MAX_PIXEL_RATIO) {
-    return Result.fail(browserRenderPolicyError('pixel-ratio', 'out-of-range'))
-  }
-  return Result.succeed(value)
 }
 
 export const resolveBrowserMaxPixelRatio = (
@@ -755,9 +830,10 @@ export const assertBrowserRuntimeActive = (disposed: unknown): Result.Result<voi
   if (typeof disposed !== 'boolean') {
     return Result.fail(browserRenderPolicyError('runtime', 'invalid-input'))
   }
-  return disposed
-    ? Result.fail(browserRenderPolicyError('runtime', 'disposed'))
-    : Result.succeed(undefined)
+  if (disposed) {
+    return Result.fail(browserRenderPolicyError('runtime', 'disposed'))
+  }
+  return Result.succeed(undefined)
 }
 
 export const requireBrowserRuntimeValue = <Value>(
@@ -771,17 +847,17 @@ export const requireBrowserRuntimeValue = <Value>(
 }
 
 type BrowserViewport = { readonly width: number; readonly height: number }
-export const BrowserViewportSchema: Schema.Codec<BrowserViewport> = Schema.Struct({ width: Schema.Finite, height: Schema.Finite })
+export const BrowserViewportSchema: Schema.Codec<BrowserViewport> = Schema.Struct({ height: Schema.Finite, width: Schema.Finite })
 export const BrowserViewportResultSchema: Schema.Codec<BrowserResultShape<BrowserViewport, BrowserRenderPolicyError>> = Schema.Union([
-  Schema.Struct({ _tag: Schema.Literal('Success'), _op: Schema.Literal('Success'), success: BrowserViewportSchema }),
-  Schema.Struct({ _tag: Schema.Literal('Failure'), _op: Schema.Literal('Failure'), failure: BrowserRenderPolicyErrorSchema }),
+  Schema.Struct({ _op: Schema.Literal('Success'), _tag: Schema.Literal('Success'), success: BrowserViewportSchema }),
+  Schema.Struct({ _op: Schema.Literal('Failure'), _tag: Schema.Literal('Failure'), failure: BrowserRenderPolicyErrorSchema }),
 ])
 type BrowserViewportInput = { readonly clientWidth: number; readonly clientHeight: number; readonly canvasWidth: number; readonly canvasHeight: number }
 const BrowserViewportInputSchema: Schema.Codec<BrowserViewportInput> = Schema.Struct({
-  clientWidth: Schema.Finite,
-  clientHeight: Schema.Finite,
-  canvasWidth: Schema.Finite,
   canvasHeight: Schema.Finite,
+  canvasWidth: Schema.Finite,
+  clientHeight: Schema.Finite,
+  clientWidth: Schema.Finite,
 })
 
 export const resolveBrowserViewport = (
@@ -792,7 +868,7 @@ export const resolveBrowserViewport = (
     return Result.fail(browserRenderPolicyError('viewport', 'invalid-input'))
   }
   const { clientWidth, clientHeight, canvasWidth, canvasHeight } = decoded.success
-  if (![clientWidth, clientHeight, canvasWidth, canvasHeight].every((value) => Number.isFinite(value) && value >= 0)) {
+  if (![clientWidth, clientHeight, canvasWidth, canvasHeight].every((value) => Number.isFinite(value) && value >= ZERO)) {
     return Result.fail(browserRenderPolicyError('viewport', 'out-of-range'))
   }
   const width = Math.max(MIN_VIEWPORT_SIZE, Math.floor(clientWidth || canvasWidth || MIN_VIEWPORT_SIZE))
@@ -807,7 +883,7 @@ export const resolveBrowserDrawingBufferSize = (
   if (typeof width !== 'number' || typeof height !== 'number' || !Number.isFinite(width) || !Number.isFinite(height)) {
     return Result.fail(browserRenderPolicyError('drawing-buffer-size', 'not-finite'))
   }
-  if (width <= 0 || height <= 0) {
+  if (width <= ZERO || height <= ZERO) {
     return Result.fail(browserRenderPolicyError('drawing-buffer-size', 'out-of-range'))
   }
   return Result.succeed({ height: Math.max(MIN_VIEWPORT_SIZE, Math.floor(height)), width: Math.max(MIN_VIEWPORT_SIZE, Math.floor(width)) })
@@ -815,38 +891,55 @@ export const resolveBrowserDrawingBufferSize = (
 
 type BrowserRefractionTargetSize = { readonly width: number; readonly height: number; readonly key: string }
 export const BrowserRefractionTargetSizeSchema: Schema.Codec<BrowserRefractionTargetSize> = Schema.Struct({
-  width: Schema.Finite,
   height: Schema.Finite,
   key: Schema.String,
+  width: Schema.Finite,
 })
 export const BrowserRefractionTargetSizeResultSchema: Schema.Codec<BrowserResultShape<BrowserRefractionTargetSize, BrowserRenderPolicyError>> = Schema.Union([
-  Schema.Struct({ _tag: Schema.Literal('Success'), _op: Schema.Literal('Success'), success: BrowserRefractionTargetSizeSchema }),
-  Schema.Struct({ _tag: Schema.Literal('Failure'), _op: Schema.Literal('Failure'), failure: BrowserRenderPolicyErrorSchema }),
+  Schema.Struct({ _op: Schema.Literal('Success'), _tag: Schema.Literal('Success'), success: BrowserRefractionTargetSizeSchema }),
+  Schema.Struct({ _op: Schema.Literal('Failure'), _tag: Schema.Literal('Failure'), failure: BrowserRenderPolicyErrorSchema }),
 ])
+
+const validateBrowserRefractionViewport = (viewport: unknown): Result.Result<BrowserViewport, BrowserRenderPolicyError> => {
+  const decoded = Schema.decodeUnknownResult(BrowserViewportSchema, { onExcessProperty: 'error' })(viewport)
+  if (Result.isFailure(decoded)) {
+    return Result.fail(browserRenderPolicyError('refraction-target-size', 'invalid-input'))
+  }
+  if (
+    !Number.isInteger(decoded.success.width) ||
+    !Number.isInteger(decoded.success.height) ||
+    decoded.success.width <= ZERO ||
+    decoded.success.height <= ZERO
+  ) {
+    return Result.fail(browserRenderPolicyError('refraction-target-size', 'out-of-range'))
+  }
+  return Result.succeed(decoded.success)
+}
+
+const validateBrowserRefractionPixelRatio = (pixelRatio: unknown): Result.Result<number, BrowserRenderPolicyError> => {
+  if (typeof pixelRatio !== 'number' || !Number.isFinite(pixelRatio)) {
+    return Result.fail(browserRenderPolicyError('refraction-target-size', 'not-finite'))
+  }
+  if (pixelRatio <= ZERO) {
+    return Result.fail(browserRenderPolicyError('refraction-target-size', 'out-of-range'))
+  }
+  return Result.succeed(pixelRatio)
+}
+
 export const resolveBrowserRefractionTargetSize = (
   viewport: unknown,
   pixelRatio: unknown,
 ): Result.Result<BrowserRefractionTargetSize, BrowserRenderPolicyError> => {
-  const decodedViewport = Schema.decodeUnknownResult(BrowserViewportSchema, { onExcessProperty: 'error' })(viewport)
-  if (Result.isFailure(decodedViewport)) {
-    return Result.fail(browserRenderPolicyError('refraction-target-size', 'invalid-input'))
+  const validatedViewport = validateBrowserRefractionViewport(viewport)
+  if (Result.isFailure(validatedViewport)) {
+    return Result.fail(validatedViewport.failure)
   }
-  if (
-    !Number.isInteger(decodedViewport.success.width) ||
-    !Number.isInteger(decodedViewport.success.height) ||
-    decodedViewport.success.width <= 0 ||
-    decodedViewport.success.height <= 0
-  ) {
-    return Result.fail(browserRenderPolicyError('refraction-target-size', 'out-of-range'))
+  const validatedPixelRatio = validateBrowserRefractionPixelRatio(pixelRatio)
+  if (Result.isFailure(validatedPixelRatio)) {
+    return Result.fail(validatedPixelRatio.failure)
   }
-  if (typeof pixelRatio !== 'number' || !Number.isFinite(pixelRatio)) {
-    return Result.fail(browserRenderPolicyError('refraction-target-size', 'not-finite'))
-  }
-  if (pixelRatio <= 0) {
-    return Result.fail(browserRenderPolicyError('refraction-target-size', 'out-of-range'))
-  }
-  const width = Math.max(MIN_VIEWPORT_SIZE, Math.floor(decodedViewport.success.width * pixelRatio))
-  const height = Math.max(MIN_VIEWPORT_SIZE, Math.floor(decodedViewport.success.height * pixelRatio))
+  const width = Math.max(MIN_VIEWPORT_SIZE, Math.floor(validatedViewport.success.width * validatedPixelRatio.success))
+  const height = Math.max(MIN_VIEWPORT_SIZE, Math.floor(validatedViewport.success.height * validatedPixelRatio.success))
   return Result.succeed({ height, key: `${width}x${height}`, width })
 }
 
@@ -938,8 +1031,8 @@ export const measureBrowserStage = <Value>(
 ): Effect.Effect<Value, BrowserRenderPolicyError> => {
   if (!hasCompleteBrowserPerformanceApi(performanceApi)) {
     return Effect.try({
-      try: run,
       catch: () => browserRenderPolicyError('runtime', 'invalid-input'),
+      try: run,
     })
   }
   const startMark = `${name}:start`
@@ -947,8 +1040,8 @@ export const measureBrowserStage = <Value>(
   return Effect.acquireUseRelease(
     Effect.sync(() => performanceApi.mark(startMark)),
     () => Effect.try({
-      try: run,
       catch: () => browserRenderPolicyError('runtime', 'invalid-input'),
+      try: run,
     }),
     () => Effect.sync(() => finishBrowserStageMeasurement({ endMark, name, performanceApi, startMark })),
   )
@@ -968,12 +1061,12 @@ const TimerQueryExtensionSchema: Schema.Codec<TimerQueryExtensionShape> = Schema
   TIME_ELAPSED_EXT: Schema.Int,
 })
 const GpuTimerSelectionSchema: Schema.Codec<GpuTimerSelection> = Schema.Union([
-  Schema.Struct({ kind: Schema.Literal('query'), extension: TimerQueryExtensionSchema }),
+  Schema.Struct({ extension: TimerQueryExtensionSchema, kind: Schema.Literal('query') }),
   Schema.Struct({ kind: Schema.Literal('fallback') }),
 ])
 export const BrowserGpuTimerSelectionResultSchema: Schema.Codec<BrowserResultShape<GpuTimerSelection, BrowserRenderPolicyError>> = Schema.Union([
-  Schema.Struct({ _tag: Schema.Literal('Success'), _op: Schema.Literal('Success'), success: GpuTimerSelectionSchema }),
-  Schema.Struct({ _tag: Schema.Literal('Failure'), _op: Schema.Literal('Failure'), failure: BrowserRenderPolicyErrorSchema }),
+  Schema.Struct({ _op: Schema.Literal('Success'), _tag: Schema.Literal('Success'), success: GpuTimerSelectionSchema }),
+  Schema.Struct({ _op: Schema.Literal('Failure'), _tag: Schema.Literal('Failure'), failure: BrowserRenderPolicyErrorSchema }),
 ])
 
 export const selectGpuTimer = (value: unknown): Result.Result<GpuTimerSelection, BrowserRenderPolicyError> => {
@@ -1002,24 +1095,12 @@ export const millisecondsFromGpuNanoseconds = (
   return Result.succeed(value / NANOSECONDS_PER_MILLISECOND)
 }
 
-export const shouldCaptureBrowserRefraction = (
-  input: unknown,
+const shouldCaptureBrowserRefractionWithQuality = (
+  input: BrowserRefractionCaptureInput,
+  quality: GraphicsQuality,
 ): Result.Result<boolean, BrowserRenderPolicyError> => {
-  const decoded = Schema.decodeUnknownResult(BrowserRefractionCaptureInputSchema, { onExcessProperty: 'error' })(input)
-  if (Result.isFailure(decoded)) {
-    return Result.fail(browserRenderPolicyError('refraction', 'invalid-input'))
-  }
-  const { frameNumber, visibleWaterMeshCount, waterScreenRatio } = decoded.success
-  const resolvedQuality = resolveBrowserQuality(decoded.success.quality)
-  if (Result.isFailure(resolvedQuality)) {
-    return Result.fail(resolvedQuality.failure)
-  }
-  const { quality } = resolvedQuality.success
-  const ratioGate = shouldRunRefractionRatioGate(
-    visibleWaterMeshCount,
-    waterScreenRatio,
-    quality.refractionMinScreenRatio,
-  )
+  const { frameNumber, visibleWaterMeshCount, waterScreenRatio } = input
+  const ratioGate = shouldRunRefractionRatioGate(visibleWaterMeshCount, waterScreenRatio, quality.refractionMinScreenRatio)
   if (Result.isFailure(ratioGate)) {
     return Result.fail(browserRenderPolicyError('refraction', 'invalid-refraction-input'))
   }
@@ -1031,6 +1112,20 @@ export const shouldCaptureBrowserRefraction = (
     return Result.fail(browserRenderPolicyError('refraction', 'invalid-refraction-input'))
   }
   return Result.succeed(frameGate.success)
+}
+
+export const shouldCaptureBrowserRefraction = (
+  input: unknown,
+): Result.Result<boolean, BrowserRenderPolicyError> => {
+  const decoded = Schema.decodeUnknownResult(BrowserRefractionCaptureInputSchema, { onExcessProperty: 'error' })(input)
+  if (Result.isFailure(decoded)) {
+    return Result.fail(browserRenderPolicyError('refraction', 'invalid-input'))
+  }
+  const resolvedQuality = resolveBrowserQuality(decoded.success.quality)
+  if (Result.isFailure(resolvedQuality)) {
+    return Result.fail(resolvedQuality.failure)
+  }
+  return shouldCaptureBrowserRefractionWithQuality(decoded.success, resolvedQuality.success.quality)
 }
 
 export type BrowserQualityTransition = {
@@ -1184,20 +1279,29 @@ const averageSsimWindowScores = (options: {
   return windowScoreTotal / windowCount
 }
 
-export const structuralSimilarity = (
-  input: unknown,
-): Result.Result<number, BrowserRenderPolicyError> => {
+const validateBrowserSsimInput = (input: unknown): Result.Result<BrowserSsimInput, BrowserRenderPolicyError> => {
   const decoded = Schema.decodeUnknownResult(BrowserSsimInputSchema, { onExcessProperty: 'error' })(input)
   if (Result.isFailure(decoded)) {
     return Result.fail(browserRenderPolicyError('similarity', 'invalid-input'))
   }
   const { height, left, right, width } = decoded.success
-  if (width <= 0 || height <= 0) {
+  if (width <= ZERO || height <= ZERO) {
     return Result.fail(browserRenderPolicyError('similarity', 'invalid-input'))
   }
   if (left.length !== right.length || left.length !== width * height * RGBA_CHANNEL_COUNT) {
     return Result.fail(browserRenderPolicyError('similarity', 'size-mismatch'))
   }
+  return Result.succeed(decoded.success)
+}
+
+export const structuralSimilarity = (
+  input: unknown,
+): Result.Result<number, BrowserRenderPolicyError> => {
+  const validated = validateBrowserSsimInput(input)
+  if (Result.isFailure(validated)) {
+    return Result.fail(validated.failure)
+  }
+  const { height, left, right, width } = validated.success
   const leftPixels = new DataView(left.buffer, left.byteOffset, left.byteLength)
   const rightPixels = new DataView(right.buffer, right.byteOffset, right.byteLength)
   const c1 = (SSIM_K1 * SSIM_LUMINANCE_RANGE) ** SSIM_VARIANCE_POWER

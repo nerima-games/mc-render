@@ -172,18 +172,18 @@ const refractionInputError = (
 ): RefractionInputError => ({ _tag: 'RefractionInputError', operation, reason })
 
 export const RefractionNumberResultSchema: Schema.Codec<RefractionResultShape<number, RefractionInputError>> = Schema.Union([
-  Schema.Struct({ _tag: Schema.Literal('Success'), _op: Schema.Literal('Success'), success: Schema.Finite }),
-  Schema.Struct({ _tag: Schema.Literal('Failure'), _op: Schema.Literal('Failure'), failure: RefractionInputErrorSchema }),
+  Schema.Struct({ _op: Schema.Literal('Success'), _tag: Schema.Literal('Success'), success: Schema.Finite }),
+  Schema.Struct({ _op: Schema.Literal('Failure'), _tag: Schema.Literal('Failure'), failure: RefractionInputErrorSchema }),
 ])
 
 export const RefractionBooleanResultSchema: Schema.Codec<RefractionResultShape<boolean, RefractionInputError>> = Schema.Union([
-  Schema.Struct({ _tag: Schema.Literal('Success'), _op: Schema.Literal('Success'), success: Schema.Boolean }),
-  Schema.Struct({ _tag: Schema.Literal('Failure'), _op: Schema.Literal('Failure'), failure: RefractionInputErrorSchema }),
+  Schema.Struct({ _op: Schema.Literal('Success'), _tag: Schema.Literal('Success'), success: Schema.Boolean }),
+  Schema.Struct({ _op: Schema.Literal('Failure'), _tag: Schema.Literal('Failure'), failure: RefractionInputErrorSchema }),
 ])
 
 export const RefractionStringResultSchema: Schema.Codec<RefractionResultShape<string, RefractionInputError>> = Schema.Union([
-  Schema.Struct({ _tag: Schema.Literal('Success'), _op: Schema.Literal('Success'), success: Schema.String }),
-  Schema.Struct({ _tag: Schema.Literal('Failure'), _op: Schema.Literal('Failure'), failure: RefractionInputErrorSchema }),
+  Schema.Struct({ _op: Schema.Literal('Success'), _tag: Schema.Literal('Success'), success: Schema.String }),
+  Schema.Struct({ _op: Schema.Literal('Failure'), _tag: Schema.Literal('Failure'), failure: RefractionInputErrorSchema }),
 ])
 
 // --- Preset-resolved settings -----------------------------------------------
@@ -250,6 +250,34 @@ export const normalizeRefractionMinScreenRatio = (value: unknown): Result.Result
   return Result.succeed(value)
 }
 
+const validateVisibleWaterMeshCount = (value: unknown): Result.Result<number, RefractionInputError> => {
+  if (typeof value !== 'number' || !Number.isInteger(value)) {
+    return Result.fail(refractionInputError('ratio-gate', 'invalid-integer'))
+  }
+  if (value < EMPTY_MESH_COUNT) {
+    return Result.fail(refractionInputError('ratio-gate', 'out-of-range'))
+  }
+  return Result.succeed(value)
+}
+
+const validateWaterScreenRatio = (value: unknown): Result.Result<number, RefractionInputError> => {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return Result.fail(refractionInputError('ratio-gate', 'not-finite'))
+  }
+  if (value < EMPTY_MESH_COUNT) {
+    return Result.fail(refractionInputError('ratio-gate', 'out-of-range'))
+  }
+  return Result.succeed(value)
+}
+
+const validateRatioGateThreshold = (value: unknown): Result.Result<number, RefractionInputError> => {
+  const threshold = normalizeRefractionMinScreenRatio(value)
+  if (Result.isFailure(threshold)) {
+    return Result.fail(refractionInputError('ratio-gate', threshold.failure.reason))
+  }
+  return Result.succeed(threshold.success)
+}
+
 /**
  * Apply the visible-mesh and screen-ratio gates in their required order.
  *
@@ -261,26 +289,19 @@ export const shouldRunRefractionRatioGate = (
   waterScreenRatio: unknown,
   minScreenRatio: unknown,
 ): Result.Result<boolean, RefractionInputError> => {
-  if (typeof visibleWaterMeshCount !== 'number' || !Number.isInteger(visibleWaterMeshCount)) {
-    return Result.fail(refractionInputError('ratio-gate', 'invalid-integer'))
+  const meshCount = validateVisibleWaterMeshCount(visibleWaterMeshCount)
+  if (Result.isFailure(meshCount)) {
+    return Result.fail(meshCount.failure)
   }
-  if (visibleWaterMeshCount < EMPTY_MESH_COUNT) {
-    return Result.fail(refractionInputError('ratio-gate', 'out-of-range'))
+  const screenRatio = validateWaterScreenRatio(waterScreenRatio)
+  if (Result.isFailure(screenRatio)) {
+    return Result.fail(screenRatio.failure)
   }
-  if (typeof waterScreenRatio !== 'number' || !Number.isFinite(waterScreenRatio)) {
-    return Result.fail(refractionInputError('ratio-gate', 'not-finite'))
-  }
-  if (waterScreenRatio < EMPTY_MESH_COUNT) {
-    return Result.fail(refractionInputError('ratio-gate', 'out-of-range'))
-  }
-  const threshold = normalizeRefractionMinScreenRatio(minScreenRatio)
+  const threshold = validateRatioGateThreshold(minScreenRatio)
   if (Result.isFailure(threshold)) {
-    return Result.fail(refractionInputError('ratio-gate', threshold.failure.reason))
+    return Result.fail(threshold.failure)
   }
-  if (visibleWaterMeshCount <= EMPTY_MESH_COUNT) {
-    return Result.succeed(false)
-  }
-  return Result.succeed(waterScreenRatio >= threshold.success)
+  return Result.succeed(meshCount.success > EMPTY_MESH_COUNT && screenRatio.success >= threshold.success)
 }
 
 /**
@@ -304,10 +325,10 @@ const FRAME_NUMBER_ORIGIN = 1
 /** A frame offset that lands exactly on the interval. */
 const ON_INTERVAL_REMAINDER = 0
 
-export const refractionRunsOnFrame = (
+const validateFrameSchedule = (
   intervalFrames: unknown,
   frameNumber: unknown,
-): Result.Result<boolean, RefractionInputError> => {
+): Result.Result<{ readonly frameNumber: number; readonly intervalFrames: number }, RefractionInputError> => {
   if (typeof intervalFrames !== 'number' || !Number.isInteger(intervalFrames)) {
     return Result.fail(refractionInputError('frame-schedule', 'invalid-integer'))
   }
@@ -320,10 +341,23 @@ export const refractionRunsOnFrame = (
   if (frameNumber < FIRST_FRAME_NUMBER) {
     return Result.fail(refractionInputError('frame-schedule', 'out-of-range'))
   }
-  if (intervalFrames === DISABLED_INTERVAL) {
+  return Result.succeed({ frameNumber, intervalFrames })
+}
+
+export const refractionRunsOnFrame = (
+  intervalFrames: unknown,
+  frameNumber: unknown,
+): Result.Result<boolean, RefractionInputError> => {
+  const schedule = validateFrameSchedule(intervalFrames, frameNumber)
+  if (Result.isFailure(schedule)) {
+    return Result.fail(schedule.failure)
+  }
+  if (schedule.success.intervalFrames === DISABLED_INTERVAL) {
     return Result.succeed(false)
   }
-  return Result.succeed((frameNumber - FRAME_NUMBER_ORIGIN) % intervalFrames === ON_INTERVAL_REMAINDER)
+  return Result.succeed(
+    (schedule.success.frameNumber - FRAME_NUMBER_ORIGIN) % schedule.success.intervalFrames === ON_INTERVAL_REMAINDER,
+  )
 }
 
 // --- The camera key ---------------------------------------------------------
@@ -362,18 +396,18 @@ export type RefractionCameraKey = {
 }
 
 export const RefractionCameraKeySchema: Schema.Codec<RefractionCameraKey> = Schema.Struct({
+  projection0: Schema.Finite,
+  projection10: Schema.Finite,
+  projection14: Schema.Finite,
+  projection5: Schema.Finite,
+  qw: Schema.Finite,
+  qx: Schema.Finite,
+  qy: Schema.Finite,
+  qz: Schema.Finite,
   sceneVersion: Schema.Finite,
   worldX: Schema.Finite,
   worldY: Schema.Finite,
   worldZ: Schema.Finite,
-  qx: Schema.Finite,
-  qy: Schema.Finite,
-  qz: Schema.Finite,
-  qw: Schema.Finite,
-  projection0: Schema.Finite,
-  projection5: Schema.Finite,
-  projection10: Schema.Finite,
-  projection14: Schema.Finite,
 })
 
 /**
@@ -470,10 +504,10 @@ export type NdcRect = {
 }
 
 export const NdcRectSchema: Schema.Codec<NdcRect> = Schema.Struct({
-  minX: Schema.Finite,
-  minY: Schema.Finite,
   maxX: Schema.Finite,
   maxY: Schema.Finite,
+  minX: Schema.Finite,
+  minY: Schema.Finite,
 })
 
 /** The NDC viewport's own bounds: `[-1, 1]` on both axes. */
@@ -483,14 +517,10 @@ const NDC_MAX = 1
 /** The empty span a fully clamped-away rectangle collapses to. */
 const EMPTY_SPAN = 0
 
-export const screenRatioForNdcRect = (rect: unknown): Result.Result<number, RefractionInputError> => {
-  const decoded = Schema.decodeUnknownResult(NdcRectSchema, {
-    onExcessProperty: 'error',
-  })(rect)
-  if (Result.isFailure(decoded)) {
-    return Result.fail(refractionInputError('ndc-rectangle', 'invalid-input'))
-  }
-  const { minX, minY, maxX, maxY } = decoded.success
+type NdcRectSpans = { readonly width: number; readonly height: number }
+
+const ndcRectSpans = (rect: NdcRect): Result.Result<NdcRectSpans, RefractionInputError> => {
+  const { minX, minY, maxX, maxY } = rect
   if (maxX < minX || maxY < minY) {
     return Result.fail(refractionInputError('ndc-rectangle', 'reversed-bounds'))
   }
@@ -500,7 +530,21 @@ export const screenRatioForNdcRect = (rect: unknown): Result.Result<number, Refr
   const clampedMaxY = Math.max(NDC_MIN, Math.min(NDC_MAX, maxY))
   const width = Math.max(EMPTY_SPAN, clampedMaxX - clampedMinX)
   const height = Math.max(EMPTY_SPAN, clampedMaxY - clampedMinY)
-  return Result.succeed((width * height) / NDC_VIEWPORT_AREA)
+  return Result.succeed({ height, width })
+}
+
+export const screenRatioForNdcRect = (rect: unknown): Result.Result<number, RefractionInputError> => {
+  const decoded = Schema.decodeUnknownResult(NdcRectSchema, {
+    onExcessProperty: 'error',
+  })(rect)
+  if (Result.isFailure(decoded)) {
+    return Result.fail(refractionInputError('ndc-rectangle', 'invalid-input'))
+  }
+  const spans = ndcRectSpans(decoded.success)
+  if (Result.isFailure(spans)) {
+    return Result.fail(spans.failure)
+  }
+  return Result.succeed((spans.success.width * spans.success.height) / NDC_VIEWPORT_AREA)
 }
 
 // --- The decision -----------------------------------------------------------
@@ -587,14 +631,14 @@ export type RefractionInputs = {
 }
 
 export const RefractionInputsSchema: Schema.Codec<RefractionInputs> = Schema.Struct({
-  intervalFrames: Schema.Finite,
-  frameNumber: Schema.Finite,
-  waterMeshCount: Schema.Finite,
-  visibleWaterMeshCount: Schema.Finite,
-  waterScreenRatio: Schema.Finite,
-  minScreenRatio: Schema.Finite,
   cameraKey: RefractionCameraKeySchema,
+  frameNumber: Schema.Finite,
+  intervalFrames: Schema.Finite,
   lastRenderedKey: Schema.UndefinedOr(RefractionCameraKeySchema),
+  minScreenRatio: Schema.Finite,
+  visibleWaterMeshCount: Schema.Finite,
+  waterMeshCount: Schema.Finite,
+  waterScreenRatio: Schema.Finite,
 })
 
 export const RefractionGateOrderSchema: Schema.Codec<ReadonlyArray<RefractionGate>> = Schema.Array(RefractionGateSchema)
@@ -629,17 +673,17 @@ export const RefractionDecisionSchema: Schema.Codec<RefractionDecision> = Schema
 ])
 
 const REFRACTION_SKIP_DECISION: Readonly<Record<RefractionGate, RefractionDecision>> = {
-  'interval-disabled': 'skip:interval-disabled',
-  'not-this-frame': 'skip:not-this-frame',
-  'no-water-meshes': 'skip:no-water-meshes',
-  'no-visible-water': 'skip:no-visible-water',
-  'camera-and-scene-unchanged': 'skip:camera-and-scene-unchanged',
   'below-screen-ratio': 'skip:below-screen-ratio',
+  'camera-and-scene-unchanged': 'skip:camera-and-scene-unchanged',
+  'interval-disabled': 'skip:interval-disabled',
+  'no-visible-water': 'skip:no-visible-water',
+  'no-water-meshes': 'skip:no-water-meshes',
+  'not-this-frame': 'skip:not-this-frame',
 }
 
 export const RefractionDecisionResultSchema: Schema.Codec<RefractionResultShape<RefractionDecision, RefractionInputError>> = Schema.Union([
-  Schema.Struct({ _tag: Schema.Literal('Success'), _op: Schema.Literal('Success'), success: RefractionDecisionSchema }),
-  Schema.Struct({ _tag: Schema.Literal('Failure'), _op: Schema.Literal('Failure'), failure: RefractionInputErrorSchema }),
+  Schema.Struct({ _op: Schema.Literal('Success'), _tag: Schema.Literal('Success'), success: RefractionDecisionSchema }),
+  Schema.Struct({ _op: Schema.Literal('Failure'), _tag: Schema.Literal('Failure'), failure: RefractionInputErrorSchema }),
 ])
 
 /** True when the decision is any kind of skip. */
@@ -655,45 +699,38 @@ export const isRefractionSkipped = (decision: unknown): Result.Result<boolean, R
 const SCREEN_RATIO_GATE_DISABLED = 0
 
 /** Evaluate one gate. `true` means this gate says skip. */
-const gateFires = (
-  gate: RefractionGate,
-  inputs: RefractionInputs,
-): Result.Result<boolean, RefractionInputError> => {
-  switch (gate) {
-    case 'interval-disabled':
-      return Result.succeed(inputs.intervalFrames === DISABLED_INTERVAL)
-    case 'not-this-frame': {
-      const scheduled = refractionRunsOnFrame(inputs.intervalFrames, inputs.frameNumber)
-      if (Result.isFailure(scheduled)) {
-        return scheduled
-      }
-      return Result.succeed(!scheduled.success)
+const REFRACTION_GATE_EVALUATORS: Readonly<
+  Record<RefractionGate, (inputs: RefractionInputs) => Result.Result<boolean, RefractionInputError>>
+> = {
+  'below-screen-ratio': (inputs) => {
+    const threshold = normalizeRefractionMinScreenRatio(inputs.minScreenRatio)
+    if (Result.isFailure(threshold)) {
+      return Result.fail(threshold.failure)
     }
-    case 'no-water-meshes':
-      return Result.succeed(inputs.waterMeshCount <= EMPTY_MESH_COUNT)
-    case 'no-visible-water':
-      return Result.succeed(inputs.visibleWaterMeshCount <= EMPTY_MESH_COUNT)
-    case 'camera-and-scene-unchanged': {
-      const { lastRenderedKey } = inputs
-      if (!lastRenderedKey) {
-        return Result.succeed(false)
-      }
-      return sameRefractionKey(inputs.cameraKey, lastRenderedKey)
+    return Result.succeed(
+      threshold.success > SCREEN_RATIO_GATE_DISABLED && inputs.waterScreenRatio < threshold.success,
+    )
+  },
+  'camera-and-scene-unchanged': ({ cameraKey, lastRenderedKey }) => {
+    if (!lastRenderedKey) {
+      return Result.succeed(false)
     }
-    case 'below-screen-ratio': {
-      const minScreenRatio = normalizeRefractionMinScreenRatio(inputs.minScreenRatio)
-      if (Result.isFailure(minScreenRatio)) {
-        return Result.fail(minScreenRatio.failure)
-      }
-      return Result.succeed(
-        minScreenRatio.success > SCREEN_RATIO_GATE_DISABLED &&
-          inputs.waterScreenRatio < minScreenRatio.success,
-      )
+    return sameRefractionKey(cameraKey, lastRenderedKey)
+  },
+  'interval-disabled': ({ intervalFrames }) => Result.succeed(intervalFrames === DISABLED_INTERVAL),
+  'no-visible-water': ({ visibleWaterMeshCount }) => Result.succeed(visibleWaterMeshCount <= EMPTY_MESH_COUNT),
+  'no-water-meshes': ({ waterMeshCount }) => Result.succeed(waterMeshCount <= EMPTY_MESH_COUNT),
+  'not-this-frame': (inputs) => {
+    const scheduled = refractionRunsOnFrame(inputs.intervalFrames, inputs.frameNumber)
+    if (Result.isFailure(scheduled)) {
+      return Result.fail(scheduled.failure)
     }
-    default:
-      return Result.fail(refractionInputError('decision', 'invalid-order'))
-  }
+    return Result.succeed(!scheduled.success)
+  },
 }
+
+const gateFires = (gate: RefractionGate, inputs: RefractionInputs): Result.Result<boolean, RefractionInputError> =>
+  REFRACTION_GATE_EVALUATORS[gate](inputs)
 
 /**
  * Should the refraction pre-pass run?
@@ -709,10 +746,12 @@ const gateFires = (
  * settings answer and "it is not this frame's turn" is a scheduling one — and a
  * skip reason that cannot tell them apart is a skip reason nobody can act on.
  */
-export const decideRefractionPrePass = (
+type PreparedRefractionDecision = { readonly input: RefractionInputs; readonly order: ReadonlyArray<RefractionGate> }
+
+const prepareRefractionDecision = (
   inputs: unknown,
-  order: unknown = REFRACTION_GATE_ORDER,
-): Result.Result<RefractionDecision, RefractionInputError> => {
+  order: unknown,
+): Result.Result<PreparedRefractionDecision, RefractionInputError> => {
   const decodedInputs = Schema.decodeUnknownResult(RefractionInputsSchema, {
     onExcessProperty: 'error',
   })(inputs)
@@ -742,7 +781,14 @@ export const decideRefractionPrePass = (
   ) {
     return Result.fail(refractionInputError('decision', 'out-of-range'))
   }
-  for (const gate of decodedOrder.success) {
+  return Result.succeed({ input, order: decodedOrder.success })
+}
+
+const firstFiredRefractionGate = (
+  input: RefractionInputs,
+  order: ReadonlyArray<RefractionGate>,
+): Result.Result<RefractionDecision, RefractionInputError> => {
+  for (const gate of order) {
     const fires = gateFires(gate, input)
     if (Result.isFailure(fires)) {
       return Result.fail(fires.failure)
@@ -752,6 +798,17 @@ export const decideRefractionPrePass = (
     }
   }
   return Result.succeed('run')
+}
+
+export const decideRefractionPrePass = (
+  inputs: unknown,
+  order: unknown = REFRACTION_GATE_ORDER,
+): Result.Result<RefractionDecision, RefractionInputError> => {
+  const prepared = prepareRefractionDecision(inputs, order)
+  if (Result.isFailure(prepared)) {
+    return Result.fail(prepared.failure)
+  }
+  return firstFiredRefractionGate(prepared.success.input, prepared.success.order)
 }
 
 /**

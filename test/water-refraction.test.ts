@@ -61,6 +61,13 @@ const RUNNING: RefractionInputs = {
   lastRenderedKey: undefined,
 }
 
+const minScreenRatioFailureReason = (value: number): 'not-finite' | 'out-of-range' => {
+  if (!Number.isFinite(value)) {
+    return 'not-finite'
+  }
+  return 'out-of-range'
+}
+
 /** Every permutation of an array. 6 gates is 720, which is cheap to exhaust. */
 const permutations = <A>(items: ReadonlyArray<A>): ReadonlyArray<ReadonlyArray<A>> => {
   if (items.length <= 1) {
@@ -194,7 +201,14 @@ describe('the frame schedule', () => {
 
   it.effect('returns typed failures for invalid intervals and frame numbers', () =>
     Effect.sync(() => {
-      for (const [interval, frame] of [[-1, 1], [1.5, 1], [Number.NaN, 1], [1, 0], [1, 2.5]]) {
+      const invalidSchedules = [
+        [-1, 1, 'out-of-range'],
+        [1.5, 1, 'invalid-integer'],
+        [Number.NaN, 1, 'invalid-integer'],
+        [1, 0, 'out-of-range'],
+        [1, 2.5, 'invalid-integer'],
+      ] as const
+      for (const [interval, frame, reason] of invalidSchedules) {
         const actual = refractionRunsOnFrameResult(interval, frame)
         const inspected = Schema.decodeUnknownResult(RefractionBooleanResultSchema, {
           onExcessProperty: 'error',
@@ -209,7 +223,7 @@ describe('the frame schedule', () => {
           failure: {
             _tag: 'RefractionInputError',
             operation: 'frame-schedule',
-            reason: interval === -1 || frame === 0 ? 'out-of-range' : 'invalid-integer',
+            reason,
           },
         })
       }
@@ -383,7 +397,13 @@ describe('the decision', () => {
   it.effect('accepts a custom threshold only inside the screen-ratio domain', () =>
     Effect.sync(() => {
       expect(normalizeRefractionMinScreenRatio(0.25)).toBe(0.25)
-      for (const value of [Number.NaN, -0.25, 1.25, Number.POSITIVE_INFINITY]) {
+      const invalidThresholds = [
+        [Number.NaN, 'not-finite'],
+        [-0.25, 'out-of-range'],
+        [1.25, 'out-of-range'],
+        [Number.POSITIVE_INFINITY, 'not-finite'],
+      ] as const
+      for (const [value, reason] of invalidThresholds) {
         const actual = normalizeRefractionMinScreenRatioResult(value)
         const inspected = Schema.decodeUnknownResult(RefractionNumberResultSchema, {
           onExcessProperty: 'error',
@@ -397,7 +417,7 @@ describe('the decision', () => {
           expect(inspected.success.failure).toStrictEqual({
             _tag: 'RefractionInputError',
             operation: 'min-screen-ratio',
-            reason: Number.isFinite(value) ? 'out-of-range' : 'not-finite',
+            reason,
           })
         }
       }
@@ -437,7 +457,7 @@ describe('the decision', () => {
               expect(inspected.success.failure).toStrictEqual({
                 _tag: 'RefractionInputError',
                 operation: 'min-screen-ratio',
-                reason: Number.isFinite(value) ? 'out-of-range' : 'not-finite',
+                reason: minScreenRatioFailureReason(value),
               })
             }
           },
