@@ -1,12 +1,12 @@
 import * as THREE from 'three'
-import { Result, Schema } from 'effect'
 import {
   BEHIND_NEAR_PLANE_RATIO,
   type NdcRect,
-  RefractionInputErrorSchema,
   type RefractionInputError,
+  RefractionInputErrorSchema,
   screenRatioForNdcRect,
 } from './domain/water-refraction.js'
+import { Result, Schema } from 'effect'
 
 const EMPTY_WATER_MESH_COUNT = 0
 const BOUNDING_BOX_MIN = 0
@@ -114,13 +114,13 @@ export const BrowserWaterVisibilitySchema: Schema.Codec<BrowserWaterVisibility> 
 
 export const BrowserWaterVisibilityResultSchema: Schema.Codec<BrowserWaterVisibilityResultShape> = Schema.Union([
   Schema.Struct({
-    _tag: Schema.Literal('Success'),
     _op: Schema.Literal('Success'),
+    _tag: Schema.Literal('Success'),
     success: BrowserWaterVisibilitySchema,
   }),
   Schema.Struct({
-    _tag: Schema.Literal('Failure'),
     _op: Schema.Literal('Failure'),
+    _tag: Schema.Literal('Failure'),
     failure: RefractionInputErrorSchema,
   }),
 ])
@@ -136,6 +136,67 @@ const resolveWaterScreenRatio = (
   return Result.succeed(BEHIND_NEAR_PLANE_RATIO)
 }
 
+const addWaterScreenRatio = (
+  screenRatio: number,
+  mesh: THREE.Mesh,
+  camera: THREE.Camera,
+): Result.Result<number, RefractionInputError> => {
+  const meshScreenRatio = resolveWaterScreenRatio(mesh, camera)
+  if (Result.isFailure(meshScreenRatio)) {
+    return Result.fail(meshScreenRatio.failure)
+  }
+  const combinedScreenRatio = screenRatio + meshScreenRatio.success
+  if (!Number.isFinite(combinedScreenRatio)) {
+    return Result.fail({
+      _tag: 'RefractionInputError',
+      operation: 'ndc-rectangle',
+      reason: 'not-finite',
+    })
+  }
+  return Result.succeed(combinedScreenRatio)
+}
+
+const measureWaterVisibilityForMesh = (
+  visibility: BrowserWaterVisibility,
+  meshValue: unknown,
+  camera: THREE.Camera,
+): Result.Result<BrowserWaterVisibility, RefractionInputError> => {
+  if (!(meshValue instanceof THREE.Mesh)) {
+    return Result.fail({
+      _tag: 'RefractionInputError',
+      operation: 'water-visibility',
+      reason: 'invalid-input',
+    })
+  }
+  if (!meshValue.visible) {
+    return Result.succeed(visibility)
+  }
+  const nextScreenRatio = addWaterScreenRatio(visibility.screenRatio, meshValue, camera)
+  if (Result.isFailure(nextScreenRatio)) {
+    return Result.fail(nextScreenRatio.failure)
+  }
+  return Result.succeed({
+    screenRatio: nextScreenRatio.success,
+    visibleMeshCount: visibility.visibleMeshCount + VISIBLE_MESH_COUNT_INCREMENT,
+  })
+}
+
+const measureValidWaterMeshes = (
+  waterMeshes: ReadonlySet<unknown>,
+  camera: THREE.Camera,
+): Result.Result<BrowserWaterVisibility, RefractionInputError> => {
+  camera.updateMatrixWorld()
+  let visibility: BrowserWaterVisibility = { screenRatio: 0, visibleMeshCount: 0 }
+  for (const meshValue of waterMeshes) {
+    const nextVisibility = measureWaterVisibilityForMesh(visibility, meshValue, camera)
+    if (Result.isFailure(nextVisibility)) {
+      return Result.fail(nextVisibility.failure)
+    }
+    visibility = nextVisibility.success
+  }
+  return Result.succeed(visibility)
+}
+
 export const measureWaterVisibility = (
   waterMeshes: unknown,
   camera: unknown,
@@ -147,32 +208,5 @@ export const measureWaterVisibility = (
       reason: 'invalid-input',
     })
   }
-  camera.updateMatrixWorld()
-  let screenRatio = 0
-  let visibleMeshCount = 0
-  for (const meshValue of waterMeshes) {
-    if (!(meshValue instanceof THREE.Mesh)) {
-      return Result.fail({
-        _tag: 'RefractionInputError',
-        operation: 'water-visibility',
-        reason: 'invalid-input',
-      })
-    }
-    if (meshValue.visible) {
-      visibleMeshCount += VISIBLE_MESH_COUNT_INCREMENT
-      const meshScreenRatio = resolveWaterScreenRatio(meshValue, camera)
-      if (Result.isFailure(meshScreenRatio)) {
-        return Result.fail(meshScreenRatio.failure)
-      }
-      screenRatio += meshScreenRatio.success
-      if (!Number.isFinite(screenRatio)) {
-        return Result.fail({
-          _tag: 'RefractionInputError',
-          operation: 'ndc-rectangle',
-          reason: 'not-finite',
-        })
-      }
-    }
-  }
-  return Result.succeed({ screenRatio, visibleMeshCount })
+  return measureValidWaterMeshes(waterMeshes, camera)
 }

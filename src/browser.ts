@@ -34,11 +34,14 @@ import {
   structuralSimilarity,
 } from './domain/browser-render-policy.js'
 import { Context, Effect, Layer, Result, Schema } from 'effect'
-
 import {
   type ParticlePoolInputError,
   ParticlePoolInputErrorSchema,
 } from './domain/particle-pool.js'
+import {
+  type RendererMaterialPolicyError,
+  RendererMaterialPolicyErrorSchema,
+} from './application/world-renderer-materials.js'
 
 export type BrowserRuntimeError = {
   readonly _tag: 'BrowserRuntimeError'
@@ -62,9 +65,9 @@ type BrowserRuntimeResultShape<Success, Failure> =
 
 export const BrowserRuntimeErrorSchema: Schema.Codec<BrowserRuntimeError> = Schema.Struct({
   _tag: Schema.Literal('BrowserRuntimeError'),
+  cause: Schema.Unknown,
   operation: Schema.Literals(['initialization', 'runtime', 'screenshot']),
   reason: Schema.Literals(['invalid-input', 'operation-failed', 'disposed', 'not-rendered', 'unavailable', 'encoding-failed']),
-  cause: Schema.Unknown,
 })
 export const GpuTimerServiceFailureSchema: Schema.Codec<GpuTimerServiceFailure> = Schema.Union([
   BrowserRenderPolicyErrorSchema,
@@ -80,20 +83,20 @@ export const BrowserRuntimeFailureSchema: Schema.Codec<BrowserRuntimeFailure> = 
 ])
 
 export const BrowserRuntimeUnknownResultSchema: Schema.Codec<BrowserRuntimeResultShape<unknown, BrowserRuntimeFailure>> = Schema.Union([
-  Schema.Struct({ _tag: Schema.Literal('Success'), _op: Schema.Literal('Success'), success: Schema.Unknown }),
-  Schema.Struct({ _tag: Schema.Literal('Failure'), _op: Schema.Literal('Failure'), failure: BrowserRuntimeFailureSchema }),
+  Schema.Struct({ _op: Schema.Literal('Success'), _tag: Schema.Literal('Success'), success: Schema.Unknown }),
+  Schema.Struct({ _op: Schema.Literal('Failure'), _tag: Schema.Literal('Failure'), failure: BrowserRuntimeFailureSchema }),
 ])
 
 export const BrowserRuntimeVoidResultSchema: Schema.Codec<BrowserRuntimeResultShape<void, BrowserRuntimeFailure>> = Schema.Union([
-  Schema.Struct({ _tag: Schema.Literal('Success'), _op: Schema.Literal('Success'), success: Schema.Undefined }),
-  Schema.Struct({ _tag: Schema.Literal('Failure'), _op: Schema.Literal('Failure'), failure: BrowserRuntimeFailureSchema }),
+  Schema.Struct({ _op: Schema.Literal('Success'), _tag: Schema.Literal('Success'), success: Schema.Undefined }),
+  Schema.Struct({ _op: Schema.Literal('Failure'), _tag: Schema.Literal('Failure'), failure: BrowserRuntimeFailureSchema }),
 ])
 
 const browserRuntimeError = (
   operation: BrowserRuntimeError['operation'],
   reason: BrowserRuntimeError['reason'],
   cause: unknown,
-): BrowserRuntimeError => ({ _tag: 'BrowserRuntimeError', operation, reason, cause })
+): BrowserRuntimeError => ({ _tag: 'BrowserRuntimeError', cause, operation, reason })
 import { FullScreenQuad, Pass } from 'three/addons/postprocessing/Pass.js'
 import {
   type GraphicsQuality,
@@ -114,10 +117,6 @@ import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js'
 import type { MirroredCameraState } from './domain/camera-mirror.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js'
 import { type PostProcessingRendererFactory } from './application/world-renderer.js'
-import {
-  RendererMaterialPolicyErrorSchema,
-  type RendererMaterialPolicyError,
-} from './application/world-renderer-materials.js'
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js'
 import { SMAAPass } from 'three/addons/postprocessing/SMAAPass.js'
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js'
@@ -205,7 +204,20 @@ const resolveGpuTimerExtension = (
   if (Result.isFailure(selection)) {
     return Result.fail(selection.failure)
   }
-  return Result.succeed(selection.success.kind === 'query' ? selection.success.extension : undefined)
+  if (selection.success.kind === 'query') {
+    return Result.succeed(selection.success.extension)
+  }
+  return Result.succeed(undefined)
+}
+
+const resolveGpuTimerElapsedMilliseconds = (
+  elapsedNanoseconds: unknown,
+): Effect.Effect<number, GpuTimerServiceFailure> => {
+  const elapsedMilliseconds = millisecondsFromGpuNanoseconds(elapsedNanoseconds)
+  if (Result.isFailure(elapsedMilliseconds)) {
+    return Effect.fail(elapsedMilliseconds.failure)
+  }
+  return Effect.succeed(elapsedMilliseconds.success)
 }
 
 const pollReadyGpuQuery = ({
@@ -232,11 +244,7 @@ const pollReadyGpuQuery = ({
   )
   yield* tryGpuTimerOperation(() => webglContext.deleteQuery(query))
   state.pendingQuery = undefined
-  const elapsedMilliseconds = millisecondsFromGpuNanoseconds(elapsedNanoseconds)
-  if (Result.isFailure(elapsedMilliseconds)) {
-    return yield* Effect.fail(elapsedMilliseconds.failure)
-  }
-  return elapsedMilliseconds.success
+  return yield* resolveGpuTimerElapsedMilliseconds(elapsedNanoseconds)
 })
 
 const disposeGpuTimerQueries = ({
@@ -350,8 +358,8 @@ const browserRuntimeOperation = <Value>(
       yield* Effect.fromResult(assertBrowserRuntimeActive(activity.disposed))
     }
     return yield* Effect.try({
-      try: run,
       catch: (cause) => browserRuntimeError(operation, 'operation-failed', cause),
+      try: run,
     })
   })
 
@@ -433,8 +441,8 @@ const resolveAtlas = (
   }
   if (typeof source === 'string') {
     return Effect.tryPromise({
-      try: () => new THREE.TextureLoader().loadAsync(source),
       catch: (cause) => browserRuntimeError('initialization', 'operation-failed', cause),
+      try: () => new THREE.TextureLoader().loadAsync(source),
     }).pipe(
       Effect.map((texture) => {
         configureAtlasTexture(texture)
@@ -443,11 +451,11 @@ const resolveAtlas = (
     )
   }
   return Effect.try({
+    catch: (cause) => browserRuntimeError('initialization', 'operation-failed', cause),
     try: () => ({
       owned: true,
       texture: makeAtlasTexture(source ?? generateTerrainAtlas()),
     }),
-    catch: (cause) => browserRuntimeError('initialization', 'operation-failed', cause),
   })
 }
 
@@ -879,6 +887,7 @@ const readBrowserReferenceImage = ({
     Effect.acquireUseRelease(
       Effect.succeed(previousTarget),
       () => Effect.try({
+        catch: (cause) => browserRuntimeError('runtime', 'operation-failed', cause),
         try: () => {
           renderBrowserReferenceCopy({ copyMaterial, copyQuad, readback, renderer, source })
           const pixels = new Uint8Array(width * height * RGBA_COMPONENT_COUNT)
@@ -892,7 +901,6 @@ const readBrowserReferenceImage = ({
           ))
           return pixels
         },
-        catch: (cause) => browserRuntimeError('runtime', 'operation-failed', cause),
       }),
       (target) => Effect.sync(() => runBrowserOperation(() => renderer.setRenderTarget(target))),
     ),
@@ -1050,6 +1058,7 @@ const createPostProcessingSession = ({
       Effect.acquireUseRelease(
         gpuTiming.service.begin,
         () => Effect.try({
+          catch: (cause) => browserRuntimeError('runtime', 'operation-failed', cause),
           try: () => renderAndCompareBrowserImages({
             captureRefraction: options.captureRefraction,
             height,
@@ -1062,7 +1071,6 @@ const createPostProcessingSession = ({
             webglContext: surface.webglContext,
             width,
           }),
-          catch: (cause) => browserRuntimeError('runtime', 'operation-failed', cause),
         }),
         () => gpuTiming.service.end,
       ),
@@ -1227,19 +1235,19 @@ const renderRefractionScene = (
   return Effect.runSync(
     Effect.acquireUseRelease(
       Effect.try({
+        catch: (cause) => browserRuntimeError('runtime', 'operation-failed', cause),
         try: () => {
           const visibility = captureBrowserWaterVisibility(waterMeshes)
           hideBrowserWaterMeshes(waterMeshes)
           return visibility
         },
-        catch: (cause) => browserRuntimeError('runtime', 'operation-failed', cause),
       }),
       () => Effect.try({
+        catch: (cause) => browserRuntimeError('runtime', 'operation-failed', cause),
         try: () => {
           runBrowserOperation(() => renderToRefractionTarget(renderer, context, target))
           return true
         },
-        catch: (cause) => browserRuntimeError('runtime', 'operation-failed', cause),
       }),
       (visibility) => Effect.sync(() => {
         runBrowserOperation(() => renderer.setRenderTarget(previousTarget))
@@ -1408,13 +1416,13 @@ const initializeBrowserWorld = ({
 > =>
   Effect.gen(function* initializeBrowserWorldEffect() {
     const setup = yield* Effect.try({
+      catch: (cause) => browserRuntimeError('initialization', 'operation-failed', cause),
       try: () => {
         const buildState: BrowserWorldBuildState = { gpuTiming: undefined, surface: undefined, world: undefined }
         const callbacks = createBrowserWorldCallbacks({ buildState, options, state })
         const worldOptions = createBrowserWorldOptions(options, callbacks.postProcessing)
         return { buildState, callbacks, worldOptions }
       },
-      catch: (cause) => browserRuntimeError('initialization', 'operation-failed', cause),
     })
     const initializedWorld = yield* makeProductionWorldRenderer<
       HTMLCanvasElement,
@@ -1564,14 +1572,14 @@ const encodeScreenshotCanvas = (
 ): Effect.Effect<Blob, BrowserRuntimeError> =>
   Effect.callback((resume) => {
     const begin = Result.try({
-      try: () => screenshotCanvas.toBlob((blob) => {
-        resume(
-          blob === null
-            ? Effect.fail(browserRuntimeError('screenshot', 'encoding-failed', undefined))
-            : Effect.succeed(blob),
-        )
-      }, 'image/png'),
       catch: (cause) => browserRuntimeError('screenshot', 'encoding-failed', cause),
+      try: () => screenshotCanvas.toBlob((blob) => {
+        if (blob === null) {
+          resume(Effect.fail(browserRuntimeError('screenshot', 'encoding-failed', undefined)))
+        } else {
+          resume(Effect.succeed(blob))
+        }
+      }, 'image/png'),
     })
     if (Result.isFailure(begin)) {
       resume(Effect.fail(begin.failure))
@@ -1584,20 +1592,20 @@ const captureScreenshotFrame = (
 ): Effect.Effect<Blob, BrowserRuntimeError> =>
   Effect.gen(function* captureScreenshotFrameEffect() {
     const setup = yield* Effect.try({
+      catch: (cause) => browserRuntimeError('screenshot', 'operation-failed', cause),
       try: () => {
         const screenshotCanvas = createScreenshotCanvas(canvas, frame)
         const context = screenshotCanvas.getContext('2d')
         return { context, screenshotCanvas }
       },
-      catch: (cause) => browserRuntimeError('screenshot', 'operation-failed', cause),
     })
-    if (!setup.context) {
+    const { context } = setup
+    if (!context) {
       return yield* Effect.fail(browserRuntimeError('screenshot', 'unavailable', undefined))
     }
-    const context = setup.context
     yield* Effect.try({
-      try: () => copyScreenshotPixels(context, frame),
       catch: (cause) => browserRuntimeError('screenshot', 'operation-failed', cause),
+      try: () => copyScreenshotPixels(context, frame),
     })
     return yield* encodeScreenshotCanvas(setup.screenshotCanvas)
   })
@@ -1636,6 +1644,7 @@ const installPngScreenshotShortcut = (
   const downloadScreenshot = (blob: Blob): Effect.Effect<void, BrowserRuntimeError> =>
     Effect.acquireUseRelease(
       Effect.try({
+        catch: (cause) => browserRuntimeError('screenshot', 'operation-failed', cause),
         try: () => {
           const objectUrl = URL.createObjectURL(blob)
           const link = document.createElement('a')
@@ -1645,11 +1654,10 @@ const installPngScreenshotShortcut = (
           document.body.append(link)
           return { link, objectUrl }
         },
-        catch: (cause) => browserRuntimeError('screenshot', 'operation-failed', cause),
       }),
       ({ link }) => Effect.try({
-        try: () => link.click(),
         catch: (cause) => browserRuntimeError('screenshot', 'operation-failed', cause),
+        try: () => link.click(),
       }),
       ({ link, objectUrl }) => Effect.sync(() => {
         link.remove()
@@ -1784,65 +1792,118 @@ const installRuntime = ({
   }
 }
 
+const createBrowserRuntimeOperations = ({
+  activity,
+  animationHandlers,
+  frameHandlers,
+  options,
+  resizeSync,
+  resources,
+  waterHandlers,
+}: {
+  readonly activity: BrowserRuntimeActivity
+  readonly animationHandlers: ReturnType<typeof createAnimationHandlers>
+  readonly frameHandlers: ReturnType<typeof createFrameHandlers>
+  readonly options: BrowserWorldRuntimeOptions
+  readonly resources: BrowserRuntimeResources
+  readonly resizeSync: () => void
+  readonly waterHandlers: ReturnType<typeof createWaterHandlers>
+}) => {
+  const captureScreenshot = createScreenshotHandler({
+    activity,
+    canvas: options.canvas,
+    getLastFrame: () => resources.state.lastPresentedFrame,
+    preserveDrawingBuffer: options.preserveDrawingBuffer ?? true,
+  })
+  const resize = (): Effect.Effect<void, BrowserRuntimeFailure> =>
+    browserRuntimeOperation('runtime', resizeSync, activity)
+  const render = (camera: MirroredCameraState): Effect.Effect<void, BrowserRuntimeFailure> =>
+    browserRuntimeOperation('runtime', () => frameHandlers.render(camera), activity)
+  const advanceFrame = (frame: ProductionFrame): Effect.Effect<void, BrowserRuntimeFailure> =>
+    browserRuntimeOperation('runtime', () => frameHandlers.advanceFrame(frame), activity)
+  const attachWaterSurface = (geometry: THREE.BufferGeometry): Effect.Effect<THREE.Mesh, BrowserRuntimeFailure> => {
+    if (!(geometry instanceof THREE.BufferGeometry)) {
+      return Effect.fail(browserRuntimeError('runtime', 'invalid-input', geometry))
+    }
+    return browserRuntimeOperation('runtime', () => waterHandlers.attachWaterSurface(geometry), activity)
+  }
+  const detachWaterSurface = (mesh: THREE.Mesh): Effect.Effect<void, BrowserRuntimeFailure> => {
+    if (!(mesh instanceof THREE.Mesh)) {
+      return Effect.fail(browserRuntimeError('runtime', 'invalid-input', mesh))
+    }
+    return browserRuntimeOperation('runtime', () => waterHandlers.detachWaterSurface(mesh), activity)
+  }
+  const start = (readFrame: () => BrowserFrame | undefined): Effect.Effect<void, BrowserRuntimeFailure> =>
+    browserRuntimeOperation('runtime', () => animationHandlers.start(readFrame), activity)
+  const stop = (): Effect.Effect<void, BrowserRuntimeFailure> =>
+    browserRuntimeOperation('runtime', animationHandlers.stop)
+  return { advanceFrame, attachWaterSurface, captureScreenshot, detachWaterSurface, render, resize, start, stop }
+}
+
+const installBrowserRuntimeAndCreateDispose = ({
+  activity,
+  captureScreenshot,
+  options,
+  resources,
+  resizeSync,
+  stop,
+  waterHandlers,
+}: {
+  readonly activity: BrowserRuntimeActivity
+  readonly captureScreenshot: () => Effect.Effect<Blob, BrowserRuntimeFailure>
+  readonly options: BrowserWorldRuntimeOptions
+  readonly resources: BrowserRuntimeResources
+  readonly resizeSync: () => void
+  readonly stop: () => void
+  readonly waterHandlers: ReturnType<typeof createWaterHandlers>
+}): (() => Effect.Effect<void, BrowserRuntimeFailure>) => {
+  const removeScreenshotShortcut = installPngScreenshotShortcut(options.canvas.ownerDocument, captureScreenshot)
+  const disposeSync = createDisposeHandler({ activity, removeScreenshotShortcut, resources, stop })
+  installRuntime({
+    activity,
+    attachWaterSurface: waterHandlers.attachWaterSurface,
+    options,
+    resize: resizeSync,
+  })
+  return () => browserRuntimeOperation('runtime', disposeSync)
+}
+
 const createBrowserWorldRuntime = (
   options: BrowserWorldRuntimeOptions,
   resources: BrowserRuntimeResources,
 ): Effect.Effect<BrowserWorldRuntime, BrowserRuntimeFailure> =>
   Effect.try({
+    catch: (cause) => browserRuntimeError('initialization', 'operation-failed', cause),
     try: () => {
       const activity = makeRuntimeActivity()
       const resizeSync = createResizeHandler(options, resources, activity)
       const frameHandlers = createFrameHandlers(resources, activity)
       const waterHandlers = createWaterHandlers(resources, activity)
       const animationHandlers = createAnimationHandlers(activity, frameHandlers.advanceFrame, frameHandlers.render)
-      const captureScreenshot = createScreenshotHandler({
+      const operations = createBrowserRuntimeOperations({
         activity,
-        canvas: options.canvas,
-        getLastFrame: () => resources.state.lastPresentedFrame,
-        preserveDrawingBuffer: options.preserveDrawingBuffer ?? true,
+        animationHandlers,
+        frameHandlers,
+        options,
+        resizeSync,
+        resources,
+        waterHandlers,
       })
-      const removeScreenshotShortcut = installPngScreenshotShortcut(
-        options.canvas.ownerDocument,
-        captureScreenshot,
-      )
-      const disposeSync = createDisposeHandler({
+      const dispose = installBrowserRuntimeAndCreateDispose({
         activity,
-        removeScreenshotShortcut,
+        captureScreenshot: operations.captureScreenshot,
+        options,
+        resizeSync,
         resources,
         stop: animationHandlers.stop,
+        waterHandlers,
       })
-      installRuntime({
-        activity,
-        attachWaterSurface: waterHandlers.attachWaterSurface,
-        options,
-        resize: resizeSync,
-      })
-      const resize = (): Effect.Effect<void, BrowserRuntimeFailure> =>
-        browserRuntimeOperation('runtime', resizeSync, activity)
-      const render = (camera: MirroredCameraState): Effect.Effect<void, BrowserRuntimeFailure> =>
-        browserRuntimeOperation('runtime', () => frameHandlers.render(camera), activity)
-      const advanceFrame = (frame: ProductionFrame): Effect.Effect<void, BrowserRuntimeFailure> =>
-        browserRuntimeOperation('runtime', () => frameHandlers.advanceFrame(frame), activity)
-      const attachWaterSurface = (geometry: THREE.BufferGeometry): Effect.Effect<THREE.Mesh, BrowserRuntimeFailure> =>
-        geometry instanceof THREE.BufferGeometry
-          ? browserRuntimeOperation('runtime', () => waterHandlers.attachWaterSurface(geometry), activity)
-          : Effect.fail(browserRuntimeError('runtime', 'invalid-input', geometry))
-      const detachWaterSurface = (mesh: THREE.Mesh): Effect.Effect<void, BrowserRuntimeFailure> =>
-        mesh instanceof THREE.Mesh
-          ? browserRuntimeOperation('runtime', () => waterHandlers.detachWaterSurface(mesh), activity)
-          : Effect.fail(browserRuntimeError('runtime', 'invalid-input', mesh))
-      const start = (readFrame: () => BrowserFrame | undefined): Effect.Effect<void, BrowserRuntimeFailure> =>
-        browserRuntimeOperation('runtime', () => animationHandlers.start(readFrame), activity)
-      const stop = (): Effect.Effect<void, BrowserRuntimeFailure> =>
-        browserRuntimeOperation('runtime', animationHandlers.stop)
-      const dispose = (): Effect.Effect<void, BrowserRuntimeFailure> =>
-        browserRuntimeOperation('runtime', disposeSync)
       return {
-        advanceFrame,
-        attachWaterSurface,
+        advanceFrame: operations.advanceFrame,
+        attachWaterSurface: operations.attachWaterSurface,
         camera: resources.surface.camera,
-        captureScreenshot,
-        detachWaterSurface,
+        captureScreenshot: operations.captureScreenshot,
+        detachWaterSurface: operations.detachWaterSurface,
         dispose,
         get gpuTimingSupported() {
           return resources.gpuTiming.service.supported
@@ -1859,11 +1920,11 @@ const createBrowserWorldRuntime = (
         get qualityPreset() {
           return resources.state.qualityPreset
         },
-        render,
-        resize,
+        render: operations.render,
+        resize: operations.resize,
         scene: resources.surface.scene,
-        start,
-        stop,
+        start: operations.start,
+        stop: operations.stop,
         threeRenderer: resources.surface.renderer,
         get waterMeshes() {
           return [...resources.state.waterMeshes]
@@ -1871,7 +1932,6 @@ const createBrowserWorldRuntime = (
         world: resources.world,
       }
     },
-    catch: (cause) => browserRuntimeError('initialization', 'operation-failed', cause),
   })
 
 export const makeBrowserWorldRuntime = (

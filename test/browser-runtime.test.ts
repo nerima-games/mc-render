@@ -792,13 +792,19 @@ describe('browser world runtime', () => {
         if (Result.isFailure(inspected)) {
           return
         }
+        let operation: 'pixel-ratio' | 'quality' = 'quality'
+        let reason: 'out-of-range' | 'invalid-input' = 'invalid-input'
+        if (Number.isFinite(pixelRatioCap)) {
+          operation = 'pixel-ratio'
+          reason = 'out-of-range'
+        }
         expect(inspected.success).toStrictEqual({
           _tag: 'Failure',
           _op: 'Failure',
           failure: {
             _tag: 'BrowserRenderPolicyError',
-            operation: Number.isFinite(pixelRatioCap) ? 'pixel-ratio' : 'quality',
-            reason: Number.isFinite(pixelRatioCap) ? 'out-of-range' : 'invalid-input',
+            operation,
+            reason,
           },
         })
       }),
