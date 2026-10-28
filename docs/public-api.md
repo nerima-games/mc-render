@@ -6,7 +6,8 @@ plan.md §3.9 は主要な公開APIを
 > グラフィックス品質プリセット適用
 
 と書いている。本書はそれを、**参照実装の実コードと突き合わせて**具体化したもの。
-パスはすべて `takeokunn/ts-minecraft` リポジトリルート相対。
+参照実装のパスは `takeokunn/ts-minecraft` リポジトリルート相対。本リポジトリの
+パスは mc-render ルート相対。
 
 ## 0. 参照実装のサービス定義方式
 
@@ -33,7 +34,14 @@ const POST_PROCESSING_PASS_ORDER: readonly [
 ]
 type PostProcessingPass = (typeof POST_PROCESSING_PASS_ORDER)[number]
 
+type ComposerRenderTarget = 'ldr' | 'hdr'
 type GraphicsQuality = {
+  readonly composerRenderTarget: ComposerRenderTarget
+  readonly godRaysSamples: number
+  readonly bloomStrength: number
+  readonly refractionThrottleFrames: number
+  readonly refractionMinScreenRatio: number
+  readonly pixelRatioCap: number
   readonly ssaoEnabled: boolean
   readonly godRaysEnabled: boolean
   readonly bloomEnabled: boolean
@@ -71,7 +79,7 @@ const isCanonicalChain: (chain: ReadonlyArray<PostProcessingPass>) => boolean
 
 ### 1.3 プリセット項目の現況
 
-`GraphicsQuality` は当初ポストFXの有無しか持たなかったが、現在は 5 フィールドに
+`GraphicsQuality` は当初ポストFXの有無しか持たなかったが、現在は 12 フィールドに
 拡張済みである（`domain/post-processing.ts:135-160`）。参照実装の `resolvePreset`
 が返す値のうち、次の 4 つは本実装に転写され、ブラウザアダプタまで配線済み:
 
@@ -115,16 +123,18 @@ const isCanonicalChain: (chain: ReadonlyArray<PostProcessingPass>) => boolean
 
 ## 1.5 Particle requests and pools
 
-`ParticleService` accepts typed render-space requests through
-`spawn(request): Effect.Effect<0 | 1>`. `ParticleRequestSchema` validates the
+`ParticleService` accepts render-space requests through
+`spawn(request): Effect.Effect<0 | 1, ParticlePoolInputError>`. It validates the
 kind, dimension-aware world position, optional RGB color, lifetime, direction,
-and followed entity. Color channels are finite values in `[0, 1]`; lifetime is
-finite and positive. Decode untrusted values at the host boundary before calling
-the service.
+and followed entity with `ParticleRequestSchema` and the decode option
+`onExcessProperty: 'error'`. Color channels must be finite values in `[0, 1]`,
+and lifetime must be finite and positive. Invalid requests fail with
+`ParticlePoolInputError` tagged `request` and reason `invalid-request`. Hosts
+should also decode untrusted serialized data at their input boundary.
 
 The supported kinds are `block-break`, `entity-hit`, `explosion`, and
 `level-up`. Provide `ParticleService` with `ParticleServiceLive`; each layer
-build creates one `ParticlePool`. A request returns `1` when accepted and `0`
+instance creates one `ParticlePool`. A request returns `1` when accepted and `0`
 when its dimension does not match the active render dimension or its followed
 entity is unavailable.
 When the pool is full, it evicts the oldest live particles and still accepts the
@@ -145,24 +155,60 @@ The following defaults apply when a request omits its color or lifetime:
 | `level-up` | 8 | 1 | `(0.45, 1, 0.4)` | 0.5 |
 
 ```typescript
-import { Effect } from 'effect'
+import { Effect, Result } from 'effect'
 import {
   PARTICLE_KIND_DEFAULTS,
   ParticleRequestSchema,
   ParticleService,
   ParticleServiceLive,
+  ParticlePoolInputErrorSchema,
+  ParticlePoolInputResultSchema,
+  ParticleFrameSnapshotSchema,
+  type ParticlePool,
+  type ParticlePoolInputError,
+  type ParticlePoolOptions,
+  type ParticleFrameSnapshot,
+  type ParticleServiceLiveOptions,
+  type ParticleSpawnSpec,
   makeParticlePool,
+  spawnParticle,
+  spawnBurst,
+  spawnBlockBurst,
+  advanceParticles,
+  clearParticles,
   type ParticleRequest,
 } from '@nerima-games/mc-render'
 ```
 
-`ParticleServiceApi` has this service shape:
+`ParticleServiceApi` has this service shape. Low-level pool operations return
+typed `Result` values when options or numeric inputs are invalid. Their failure
+shape is checked by `ParticlePoolInputErrorSchema` and
+`ParticlePoolInputResultSchema`:
 
 ```typescript
 type ParticleServiceApi = {
-  readonly spawn: (request: ParticleRequest) => Effect.Effect<0 | 1>
+  readonly spawn: (request: ParticleRequest) => Effect.Effect<0 | 1, ParticlePoolInputError>
+}
+
+const makeParticlePool: (options?: ParticlePoolOptions) => Result.Result<ParticlePool, ParticlePoolInputError>
+const spawnParticle: (pool: ParticlePool, spawn: ParticleSpawnSpec) => Result.Result<boolean, ParticlePoolInputError>
+const spawnBurst: (pool: ParticlePool, positionX: number, positionY: number, positionZ: number, uvU: number, uvV: number, count?: number) => Result.Result<number, ParticlePoolInputError>
+const spawnBlockBurst: (pool: ParticlePool, positionX: number, positionY: number, positionZ: number, tileIndex: number, count?: number) => Result.Result<number, ParticlePoolInputError>
+const advanceParticles: (pool: ParticlePool, dtSecs: number, frame?: ParticleFrameSnapshot) => Result.Result<number, ParticlePoolInputError>
+const clearParticles: (pool: ParticlePool) => Result.Result<void, ParticlePoolInputError>
+const ParticlePoolInputErrorSchema
+const ParticlePoolInputResultSchema
+const ParticleFrameSnapshotSchema
+type ParticleServiceLiveOptions = {
+  readonly pool?: ParticlePoolOptions
+  readonly renderContext?: () => ParticleFrameSnapshot
 }
 ```
+
+The service decodes the value returned by `renderContext` with
+`ParticleFrameSnapshotSchema` before each request. An invalid frame fails with
+`ParticlePoolInputError` (`operation: 'render-context'`, `reason: 'invalid-frame'`);
+a callback exception fails with `reason: 'render-context-failed'`.
 
 `ParticlePool` is a branded value built by `makeParticlePool`. It exposes fixed
 typed render buffers and read-only `activeCount`, `seed`, and `evictionCount`
@@ -173,11 +219,11 @@ request particles through `ParticleService`.
 ### 1.6 Kernel DomainEvent particle mapping
 
 `particleRequestForDomainEvent(event, context?)` is a pure mapper from the
-mc-kernel 0.10.0 `DomainEvent` vocabulary to a `ParticleRequest`. It returns
+mc-kernel 0.11.0 `DomainEvent` vocabulary to a `ParticleRequest`. It returns
 `undefined` when a known event has no render particle or its entity position
 cannot be resolved. It returns `UnhandledParticleEvent` only if a value from a
-newer runtime carries an event tag outside mc-kernel 0.10.0's typed vocabulary.
-The mc-kernel 0.10.0 `DomainEvent` union is handled exhaustively across all 20
+newer runtime carries an event tag outside mc-kernel 0.11.0's typed vocabulary.
+The mc-kernel 0.11.0 `DomainEvent` union is handled exhaustively across all 20
 tags. The mapper does not subscribe to the mc-sim event bus; the host owns that
 subscription and passes each event to this mapper.
 
@@ -255,7 +301,8 @@ type KeyCode = string                       // KeyboardEvent.code
 type MouseButton = 'MouseLeft' | 'MouseMiddle' | 'MouseRight'
 type InputCode = KeyCode | MouseButton      // バインドできるものすべて
 const MOUSE_BUTTONS / MOUSE_BUTTON_BY_INDEX
-const mouseButtonForIndex: (index: number) => MouseButton | undefined
+type InputValidationError = { readonly _tag: 'InputValidationError'; ... }
+const mouseButtonForIndex: (index: unknown) => Result.Result<MouseButton, InputValidationError>
 const isMouseButton: (code: InputCode) => code is MouseButton
 const DEFAULT_BINDINGS: Record<Exclude<InputAction, 'escape'>, InputCode>
 const ESCAPE_OWNER: 'frame-handler'
@@ -269,10 +316,13 @@ const suppressesBrowserScroll: (pointerLocked: boolean) => boolean
 // ホイール（§2.7）——InputCode ではない。デルタである
 type WheelDeltaMode = 'pixel' | 'line' | 'page'
 const WHEEL_DELTA_MODES / WHEEL_DELTA_MODE_BY_INDEX
-const wheelDeltaModeForIndex: (index: number) => WheelDeltaMode | undefined
+const wheelDeltaModeForIndex: (index: unknown) => Result.Result<WheelDeltaMode, InputValidationError>
 const WHEEL_PIXELS_PER_NOTCH: 100 / WHEEL_LINES_PER_NOTCH: 3 / WHEEL_PAGES_PER_NOTCH: 1
-const notchesForWheelDelta: (deltaY: number, mode: WheelDeltaMode) => number
-const wrapHotbarSelection: (current: number, steps: number, size: number) => number
+const notchesForWheelDelta: (deltaY: unknown, mode: unknown) => Result.Result<number, InputValidationError>
+const wrapHotbarSelection: (current: unknown, steps: unknown, size: unknown) => Result.Result<number, InputValidationError>
+const InputValidationErrorSchema
+const MouseButtonForIndexResultSchema / WheelDeltaModeForIndexResultSchema
+const WheelNotchesResultSchema / HotbarSelectionResultSchema
 
 // ポインタロック（§2.8）
 type PointerLockState = 'unlocked' | 'requested' | 'locked' | 'refused'
@@ -327,7 +377,9 @@ type GamepadSnapshot = {
   readonly buttons: ReadonlyArray<{ readonly pressed: boolean; readonly value: number }>
   readonly axes: ReadonlyArray<number>
 }
-const normalizeGamepadAxes: (axes: ReadonlyArray<number>, deadzone?: number) => GamepadAxes
+type GamepadAxesInputError = { readonly _tag: 'GamepadAxesInputError'; ... }
+const normalizeGamepadAxes: (axes: unknown, deadzone?: unknown) => Result.Result<GamepadAxes, GamepadAxesInputError>
+const GamepadAxesResultSchema
 
 // application/gamepad-input-adapter.ts
 type GamepadSource = () => ReadonlyArray<GamepadSnapshot | null>
@@ -373,6 +425,9 @@ const InputServiceLayer: (bindings?: Bindings, pointerLock?: PointerLockPort) =>
 const LISTENER_PLAN: ReadonlyArray<{ event: string; target: ListenerTarget; note: string }>
 const ESCAPE_POLICY
 ```
+
+An omitted gamepad axis is treated as neutral. A present axis with an invalid,
+non-finite, or out-of-range value returns `GamepadAxesInputError`.
 
 ### 2.2 参照実装との照合
 
@@ -946,6 +1001,10 @@ for (const coord of changed) {
 （4 つの optional な `{ blocks }`、`yPos`/`yNeg` は無し）。mc-worldgen は mc-meshing を import できないので
 名前的な適合ではない。両方に依存する本リポジトリがそのまま渡す。
 
+In mc-worldgen 0.7.0, `peek` and `neighbours` return `ReadonlyChunk`. The mesher
+copies each `blocks` buffer into a new `Uint16Array` before passing it to
+mc-meshing, so meshing does not mutate worldgen-owned chunk data.
+
 ### 3.2 参照実装の該当箇所
 
 | ファイル | LOC | 内容 |
@@ -963,6 +1022,38 @@ for (const coord of changed) {
   採用された設計はその指摘を満たしている（購読者ごとの集合を drain するので O(変更量)）
 - メッシュ生成をワーカーに投げる境界（mc-meshing は純粋関数、実行はワーカープール）
 - ジオメトリの破棄タイミング（THREE の `BufferGeometry` は明示 dispose が要る）
+
+### 3.4 mc-sim 0.6.0 rendering API
+
+The mc-sim 0.6.0 root exports `PlayerService`, `PlayerServiceLayer`,
+`PlayerServiceApi`, and `PlayerPose`. mc-render uses these exports to mirror
+sim-owned pose into rendering. `PlayerServiceApi.restore(pose, dimension)`
+requires a dimension, and `setDimension` changes the dimension independently.
+Pose update operations fail with `PlayerServiceInputError`. The `cameraPose`
+Effect requires `ClockPort` and fails with `CameraPoseError`.
+
+Pure pose functions are available from the root as well. `applyLook` and
+`cameraPoseOf(pose, capturedAtSecs)` return `Result` values, while
+`withFeetPosition` returns an updated `PlayerPose` directly. The root also
+exports `INITIAL_PLAYER_POSE`, `INITIAL_PLAYER_DIMENSION`, and
+`DEFAULT_TICK_DURATION`. `OccupantId`, `VehicleId`, `Vehicle`, and `VehicleType`
+are mc-kernel types re-exported from the mc-sim root; import
+`VehicleVelocityComponent` from mc-kernel.
+
+### 3.5 LOD selection inputs
+
+LOD selection functions reject invalid runtime values with typed `Result` failures:
+
+```typescript
+const lodThresholdsForRenderDistance: (renderDistance: number) => Result.Result<LodThresholds, LodInputError>
+const lodForDistance: (distanceChunks: number, thresholds: LodThresholds) => Result.Result<LodLevel, LodInputError>
+const lodTierCensus: (renderDistance: number, thresholds: LodThresholds) => Result.Result<LodTierCensus, LodInputError>
+const unreachableLodTiers: (renderDistance: number, thresholds: LodThresholds) => Result.Result<ReadonlyArray<LodLevel>, LodInputError>
+```
+
+LOD functions decode thresholds with `LodThresholdsSchema` and excess-property
+rejection. The corresponding Result schemas validate success values and
+`LodInputError` failures.
 
 ## 4. マテリアル方針
 
@@ -988,16 +1079,44 @@ const auditMaterials: (materials) => ReadonlyArray<{ material; verdict }>
 
 ```typescript
 // domain/frame-scratch.ts
-type ScratchMap<K, V>
-const makeScratchMap: <K, V>(name: string, initialCapacity?: number) => ScratchMap<K, V>
-const withScratch: <K, V, A>(scratch: ScratchMap<K, V>, use: (buffer: Map<K, V>) => A) => A
-const snapshotScratch: <K, V>(buffer: ReadonlyMap<K, V>) => ReadonlyMap<K, V>
-type FrameScratch = { visibleChunks; entityInstances; lightUpdates }
+import { Effect } from 'effect'
+
+type ScratchMap<Key, Value> // opaque, branded reusable map
+type ScratchViolation = { readonly rule: 're-entrant-borrow' | 'escaped-buffer' | 'foreign-scratch'; readonly message: string }
+type ScratchMisuseError = { readonly _tag: 'ScratchMisuseError'; readonly violation: ScratchViolation; readonly message: string }
+type ScratchMapView<Key, Value> = {
+  size(): Effect.Effect<number, ScratchMisuseError>
+  clear(): Effect.Effect<void, ScratchMisuseError>
+  delete(key: Key): Effect.Effect<boolean, ScratchMisuseError>
+  entries(): Effect.Effect<ReadonlyArray<readonly [Key, Value]>, ScratchMisuseError>
+  forEach(callback: (value: Value, key: Key, view: ScratchMapView<Key, Value>) => void, thisArg?: unknown): Effect.Effect<void, ScratchMisuseError>
+  get(key: Key): Effect.Effect<Value | undefined, ScratchMisuseError>
+  has(key: Key): Effect.Effect<boolean, ScratchMisuseError>
+  keys(): Effect.Effect<ReadonlyArray<Key>, ScratchMisuseError>
+  set(key: Key, value: Value): Effect.Effect<void, ScratchMisuseError>
+  values(): Effect.Effect<ReadonlyArray<Value>, ScratchMisuseError>
+}
+const makeScratchMap: <Key, Value>(name: string, initialCapacity?: number) => ScratchMap<Key, Value>
+const withScratch: <Key, Value, A, R>(scratch: ScratchMap<Key, Value>, use: (view: ScratchMapView<Key, Value>) => Effect.Effect<A, ScratchMisuseError, R>) => Effect.Effect<A, ScratchMisuseError, R>
+const snapshotScratch: <Key, Value>(view: ScratchMapView<Key, Value>) => Effect.Effect<ReadonlyMap<Key, Value>, ScratchMisuseError>
+type FrameScratch = {
+  readonly visibleChunks: ScratchMap<string, number>
+  readonly entityInstances: ScratchMap<string, number>
+  readonly lightUpdates: ScratchMap<string, number>
+}
 const makeFrameScratch: () => FrameScratch
 ```
 
-`FrameScratch` の中身は**暫定**。参照実装のフレーム毎一時オブジェクトから名前を取り、
-コメントの記述からサイズを見積もっただけである。実際の集合は THREE.js アダプタと一緒に決まる。
+`withScratch` checks and acquires the lease when its Effect runs, clears the
+reusable map at acquisition, and releases it after the supplied Effect
+completes, fails, or is interrupted. A nested or concurrent borrow returns
+`ScratchMisuseError`. Operations on the view return Effects and fail with the
+same error outside the active lease.
+`entries`, `keys`, `values`, and `snapshotScratch` materialize collections;
+reusing the backing map does not make those snapshots allocation-free.
+
+`FrameScratch` contains per-frame maps for visible chunks, entity instances,
+and light updates.
 
 ## 6. カメラミラー
 
