@@ -154,8 +154,12 @@ The following defaults apply when a request omits its color or lifetime:
 | `explosion` | 16 | 3 | `(1, 0.55, 0.2)` | 0.5 |
 | `level-up` | 8 | 1 | `(0.45, 1, 0.4)` | 0.5 |
 
+`ParticleService` uses the listed count for each request kind. The low-level
+`spawnBurst` function accepts an optional count override.
+
 ```typescript
-import { Effect, Result } from 'effect'
+import type { DeltaTimeSecs, PositionAxis } from '@nerima-games/mc-kernel'
+import { Effect, Result, Schema } from 'effect'
 import {
   PARTICLE_KIND_DEFAULTS,
   ParticleRequestSchema,
@@ -164,13 +168,23 @@ import {
   ParticlePoolInputErrorSchema,
   ParticlePoolInputResultSchema,
   ParticleFrameSnapshotSchema,
+  ParticleWorldCoordinateSchema,
+  ParticleUvCoordinateSchema,
+  ParticleBurstCountSchema,
+  ParticleTileIndexSchema,
+  ParticleDeltaSecsSchema,
   type ParticlePool,
   type ParticlePoolInputError,
   type ParticlePoolOptions,
   type ParticleFrameSnapshot,
+  type ParticleBurstCount,
   type ParticleServiceLiveOptions,
   type ParticleSpawnSpec,
+  type ParticleSpawnSpecEncoded,
+  type ParticleTileIndex,
+  type ParticleUvCoordinate,
   makeParticlePool,
+  ParticleSpawnSpecSchema,
   spawnParticle,
   spawnBurst,
   spawnBlockBurst,
@@ -191,10 +205,30 @@ type ParticleServiceApi = {
 }
 
 const makeParticlePool: (options?: ParticlePoolOptions) => Result.Result<ParticlePool, ParticlePoolInputError>
-const spawnParticle: (pool: ParticlePool, spawn: ParticleSpawnSpec) => Result.Result<boolean, ParticlePoolInputError>
-const spawnBurst: (pool: ParticlePool, positionX: number, positionY: number, positionZ: number, uvU: number, uvV: number, count?: number) => Result.Result<number, ParticlePoolInputError>
-const spawnBlockBurst: (pool: ParticlePool, positionX: number, positionY: number, positionZ: number, tileIndex: number, count?: number) => Result.Result<number, ParticlePoolInputError>
-const advanceParticles: (pool: ParticlePool, dtSecs: number, frame?: ParticleFrameSnapshot) => Result.Result<number, ParticlePoolInputError>
+const ParticleSpawnSpecSchema: Schema.Codec<ParticleSpawnSpec, ParticleSpawnSpecEncoded>
+const spawnParticle: (pool: ParticlePool, spawn: ParticleSpawnSpecEncoded) => Result.Result<boolean, ParticlePoolInputError>
+const spawnBurst: (
+  pool: ParticlePool,
+  positionX: PositionAxis,
+  positionY: PositionAxis,
+  positionZ: PositionAxis,
+  uvU: ParticleUvCoordinate,
+  uvV: ParticleUvCoordinate,
+  count?: ParticleBurstCount,
+) => Result.Result<number, ParticlePoolInputError>
+const spawnBlockBurst: (
+  pool: ParticlePool,
+  positionX: PositionAxis,
+  positionY: PositionAxis,
+  positionZ: PositionAxis,
+  tileIndex: ParticleTileIndex,
+  count?: ParticleBurstCount,
+) => Result.Result<number, ParticlePoolInputError>
+const advanceParticles: (
+  pool: ParticlePool,
+  dtSecs: DeltaTimeSecs,
+  frame?: ParticleFrameSnapshot,
+) => Result.Result<number, ParticlePoolInputError>
 const clearParticles: (pool: ParticlePool) => Result.Result<void, ParticlePoolInputError>
 const ParticlePoolInputErrorSchema
 const ParticlePoolInputResultSchema
@@ -204,6 +238,23 @@ type ParticleServiceLiveOptions = {
   readonly renderContext?: () => ParticleFrameSnapshot
 }
 ```
+
+`PositionAxis` and `DeltaTimeSecs` come from `@nerima-games/mc-kernel`.
+`ParticleUvCoordinate`, `ParticleBurstCount`, and `ParticleTileIndex` are
+mc-render brands. `ParticleSpawnSpecEncoded` is the input type for
+`spawnParticle`; its position, UV, lifetime, and optional velocity values are
+plain numbers. `ParticleSpawnSpecSchema` decodes that input into the branded
+`ParticleSpawnSpec` before writing to pool buffers.
+
+The other low-level operations require branded values in their TypeScript
+signatures. For example,
+`Schema.decodeUnknownResult(ParticleWorldCoordinateSchema)(rawX)` returns a
+`Result`; check it with `Result.isFailure` before passing its `success` value as
+a `PositionAxis`. Use `ParticleWorldCoordinateSchema`,
+`ParticleUvCoordinateSchema`, `ParticleBurstCountSchema`,
+`ParticleTileIndexSchema`, and `ParticleDeltaSecsSchema` to decode the other
+numeric inputs. At runtime, pool operations validate arguments again and return
+`ParticlePoolInputError` when a value is outside its supported range.
 
 The service decodes the value returned by `renderContext` with
 `ParticleFrameSnapshotSchema` before each request. An invalid frame fails with
