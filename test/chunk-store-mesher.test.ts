@@ -13,6 +13,7 @@ import {
   type RendererChunkStore,
 } from '../src/application/chunk-store-mesher'
 import { makeWorldRenderer } from '../src/application/world-renderer'
+import { aoShade } from '../src/domain/chunk-geometry'
 import { FAKE_CANVAS, makeFakeThree } from './support/fake-three'
 import { chunkCoord } from './support/kernel-brands'
 
@@ -300,7 +301,7 @@ describe('makeChunkStoreLightColor', () => {
       // same quad differently — this is the assertion that would fail if the
       // `_tag !== 'Light'` branch silently used the wrong fallback value.
       expect(unansweredColor(quad)).not.toStrictEqual(litColor(quad))
-      expect(unansweredColor(quad)).toStrictEqual(unansweredColor(quad))
+      expect(unansweredColor(quad)).toStrictEqual([aoShade(quad.ao), 0, 0])
     }),
   )
 
