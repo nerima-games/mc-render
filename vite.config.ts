@@ -3,7 +3,7 @@
  *
  * Lowered from mc-compose's `vite.config.ts` (Wave 1, W1-L5): both apps moved
  * here import `@nerima-games/mc-render`'s own source directly now (see each
- * app's `preview.ts` / `probe.ts`), so the build that proves they run belongs
+ * app's `main.ts` entrypoints), so the build that proves they run belongs
  * beside the source it draws, not in the composed game's config.
  *
  * `outDir: 'build'`, not `dist/`: `dist/` is `tsc -p tsconfig.release.json`'s
@@ -28,11 +28,24 @@ const config: ReturnType<typeof defineConfig> = defineConfig({
     // reason mc-compose's config dedupes it.
     dedupe: ['effect'],
   },
+  optimizeDeps: {
+    // The preview app imports the root barrel, which reaches the
+    // mc-sim 0.6.0 Effect 4 exports. Optimize the browser test's direct runtime
+    // dependencies without crawling that unrelated entry.
+    include: [
+      'effect',
+      'three',
+      '@nerima-games/mc-kernel',
+      '@nerima-games/mc-meshing',
+      '@nerima-games/mc-worldgen',
+    ],
+    noDiscovery: true,
+  },
   build: {
     target: 'es2024',
     outDir: 'build',
     sourcemap: true,
-    // `rolldownOptions`, not `rollupOptions`: this pin of `vite` (8.2.2) builds
+    // `rolldownOptions`, not `rollupOptions`: this pin of `vite` (8.3.5) builds
     // on Rolldown, and mc-compose's config — this file's source — found
     // `rollupOptions` silently ignored (its own header, on the codeSplitting
     // group below: a generic vendor group broke ESM interop; that was

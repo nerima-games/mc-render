@@ -1,8 +1,7 @@
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { expect, it } from '@effect/vitest'
-import * as Effect from 'effect/Effect'
-import * as ParseResult from 'effect/ParseResult'
+import { Effect } from 'effect'
 import * as Schema from 'effect/Schema'
 import {
   makeBrowserWorkerPort,
@@ -13,14 +12,7 @@ import {
 } from '../src/application/browser-worker-port'
 import { inspectTypeScriptFixture } from './typescript-project'
 
-const responseSchema: Schema.Schema<{ readonly ok: number }, unknown> = Schema.declare<
-  { readonly ok: number },
-  unknown,
-  []
->([], {
-  decode: () => (input) => ParseResult.decodeUnknown(Schema.Struct({ ok: Schema.NumberFromString }))(input),
-  encode: () => (input) => Effect.succeed(input),
-})
+const responseSchema = Schema.Struct({ ok: Schema.NumberFromString })
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -135,7 +127,10 @@ it.effect('routes response decoder failures through the worker error boundary', 
     worker.emitMessage({ invalid: true })
     expect(errors).toHaveLength(1)
     expect(errors[0]).toBeInstanceOf(WorkerResponseDecodeError)
-    expect(errors[0]).toMatchObject({ _tag: 'WorkerResponseDecodeError' })
+    expect(errors[0]).toMatchObject({
+      _tag: 'WorkerResponseDecodeError',
+      cause: { _tag: 'SchemaError' },
+    })
   }),
 )
 

@@ -46,10 +46,10 @@ import {
   buildFluidGeometry,
   combineChunkGeometry,
 } from '../domain/chunk-geometry.js'
-import type { ChunkGeometryUpdate, ChunkKey, WorldRenderer } from './world-renderer.js'
-import { Effect, Ref } from 'effect'
-import { CHUNK_SIZE } from '@nerima-games/mc-meshing'
-import { chunkCoord } from '@nerima-games/mc-kernel'
+import { CHUNK_SIZE, meshChunk } from '@nerima-games/mc-meshing'
+import { type ChunkCoord, chunkCoord } from '@nerima-games/mc-kernel'
+import { type ChunkGeometryUpdate, type ChunkKey, type WorldRenderer } from './world-renderer.js'
+import { Effect, Ref, Result, Schema, Semaphore } from 'effect'
 import { chunkKeyOf as worldgenChunkKeyOf } from '@nerima-games/mc-worldgen'
 
 /**
@@ -60,10 +60,7 @@ import { chunkKeyOf as worldgenChunkKeyOf } from '@nerima-games/mc-worldgen'
  * and this is not, because nothing here validates a coordinate and a brand this
  * file could mint would be a brand that means nothing.
  */
-export type ChunkRef = {
-  readonly cx: number
-  readonly cz: number
-}
+export type ChunkRef = ChunkCoord
 
 /** What changed since the last drain. Structurally mc-worldgen's `ChunkDirtyBatch`. */
 export type DirtyBatch = {
@@ -111,7 +108,10 @@ export type ChunkMesh = ReadonlyArray<MeshQuad> & {
   readonly crossPlants?: ReadonlyArray<CrossPlantQuad>
   readonly fluids?: ReadonlyArray<FluidQuad>
 }
-export type ChunkMesher = (chunk: ChunkRef) => Effect.Effect<ChunkMesh | undefined>
+export type ChunkMesherError = ReturnType<typeof meshChunk> extends Result.Result<unknown, infer Failure>
+  ? Failure
+  : never
+export type ChunkMesher = (chunk: ChunkRef) => Effect.Effect<ChunkMesh | undefined, ChunkMesherError>
 
 /** How a chunk coordinate becomes the renderer's key. */
 export const chunkKeyOf = (chunk: ChunkRef): ChunkKey =>
@@ -162,7 +162,7 @@ export type SyncOptions = {
 /** A renderer's exclusive connection to one ChunkStore dirty subscription. */
 export type WorldRendererAttachment = {
   /** Drain and apply at most one coalesced dirty batch. */
-  readonly update: Effect.Effect<SyncReport>
+  readonly update: Effect.Effect<SyncReport, ChunkMesherError>
   /** Unsubscribe once; queued and future updates become no-ops. */
   readonly detach: Effect.Effect<void>
   readonly attached: Effect.Effect<boolean>
@@ -170,7 +170,7 @@ export type WorldRendererAttachment = {
 
 /** The one frame-driven operation `render:chunk-sync` needs. */
 export type ChunkSyncPort = {
-  readonly update: Effect.Effect<SyncReport>
+  readonly update: Effect.Effect<SyncReport, ChunkMesherError>
 }
 
 /** Default for headless callers and previews without a world attachment. */
@@ -217,7 +217,7 @@ const meshChangedChunk = (
   chunk: ChunkRef,
   mesher: ChunkMesher,
   options: SyncOptions,
-): Effect.Effect<ChunkGeometryUpdate | undefined> =>
+): Effect.Effect<ChunkGeometryUpdate | undefined, ChunkMesherError> =>
   Effect.gen(function* () {
     const mesh = yield* mesher(chunk)
     if (mesh === undefined) {
@@ -259,7 +259,10 @@ const meshChangedChunks = (
   changedChunks: ReadonlyArray<ChunkRef>,
   mesher: ChunkMesher,
   options: SyncOptions,
-): Effect.Effect<{ readonly updates: ReadonlyArray<ChunkGeometryUpdate>; readonly deferred: number }> =>
+): Effect.Effect<
+  { readonly updates: ReadonlyArray<ChunkGeometryUpdate>; readonly deferred: number },
+  ChunkMesherError
+> =>
   Effect.gen(function* () {
     let deferred = 0
     const updates: Array<ChunkGeometryUpdate> = []
@@ -301,7 +304,7 @@ export const syncWorld = (
   source: DirtySource,
   mesher: ChunkMesher,
   options: SyncOptions = {},
-): Effect.Effect<SyncReport> =>
+): Effect.Effect<SyncReport, ChunkMesherError> =>
   Effect.gen(function* () {
     const batch = yield* source.drain
 
@@ -337,9 +340,9 @@ export const attachWorldRenderer = (
   Effect.gen(function* () {
     const subscription = yield* store.subscribeDirty
     const isAttached = yield* Ref.make(true)
-    const mutex = yield* Effect.makeSemaphore(MUTEX_PERMITS)
+    const mutex = yield* Semaphore.make(MUTEX_PERMITS)
 
-    const updateIfAttached = (active: boolean): Effect.Effect<SyncReport> => {
+    const updateIfAttached = (active: boolean): Effect.Effect<SyncReport, ChunkMesherError> => {
       if (active) {
         return syncWorld(renderer, subscription, mesher, options)
       }
@@ -416,6 +419,45 @@ export type BudgetedDirtySource = DirtySource & {
   readonly enqueue: (batch: DirtyBatch) => void
 }
 
+export type BudgetedDirtySourceInputError = {
+  readonly _tag: 'BudgetedDirtySourceInputError'
+  readonly reason: 'invalid-frame-budget'
+}
+
+export const BudgetedDirtySourceInputErrorSchema: Schema.Codec<BudgetedDirtySourceInputError> = Schema.Struct({
+  _tag: Schema.Literal('BudgetedDirtySourceInputError'),
+  reason: Schema.Literal('invalid-frame-budget'),
+})
+
+type BudgetedDirtySourceResultShape =
+  | {
+      readonly _tag: 'Success'
+      readonly _op: 'Success'
+      readonly success: { readonly drain: unknown; readonly enqueue: unknown }
+    }
+  | {
+      readonly _tag: 'Failure'
+      readonly _op: 'Failure'
+      readonly failure: BudgetedDirtySourceInputError
+    }
+
+/** Decode with `onExcessProperty: 'error'` to enforce exact result and error shapes. */
+export const BudgetedDirtySourceResultSchema: Schema.Codec<BudgetedDirtySourceResultShape> = Schema.Union([
+  Schema.Struct({
+    _op: Schema.Literal('Success'),
+    _tag: Schema.Literal('Success'),
+    success: Schema.Struct({
+      drain: Schema.Unknown,
+      enqueue: Schema.Unknown,
+    }),
+  }),
+  Schema.Struct({
+    _op: Schema.Literal('Failure'),
+    _tag: Schema.Literal('Failure'),
+    failure: BudgetedDirtySourceInputErrorSchema,
+  }),
+])
+
 const MIN_UPDATES_PER_FRAME = 1
 
 /** Insertion order is the queue order, so a budget always takes from the front. */
@@ -433,9 +475,9 @@ const takeBudgeted = (pending: Map<string, ChunkRef>, budget: number): ReadonlyA
 export const makeBudgetedDirtySource = (
   source: DirtySource,
   maxUpdatesPerFrame: number,
-): BudgetedDirtySource => {
+): Result.Result<BudgetedDirtySource, BudgetedDirtySourceInputError> => {
   if (!Number.isInteger(maxUpdatesPerFrame) || maxUpdatesPerFrame < MIN_UPDATES_PER_FRAME) {
-    throw new RangeError('maxUpdatesPerFrame must be a positive integer')
+    return Result.fail({ _tag: 'BudgetedDirtySourceInputError', reason: 'invalid-frame-budget' })
   }
 
   const pendingChanged = new Map<string, ChunkRef>()
@@ -454,7 +496,7 @@ export const makeBudgetedDirtySource = (
     }
   }
 
-  return {
+  return Result.succeed({
     drain: Effect.gen(function* () {
       merge(yield* source.drain)
       const removed = takeBudgeted(pendingRemoved, maxUpdatesPerFrame)
@@ -462,5 +504,5 @@ export const makeBudgetedDirtySource = (
       return { changed, removed }
     }),
     enqueue: merge,
-  }
+  })
 }

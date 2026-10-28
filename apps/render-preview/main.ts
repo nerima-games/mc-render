@@ -1,36 +1,30 @@
 /**
  * Draw a fixture chunk through mc-render's textured path, and count the pixels.
  *
- * Lowered from mc-compose's `apps/render-preview`. The only
- * change from the compose original is the import below: it now reads
- * `../../src/index.js`, this package's own source, rather than
- * `@nerima-games/mc-render` — the app lives beside the code it draws now,
- * instead of consuming it through the published package graph.
+ * Lowered from mc-compose's `apps/render-preview`. It imports the source
+ * modules it exercises directly so this fixture stays independent of the
+ * package root's deferred simulation entry points.
  *
  * ---------------------------------------------------------------------------
  * WHAT THIS PROVES, AND WHAT IT DOES NOT
  * ---------------------------------------------------------------------------
  *
  * PROVES: that `buildChunkGeometry` -> `setChunk` -> `draw` with a
- * `ShaderMaterial` produces non-background pixels on a real GPU, and that the
- * `tileIndex` attribute reaches the fragment stage — the atlas below gives every
- * tile a different colour, so a broken tile path renders one flat colour and
+ * `ShaderMaterial` produces non-background pixels in Chromium using the
+ * SwiftShader WebGL renderer, and that the `tileIndex` attribute reaches the
+ * fragment stage. The atlas gives every tile a different colour, so a broken
+ * tile path renders one flat colour and
  * the tile-variety assertion fails.
  *
  * THE QUADS ARE REAL. `terrain-fixture.json` is the output of
  * `generateChunkAt(20260728, cx, cz)` from mc-worldgen, meshed by mc-meshing's
- * `meshChunk` with its greedy merge, for a 3x3 block of chunks — 2,181 quads.
+ * `meshChunk` with its greedy merge, for radius 3 (49 chunks) — 13,218 quads.
  * Nothing on this page authored a vertex.
  *
- * DOES NOT PROVE: that a world reaches the renderer AT RUNTIME. The fixture is
- * loaded as DATA, by `fetch`, because this preview intentionally keeps the
- * generated-world path out of its fixture-only entry point. The direct-import
- * boundary is enforced by `.oxlintrc.json` and `pnpm lint`; the browser game
- * path is verified separately through the published package graph. So this is
- * exactly what docs/testing.md asks mc-render's preview to be — 「固定チャンクを
- * 読み込んで」, LOAD A FIXED CHUNK — and it is not a running world. Calling it
- * "the game renders" would be the green-lamp-with-nothing-behind-it that
- * docs/testing.md §3.4 rejects by name.
+ * DOES NOT PROVE: that runtime world generation reaches the renderer. This
+ * preview fetches pre-generated terrain data instead of invoking worldgen.
+ * `.oxlintrc.json` and `pnpm lint` enforce its direct-import boundary; browser
+ * runtime paths are covered separately by E2E tests.
  *
  * ---------------------------------------------------------------------------
  * WHY THE ATLAS IS GENERATED RATHER THAN LOADED
@@ -44,22 +38,17 @@
  * make a tile-index bug look like a texture.
  */
 import * as THREE from 'three'
-import { Context, Effect, Layer, Scope } from 'effect'
-import { ChunkKey } from '@nerima-games/mc-kernel'
+import { Context, Effect, Layer, Result, Scope } from 'effect'
+import { ChunkAxis, ChunkKey, chunkCoord, chunkCoordOfKey } from '@nerima-games/mc-kernel'
 import {
-  ATLAS_COLUMNS,
   browserInputLayer,
-  InputService,
-  chunkKeyOf,
-  makeChunkShaderMaterial,
-  makeWorldRenderer,
-  SKY_CLEAR_COLOR,
-  syncWorld,
-  type ChunkRef,
-  type GeometryQuad,
-  type MeshQuad,
-  type MirroredCameraState,
-} from '../../src/index.js'
+} from '../../src/application/browser-input-adapter.js'
+import { InputService } from '../../src/application/input-service.js'
+import { makeChunkShaderMaterial, makeWorldRenderer, SKY_CLEAR_COLOR } from '../../src/application/world-renderer.js'
+import { chunkKeyOf, syncWorld, type ChunkRef } from '../../src/application/world-sync.js'
+import { ATLAS_COLUMNS } from '../../src/domain/texture-atlas.js'
+import type { GeometryQuad, MeshQuad } from '../../src/domain/meshing-vocabulary.js'
+import type { MirroredCameraState } from '../../src/domain/camera-mirror.js'
 
 const VIEWPORT = { width: 640, height: 360 }
 
@@ -69,7 +58,7 @@ const TILE_PIXELS = 16
 /**
  * A camera looking down at the fixture from one corner.
  *
- * CAST for the same reason `apps/shader-probe/probe.ts` casts: `position` and
+ * CAST for the same reason `apps/shader-probe/main.ts` casts: `position` and
  * `sourceCapturedAtSecs` are kernel's branded types and mc-render deliberately
  * does not re-export kernel's vocabulary. A brand has no runtime
  * representation and the renderer reads six numbers off this.
@@ -215,7 +204,10 @@ const main = async (): Promise<void> => {
   const fixture = (await (await fetch(fixtureUrl)).json()) as TerrainFixture
 
   const quadsByKey = new Map<string, ReadonlyArray<FixtureQuad>>(
-    fixture.chunks.map((chunk) => [chunkKeyOf(chunk), chunk.quads]),
+    fixture.chunks.map((chunk) => [
+      chunkKeyOf(chunkCoord(ChunkAxis(chunk.cx), ChunkAxis(chunk.cz))),
+      chunk.quads,
+    ]),
   )
 
   /**
@@ -241,7 +233,7 @@ const main = async (): Promise<void> => {
     const wanted: Array<ChunkRef> = []
     for (let cx = cx0 - STREAM_RADIUS_CHUNKS; cx <= cx0 + STREAM_RADIUS_CHUNKS; cx += 1) {
       for (let cz = cz0 - STREAM_RADIUS_CHUNKS; cz <= cz0 + STREAM_RADIUS_CHUNKS; cz += 1) {
-        wanted.push({ cx, cz })
+        wanted.push(chunkCoord(ChunkAxis(cx), ChunkAxis(cz)))
       }
     }
     return wanted
@@ -262,11 +254,8 @@ const main = async (): Promise<void> => {
       const wantedKeys = new Set(wanted.map(chunkKeyOf))
       const changed = wanted.filter((chunk) => !loaded.has(chunkKeyOf(chunk)))
       const removed = [...loaded]
-        .filter((key) => !wantedKeys.has(ChunkKey(key)))
-        .map((key) => {
-          const [cx, cz] = key.split(',')
-          return { cx: Number(cx), cz: Number(cz) }
-        })
+        .filter((key) => !wantedKeys.has(key))
+        .map((key) => Result.getOrThrow(chunkCoordOfKey(key)))
       for (const chunk of changed) {
         if (quadsByKey.has(chunkKeyOf(chunk))) {
           loaded.add(chunkKeyOf(chunk))
@@ -344,6 +333,7 @@ const main = async (): Promise<void> => {
   // nothing about the module.
   const scope = Effect.runSync(Scope.make())
   const inputLayer = browserInputLayer({
+    runSync: Effect.runSync,
     targets: { window, document },
     canvas,
     allowsPointerLock: () => true,

@@ -1066,15 +1066,23 @@ DN-15 が言えるのは「1 つのアダプタのために全ファイルから
 
 ---
 
-## DN-16 キーボードフォーカスは**観測**である。Tab は奪わない
+## DN-16 キーボードフォーカス設計の履歴（現行契約は W4-R5 が優先）
 
-plan.md には無い。**mx-ui が半分だけ作って止めた**ところである
+**W4-R5 supersedes the complete DN-16 implementation narrative below.** It
+records an earlier mc-render design and the evidence behind its tests; statements
+about focus resolution, DOM movement, implementation status, or outstanding
+agreement are historical and do not describe the current source or remaining
+work. The current boundary is documented in [public-api.md](./public-api.md)
+§2.10: mx-ui owns DOM membership and focus resolution, while mc-render owns and
+exports `FocusTarget` and the arrow-key-to-intent vocabulary. Do not use the
+historical resolver tables below as the current adapter API.
+
+当時の plan.md には無かった。**mx-ui が半分だけ作って止めた**課題として記録した
 （mx-ui/docs/design-notes.md DN-UI-13i、`mx-ui/application/slot-element.ts`）。
 
-公開モデルの決定（`FocusTarget`、`focusin`/`focusout`、ロック中のマスク、
-同一性による解決）は [public-api.md](./public-api.md) §2.10 にある。
-ここに書くのは**設計注意**の側、すなわち「知らないと必ず踏む」4 つと、
-**まだ閉じていない 2 点**（§5）である。
+当時の設計では `FocusTarget`、`focusin`/`focusout`、ロック中のマスク、
+同一性による解決を mc-render の公開モデルとして記録し、設計上の未決事項を §5 に残していた。
+W4-R5 後の現行契約は [public-api.md](./public-api.md) §2.10 を参照する。
 
 ### 証跡
 
@@ -1192,10 +1200,10 @@ DN-08 の「blur で保持キーを消す」は、**ブラウザが keyup を送
 `application/dom-surface.ts` に増えたのは `DomInputEvent` の省略可能フィールド **1 つだけ**で、
 型宣言も述語も 1 つも増えていない（`index.ts` 経由の公開エントリは 7 つのまま）。
 
-### 5. 観測の外に残った 2 点。**どちらも観測の欠陥ではなく、決定が要った**
+### 5. 旧設計で未決だった事項（W4-R5 で superseded）
 
-（両方とも閉じた。(a) の採用条件だった mx-ui 側の合意は、まだ得ていない——
-下記「(a) を閉じたが、まだ残っている 1 点」を参照。）
+以下は旧設計の時点で未決だった事項と、その後の検討記録である。現行の所有権や実装状況は
+示さない。現在の API と責務は [public-api.md](./public-api.md) §2.10 を参照する。
 
 入っているのは**観測**であり、それは mx-ui が名指しで待っていたもの
 （DN-UI-13i「閉じるにはキーストロークに気づく必要がある」）そのものである。
@@ -1348,11 +1356,14 @@ DN-15 の代入可能性の証明をやり直す価値は無い。
 
 **mx-ui は変わらない。** リスナも `stopPropagation()` も要らず、
 DN-UI-4 の「`addEventListener` を持たない」は無傷である。
-**ホストも新しい宣言をしない。** `browserInputLayer` が `options.canvas` を
-ロック要求の宛先とクリックのスコープの**両方**に渡す。
-`installInputListeners` を直に呼ぶホスト（Port を自前で組む場合）だけが
-第 4 引数で canvas をもう一度渡す必要がある。
-残っているのは §5(a)（グループ内の矢印キー移動）だけで、そちらは**依然 mx-ui と一緒に決める**。
+**ブラウザーのホストは同期 runner を渡す。** `browserInputLayer` の
+`runSync` にホストのEffect実行境界を渡す。DOMイベントハンドラーはイベントが戻る前に
+入力を反映し、スクロール抑止を判定する必要があるためである。
+`options.canvas` はロック要求の宛先とクリックのスコープの両方に使う。
+`installInputListeners` を直に呼ぶホスト（Port を自前で組む場合）は、
+optionsに `runSync` と `pointerLockTarget` を渡す。
+旧設計では §5(a)（グループ内の矢印キー移動）を mx-ui との未決事項として記録していた。
+W4-R5 は、DOM membership と focus movement を mx-ui、key-to-intent vocabulary を mc-render が所有すると定めた。
 
 ### 書くべき回帰テスト
 

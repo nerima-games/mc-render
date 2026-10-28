@@ -46,10 +46,8 @@ export const ARROW_FOCUS_NAVIGATION_POLICY: Readonly<{
  * patterns accept for a one-dimensional widget. A future GRID-shaped group
  * could special-case `up`/`down` by row width without any caller of this
  * function changing, because this function only ever answers "which way
- * along the list", never "how far": that half is `wrapHotbarSelection`'s
- * (`domain/input-bindings.ts`), reused rather than re-derived by
- * `resolveFocusNavigationTarget` in `application/browser-input-adapter.ts`,
- * the one place that combines the two.
+ * along the list", never "how far". A host combines this intent with its own
+ * focus roster and movement policy.
  */
 /** The two index steps a navigation direction can produce — named, not `-1`/`1` inline. */
 const FOCUS_STEP_BACK = -1

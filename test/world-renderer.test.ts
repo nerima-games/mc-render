@@ -14,10 +14,10 @@
  * camera copy.
  */
 import { describe, expect, it } from '@effect/vitest'
-import { Effect } from 'effect'
+import { Effect, Result, Schema } from 'effect'
 import { mirroredCameraState } from '../src/domain/camera-mirror'
 import { buildChunkGeometry, type MeshQuad } from '../src/domain/chunk-geometry'
-import { chunkCoord, chunkKeyOf, MonotonicTimeSecs, position, type CameraPoseSnapshot } from '@nerima-games/mc-kernel'
+import { chunkKeyOf, MonotonicTimeSecs, type CameraPoseSnapshot } from '@nerima-games/mc-kernel'
 import {
   applyChunkShaderEnvironment,
   CAMERA_FAR_PLANE,
@@ -26,10 +26,19 @@ import {
   makeProductionWorldRenderer,
   makeWorldRenderer,
   NO_DRAW_TARGET,
+  type ProductionFrame,
   SKY_CLEAR_ALPHA,
   SKY_CLEAR_COLOR,
 } from '../src/application/world-renderer'
-import { spawnBurst } from '../src/domain/particle-pool'
+import {
+  ParticleBurstCountSchema,
+  ParticleDeltaSecsSchema,
+  type ParticlePoolInputError,
+  ParticlePoolInputErrorSchema,
+  ParticleUvCoordinateSchema,
+  ParticleWorldCoordinateSchema,
+  spawnBurst as spawnBurstResult,
+} from '../src/domain/particle-pool'
 import { FAKE_CANVAS, makeFakeThree } from './support/fake-three'
 import { END_VOID_COLOR, planRenderEnvironment } from '../src/domain/render-environment'
 import { planMobVisual } from '../src/domain/mob-visual'
@@ -37,11 +46,43 @@ import { buildPostProcessingChain, QUALITY_PRESETS } from '../src/domain/post-pr
 import { planWitherSkullVisual, planWitherVisual } from '../src/domain/wither-visual'
 import { makeThreeWeatherPrecipitation } from '../src/application/three-weather-runtime'
 import type { ThreeScene } from '../src/application/three-surface'
+import { angleRadians, blockId, chunkCoord, position } from './support/kernel-brands'
 
 const VIEWPORT = { width: 1280, height: 720 }
+const decodePosition = Schema.decodeUnknownSync(ParticleWorldCoordinateSchema)
+const decodeUv = Schema.decodeUnknownSync(ParticleUvCoordinateSchema)
+const decodeCount = Schema.decodeUnknownSync(ParticleBurstCountSchema)
+const decodeDelta = Schema.decodeUnknownSync(ParticleDeltaSecsSchema)
+const advanceFrameWithRawInput = (
+  advanceFrame: (frame: ProductionFrame) => Effect.Effect<void, ParticlePoolInputError>,
+  frame: unknown,
+): Effect.Effect<void, ParticlePoolInputError> =>
+  Function.prototype.apply.call(advanceFrame, undefined, [frame])
+const spawnBurst = (pool: Parameters<typeof spawnBurstResult>[0], x: number, y: number, z: number, u: number, v: number, count: number) =>
+  Result.getOrThrow(spawnBurstResult(
+    pool,
+    decodePosition(x),
+    decodePosition(y),
+    decodePosition(z),
+    decodeUv(u),
+    decodeUv(v),
+    decodeCount(count),
+  ))
+
+const isParticlePoolInputFailure = (
+  error: unknown,
+  operation: 'pool' | 'advance',
+  reason: 'invalid-capacity' | 'invalid-delta',
+): boolean => {
+  const decoded = Schema.decodeUnknownResult(ParticlePoolInputErrorSchema, {
+    onExcessProperty: 'error',
+  })(error)
+  return Result.isSuccess(decoded) && decoded.success.operation === operation &&
+    decoded.success.reason === reason
+}
 
 const quad = (overrides: Partial<MeshQuad> = {}): MeshQuad => ({
-  blockId: 1,
+  blockId: blockId(1),
   direction: 'yPos',
   role: 'top',
   lx: 0,
@@ -55,8 +96,8 @@ const quad = (overrides: Partial<MeshQuad> = {}): MeshQuad => ({
 
 const poseAt = (x: number, y: number, z: number, yaw: number, pitch: number): CameraPoseSnapshot => ({
   position: position(x, y, z),
-  yawRadians: yaw,
-  pitchRadians: pitch,
+  yawRadians: angleRadians(yaw),
+  pitchRadians: angleRadians(pitch),
   capturedAtSecs: MonotonicTimeSecs(1),
 })
 
@@ -1183,7 +1224,7 @@ describe('makeProductionWorldRenderer', () => {
       spawnBurst(renderer.particlePool, 1, 2, 3, 0, 0, 1)
       yield* renderer.advanceFrame({
         elapsedSecs: 2,
-        deltaSecs: 0.1,
+        deltaSecs: decodeDelta(0.1),
         cameraPosition: { worldX: 4, worldY: 5, worldZ: 6 },
       })
       expect(renderer.waterUniforms['uTime']?.value).toBe(2)
@@ -1216,10 +1257,45 @@ describe('makeProductionWorldRenderer', () => {
       yield* renderer.setEnvironment(planRenderEnvironment(0.5))
       yield* renderer.advanceFrame({
         elapsedSecs: 1,
-        deltaSecs: 0.01,
+        deltaSecs: decodeDelta(0.01),
         cameraPosition: { worldX: 1, worldY: 2, worldZ: 3 },
       })
       yield* renderer.resize(320, 200)
+      yield* renderer.dispose
+    }),
+  )
+
+  it.effect('propagates invalid pool configuration and frame delta as typed Effect failures', () =>
+    Effect.gen(function* () {
+      const invalidPoolResult = yield* Effect.result(makeProductionWorldRenderer(
+        makeFakeThree(),
+        FAKE_CANVAS,
+        VIEWPORT,
+        { name: 'terrain-atlas' },
+        { particles: { capacity: 0 } },
+      ))
+      expect(Result.isFailure(invalidPoolResult)).toBe(true)
+      if (Result.isFailure(invalidPoolResult)) {
+        expect(isParticlePoolInputFailure(invalidPoolResult.failure, 'pool', 'invalid-capacity')).toBe(true)
+      }
+
+      const renderer = yield* makeProductionWorldRenderer(
+        makeFakeThree(),
+        FAKE_CANVAS,
+        VIEWPORT,
+        { name: 'terrain-atlas' },
+        { particles: { capacity: 2 } },
+      )
+      const invalidStepResult = yield* Effect.result(advanceFrameWithRawInput(renderer.advanceFrame, {
+        elapsedSecs: 1,
+        deltaSecs: -0.01,
+        cameraPosition: { worldX: 0, worldY: 0, worldZ: 0 },
+      }))
+      expect(Result.isFailure(invalidStepResult)).toBe(true)
+      if (Result.isFailure(invalidStepResult)) {
+        expect(isParticlePoolInputFailure(invalidStepResult.failure, 'advance', 'invalid-delta')).toBe(true)
+      }
+      expect(renderer.waterUniforms['uTime']?.value).toBe(0)
       yield* renderer.dispose
     }),
   )

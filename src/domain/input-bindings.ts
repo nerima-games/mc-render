@@ -67,7 +67,7 @@
  * resolution and the Escape rule be tested in Node under
  * `environment: 'node'` — no jsdom, no Playwright, no SwiftShader.
  */
-import { Either, Schema } from 'effect'
+import { Result, Schema } from 'effect'
 
 
 /**
@@ -153,11 +153,33 @@ export const INPUT_ACTIONS = [
 ] as const
 
 export type InputAction = (typeof INPUT_ACTIONS)[number]
+type BindableAction = Exclude<InputAction, 'escape'>
+
+export type InputValidationError = {
+  readonly _tag: 'InputValidationError'
+  readonly operation: 'mouse-button-index' | 'wheel-mode-index' | 'wheel-delta' | 'hotbar-selection'
+  readonly reason:
+    | 'invalid-index'
+    | 'non-finite-delta'
+    | 'invalid-delta-mode'
+    | 'invalid-hotbar-size'
+    | 'non-finite-current'
+    | 'non-finite-steps'
+}
+
+const inputValidationError = (
+  operation: InputValidationError['operation'],
+  reason: InputValidationError['reason'],
+): InputValidationError => ({ _tag: 'InputValidationError', operation, reason })
+
+const BINDABLE_ACTIONS: ReadonlyArray<BindableAction> = INPUT_ACTIONS.filter(
+  (action): action is BindableAction => action !== 'escape',
+)
 
 /**
- * `KeyboardEvent.code` values. A branded string is not used: the values come
- * from the browser and refining them would only move the failure to a throw at
- * the boundary of an event handler, which is the one place that must not throw.
+ * `KeyboardEvent.code` values. A branded string is not used: the browser is
+ * their source, and adapters need to be able to inspect malformed values before
+ * deciding whether an event can be translated.
  */
 export type KeyCode = string
 
@@ -206,21 +228,24 @@ export type MouseButton = (typeof MOUSE_BUTTONS)[number]
 export const MOUSE_BUTTON_BY_INDEX: ReadonlyArray<MouseButton> = MOUSE_BUTTONS
 
 /**
- * The named button for a `MouseEvent.button` index, or `undefined`.
+ * The named button for a `MouseEvent.button` index, or a typed failure when
+ * the browser reports an index this model does not name.
  *
- * `undefined` for 3 and 4 (the browser's "back"/"forward" thumb buttons) and
- * for anything else a device reports. The reference stored every index it was
- * given (`HashMap.set(mouseButtonsRef, event.button, true)`, :120) and nothing
- * ever read the extra ones, so a thumb button was recorded state that could
- * never become an action. Here an unnamed button is dropped at the boundary:
- * the set of buttons that exist is the set of buttons that can be bound, and
- * adding a thumb button is one entry in `MOUSE_BUTTONS`.
- *
- * Total, and returns a value rather than throwing, because it runs inside a DOM
- * event handler — the one place that must not throw.
+ * The reference stored every index it was given
+ * (`HashMap.set(mouseButtonsRef, event.button, true)`, :120), including thumb
+ * buttons no action could read. This boundary reports an unknown index so the
+ * adapter can deliberately drop it rather than guessing.
  */
-export const mouseButtonForIndex = (index: number): MouseButton | undefined =>
-  MOUSE_BUTTON_BY_INDEX[index]
+export const mouseButtonForIndex = (index: unknown): Result.Result<MouseButton, InputValidationError> => {
+  if (typeof index !== 'number' || !Number.isInteger(index)) {
+    return Result.fail(inputValidationError('mouse-button-index', 'invalid-index'))
+  }
+  const button = MOUSE_BUTTON_BY_INDEX[index]
+  if (typeof button === 'undefined') {
+    return Result.fail(inputValidationError('mouse-button-index', 'invalid-index'))
+  }
+  return Result.succeed(button)
+}
 
 /**
  * Anything a binding can point at: a `KeyboardEvent.code` or a named mouse
@@ -289,6 +314,9 @@ export const WHEEL_DELTA_MODES = ['pixel', 'line', 'page'] as const
 
 export type WheelDeltaMode = (typeof WHEEL_DELTA_MODES)[number]
 
+const isWheelDeltaMode = (value: unknown): value is WheelDeltaMode =>
+  typeof value === 'string' && WHEEL_DELTA_MODES.some((mode) => mode === value)
+
 /**
  * Indexed by `WheelEvent.deltaMode`. The array position IS the DOM number
  * (`DOM_DELTA_PIXEL` 0, `DOM_DELTA_LINE` 1, `DOM_DELTA_PAGE` 2), exactly as
@@ -297,17 +325,23 @@ export type WheelDeltaMode = (typeof WHEEL_DELTA_MODES)[number]
 export const WHEEL_DELTA_MODE_BY_INDEX: ReadonlyArray<WheelDeltaMode> = WHEEL_DELTA_MODES
 
 /**
- * The named delta mode for a `WheelEvent.deltaMode`, or `undefined`.
+ * The named delta mode for a `WheelEvent.deltaMode`, or a typed failure when
+ * the browser reports an index this model does not name.
  *
- * The only function in this repository that knows what `1` means. Total, and
- * `undefined` rather than a throw for an unknown mode, because it runs inside a
- * DOM event handler — the one place that must not throw. An event the adapter
- * cannot name is dropped at the boundary rather than guessed at, on the same
- * rule as `mouseButtonForIndex`: mis-scaling a scroll by 33x is worse than
- * ignoring it.
+ * The only function in this repository that knows what `1` means. The adapter
+ * drops an unknown mode rather than guessing, because mis-scaling a scroll by
+ * 33x is worse than ignoring it.
  */
-export const wheelDeltaModeForIndex = (index: number): WheelDeltaMode | undefined =>
-  WHEEL_DELTA_MODE_BY_INDEX[index]
+export const wheelDeltaModeForIndex = (index: unknown): Result.Result<WheelDeltaMode, InputValidationError> => {
+  if (typeof index !== 'number' || !Number.isInteger(index)) {
+    return Result.fail(inputValidationError('wheel-mode-index', 'invalid-index'))
+  }
+  const mode = WHEEL_DELTA_MODE_BY_INDEX[index]
+  if (typeof mode === 'undefined') {
+    return Result.fail(inputValidationError('wheel-mode-index', 'invalid-index'))
+  }
+  return Result.succeed(mode)
+}
 
 /**
  * One wheel notch, in each of the three units.
@@ -328,76 +362,80 @@ const NOTCHES_PER_UNIT: Readonly<Record<WheelDeltaMode, number>> = {
   pixel: WHEEL_PIXELS_PER_NOTCH,
 }
 
-/** What a non-finite or otherwise unusable numeric input collapses to. */
-const INVALID_NUMERIC_FALLBACK = 0
-
 /**
- * A raw `WheelEvent.deltaY` as a signed, possibly FRACTIONAL number of notches.
- *
- * Fractional on purpose: a trackpad emits a stream of small pixel deltas and
- * never a whole notch at a time. Rounding each event to a whole notch would
- * make a trackpad either dead (always rounds to 0) or wild (always rounds to
- * 1); the service accumulates these fractions instead and takes whole steps out
- * of the total. See `InputSnapshot.wheelSteps`.
- *
- * SIGN: positive is scroll-down / scroll-away, which selects the NEXT hotbar
- * slot — the DOM's sign convention and the reference's
- * (<reference-impl>/packages/inventory/application/hotbar-service.ts:76,
- * `wheelDelta > 0 ? 1 : -1`) and vanilla's.
- *
- * Total: a non-finite delta from a misbehaving device yields 0 rather than
- * poisoning the accumulator with `NaN`, which would silently disable the wheel
- * for the rest of the session.
+ * Convert a browser wheel delta to fractional notches, or return a typed error
+ * for a non-finite delta or an unrecognized mode.
  */
-export const notchesForWheelDelta = (deltaY: number, mode: WheelDeltaMode): number => {
-  if (Number.isFinite(deltaY)) {
-    return deltaY / NOTCHES_PER_UNIT[mode]
+const validWheelDeltaInput = (
+  deltaY: unknown,
+  mode: unknown,
+): Result.Result<{ readonly deltaY: number; readonly mode: WheelDeltaMode }, InputValidationError> => {
+  if (typeof deltaY !== 'number' || !Number.isFinite(deltaY)) {
+    return Result.fail(inputValidationError('wheel-delta', 'non-finite-delta'))
   }
-  return INVALID_NUMERIC_FALLBACK
+  if (!isWheelDeltaMode(mode)) {
+    return Result.fail(inputValidationError('wheel-delta', 'invalid-delta-mode'))
+  }
+  const unit = NOTCHES_PER_UNIT[mode]
+  if (typeof unit === 'undefined') {
+    return Result.fail(inputValidationError('wheel-delta', 'invalid-delta-mode'))
+  }
+  return Result.succeed({ deltaY, mode })
 }
 
-/**
- * Move a wrapping selection by `steps`, given how many slots there are.
- *
- * WHERE THE WRAP LIVES, and why it is here rather than in the consumer: the
- * SIZE is the consumer's (the hotbar's length is the inventory's fact, and this
- * repository must not become a second answer to how long a hotbar is), but the
- * ARITHMETIC is not — it is a trap, and every consumer would re-derive it.
- *
- * The reference writes it as
- *
- *   (SlotIndex.toNumber(cur) + direction + HOTBAR_SIZE) % HOTBAR_SIZE
- *   <reference-impl>/packages/inventory/application/hotbar-service.ts:77-79
- *
- * which is correct only because `direction` is clamped to ±1. JavaScript's `%`
- * keeps the sign of the dividend, so a single `+ size` is enough for one step
- * and NOT enough for two: with `cur = 0` and `steps = -3` that expression
- * yields `-3`, a negative slot index, silently. This implementation carries the
- * full magnitude the wheel produces, so it would have hit that on the first
- * fast flick. `((x % size) + size) % size` is right for any step.
- *
- * Total for any input: a size below 1 selects slot 0, because there is nothing
- * else it could mean and an event handler must not throw.
- */
-/** A hotbar always has at least one slot to wrap a selection into. */
+export const notchesForWheelDelta = (deltaY: unknown, mode: unknown): Result.Result<number, InputValidationError> => {
+  const input = validWheelDeltaInput(deltaY, mode)
+  if (Result.isFailure(input)) {
+    return Result.fail(input.failure)
+  }
+  const unit = NOTCHES_PER_UNIT[input.success.mode]
+  return Result.succeed(input.success.deltaY / unit)
+}
+
+
 const MIN_HOTBAR_SIZE = 1
+const NO_HOTBAR_REMAINDER = 0
 
-/** Truncates a finite number, or falls back to `INVALID_NUMERIC_FALLBACK`. */
-const finiteTruncated = (value: number): number => {
-  if (Number.isFinite(value)) {
-    return Math.trunc(value)
+const positiveRemainder = (value: number, size: number): number => {
+  const remainder = Math.trunc(value) % size
+  if (remainder === NO_HOTBAR_REMAINDER) {
+    return NO_HOTBAR_REMAINDER
   }
-  return INVALID_NUMERIC_FALLBACK
+  if (remainder < NO_HOTBAR_REMAINDER) {
+    return remainder + size
+  }
+  return remainder
 }
 
-export const wrapHotbarSelection = (current: number, steps: number, size: number): number => {
-  if (!Number.isFinite(size) || size < MIN_HOTBAR_SIZE) {
-    return INVALID_NUMERIC_FALLBACK
+const wrappedHotbarRemainder = (from: number, by: number, size: number): number => {
+  const gap = size - by
+  if (from >= gap) {
+    return from - gap
   }
-  const slots = Math.trunc(size)
-  const from = finiteTruncated(current)
-  const by = finiteTruncated(steps)
-  return (((from + by) % slots) + slots) % slots
+  return from + by
+}
+
+/**
+ * Wrap a selection by its full signed step count. Invalid sizes and non-finite
+ * positions fail so callers cannot mistake a fabricated slot for valid input.
+ */
+export const wrapHotbarSelection = (
+  current: unknown,
+  steps: unknown,
+  size: unknown,
+): Result.Result<number, InputValidationError> => {
+  if (typeof size !== 'number' || !Number.isInteger(size) || size < MIN_HOTBAR_SIZE) {
+    return Result.fail(inputValidationError('hotbar-selection', 'invalid-hotbar-size'))
+  }
+  if (typeof current !== 'number' || !Number.isFinite(current)) {
+    return Result.fail(inputValidationError('hotbar-selection', 'non-finite-current'))
+  }
+  if (typeof steps !== 'number' || !Number.isFinite(steps)) {
+    return Result.fail(inputValidationError('hotbar-selection', 'non-finite-steps'))
+  }
+  const from = positiveRemainder(current, size)
+  const by = positiveRemainder(steps, size)
+  return Result.succeed(wrappedHotbarRemainder(from, by, size))
 }
 
 /**
@@ -471,62 +509,198 @@ export const FOCUS_NAVIGATION_KEY_CODE: KeyCode = 'Tab'
 
 export type Bindings = Readonly<Record<string, InputCode>>
 
-export class InputSettingsDecodeError extends Error {
-  readonly _tag = 'InputSettingsDecodeError'
 
-  constructor(message: string) {
-    super(message)
-    this.name = 'InputSettingsDecodeError'
-  }
+export type InputSettingsDecodeError = {
+  readonly _tag: 'InputSettingsDecodeError'
+  readonly reason: 'invalid-bindings' | 'reserved-code' | 'duplicate-code'
 }
 
-/** Runtime boundary for persisted input-settings JSON. */
-export const BindingsSchema: Schema.Schema<Record<string, string>> = Schema.Record({ key: Schema.String, value: Schema.String })
+export const InputSettingsDecodeErrorSchema: Schema.Codec<InputSettingsDecodeError> = Schema.Struct({
+  _tag: Schema.Literal('InputSettingsDecodeError'),
+  reason: Schema.Literals(['invalid-bindings', 'reserved-code', 'duplicate-code']),
+})
 
 const MIN_INPUT_CODE_LENGTH = 1
-
 const RESERVED_INPUT_CODES: ReadonlySet<InputCode> = new Set([ESCAPE_KEY_CODE, FOCUS_NAVIGATION_KEY_CODE])
 
-const requiredBinding = (bindings: Readonly<Record<string, string>>, action: Exclude<InputAction, 'escape'>): InputCode => {
-  const code = bindings[action]
+type ResultRuntimeShape<Success, Failure> =
+  | {
+      readonly _tag: 'Success'
+      readonly _op: 'Success'
+      readonly success: Success
+    }
+  | {
+      readonly _tag: 'Failure'
+      readonly _op: 'Failure'
+      readonly failure: Failure
+    }
+
+export const InputValidationErrorSchema: Schema.Codec<InputValidationError> = Schema.Union([
+  Schema.Struct({
+    _tag: Schema.Literal('InputValidationError'),
+    operation: Schema.Literal('mouse-button-index'),
+    reason: Schema.Literal('invalid-index'),
+  }),
+  Schema.Struct({
+    _tag: Schema.Literal('InputValidationError'),
+    operation: Schema.Literal('wheel-mode-index'),
+    reason: Schema.Literal('invalid-index'),
+  }),
+  Schema.Struct({
+    _tag: Schema.Literal('InputValidationError'),
+    operation: Schema.Literal('wheel-delta'),
+    reason: Schema.Literals(['non-finite-delta', 'invalid-delta-mode']),
+  }),
+  Schema.Struct({
+    _tag: Schema.Literal('InputValidationError'),
+    operation: Schema.Literal('hotbar-selection'),
+    reason: Schema.Literals(['invalid-hotbar-size', 'non-finite-current', 'non-finite-steps']),
+  }),
+])
+
+/** Runtime boundary for persisted input-settings JSON. */
+const BindingsShapeSchema: Schema.Codec<
+  Record<string, string>,
+  Record<string, string>,
+  never,
+  never
+> = Schema.Record(Schema.String, Schema.String).check(
+  Schema.makeFilter<Record<string, string>>((bindings) => {
+    const keys = Object.keys(bindings)
+    return (
+      keys.length === BINDABLE_ACTIONS.length &&
+      BINDABLE_ACTIONS.every((action) => Object.hasOwn(bindings, action))
+    ) || 'Bindings must contain exactly one code for each bindable action.'
+  }),
+)
+
+export const BindingsSchema: Schema.Codec<
+  Record<string, string>,
+  Record<string, string>,
+  never,
+  never
+> = BindingsShapeSchema.check(
+  Schema.makeFilter<Record<string, string>>((bindings) => {
+    const codes = Object.values(bindings)
+    const containsOnlyUsableCodes = codes.every(
+      (code) => code.length >= MIN_INPUT_CODE_LENGTH && !RESERVED_INPUT_CODES.has(code),
+    )
+    return (
+      containsOnlyUsableCodes &&
+      new Set(codes).size === codes.length
+    ) || 'Bindings must use distinct, non-reserved input codes.'
+  }),
+)
+
+export const BindingsDecodeResultSchema: Schema.Codec<
+  ResultRuntimeShape<Bindings, InputSettingsDecodeError>
+> = Schema.Union([
+  Schema.Struct({
+    _op: Schema.Literal('Success'),
+    _tag: Schema.Literal('Success'),
+    success: BindingsSchema,
+  }),
+  Schema.Struct({
+    _op: Schema.Literal('Failure'),
+    _tag: Schema.Literal('Failure'),
+    failure: InputSettingsDecodeErrorSchema,
+  }),
+])
+
+export const MouseButtonForIndexResultSchema: Schema.Codec<
+  ResultRuntimeShape<MouseButton, InputValidationError>
+> = Schema.Union([
+  Schema.Struct({
+    _op: Schema.Literal('Success'),
+    _tag: Schema.Literal('Success'),
+    success: Schema.Literals(MOUSE_BUTTONS),
+  }),
+  Schema.Struct({
+    _op: Schema.Literal('Failure'),
+    _tag: Schema.Literal('Failure'),
+    failure: InputValidationErrorSchema,
+  }),
+])
+
+export const WheelDeltaModeForIndexResultSchema: Schema.Codec<
+  ResultRuntimeShape<WheelDeltaMode, InputValidationError>
+> = Schema.Union([
+  Schema.Struct({
+    _op: Schema.Literal('Success'),
+    _tag: Schema.Literal('Success'),
+    success: Schema.Literals(WHEEL_DELTA_MODES),
+  }),
+  Schema.Struct({
+    _op: Schema.Literal('Failure'),
+    _tag: Schema.Literal('Failure'),
+    failure: InputValidationErrorSchema,
+  }),
+])
+
+export const WheelNotchesResultSchema: Schema.Codec<ResultRuntimeShape<number, InputValidationError>> = Schema.Union([
+  Schema.Struct({
+    _op: Schema.Literal('Success'),
+    _tag: Schema.Literal('Success'),
+    success: Schema.Finite,
+  }),
+  Schema.Struct({
+    _op: Schema.Literal('Failure'),
+    _tag: Schema.Literal('Failure'),
+    failure: InputValidationErrorSchema,
+  }),
+])
+
+export const HotbarSelectionResultSchema: Schema.Codec<ResultRuntimeShape<number, InputValidationError>> = Schema.Union([
+  Schema.Struct({
+    _op: Schema.Literal('Success'),
+    _tag: Schema.Literal('Success'),
+    success: Schema.Finite,
+  }),
+  Schema.Struct({
+    _op: Schema.Literal('Failure'),
+    _tag: Schema.Literal('Failure'),
+    failure: InputValidationErrorSchema,
+  }),
+])
+
+const decodeBindingCode = (
+  code: unknown,
+  seen: Set<InputCode>,
+): Result.Result<InputCode, InputSettingsDecodeError> => {
   if (typeof code !== 'string' || code.length < MIN_INPUT_CODE_LENGTH) {
-    throw new InputSettingsDecodeError(`Input settings is missing binding '${action}'.`)
+    return Result.fail({ _tag: 'InputSettingsDecodeError', reason: 'invalid-bindings' })
   }
-  return code
-}
-
-type BindingAcceptance = {
-  readonly source: Readonly<Record<string, string>>
-  readonly bindings: Record<string, InputCode>
-  readonly seen: Set<InputCode>
-  readonly action: Exclude<InputAction, 'escape'>
-}
-
-const acceptBinding = ({ source, bindings, seen, action }: BindingAcceptance): void => {
-  const code = requiredBinding(source, action)
   if (RESERVED_INPUT_CODES.has(code)) {
-    throw new InputSettingsDecodeError(`Input settings cannot bind reserved key '${code}'.`)
+    return Result.fail({ _tag: 'InputSettingsDecodeError', reason: 'reserved-code' })
   }
   if (seen.has(code)) {
-    throw new InputSettingsDecodeError(`Input settings binds '${code}' more than once.`)
+    return Result.fail({ _tag: 'InputSettingsDecodeError', reason: 'duplicate-code' })
   }
   seen.add(code)
-  bindings[action] = code
+  return Result.succeed(code)
 }
 
-export const decodeBindings = (input: unknown): Bindings => {
-  const decoded = Schema.decodeUnknownEither(BindingsSchema)(input)
-  if (Either.isLeft(decoded)) {
-    throw new InputSettingsDecodeError('Input settings must be an object of string bindings.')
-  }
+const decodeBindingsFromShape = (
+  decoded: Record<string, string>,
+): Result.Result<Bindings, InputSettingsDecodeError> => {
   const bindings: Record<string, InputCode> = {}
   const seen = new Set<InputCode>()
-  for (const action of INPUT_ACTIONS) {
-    if (action !== 'escape') {
-      acceptBinding({ action, bindings, seen, source: decoded.right })
+  for (const action of BINDABLE_ACTIONS) {
+    const code = decodeBindingCode(decoded[action], seen)
+    if (Result.isFailure(code)) {
+      return Result.fail(code.failure)
     }
+    bindings[action] = code.success
   }
-  return bindings
+  return Result.succeed(bindings)
+}
+
+export const decodeBindings = (input: unknown): Result.Result<Bindings, InputSettingsDecodeError> => {
+  const decoded = Schema.decodeUnknownResult(BindingsShapeSchema, { onExcessProperty: 'error' })(input)
+  if (Result.isFailure(decoded)) {
+    return Result.fail({ _tag: 'InputSettingsDecodeError', reason: 'invalid-bindings' })
+  }
+  return decodeBindingsFromShape(decoded.success)
 }
 
 export const defaultBindings = (): Bindings => ({ ...DEFAULT_BINDINGS })
@@ -544,12 +718,14 @@ export const bindingFor = (bindings: Bindings, action: InputAction): InputCode |
   return bindings[action]
 }
 
+
 export type RemapRejection = {
   readonly reason:
     | 'escape-is-not-bindable'
     | 'key-reserved-by-user-agent'
     | 'key-already-bound'
     | 'unknown-action'
+    | 'invalid-key'
   readonly message: string
 }
 
@@ -557,41 +733,30 @@ export type RemapOutcome =
   | { readonly kind: 'ok'; readonly bindings: Bindings }
   | { readonly kind: 'rejected'; readonly rejection: RemapRejection }
 
-/**
- * Rebind an action.
- *
- * Rejects rather than throws — this is driven by a settings UI in mx-ui, and a
- * rejected rebind is an ordinary outcome that the UI shows to the player, not
- * an exceptional one.
- *
- * Four rejections, in priority order:
- *
- * 1. `escape-is-not-bindable` — neither as the action nor as the key. Allowing
- *    a second Escape owner is precisely the bug the ownership rule prevents.
- * 2. `key-reserved-by-user-agent` — Tab. The same shape as the Escape rule and
- *    a strictly stronger case for it: Escape's other owner is one this codebase
- *    chose and could move, while Tab's is the BROWSER, which moves focus on Tab
- *    whatever this repository does. The only way to make a bound Tab mean one
- *    thing is `preventDefault()`, and that traps every keyboard user inside the
- *    canvas with no way out (see `FOCUS_NAVIGATION_OWNER`). So the second owner
- *    that CAN be refused is refused.
- * 3. `unknown-action` — the action is not in `INPUT_ACTIONS`. Reachable at run
- *    time from a corrupt persisted settings blob.
- * 4. `key-already-bound` — one key, one action. Silently stealing the key from
- *    its previous owner leaves the player with an action they can no longer
- *    perform and no indication of why.
- */
-/** The first four rejection reasons: ownership rules that don't depend on the current bindings. */
-const ownershipRemapRejection = (action: InputAction, key: InputCode): RemapRejection | undefined => {
-  if (action === 'escape') {
-    return {
-      message:
-        'escape is not a bindable action: it is owned by the single frame-level handler ' +
-        `(ESCAPE_OWNER = '${ESCAPE_OWNER}'). A second owner is how one key press closes a modal ` +
-        'AND opens the pause menu.',
-      reason: 'escape-is-not-bindable',
-    }
-  }
+export const RemapOutcomeSchema: Schema.Codec<RemapOutcome> = Schema.Union([
+  Schema.Struct({
+    bindings: BindingsSchema,
+    kind: Schema.Literal('ok'),
+  }),
+  Schema.Struct({
+    kind: Schema.Literal('rejected'),
+    rejection: Schema.Struct({
+      message: Schema.String,
+      reason: Schema.Literals([
+        'escape-is-not-bindable',
+        'key-reserved-by-user-agent',
+        'key-already-bound',
+        'unknown-action',
+        'invalid-key',
+      ]),
+    }),
+  }),
+])
+
+const ownershipRemapRejection = (
+  action: Exclude<InputAction, 'escape'>,
+  key: InputCode,
+): RemapRejection | undefined => {
   if (key === ESCAPE_KEY_CODE) {
     return {
       message: `${ESCAPE_KEY_CODE} cannot be bound to '${action}': it is owned by the frame-level handler.`,
@@ -607,16 +772,12 @@ const ownershipRemapRejection = (action: InputAction, key: InputCode): RemapReje
       reason: 'key-reserved-by-user-agent',
     }
   }
-  if (!INPUT_ACTIONS.includes(action)) {
-    return { message: `'${String(action)}' is not a known input action.`, reason: 'unknown-action' }
-  }
   return
 }
 
-/** The fifth rejection reason: the key is already claimed by a different action. */
 const conflictRemapRejection = (
   bindings: Bindings,
-  action: InputAction,
+  action: Exclude<InputAction, 'escape'>,
   key: InputCode,
 ): RemapRejection | undefined => {
   const conflict = Object.entries(bindings).find(([bound, code]) => code === key && bound !== action)
@@ -630,16 +791,51 @@ const conflictRemapRejection = (
   }
 }
 
-export const remap = (bindings: Bindings, action: InputAction, key: InputCode): RemapOutcome => {
+const rejectedRemap = (rejection: RemapRejection): RemapOutcome => ({
+  kind: 'rejected',
+  rejection,
+})
+
+const unknownActionRemapRejection = (action: unknown): RemapRejection => {
+  if (typeof action === 'string') {
+    return { message: `'${action}' is not a known input action.`, reason: 'unknown-action' }
+  }
+  return { message: 'The input action must be a known string.', reason: 'unknown-action' }
+}
+
+const remapBindableAction = (
+  bindings: Bindings,
+  action: BindableAction,
+  key: unknown,
+): RemapOutcome => {
+  if (typeof key !== 'string' || key.length < MIN_INPUT_CODE_LENGTH) {
+    return rejectedRemap({ message: 'The input code must be a non-empty string.', reason: 'invalid-key' })
+  }
   const ownershipRejection = ownershipRemapRejection(action, key)
   if (typeof ownershipRejection !== 'undefined') {
-    return { kind: 'rejected', rejection: ownershipRejection }
+    return rejectedRemap(ownershipRejection)
   }
   const conflictRejection = conflictRemapRejection(bindings, action, key)
   if (typeof conflictRejection !== 'undefined') {
-    return { kind: 'rejected', rejection: conflictRejection }
+    return rejectedRemap(conflictRejection)
   }
   return { bindings: { ...bindings, [action]: key }, kind: 'ok' }
+}
+
+export const remap = (bindings: Bindings, action: unknown, key: unknown): RemapOutcome => {
+  if (typeof action !== 'string' || !isInputAction(action)) {
+    return rejectedRemap(unknownActionRemapRejection(action))
+  }
+  if (action === 'escape') {
+    return rejectedRemap({
+      message:
+        'escape is not a bindable action: it is owned by the single frame-level handler ' +
+        `(ESCAPE_OWNER = '${ESCAPE_OWNER}'). A second owner is how one key press closes a modal ` +
+        'AND opens the pause menu.',
+      reason: 'escape-is-not-bindable',
+    })
+  }
+  return remapBindableAction(bindings, action, key)
 }
 
 /**
@@ -900,30 +1096,25 @@ export const acquiresPointerLock = (
 
 /**
  * ---------------------------------------------------------------------------
- * Keyboard focus: the browser MOVES it, this repository only OBSERVES it
+ * Keyboard focus crosses a DTO boundary owned by mc-render
  * ---------------------------------------------------------------------------
  *
- * mx-ui built the other half of this and then stopped, for a reason it states
- * exactly (mx-ui/docs/design-notes.md DN-UI-13i): making a slot focusable needs
- * `setAttribute` and styling the ring needs `setProperty`, both of which are in
- * its DOM vocabulary — but MOVING focus (`focus()`) and OBSERVING it
- * (`addEventListener`) are input, and input is this repository's (plan.md
- * §2.3-2). So mx-ui made the hotbar a roving-`tabindex` group with ONE native
- * tab stop and a dedicated ring element per slot, and left
- * `HudView.setKeyboardFocus(index | undefined)` for the input owner to call.
+ * W4-R5 assigns DOM membership and focus resolution to mx-ui. mc-render owns
+ * the small `FocusTarget` DTO carried by `InputServiceApi` and converts arrow
+ * key codes to navigation intent. The host resolves DOM elements to the DTO
+ * and handles movement within its own focus groups; mc-render does not inspect
+ * the host's DOM or call `.focus()`.
  *
  * The shape of what is left is decided by a choice mx-ui made deliberately:
  * **the tab stop and the ring are the same slot.** So the element the browser
  * focuses when the player presses Tab is, by construction, the element mx-ui
- * drew the ring on. Nothing here has to implement Tab, choose where focus goes,
- * or keep an order — the platform already does all three, correctly, including
- * for the screen reader and the on-screen keyboard.
+ * drew the ring on. The browser owns Tab order and native focus movement;
+ * mx-ui owns membership and focus resolution, while mc-render observes the
+ * resulting scalar DTO.
  *
- * What is left is exactly one thing: **NOTICING**. Until something observes the
- * focus change and reports it, mx-ui does not know the keyboard arrived, so the
- * player sees the user agent's default ring instead of the palette's. That is
- * the whole of mc-render's half, and it is why the model below adds an
- * observation and not a navigation.
+ * mc-render's adapter translates focus arrivals to the DTO supplied by the
+ * host. It also translates arrow key codes to direction intent, which mx-ui
+ * resolves and applies using its own membership information.
  *
  * ---------------------------------------------------------------------------
  * Why `preventDefault()` appears nowhere in this feature
@@ -952,7 +1143,7 @@ export const acquiresPointerLock = (
  */
 
 /**
- * Where the keyboard is, when it is on UI this repository was told about.
+ * Keyboard focus location carried across the mc-render input boundary.
  *
  * `group` names a roving-`tabindex` group — one native tab stop, many
  * programmatically focusable members. `HOTBAR_FOCUS_GROUP` is the first and
@@ -967,9 +1158,8 @@ export const acquiresPointerLock = (
  * `INPUT_ACTIONS` on why nine is a fact about the digit row and not about the
  * hotbar.
  *
- * There is no `element` field, and that is the point of the design: this module
- * is pure, and the adapter resolves the DOM element to a group and an index at
- * the boundary, exactly as `mouseButtonForIndex` resolves a number to a name.
+ * There is no `element` field: this is a wire DTO, not a DOM reference. mx-ui
+ * owns DOM membership and creates this value before dispatching `focuschange`.
  */
 export type FocusTarget = {
   readonly group: string
@@ -980,10 +1170,9 @@ export type FocusTarget = {
  * The group name mx-ui's hotbar is reported under.
  *
  * A value here rather than a string literal in a host, so that the two
- * repositories agree by import rather than by spelling. mx-ui's own DOM marker
- * is `data-mx-ui="hotbar"`; nothing in this repository reads that attribute —
- * see `resolveFocusTarget` in `application/browser-input-adapter.ts` on why the
- * roster is by identity and not by attribute.
+ * repositories agree by import rather than by spelling. mx-ui maps its own
+ * focus roster to this DTO group; mc-render does not inspect the DOM marker
+ * `data-mx-ui="hotbar"`.
  */
 export const HOTBAR_FOCUS_GROUP = 'hotbar'
 
@@ -1119,10 +1308,10 @@ export const codeForTouchAction = (
  * `RemapRejection` carries a message: "some control is dead" sends a host
  * looking through the whole roster.
  */
-export const unboundTouchActions = (
+export const unboundTouchActions = <Action extends InputAction>(
   bindings: Bindings,
-  actions: ReadonlyArray<InputAction>,
-): ReadonlyArray<InputAction> =>
+  actions: ReadonlyArray<Action>,
+): ReadonlyArray<Action> =>
   actions.filter((action) => typeof codeForTouchAction(bindings, action) === 'undefined')
 
 /**

@@ -7,7 +7,8 @@
  * 117 of 120 rows. Everything else here is layout hygiene.
  */
 import { describe, expect, it } from '@effect/vitest'
-import { Effect, FastCheck } from 'effect'
+import { Effect } from 'effect'
+import * as FastCheck from 'fast-check'
 import {
   MISSING_TILE,
   TILE_BY_BLOCK_NAME,
@@ -23,6 +24,8 @@ import type {
   FaceRole,
   MeshQuad,
 } from '../src/domain/chunk-geometry'
+import type { BlockId } from '@nerima-games/mc-kernel'
+import { blockId } from './support/kernel-brands'
 
 const ROLES: ReadonlyArray<FaceRole> = ['top', 'bottom', 'side']
 
@@ -196,10 +199,10 @@ describe('the injected name lookup', () => {
       // carrying the least information.
       const resolve = tileIndexResolver((id) => KERNEL_BLOCK_TYPES[id] ?? '')
 
-      expect(resolve(1, 'top')).toBe(1) // stone
-      expect(resolve(4, 'top')).toBe(4) // grass_block, top
-      expect(resolve(4, 'bottom')).toBe(0) // grass_block, dirt underneath
-      expect(resolve(9, 'side')).toBe(2) // oak_log, bark
+      expect(resolve(blockId(1), 'top')).toBe(1) // stone
+      expect(resolve(blockId(4), 'top')).toBe(4) // grass_block, top
+      expect(resolve(blockId(4), 'bottom')).toBe(0) // grass_block, dirt underneath
+      expect(resolve(blockId(9), 'side')).toBe(2) // oak_log, bark
     }),
   )
 
@@ -210,8 +213,8 @@ describe('the injected name lookup', () => {
       const resolve = tileIndexResolver((id) => KERNEL_BLOCK_TYPES[id] ?? '')
 
       FastCheck.assert(
-        FastCheck.property(FastCheck.integer({ min: 120, max: 100_000 }), (id) => {
-          expect(resolve(id, 'top')).toBe(MISSING_TILE)
+        FastCheck.property(FastCheck.integer({ min: 120, max: 65_535 }), (id) => {
+          expect(resolve(blockId(id), 'top')).toBe(MISSING_TILE)
         }),
         { seed: 0, numRuns: 100 },
       )
@@ -221,7 +224,7 @@ describe('the injected name lookup', () => {
 
   it.effect('selects the tile role from renderable geometry', () =>
     Effect.sync(() => {
-      const resolve = (_blockId: number, role: FaceRole): number => {
+      const resolve = (_blockId: BlockId, role: FaceRole): number => {
         if (role === 'top') {
           return 10
         }
@@ -242,7 +245,7 @@ describe('the injected name lookup', () => {
         }
         return {
           ao: 0,
-          blockId: 3,
+          blockId: blockId(3),
           direction,
           height: 1,
           lx: 0,
@@ -253,7 +256,7 @@ describe('the injected name lookup', () => {
         }
       }
       const cross: CrossPlantQuad = {
-        blockId: 3,
+        blockId: blockId(3),
         role: 'bottom',
         vertices: [
           [0, 0, 0],

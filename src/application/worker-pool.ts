@@ -55,7 +55,7 @@
  * decision `maxSpeedWithoutTunnelling` makes in mc-physics: prefer the rule
  * that cannot produce the pathological case over the rule that is tidier.
  */
-import { Effect, Ref } from 'effect'
+import { Effect, Ref, Result } from 'effect'
 
 /**
  * A worker, reduced to what this file calls.
@@ -111,6 +111,8 @@ export type JobOutcome<TResult> =
   | { readonly _tag: 'failed'; readonly error: unknown }
 
 export type WorkerPoolOptions<TPayload = never, TResult = never> = {
+  /** Synchronous Effect runner supplied by the host's entrypoint. */
+  readonly runSync: typeof Effect.runSync
   /**
    * How many jobs may WAIT. Does not bound how many may run — that is the
    * worker count.
@@ -429,36 +431,40 @@ const makeWorkerFailureHandlers = <TPayload, TResult>({
   const createReplacement = (
     failedPort: PoolWorkerPort<TPayload, TResult>,
     workerIndex: number,
-  ): PoolWorkerPort<TPayload, TResult> | undefined => {
+  ): Result.Result<PoolWorkerPort<TPayload, TResult> | undefined, unknown> => {
     const { replaceWorker } = options
     if (replaceWorker === undefined) {
-      return undefined
+      return Result.succeed(undefined)
     }
-    try {
-      const replacement = replaceWorker(workerIndex)
-      if (replacement === failedPort) {
-        return undefined
-      }
+    const replacement = options.runSync(Effect.result(Effect.try({
+      catch: (reason) => reason,
+      try: () => replaceWorker(workerIndex),
+    })))
+    if (Result.isFailure(replacement)) {
       return replacement
-    } catch {
-      return undefined
     }
+    if (replacement.success === failedPort) {
+      return Result.succeed(undefined)
+    }
+    return Result.succeed(replacement.success)
   }
 
   const restoreFailedWorker = (
     current: PoolState<TPayload, TResult>,
     failure: WorkerFailure<TPayload, TResult>,
-  ): RestoredWorker<TPayload, TResult> | undefined => {
-    const { failedPort, workerIndex } = failure
-    const replacement = createReplacement(failedPort, workerIndex)
-    const generation = portGenerations.at(workerIndex)
-    if (replacement === undefined || generation === undefined) {
-      return undefined
+  ): Result.Result<RestoredWorker<TPayload, TResult> | undefined, unknown> => {
+    const replacement = createReplacement(failure.failedPort, failure.workerIndex)
+    if (Result.isFailure(replacement)) {
+      return Result.fail(replacement.failure)
     }
-    activePorts[workerIndex] = replacement
-    current.idle.push(workerIndex)
+    const generation = portGenerations.at(failure.workerIndex)
+    if (replacement.success === undefined || generation === undefined) {
+      return Result.succeed(undefined)
+    }
+    activePorts[failure.workerIndex] = replacement.success
+    current.idle.push(failure.workerIndex)
     current.restarted += ONE_AFFECTED_JOB
-    return { generation, port: replacement }
+    return Result.succeed({ generation, port: replacement.success })
   }
 
   const invalidateFailedWorker = (
@@ -471,6 +477,14 @@ const makeWorkerFailureHandlers = <TPayload, TResult>({
     removeIdleWorker(current, workerIndex)
     failRunningJobsOnWorkerFailure(current, workerIndex, reason)
     failedPort.terminate()
+  }
+
+  const failWithoutRestoredWorker = (
+    current: PoolState<TPayload, TResult>,
+    reason: unknown,
+  ): void => {
+    current.deadWorkers += ONE_AFFECTED_JOB
+    failQueuedWithoutWorkers(current, reason, activePorts.some((candidate) => candidate !== undefined))
   }
 
   const isCurrentFailure = (
@@ -491,11 +505,12 @@ const makeWorkerFailureHandlers = <TPayload, TResult>({
     }
     invalidateFailedWorker(current, failure)
     const restored = restoreFailedWorker(current, failure)
-    if (restored === undefined) {
-      current.deadWorkers += ONE_AFFECTED_JOB
-      failQueuedWithoutWorkers(current, failure.reason, activePorts.some((candidate) => candidate !== undefined))
+    if (Result.isFailure(restored)) {
+      failWithoutRestoredWorker(current, restored.failure)
+    } else if (restored.success === undefined) {
+      failWithoutRestoredWorker(current, failure.reason)
     } else {
-      attach({ ...restored, workerIndex: failure.workerIndex })
+      attach({ ...restored.success, workerIndex: failure.workerIndex })
     }
     pump(current, activePorts)
   }
@@ -503,7 +518,7 @@ const makeWorkerFailureHandlers = <TPayload, TResult>({
   const failureHandlers: WorkerFailureHandlers<TPayload, TResult> = {
     attachPort: ({ port, workerIndex, generation }) => {
       port.onMessage((response) => {
-        Effect.runSync(Ref.update(state, (current) => {
+        options.runSync(Ref.update(state, (current) => {
           if (current.shuttingDown || activePorts[workerIndex] !== port || portGenerations[workerIndex] !== generation) { return current }
           const next = applyWorkerResponse(current, workerIndex, response)
           pump(next, activePorts)
@@ -513,7 +528,7 @@ const makeWorkerFailureHandlers = <TPayload, TResult>({
       port.onError?.((reason) => failureHandlers.handleFailure({ failedPort: port, generation, reason, workerIndex }))
     },
     handleFailure: (failure) => {
-      Effect.runSync(Ref.update(state, (current) => {
+      options.runSync(Ref.update(state, (current) => {
         applyWorkerFailure(current, failure, failureHandlers.attachPort)
         return current
       }))
@@ -557,7 +572,7 @@ const enqueueJob = <TPayload, TResult>(
  */
 export const makeWorkerPool = <TPayload, TResult>(
   ports: ReadonlyArray<WorkerPort<WorkerRequest<TPayload>, WorkerResponse<TResult>>>,
-  options: WorkerPoolOptions<TPayload, TResult> = {},
+  options: WorkerPoolOptions<TPayload, TResult>,
 ): Effect.Effect<WorkerPool<TPayload, TResult>> =>
   Effect.gen(function* () {
     const maxQueued = options.maxQueued ?? DEFAULT_MAX_QUEUED
@@ -620,8 +635,8 @@ export const makeWorkerPool = <TPayload, TResult>(
       ),
 
       submit: (key, payload) =>
-        Effect.async<JobOutcome<TResult>>((resume) => {
-          Effect.runSync(
+        Effect.callback<JobOutcome<TResult>>((resume) => {
+          options.runSync(
             Ref.update(state, (current) => {
               if (current.shuttingDown) {
                 resume(Effect.succeed({ _tag: 'cancelled' as const }))

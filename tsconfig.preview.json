@@ -18,8 +18,8 @@
   // — they are real browser pages, and including them here would either fail
   // (no `document`/`HTMLCanvasElement` in this project's `lib`) or force "DOM"
   // onto every file this project covers, defeating the proof this file's own
-  // header describes. `src/browser.ts` stays excluded and uncovered by any
-  // project; see docs/versioning.md §7 on why that is still open past Wave 0.
+  // header describes. The published `src/browser.ts` entry is covered by
+  // `tsconfig.browser.json` and `tsconfig.browser-release.json` instead.
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
     "types": ["node"]

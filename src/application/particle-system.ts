@@ -1,5 +1,5 @@
 /**
- * The particle system: `domain/particle-pool.ts`'s five typed arrays, bound to
+ * The particle system: `domain/particle-pool.ts`'s typed arrays, bound to
  * an instanced geometry, uploaded once and re-flagged every frame.
  *
  * THE POOL IS NOT COPIED. `InstancedBufferAttribute` is constructed over the
@@ -68,6 +68,7 @@ import {
   PARTICLE_ALPHA_TEST,
   PARTICLE_WRITES_DEPTH,
   type ParticlePool,
+  visibleParticleCount,
 } from '../domain/particle-pool.js'
 import {
   PARTICLE_INSTANCE_ATTRIBUTES,
@@ -212,6 +213,7 @@ const attachParticleInstanceAttributes = (
     { array: pool.positions, spec: PARTICLE_INSTANCE_ATTRIBUTES.position },
     { array: pool.scales, spec: PARTICLE_INSTANCE_ATTRIBUTES.scale },
     { array: pool.uvOffsets, spec: PARTICLE_INSTANCE_ATTRIBUTES.uvOffset },
+    { array: pool.colors, spec: PARTICLE_INSTANCE_ATTRIBUTES.color },
   ]
   return bindings.map(({ spec, array }) => {
     const attribute = new three.InstancedBufferAttribute(array, spec.stride)
@@ -278,7 +280,7 @@ export const makeParticleSystem = <
         // Here would draw 512 quads every frame and the dead ones would sit at
         // Whatever position they last held — which is the failure the pool's
         // `scales` zero already guards against, and this is the cheaper guard.
-        const active = pool.activeCount()
+        const active = visibleParticleCount(pool)
         geometry.instanceCount = active
         yield* Ref.set(drawn, active)
       }),

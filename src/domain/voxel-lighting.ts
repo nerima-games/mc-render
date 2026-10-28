@@ -100,7 +100,7 @@ import {
   faceNormal,
   greyQuadColor,
 } from './chunk-geometry.js'
-import { LIGHT_LEVEL_MAX, clampLightLevel } from '@nerima-games/mc-kernel'
+import { LIGHT_LEVEL_MAX, LightLevelCandidate, clampLightLevel } from '@nerima-games/mc-kernel'
 import { Effect } from 'effect'
 
 /**
@@ -121,16 +121,25 @@ import { Effect } from 'effect'
  */
 export type SkyBlockLight = {
   /** Daylight reaching this point, 0..15. Attenuated by `skyIntensity`. */
-  readonly sky: number
+  readonly sky: LightLevelCandidate
   /** Light emitted by blocks, 0..15. Not attenuated: a torch is a torch at night. */
-  readonly block: number
+  readonly block: LightLevelCandidate
 }
 
+/** The floor a light level is clamped to before it is normalised. */
+const LIGHT_LEVEL_MIN = 0
+
 /** Fully lit, from both sources. The reading for a face with no grid behind it. */
-export const FULL_LIGHT: SkyBlockLight = { block: LIGHT_LEVEL_MAX, sky: LIGHT_LEVEL_MAX }
+export const FULL_LIGHT: SkyBlockLight = {
+  block: LightLevelCandidate(LIGHT_LEVEL_MAX),
+  sky: LightLevelCandidate(LIGHT_LEVEL_MAX),
+}
 
 /** Fully dark. The reading for a sealed cave face. */
-export const NO_LIGHT: SkyBlockLight = { block: 0, sky: 0 }
+export const NO_LIGHT: SkyBlockLight = {
+  block: LightLevelCandidate(LIGHT_LEVEL_MIN),
+  sky: LightLevelCandidate(LIGHT_LEVEL_MIN),
+}
 
 /**
  * The floor of the light term: how lit a surface at level 0 still draws.
@@ -196,9 +205,6 @@ export const effectiveLightLevel = (light: SkyBlockLight, skyIntensity: number):
  * is a division, and a division written twice is a denominator that can be
  * updated once.
  */
-/** The floor a light level is clamped to before it is normalised. */
-const LIGHT_LEVEL_MIN = 0
-
 export const lightShadeFactor = (level: number): number =>
   LIGHT_SHADE_FLOOR + LIGHT_SHADE_RANGE * (Math.min(Math.max(level, LIGHT_LEVEL_MIN), LIGHT_LEVEL_MAX) / LIGHT_LEVEL_MAX)
 

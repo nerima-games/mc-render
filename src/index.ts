@@ -36,9 +36,10 @@
  * `application/three-surface.ts` describes the seven constructors the renderer
  * uses and the ~20 members off them, and `test/three-surface.test.ts` compiles a
  * fixture against the REAL `three` and `lib.dom.d.ts` to prove the namespace
- * satisfies them. `three` is a devDependency: it exists so that proof has an
- * oracle, and no shipped file imports it. `"WebWorker"` is still ahead, with the
- * mesher pool.
+ * satisfies them. The root entry stays structural and does not import `three`;
+ * the separate browser entry owns the pinned Three.js runtime and its published
+ * declarations depend on the matching `@types/three` package. `"WebWorker"` is
+ * still ahead, with the mesher pool.
  */
 
 // --- Domain: pure values, policies and orderings ---------------------------
@@ -96,6 +97,29 @@ export * from './domain/water-surface.js'
 
 // --- Application: Effect services ------------------------------------------
 export * from './application/input-service.js'
+export {
+  PARTICLE_KIND_DEFAULTS,
+  ParticleColorChannelSchema,
+  ParticleColorSchema,
+  ParticleDirectionSchema,
+  ParticleKindSchema,
+  ParticleLifetimeSecondsSchema,
+  ParticleRequestSchema,
+  ParticleService,
+  ParticleServiceLive,
+} from './application/particle-service.js'
+export type {
+  ParticleColor,
+  ParticleColorChannel,
+  ParticleDirection,
+  ParticleKind,
+  ParticleKindDefaults,
+  ParticleLifetimeSeconds,
+  ParticleRequest,
+  ParticleServiceApi,
+  ParticleServiceLiveOptions,
+} from './application/particle-service.js'
+export * from './application/particle-event-adapter.js'
 
 // --- Application: the browser adapter for the input service ------------------
 // The ONLY files in this repository that know what an `addEventListener` is.

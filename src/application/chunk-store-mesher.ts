@@ -1,5 +1,9 @@
 import {
   BLOCK_IDS,
+  BlockAxis,
+  type BlockId,
+  ChunkAxis,
+  LightLevelCandidate,
   blockIdsWithOpacity,
   blockPosition,
   blockTypeOfId,
@@ -8,8 +12,8 @@ import {
 } from '@nerima-games/mc-kernel'
 import {
   CHUNK_HEIGHT,
-  type Chunk,
   type ChunkStoreApi,
+  type ReadonlyChunk,
   type ChunkNeighbours as WorldgenChunkNeighbours,
 } from '@nerima-games/mc-worldgen'
 import {
@@ -20,11 +24,14 @@ import {
   meshChunk,
 } from '@nerima-games/mc-meshing'
 import {
+  type ChunkMesh,
   type ChunkMesher,
+  type ChunkMesherError,
   type SyncOptions,
   type WorldRendererAttachment,
   attachWorldRenderer,
 } from './world-sync.js'
+import { Effect, Option, Result } from 'effect'
 import { type GeometryQuad, type QuadColor } from '../domain/chunk-geometry.js'
 import {
   type LightSampler,
@@ -35,12 +42,12 @@ import {
 } from '../domain/voxel-lighting.js'
 import type { BlockNameLookup } from '../domain/block-texture-map.js'
 import type { BlockShapeKind } from '../domain/meshing-vocabulary.js'
-import { Effect } from 'effect'
 import type { WorldRenderer } from './world-renderer.js'
 import { meshBlockShapes } from '../domain/block-shapes.js'
 
 /** The kernel registry is the single numeric-id to texture-name authority. */
-export const blockNameFromKernel: BlockNameLookup = (blockId) => blockTypeOfId(blockId) ?? 'unknown'
+export const blockNameFromKernel: BlockNameLookup = (blockId) =>
+  Result.getOrThrow(blockTypeOfId(blockId)) ?? 'unknown'
 
 /** Maximum fall-off level for each fluid kind. */
 const FLUID_MAX_LEVELS = {
@@ -51,14 +58,14 @@ const FLUID_MAX_LEVELS = {
 type FluidKind = keyof typeof FLUID_MAX_LEVELS
 
 /** Collect kernel block IDs classified as the requested fluid. */
-const kernelBlockIdsWithFluid = (fluid: FluidKind): ReadonlySet<number> =>
-  new Set(BLOCK_IDS.filter((blockId) => propertyOfBlockId(blockId, 'fluid') === fluid))
+const kernelBlockIdsWithFluid = (fluid: FluidKind): ReadonlySet<BlockId> =>
+  new Set(BLOCK_IDS.filter((blockId) => Result.getOrThrow(propertyOfBlockId(blockId, 'fluid')) === fluid))
 
 /** Build per-block fluid maximum levels from kernel classifications. */
-const kernelFluidMaxLevels = (): ReadonlyMap<number, number> =>
+const kernelFluidMaxLevels = (): ReadonlyMap<BlockId, number> =>
   new Map(
     BLOCK_IDS.flatMap((blockId) => {
-      const fluid = propertyOfBlockId(blockId, 'fluid')
+      const fluid = Result.getOrThrow(propertyOfBlockId(blockId, 'fluid'))
       if (fluid === 'water' || fluid === 'lava') {
         return [[blockId, FLUID_MAX_LEVELS[fluid]] as const]
       }
@@ -67,11 +74,11 @@ const kernelFluidMaxLevels = (): ReadonlyMap<number, number> =>
   )
 
 /** Collect kernel block IDs rendered as diagonal plant plates. */
-const kernelCrossPlantBlockIds = (): ReadonlySet<number> =>
-  new Set(BLOCK_IDS.filter((blockId) => propertyOfBlockId(blockId, 'renderKind') === 'cross'))
+const kernelCrossPlantBlockIds = (): ReadonlySet<BlockId> =>
+  new Set(BLOCK_IDS.filter((blockId) => Result.getOrThrow(propertyOfBlockId(blockId, 'renderKind')) === 'cross'))
 
-const blockShapeFor = (blockId: number): BlockShapeKind | undefined => {
-  const renderKind = propertyOfBlockId(blockId, 'renderKind')
+const blockShapeFor = (blockId: BlockId): BlockShapeKind | undefined => {
+  const renderKind = Result.getOrThrow(propertyOfBlockId(blockId, 'renderKind'))
   switch (renderKind) {
     case 'cactus':
       return 'cactus'
@@ -82,7 +89,7 @@ const blockShapeFor = (blockId: number): BlockShapeKind | undefined => {
     default:
       break
   }
-  const collisionShape = propertyOfBlockId(blockId, 'collisionShape')
+  const collisionShape = Result.getOrThrow(propertyOfBlockId(blockId, 'collisionShape'))
   if (collisionShape === 'pressurePlate') {
     return 'pressurePlate'
   }
@@ -93,7 +100,7 @@ const blockShapeFor = (blockId: number): BlockShapeKind | undefined => {
 }
 
 /** Collect kernel block IDs whose geometry is not a full cube. */
-export const KERNEL_BLOCK_SHAPE_KINDS: ReadonlyMap<number, BlockShapeKind> = new Map(
+export const KERNEL_BLOCK_SHAPE_KINDS: ReadonlyMap<BlockId, BlockShapeKind> = new Map(
   BLOCK_IDS.flatMap((blockId) => {
     const shape = blockShapeFor(blockId)
     if (shape === undefined) {
@@ -104,10 +111,10 @@ export const KERNEL_BLOCK_SHAPE_KINDS: ReadonlyMap<number, BlockShapeKind> = new
 )
 
 export type RenderMeshConfig = MeshConfig & {
-  readonly blockShapeKinds?: ReadonlyMap<number, BlockShapeKind>
+  readonly blockShapeKinds?: ReadonlyMap<BlockId, BlockShapeKind>
 }
 
-const EMPTY_BLOCK_SHAPE_KINDS: ReadonlyMap<number, BlockShapeKind> = new Map()
+const EMPTY_BLOCK_SHAPE_KINDS: ReadonlyMap<BlockId, BlockShapeKind> = new Map()
 
 /**
  * Material and shape routing derived from the kernel registry.
@@ -116,7 +123,10 @@ export const KERNEL_MESH_CONFIG: RenderMeshConfig = {
   blockShapeKinds: KERNEL_BLOCK_SHAPE_KINDS,
   crossPlantBlockIds: kernelCrossPlantBlockIds(),
   fluidMaxLevels: kernelFluidMaxLevels(),
-  transparentSolidBlockIds: blockIdsWithOpacity('transparentSolid'),
+  transparentSolidBlockIds: Option.getOrElse(
+    Result.getOrThrow(blockIdsWithOpacity('transparentSolid')),
+    () => new Set<BlockId>(),
+  ),
   waterBlockIds: kernelBlockIdsWithFluid('water'),
 }
 
@@ -180,13 +190,21 @@ export const makeChunkStoreLightColor = (
 
     const readings = new Map<string, SkyBlockLight>()
     yield* Effect.forEach(samples, ([key, position]) =>
-      Effect.map(store.getLight(blockPosition(position.blockX, position.blockY, position.blockZ)), (reading) => {
+      Effect.map(
+        store.getLight(
+          blockPosition(BlockAxis(position.blockX), BlockAxis(position.blockY), BlockAxis(position.blockZ)),
+        ),
+        (reading) => {
         if (reading._tag === 'Light') {
-          readings.set(key, { block: reading.block, sky: reading.sky })
+          readings.set(key, {
+            block: LightLevelCandidate(reading.block),
+            sky: LightLevelCandidate(reading.sky),
+          })
           return
         }
         readings.set(key, NO_LIGHT)
-      }),
+        },
+      ),
     )
 
     const sampler: LightSampler = (localX, localY, localZ) => {
@@ -199,7 +217,7 @@ export const makeChunkStoreLightColor = (
 /**
  * `@nerima-games/mc-worldgen`'s `Chunk` has no `height` field — it is a fixed-height column
  * baked into its own constants (`CHUNK_VOLUME = CHUNK_SIZE_XZ * CHUNK_SIZE_XZ
- * * CHUNK_HEIGHT`), not a per-chunk value. mc-meshing 0.3.0's `ChunkView`
+ * * CHUNK_HEIGHT`), not a per-chunk value. mc-meshing's `ChunkView`
  * added an explicit, required per-chunk `height` for its own variable-height
  * support. This repository is the adapter between the two: every mc-worldgen
  * chunk it hands to mc-meshing today is exactly `CHUNK_HEIGHT` tall, so that
@@ -209,26 +227,60 @@ export const makeChunkStoreLightColor = (
  * packages agree on the number. A real variable-height chunk is Wave 1
  * pin-alignment work in mc-worldgen, not something to invent here.
  */
-const toChunkView = (chunk: Chunk): ChunkView => ({ ...chunk, height: CHUNK_HEIGHT })
+const toChunkView = (chunk: ReadonlyChunk): ChunkView => ({
+  ...chunk,
+  // Worldgen exposes live read-only buffers, so meshing receives detached storage.
+  blocks: new Uint16Array(chunk.blocks),
+  height: CHUNK_HEIGHT,
+})
 
-/** One optional worldgen neighbour, converted to a `ChunkView` entry only when present. */
-const toMeshingNeighbourEntry = (
-  direction: keyof MeshingChunkNeighbours,
-  neighbour: Chunk | undefined,
-): MeshingChunkNeighbours => {
-  if (neighbour === undefined) {
-    return {}
+type ReadonlyWorldgenChunkNeighbours = Readonly<{
+  [Key in keyof WorldgenChunkNeighbours]: ReadonlyChunk
+}>
+
+/** Adapt mc-worldgen's four read-only neighbours to meshing views. */
+const toMeshingNeighbours = (neighbours: ReadonlyWorldgenChunkNeighbours): MeshingChunkNeighbours => {
+  const adapted: {
+    xPos?: ChunkView
+    xNeg?: ChunkView
+    zPos?: ChunkView
+    zNeg?: ChunkView
+  } = {}
+  if (neighbours.xPos !== undefined) {
+    adapted.xPos = toChunkView(neighbours.xPos)
   }
-  return { [direction]: toChunkView(neighbour) }
+  if (neighbours.xNeg !== undefined) {
+    adapted.xNeg = toChunkView(neighbours.xNeg)
+  }
+  if (neighbours.zPos !== undefined) {
+    adapted.zPos = toChunkView(neighbours.zPos)
+  }
+  if (neighbours.zNeg !== undefined) {
+    adapted.zNeg = toChunkView(neighbours.zNeg)
+  }
+  return adapted
 }
 
-/** Adapt mc-worldgen's 4-neighbour map to mc-meshing's `ChunkNeighbours`. */
-const toMeshingNeighbours = (neighbours: WorldgenChunkNeighbours): MeshingChunkNeighbours => ({
-  ...toMeshingNeighbourEntry('xPos', neighbours.xPos),
-  ...toMeshingNeighbourEntry('xNeg', neighbours.xNeg),
-  ...toMeshingNeighbourEntry('zPos', neighbours.zPos),
-  ...toMeshingNeighbourEntry('zNeg', neighbours.zNeg),
-})
+const meshWorldgenChunk = (
+  worldgenChunk: ReadonlyChunk,
+  worldgenNeighbours: ReadonlyWorldgenChunkNeighbours,
+  config: RenderMeshConfig,
+): Result.Result<ChunkMesh, ChunkMesherError> => {
+  const chunkView = toChunkView(worldgenChunk)
+  const meshingNeighbours = toMeshingNeighbours(worldgenNeighbours)
+  return Result.map(meshChunk(chunkView, meshingNeighbours, config), (layers) => {
+    const blockShapeKinds = config.blockShapeKinds ?? EMPTY_BLOCK_SHAPE_KINDS
+    const quads = [...layers.opaque, ...layers.water, ...layers.transparentSolid].filter(
+      (quad) => !blockShapeKinds.has(quad.blockId),
+    )
+    const blockShapes = meshBlockShapes(chunkView, meshingNeighbours, blockShapeKinds)
+    return Object.assign(quads, {
+      blockShapes,
+      crossPlants: layers.crossPlants,
+      fluids: layers.fluids,
+    })
+  })
+}
 
 /** Adapt a worldgen chunk store to the renderer's pull-based meshing port. */
 export const makeChunkStoreMesher = (
@@ -237,28 +289,14 @@ export const makeChunkStoreMesher = (
 ): ChunkMesher =>
   ({ cx, cz }) =>
     Effect.gen(function* () {
-      const coord = chunkCoord(cx, cz)
+      const coord = chunkCoord(ChunkAxis(cx), ChunkAxis(cz))
       const worldgenChunk = yield* store.peek(coord)
       if (worldgenChunk === undefined) {
         return undefined
       }
 
       const worldgenNeighbours = yield* store.neighbours(coord)
-      const layers = meshChunk(toChunkView(worldgenChunk), toMeshingNeighbours(worldgenNeighbours), config)
-      const blockShapeKinds = config.blockShapeKinds ?? EMPTY_BLOCK_SHAPE_KINDS
-      const quads = [...layers.opaque, ...layers.water, ...layers.transparentSolid].filter(
-        (quad) => !blockShapeKinds.has(quad.blockId),
-      )
-      const blockShapes = meshBlockShapes(
-        toChunkView(worldgenChunk),
-        toMeshingNeighbours(worldgenNeighbours),
-        blockShapeKinds,
-      )
-      return Object.assign(quads, {
-        blockShapes,
-        crossPlants: layers.crossPlants,
-        fluids: layers.fluids,
-      })
+      return yield* Effect.fromResult(meshWorldgenChunk(worldgenChunk, worldgenNeighbours, config))
     })
 
 /** `options` with a light-sampling `colorForChunk` filled in, unless the caller already supplied one (or a flat `color`). */

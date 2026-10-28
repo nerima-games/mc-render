@@ -3,7 +3,7 @@
   THE SHADER PROBE. Not the game, and deliberately not part of it.
 
   Lowered from mc-compose's `apps/shader-probe` — unchanged
-  except `probe.ts` now imports mc-render's own source instead of the
+  except `main.ts` now imports mc-render's own source instead of the
   published package.
 
   `apps/web/index.html` (mc-compose) boots the composed game; this page boots
@@ -49,6 +49,6 @@
   <body data-shader-probe="running">
     <canvas id="probe-canvas"></canvas>
     <pre id="probe-report">compiling…</pre>
-    <script type="module" src="./probe.ts"></script>
+    <script type="module" src="./main.ts"></script>
   </body>
 </html>

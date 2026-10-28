@@ -13,7 +13,8 @@
  * restatements of a list.
  */
 import { describe, expect, it } from '@effect/vitest'
-import { Effect, FastCheck } from 'effect'
+import { Effect } from 'effect'
+import * as FastCheck from 'fast-check'
 import {
   glslVec4,
   waterFragmentShader,

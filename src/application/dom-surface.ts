@@ -39,7 +39,7 @@
  * without a cast. That is not obvious — `strictFunctionTypes` makes listener
  * parameters contravariant, so a naive `(event: KeyboardEventLike) => void`
  * makes `Window` UNASSIGNABLE, and the adapter's users would paper over it with
- * `as unknown as`, which is where the type safety would actually have been lost.
+ * a double type assertion, which is where the type safety would actually have been lost.
  *
  * So the shapes below are built to be genuine SUPERTYPES of the DOM's own:
  *
@@ -51,15 +51,13 @@
  *   - `preventDefault` is REQUIRED, both because `Event` really does have it and
  *     because a type whose members are all optional is a "weak type" that TS
  *     refuses to accept anything from;
- *   - `pointerLockElement` and `activeElement` are `unknown`, because the
- *     adapter only ever compares them — against `null`, and against a host's
- *     focus roster (DN-16 §5(a));
- *   - `requestPointerLock` returns `unknown`, because lib.DOM has changed it
- *     from `void` to `Promise<void>` and both must satisfy this;
- *   - `FocusableTarget.focus` is the one member below that is REQUIRED and NOT
- *     a comparison: arrow-key navigation moves the browser's real focus by
- *     calling it, so the roster this file accepts is no longer opaque to every
- *     operation, only to reading.
+ *   - `pointerLockElement` is `unknown`, because the adapter only compares it
+ *     against `null`;
+ *   - `requestPointerLock` returns `unknown` because DOM library versions differ
+ *     on whether the request completes synchronously or asynchronously;
+ * DOM focus membership and movement are host-owned. `Event.target` remains
+ * `unknown` so the host can resolve it without widening this adapter's DOM
+ * surface.
  *
  * `test/fixtures/dom-surface.ts` is compiled BY A TEST against the real
  * `lib.dom.d.ts` and asserted to produce zero diagnostics, so "a real Window,
@@ -105,7 +103,7 @@ export type DomListenerOptions = {
  * `string | undefined` inside the keydown handler; the benefit is that
  * `installInputListeners(window, ...)` compiles in a browser project with no
  * cast, and that the handler is forced to say what it does with an event that
- * lacks the field it needs. It drops it — an event handler must not throw, and
+ * lacks the field it needs. It drops it — an event handler must not fail unexpectedly, and
  * guessing is worse than dropping.
  */
 export type DomInputEvent = {
@@ -126,11 +124,9 @@ export type DomInputEvent = {
    * `Event.target` — the element a `focusin` landed on.
    *
    * `unknown`, and for the same reason `DomDocument.pointerLockElement` is:
-   * **the adapter only ever COMPARES it.** `resolveFocusTarget` in
-   * `browser-input-adapter.ts` looks for it, by `===`, in the roster of
-   * elements the host named, and reports the group and position it found. It
-   * never reads a property off it, so no element type is needed and none is
-   * declared.
+   * the adapter forwards it to host-owned focus and click classifiers, which
+   * return the existing scalar DTOs. The adapter never reads a property off
+   * it, so no element type is needed and none is declared.
    *
    * That is a design decision and not a shortcut. The alternative — declaring
    * `target?: { getAttribute?: (name: string) => string | null }` and reading
@@ -147,7 +143,7 @@ export type DomInputEvent = {
    *      parameters are contravariant under `strictFunctionTypes`, and a real
    *      `Window` would stop being assignable to `DomEventTarget` — silently,
    *      because `pnpm typecheck` has no DOM to be assignable from. The first
-   *      person to notice would reach for `as unknown as`.
+ *      person to notice would reach for a double type assertion.
    *
    * `unknown` accepts `EventTarget | null` trivially and keeps the proof in
    * `test/fixtures/dom-surface.ts` green, which is exactly the property the
@@ -185,39 +181,15 @@ export type DomEventTarget = {
 }
 
 /**
- * `document`: an event target that also answers who holds the pointer lock and
- * which element currently has keyboard focus.
+ * `document`: an event target that also answers who holds the pointer lock.
  *
- * Both members are `unknown` rather than an element type, for the same reason:
- * the adapter only ever COMPARES them — `pointerLockElement` against `null`
- * (`isPointerLockHeld`), `activeElement` against a host's focus roster
- * (`resolveFocusTarget`, read on every `keydown` so arrow-key navigation knows
- * which member to move FROM — DN-16 §5(a)). Naming an element type here would
- * drag in the DOM's node hierarchy for a question either one answers by a
- * single `===`.
+ * The lock element is `unknown` rather than an element type because the adapter
+ * only compares it against `null` (`isPointerLockHeld`). Focus membership and
+ * the active element belong to the host and are outside this structural DOM
+ * surface.
  */
 export type DomDocument = DomEventTarget & {
   readonly pointerLockElement: unknown
-  readonly activeElement: unknown
-}
-
-/**
- * One roster member the adapter may WRITE to — the one exception to "every DOM
- * member in this file is only ever compared" that the rest of it states
- * (`target`, `pointerLockElement`, `activeElement`). Arrow-key navigation
- * within a focus group (DN-16 §5(a)) has to MOVE the browser's real focus, and
- * `.focus()` is the one member that lets it.
- *
- * `focus(): void`, not an element type: a real `HTMLElement`'s
- * `focus(options?: FocusOptions): void` satisfies this without a cast — a
- * function with an extra OPTIONAL parameter is assignable to a function type
- * that takes fewer. REQUIRED, not optional, for the reason `preventDefault` on
- * `DomInputEvent` is: an all-optional object type is a "weak type" TypeScript
- * accepts anything into, which would defeat the one member this type exists to
- * demand.
- */
-export type FocusableTarget = {
-  readonly focus: () => void
 }
 
 /**
@@ -227,11 +199,10 @@ export type FocusableTarget = {
  * to report as `unavailable` rather than crash on — an older browser, a
  * non-element, or a canvas that has not been created yet.
  *
- * The return type is `unknown` because it has changed: lib.DOM used to declare
- * `requestPointerLock(): void` and now declares
- * `requestPointerLock(options?: PointerLockOptions): Promise<void>`. Both are
- * assignable to `() => unknown`, so this file does not have to pick a browser
- * vintage — and the adapter, which must not care, is stopped from caring.
+ * The return type is `unknown` because DOM library versions disagree about
+ * whether the request completes synchronously or asynchronously. Both shapes
+ * are assignable to `() => unknown`, so this file does not have to pick a
+ * browser vintage, and the adapter is stopped from caring.
  */
 export type PointerLockTarget = {
   readonly requestPointerLock?: () => unknown

@@ -10,20 +10,137 @@
  * actually running on this path.
  */
 import { describe, expect, it } from '@effect/vitest'
-import { Cause, Effect, Exit } from 'effect'
-import { makeProductionWorldRenderer } from '../src/application/world-renderer-production'
+import { Effect, Result, Schema } from 'effect'
+import { ParticleRequestSchema } from '../src/application/particle-service'
+import { makeProductionWorldRenderer, type ProductionFrame } from '../src/application/world-renderer-production'
 import {
   applyChunkShaderEnvironment,
   makeChunkShaderMaterial,
   makeWaterMaterial,
+  RendererMaterialPolicyErrorSchema,
 } from '../src/application/world-renderer-materials'
-import { spawnBurst } from '../src/domain/particle-pool'
+import {
+  ParticlePoolInputErrorSchema,
+  ParticleBurstCountSchema,
+  ParticleDeltaSecsSchema,
+  type ParticlePoolInputError,
+  ParticleUvCoordinateSchema,
+  ParticleWorldCoordinateSchema,
+  readSlot,
+  spawnBurst as spawnBurstResult,
+} from '../src/domain/particle-pool'
 import { planRenderEnvironment } from '../src/domain/render-environment'
 import { FAKE_CANVAS, makeFakeThree } from './support/fake-three'
 
 const VIEWPORT = { width: 1280, height: 720 }
+const decodePosition = Schema.decodeUnknownSync(ParticleWorldCoordinateSchema)
+const decodeUv = Schema.decodeUnknownSync(ParticleUvCoordinateSchema)
+const decodeCount = Schema.decodeUnknownSync(ParticleBurstCountSchema)
+const decodeDelta = Schema.decodeUnknownSync(ParticleDeltaSecsSchema)
+const advanceFrameWithRawInput = (
+  advanceFrame: (frame: ProductionFrame) => Effect.Effect<void, ParticlePoolInputError>,
+  frame: unknown,
+): Effect.Effect<void, ParticlePoolInputError> =>
+  Function.prototype.apply.call(advanceFrame, undefined, [frame])
+const spawnBurst = (pool: Parameters<typeof spawnBurstResult>[0], x: number, y: number, z: number, u: number, v: number, count: number) =>
+  Result.getOrThrow(spawnBurstResult(
+    pool,
+    decodePosition(x),
+    decodePosition(y),
+    decodePosition(z),
+    decodeUv(u),
+    decodeUv(v),
+    decodeCount(count),
+  ))
+const isParticlePoolInputFailure = (
+  error: unknown,
+  operation: 'pool' | 'advance',
+  reason: 'invalid-capacity' | 'invalid-delta',
+): boolean => {
+  const decoded = Schema.decodeUnknownResult(ParticlePoolInputErrorSchema, {
+    onExcessProperty: 'error',
+  })(error)
+  return Result.isSuccess(decoded) && decoded.success.operation === operation &&
+    decoded.success.reason === reason
+}
 
 describe('makeProductionWorldRenderer (the shipped composition)', () => {
+  it.effect('uses the layer service pool for both accepted requests and rendered instances', () =>
+    Effect.gen(function* () {
+      const three = makeFakeThree()
+      const renderer = yield* makeProductionWorldRenderer(
+        three,
+        FAKE_CANVAS,
+        VIEWPORT,
+        { name: 'terrain-atlas' },
+        { particles: { capacity: 4 } },
+      )
+      const request = Schema.decodeUnknownSync(ParticleRequestSchema)({
+        kind: 'block-break',
+        position: { dimension: 'overworld', x: 1, y: 2, z: 3 },
+      })
+
+      expect(yield* renderer.particleService.spawn(request)).toBe(1)
+      expect(renderer.particlePool.activeCount()).toBe(4)
+      yield* renderer.particles.sync
+      expect(yield* renderer.particles.drawnInstances).toBe(4)
+      expect(three.instancedGeometries()[0]?.instanceCount).toBe(4)
+
+      yield* renderer.dispose
+    }),
+  )
+
+  it.effect('resolves followed entities from the renderer snapshot and the current frame dimension', () =>
+    Effect.gen(function* () {
+      const three = makeFakeThree()
+      const renderer = yield* makeProductionWorldRenderer(
+        three,
+        FAKE_CANVAS,
+        VIEWPORT,
+        { name: 'terrain-atlas' },
+        { particles: { capacity: 8 } },
+      )
+      const request = Schema.decodeUnknownSync(ParticleRequestSchema)({
+        kind: 'entity-hit',
+        position: { dimension: 'overworld', x: 12, y: 22, z: 32 },
+        direction: { x: 1, y: 0, z: 0 },
+        followEntity: 'mob-1',
+      })
+
+      yield* renderer.syncEntities([{ id: 'mob-1', kind: 'zombie', feetPosition: { x: 10, y: 20, z: 30 } }])
+      yield* renderer.advanceFrame({
+        elapsedSecs: 0,
+        deltaSecs: decodeDelta(0),
+        cameraPosition: { worldX: 0, worldY: 0, worldZ: 0 },
+      })
+      expect(yield* renderer.particleService.spawn(request)).toBe(1)
+
+      yield* renderer.syncEntities([{ id: 'mob-1', kind: 'zombie', feetPosition: { x: 11, y: 21, z: 31 } }])
+      yield* renderer.advanceFrame({
+        elapsedSecs: 0.1,
+        deltaSecs: decodeDelta(0.1),
+        cameraPosition: { worldX: 0, worldY: 0, worldZ: 0 },
+      })
+      expect(readSlot(renderer.particlePool, 0)).toMatchObject({
+        positionX: 13,
+        positionY: 23,
+        positionZ: 33,
+      })
+
+      yield* renderer.advanceFrame({
+        elapsedSecs: 0.2,
+        deltaSecs: decodeDelta(0.1),
+        cameraPosition: { worldX: 0, worldY: 0, worldZ: 0 },
+        dimension: 'nether',
+      })
+      expect(readSlot(renderer.particlePool, 0)?.positionX).toBe(13)
+      expect(readSlot(renderer.particlePool, 0)?.scale).toBe(0)
+      expect(yield* renderer.particles.drawnInstances).toBe(0)
+
+      yield* renderer.dispose
+    }),
+  )
+
   it.effect('owns the atlas shaders, animated water, and shared particle system', () =>
     Effect.gen(function* () {
       const three = makeFakeThree()
@@ -48,7 +165,7 @@ describe('makeProductionWorldRenderer (the shipped composition)', () => {
       spawnBurst(renderer.particlePool, 1, 2, 3, 0, 0, 1)
       yield* renderer.advanceFrame({
         elapsedSecs: 2,
-        deltaSecs: 0.1,
+        deltaSecs: decodeDelta(0.1),
         cameraPosition: { worldX: 4, worldY: 5, worldZ: 6 },
       })
       expect(renderer.waterUniforms['uTime']?.value).toBe(2)
@@ -85,7 +202,7 @@ describe('makeProductionWorldRenderer (the shipped composition)', () => {
       yield* renderer.setEnvironment(planRenderEnvironment(0.5))
       yield* renderer.advanceFrame({
         elapsedSecs: 1,
-        deltaSecs: 0.01,
+        deltaSecs: decodeDelta(0.01),
         cameraPosition: { worldX: 1, worldY: 2, worldZ: 3 },
       })
       yield* renderer.resize(320, 200)
@@ -94,7 +211,7 @@ describe('makeProductionWorldRenderer (the shipped composition)', () => {
   )
 
   it.effect(
-    'REGRESSION: fails loudly if the shared water/particle materials lost forceSinglePass',
+    'REGRESSION: returns a typed failure if shared materials lost forceSinglePass',
     () =>
       Effect.gen(function* () {
         // The one call `makeProductionWorldRenderer` makes that the duplicate
@@ -112,16 +229,21 @@ describe('makeProductionWorldRenderer (the shipped composition)', () => {
           },
         }
 
-        // `assertRendererMaterialPolicies` throws a plain `Error`, which
-        // `Effect.gen` turns into a DEFECT rather than a typed failure —
-        // `Effect.exit` is what observes that without the test itself dying.
-        const exit = yield* Effect.exit(
+        const outcome = yield* Effect.result(
           makeProductionWorldRenderer(badThree, FAKE_CANVAS, VIEWPORT, { name: 'terrain-atlas' }),
         )
 
-        expect(Exit.isFailure(exit)).toBe(true)
-        if (Exit.isFailure(exit)) {
-          expect(Cause.isDie(exit.cause)).toBe(true)
+        expect(Result.isFailure(outcome)).toBe(true)
+        if (Result.isFailure(outcome)) {
+          const decoded = Schema.decodeUnknownSync(RendererMaterialPolicyErrorSchema, {
+            onExcessProperty: 'error',
+          })(outcome.failure)
+          expect(decoded._tag).toBe('RendererMaterialPolicyError')
+          expect(decoded.violations.map(({ materialName }) => materialName)).toStrictEqual([
+            'waterSurfaceMaterial',
+            'particleMaterial',
+          ])
+          expect(decoded.violations.every(({ verdict }) => verdict.kind === 'must-force-single-pass')).toBe(true)
         }
       }),
   )
@@ -147,6 +269,41 @@ describe('makeChunkShaderMaterial and makeWaterMaterial default sun intensity', 
 
       expect(defaulted.uniforms['uSunIntensity']?.value).toBe(1)
       expect(explicit.uniforms['uSunIntensity']?.value).toBe(0.5)
+    }),
+  )
+
+  it.effect('propagates invalid pool configuration and frame delta as typed Effect failures', () =>
+    Effect.gen(function* () {
+      const invalidPoolResult = yield* Effect.result(makeProductionWorldRenderer(
+        makeFakeThree(),
+        FAKE_CANVAS,
+        VIEWPORT,
+        { name: 'terrain-atlas' },
+        { particles: { capacity: 0 } },
+      ))
+      expect(Result.isFailure(invalidPoolResult)).toBe(true)
+      if (Result.isFailure(invalidPoolResult)) {
+        expect(isParticlePoolInputFailure(invalidPoolResult.failure, 'pool', 'invalid-capacity')).toBe(true)
+      }
+
+      const renderer = yield* makeProductionWorldRenderer(
+        makeFakeThree(),
+        FAKE_CANVAS,
+        VIEWPORT,
+        { name: 'terrain-atlas' },
+        { particles: { capacity: 2 } },
+      )
+      const invalidStepResult = yield* Effect.result(advanceFrameWithRawInput(renderer.advanceFrame, {
+        elapsedSecs: 1,
+        deltaSecs: -0.01,
+        cameraPosition: { worldX: 0, worldY: 0, worldZ: 0 },
+      }))
+      expect(Result.isFailure(invalidStepResult)).toBe(true)
+      if (Result.isFailure(invalidStepResult)) {
+        expect(isParticlePoolInputFailure(invalidStepResult.failure, 'advance', 'invalid-delta')).toBe(true)
+      }
+      expect(renderer.waterUniforms['uTime']?.value).toBe(0)
+      yield* renderer.dispose
     }),
   )
 })

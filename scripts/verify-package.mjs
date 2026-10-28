@@ -3,23 +3,10 @@ import { tmpdir } from "node:os";
 import { join, relative, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 
-// Adapted from mc-kernel's scripts/verify-package.mjs (Wave 0), not copied
-// verbatim: kernel's version additionally (a) derives its export map from
-// `export * from './domain/<name>.js'` entries in src/index.ts and requires
-// package.json#exports to declare a matching `./domain/<name>` subpath for
-// each one, and (b) runs a ~250-line probe hard-coded to kernel's own
-// domain functions (fixedClock, launchArrow, blockHardnessOf, ...). Neither
-// applies here: mc-render's src/index.ts re-exports without a `.js`
-// extension (kernel's regex would not match a single entry point and would
-// throw "src/index.ts must declare at least one domain entrypoint"), and
-// package.json#exports declares only the root "." entry (docs/public-api.md
-// §8 names src/index.ts as the sole source of truth for the public surface
-// and does not declare a `./browser` subpath, so this script does not
-// require one — see the Wave 0 report for the src/browser.ts finding).
-// What is kept: packing the tarball, checking every declared export target
-// actually landed in the archive, installing the archive in a scratch
-// consumer, and probing that every declared export resolves to a module
-// with at least one runtime export.
+// Adapted from mc-kernel's scripts/verify-package.mjs (Wave 0). This script
+// validates every declared package entry point rather than deriving subpaths
+// from source exports. It packs the tarball, checks each export target is
+// present, installs it in a scratch consumer, and probes each entry point.
 
 const root = resolve(import.meta.dirname, "..");
 const manifest = JSON.parse(await readFile(join(root, "package.json"), "utf8"));
@@ -207,6 +194,7 @@ if (declaredPackageExports.length !== ${importSpecifiers.length}) {
         compilerOptions: {
           strict: true,
           target: "ES2022",
+          lib: ["ES2022", "DOM", "DOM.Iterable", "ESNext.Disposable"],
           module: "NodeNext",
           moduleResolution: "NodeNext",
           noEmit: true,

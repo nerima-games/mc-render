@@ -1,0 +1,26 @@
+id: no-async-modifier
+language: TypeScript
+severity: error
+files:
+  - "src/**/*.ts"
+  - "src/**/*.tsx"
+  - "src/**/*.mts"
+  - "src/**/*.cts"
+message: >-
+  Keep runtime work synchronous and represent asynchronous effects through Effect.
+rule:
+  any:
+    - all:
+        - any:
+            - kind: function_declaration
+            - kind: function_expression
+        - regex: '^\s*async\b'
+    - all:
+        - kind: arrow_function
+        - any:
+            - regex: '^async\s*\('
+            - regex: '^async\s*<'
+            - regex: '^async\s+[^\s=]'
+    - all:
+        - kind: method_definition
+        - regex: '^(?:@[^\n]*\s+)*(?:(?:public|private|protected|static|override|readonly|abstract|declare)\s+)*async\s+(?:\*\s*)?(?:[$A-Za-z_][$\w]*|#[$A-Za-z_][$\w]*|\[[^\]\n]+\])\s*(?:<[^>{}]*>)?\s*\('

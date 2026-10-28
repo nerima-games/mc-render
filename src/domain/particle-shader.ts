@@ -9,7 +9,7 @@
  * THE ATTRIBUTE NAMES ARE THE CONTRACT WITH THE POOL, AND ARE DECLARED ONCE
  * ---------------------------------------------------------------------------
  *
- * `PARTICLE_INSTANCE_ATTRIBUTES` below names the three per-instance buffers,
+ * `PARTICLE_INSTANCE_ATTRIBUTES` below names the four per-instance buffers,
  * and `application/particle-system.ts` binds `ParticlePool`'s typed arrays to
  * exactly those names. The pairing is checked in
  * `test/particle-shader.test.ts` by reading BOTH sides, because this repository
@@ -31,7 +31,7 @@
  * A particle is a flat square and has to face the camera, and there are two
  * places to arrange that: rotate each instance on the CPU, or build the quad in
  * view space on the GPU. The pool exists to keep the CPU out of the frame path
- * — five typed arrays written once per spawn and integrated in place — so a
+ * — pool buffers written once per spawn and integrated in place — so a
  * per-particle rotation on the CPU would undo the thing the pool is for.
  *
  * In view space the camera's right and up axes are the first two columns of the
@@ -42,6 +42,7 @@
  */
 import {
   PARTICLE_ALPHA_TEST,
+  PARTICLE_COLOR_STRIDE,
   PARTICLE_QUAD_SIZE_M,
   PARTICLE_UV_SPAN,
   PARTICLE_UV_STRIDE,
@@ -62,12 +63,15 @@ type ParticleInstanceAttributes = {
   readonly position: { readonly name: string; readonly stride: number }
   readonly scale: { readonly name: string; readonly stride: number }
   readonly uvOffset: { readonly name: string; readonly stride: number }
+  readonly color: { readonly name: string; readonly stride: number }
 }
 
 export const PARTICLE_INSTANCE_ATTRIBUTES: ParticleInstanceAttributes = {
+  /** Per-instance RGB tint, multiplied by the sampled atlas color. */
+  color: { name: 'instanceColor', stride: PARTICLE_COLOR_STRIDE },
   /** World position of the particle's centre, in metres. */
   position: { name: 'instancePosition', stride: PARTICLE_VECTOR_STRIDE },
-  /** The lifetime fade in `[0, 1]`. 0 is a free slot and is invisible. */
+  /** The lifetime fade in [0, 1]. Zero is a free slot or a hidden dimension. */
   scale: { name: 'instanceScale', stride: 1 },
   /** The atlas tile origin this particle samples. */
   uvOffset: { name: 'instanceUvOffset', stride: PARTICLE_UV_STRIDE },
@@ -97,17 +101,17 @@ export const particleVertexShader = (): string => `
 attribute vec3 ${PARTICLE_INSTANCE_ATTRIBUTES.position.name};
 attribute float ${PARTICLE_INSTANCE_ATTRIBUTES.scale.name};
 attribute vec2 ${PARTICLE_INSTANCE_ATTRIBUTES.uvOffset.name};
+attribute vec3 ${PARTICLE_INSTANCE_ATTRIBUTES.color.name};
 
 varying vec2 vUv;
 varying float vScale;
+varying vec3 vColor;
 
 void main() {
   vUv = ${PARTICLE_INSTANCE_ATTRIBUTES.uvOffset.name} + uv * ${glslFloat(PARTICLE_UV_SPAN)};
   vScale = ${PARTICLE_INSTANCE_ATTRIBUTES.scale.name};
+  vColor = ${PARTICLE_INSTANCE_ATTRIBUTES.color.name};
 
-  // The camera's right and up axes in world space are the first two COLUMNS of
-  // the model-view matrix read as rows — see this file's header. The quad's own
-  // position supplies the two coefficients.
   vec3 right = vec3(modelViewMatrix[0][0], modelViewMatrix[1][0], modelViewMatrix[2][0]);
   vec3 up = vec3(modelViewMatrix[0][1], modelViewMatrix[1][1], modelViewMatrix[2][1]);
 
@@ -138,17 +142,16 @@ uniform sampler2D ${PARTICLE_SHADER_UNIFORMS.atlas};
 
 varying vec2 vUv;
 varying float vScale;
+varying vec3 vColor;
 
 void main() {
   vec4 texel = texture2D(${PARTICLE_SHADER_UNIFORMS.atlas}, vUv);
 
-  // The cutout. A free slot has scale 0 and is already degenerate, but a
-  // fading one is not, and its texel alpha is what decides.
   if (texel.a < ${glslFloat(PARTICLE_ALPHA_TEST)}) {
     discard;
   }
 
-  gl_FragColor = vec4(texel.rgb, texel.a * vScale);
+  gl_FragColor = vec4(texel.rgb * vColor, texel.a * vScale);
 }
 `
 

@@ -29,6 +29,11 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "default": "./dist/index.js"
+    },
+    "./browser": {
+      "types": "./dist/browser.d.ts",
+      "import": "./dist/browser.js",
+      "default": "./dist/browser.js"
     }
   },
   "files": [
@@ -45,41 +50,44 @@
     "three"
   ],
   "scripts": {
-    "benchmark": "tsx scripts/benchmark-chunk-updates.ts",
-    "build": "node scripts/clean-dist.mjs && tsc -p tsconfig.release.json --pretty false",
+    "benchmark": "tsx apps/benchmark-chunk-updates/main.ts",
+    "build": "node scripts/clean-dist.mjs && tsc -p tsconfig.release.json --pretty false && tsc -p tsconfig.browser-release.json --pretty false",
     "build:web": "vite build",
     "dev:web": "vite",
-    "lint": "oxlint --deny-warnings src apps scripts test && ast-grep scan",
-    "lint:fix": "oxlint --fix src apps scripts test",
+    "lint": "oxlint --deny-warnings src apps e2e scripts test playwright.config.ts && ast-grep scan",
+    "lint:fix": "oxlint --fix src apps e2e scripts test playwright.config.ts",
     "package:verify": "pnpm build && node scripts/verify-package.mjs",
     "prepublishOnly": "pnpm verify && pnpm package:verify",
     "preview": "tsx apps/preview-render/main.ts",
     "preview:web": "vite preview",
     "test": "vitest run",
+    "test:browser": "playwright test --grep-invert 'render preview' && playwright test --grep 'render preview'",
     "test:coverage": "vitest run --coverage",
     "test:watch": "vitest",
     "typecheck": "tsc -p tsconfig.build.json --pretty false && tsc -p tsconfig.test.json --pretty false && tsc -p tsconfig.preview.json --pretty false && tsc -p tsconfig.browser.json --pretty false",
     "verify": "pnpm typecheck && pnpm lint && pnpm test"
   },
   "dependencies": {
-    "@nerima-games/mc-kernel": "0.8.0",
-    "@nerima-games/mc-meshing": "0.3.0",
-    "@nerima-games/mc-sim": "0.5.0",
-    "@nerima-games/mc-worldgen": "0.5.0",
-    "effect": "3.22.1"
+    "@nerima-games/mc-kernel": "0.11.0",
+    "@nerima-games/mc-meshing": "0.4.0",
+    "@nerima-games/mc-sim": "0.6.0",
+    "@nerima-games/mc-worldgen": "0.7.0",
+    "@types/three": "0.186.0",
+    "effect": "4.0.5",
+    "three": "0.186.1"
   },
   "devDependencies": {
     "@changesets/changelog-github": "1.0.1",
     "@changesets/cli": "3.0.3",
-    "@effect/vitest": "0.30.0",
+    "@effect/vitest": "4.0.5",
+    "@playwright/test": "1.64.1",
     "@types/node": "26.6.5",
-    "@types/three": "0.186.0",
-    "@vitest/coverage-v8": "4.1.11",
+    "@vitest/coverage-v8": "5.0.5",
+    "fast-check": "4.10.2",
     "knip": "6.42.1",
-    "three": "0.186.1",
     "tsx": "4.23.15",
     "typescript": "7.0.2",
     "vite": "8.3.5",
-    "vitest": "4.1.11"
+    "vitest": "5.0.5"
   }
 }

@@ -45,24 +45,21 @@
  *   - `WheelEvent.deltaMode` -> `wheelDeltaModeForIndex`
  *   - the DOM event NAME -> the `InputEvent` case (`mousemove` -> `pointermove`)
  *   - `document.pointerLockElement` -> `locked: boolean`
- *   - `Event.target` -> `resolveFocusTarget` -> `{ group, index }`
- *   - `Event.target` -> `resolveClickLanding` -> `'lock-target' | 'ui' | 'elsewhere'`
- *   - `document.activeElement` + `KeyboardEvent.code` -> `resolveFocusNavigationTarget`
- *     -> the roster member to move focus TO
+ *   - `Event.target` -> mx-ui's focus lookup -> `{ group, index }`
+ *   - `Event.target` -> mx-ui's click classifier -> `ClickLanding`
+ *   - `KeyboardEvent.code` -> `FocusNavigationDirection` -> the host's focus handler
  *
- * The third-from-last is DN-16 §5(b), and it is the same conversion as the one
- * above it rather than a new kind of thing: an element in, a NAME out, and the
- * policy that reads the name (`acquiresPointerLock`) stays a pure predicate in
- * the domain. Whether a click may take the pointer is decided there, not here.
+ * The host performs DOM membership checks and returns the existing scalar DTOs.
+ * This adapter forwards those DTOs through `InputService`; it does not own the
+ * focus roster or decide whether an element belongs to UI.
  *
- * The last is DN-16 §5(a), and it is the ONE PLACE this file calls a DOM
- * method other than `addEventListener`/`removeEventListener`/`preventDefault`:
- * `resolveFocusNavigationTarget` is pure and answers WHICH roster member (if
- * any), and this file performs the `.focus()` — the same division `render:input`
- * and `acquiresPointerLock` already draw for the pointer lock ask.
+ * Focus group membership, `document.activeElement`, and `.focus()` belong to
+ * mx-ui. This adapter accepts a lookup and a direction handler from that owner;
+ * its own focus contract is only the public `{ group, index }` DTO and the
+ * keyboard-code-to-direction conversion.
  *
  * ---------------------------------------------------------------------------
- * What this file does NOT do about Tab, and what it DOES about arrow keys
+ * What this file does about Tab and arrow keys
  * ---------------------------------------------------------------------------
  *
  * It does not listen for Tab, does not move focus on it, and does not suppress
@@ -74,17 +71,10 @@
  * not an option at any lock state, and `PREVENT_DEFAULT_EVENTS` below for the
  * list that stays at two.
  *
- * Arrow keys are different: the browser has no native "move focus within a
- * roving-`tabindex` group" behaviour to defer to, so DN-16 §5(a) makes this
- * file the one that moves it, by calling `.focus()` on the roster member
- * `resolveFocusNavigationTarget` names. What it still does NOT do is call
- * `event.preventDefault()` for it: `mayPreventDefault` has no `keydown` case,
- * and it must not grow one — a `keydown` exception for arrows would be a
- * `keydown` exception, full stop, and would make Tab eligible for suppression
- * again. `ARROW_FOCUS_NAVIGATION_POLICY` (`domain/focus-navigation.ts`) is
- * `owner: 'host'` for exactly this reason: whether whatever an arrow key would
- * otherwise have done should be suppressed is the HOST's decision, made with
- * its own listener outside this file, never this adapter's.
+ * Arrow-key codes are translated to directions here and passed to the host's
+ * focus handler. mx-ui resolves the active element within its own roster and
+ * moves focus. This adapter does not read `activeElement`, inspect membership,
+ * call `.focus()`, or suppress the key's browser default.
  *
  * ---------------------------------------------------------------------------
  * Teardown is exact, and it is checkable
@@ -119,7 +109,6 @@ import {
   touchLookStep,
   unboundTouchActions,
   wheelDeltaModeForIndex,
-  wrapHotbarSelection,
 } from '../domain/input-bindings.js'
 import {
   type DomDocument,
@@ -127,11 +116,14 @@ import {
   type DomInputEvent,
   type DomListener,
   type DomListenerOptions,
-  type FocusableTarget,
   type PointerLockTarget,
   isPointerLockHeld,
 } from './dom-surface.js'
-import { Effect, Layer, Scope } from 'effect'
+import { Effect, Layer, Result, Schema, Scope } from 'effect'
+import {
+  type FocusNavigationDirection,
+  focusNavigationDirectionForCode,
+} from '../domain/focus-navigation.js'
 import {
   type InputEvent,
   InputService,
@@ -142,7 +134,6 @@ import {
   UNAVAILABLE_POINTER_LOCK,
   makeInputService,
 } from './input-service.js'
-import { focusNavigationStepForCode } from '../domain/focus-navigation.js'
 
 /**
  * The two objects the plan's two `ListenerTarget`s name.
@@ -188,231 +179,20 @@ export type InstalledInputListeners = {
 }
 
 /**
- * One roving-`tabindex` group, as the host names it.
- *
- * `targets` is `ReadonlyArray<FocusableTarget>`. THE ADAPTER STILL NEVER READS
- * THEM: `resolveFocusTarget` below compares `event.target` against each by
- * `===` and reports the position it matched, exactly as when this was
- * `ReadonlyArray<unknown>`. The one new operation, added for DN-16 §5(a), is a
- * WRITE — `resolveFocusNavigationTarget` calls `.focus()` on the member arrow
- * navigation moves TO — which is the whole reason the element type grew a
- * member instead of staying opaque. In a browser these are the nine
- * `HTMLElement`s mx-ui created; in a test they are nine `{ focus: () => void }`
- * fakes; in both cases the code that runs is the same code, which is the
- * point.
- *
- * ---------------------------------------------------------------------------
- * Why identity and not an attribute
- * ---------------------------------------------------------------------------
- *
- * mx-ui does mark its slots — `data-mx-ui="slot"` and `data-slot-index="n"` —
- * and reading those would need no cooperation from a host. It is rejected on
- * three counts:
- *
- *   1. `data-slot-index` is region-LOCAL in mx-ui: an inventory slot 0 and the
- *      hotbar's slot 0 carry the same value, and telling them apart means
- *      walking ancestors. `[data-mx-ui="hotbar"] [data-slot-index]` is a
- *      SELECTOR, and a selector in this file is a copy of mx-ui's DOM structure
- *      living in a repository that cannot test it against the real thing.
- *   2. It would put `getAttribute` in `dom-surface.ts`, which breaks the
- *      assignability proof outright — see `DomInputEvent.target`.
- *   3. It hard-codes mx-ui as the only possible source of focusable UI. A host
- *      that draws its own settings screen has groups too, and with a roster it
- *      simply names them.
- *
- * The ORDER of `targets` is the tab order, and the ARRAY POSITION is the index
- * reported — the same "the position IS the number" arrangement
- * `MOUSE_BUTTON_BY_INDEX` uses. 0-based, which is what
- * `HudView.setKeyboardFocus` takes.
+ * DOM membership is owned by mx-ui. The adapter preserves the canvas identity
+ * check first, then forwards the host's scalar classification. Without a host
+ * classifier, only the canvas can be identified safely.
  */
-export type FocusGroupTargets = {
-  readonly group: string
-  readonly targets: ReadonlyArray<FocusableTarget>
-}
+export type FocusTargetForElement = (target: unknown) => FocusTarget | undefined
 
-/**
- * The group and position of a focused element, or `undefined` for an element in
- * no group at all.
- *
- * PURE and exported, so that "focus outside the hotbar is reported as no focus,
- * not as slot 0" is a unit test rather than something reachable only by firing
- * a fake event at a fake document.
- *
- * `undefined`, `null` and an element nobody named all resolve the same way, and
- * that is deliberate rather than lazy: all three mean "the keyboard is not on
- * UI this host asked about", and `HudView.setKeyboardFocus(undefined)` is the
- * one right answer to all three. Reporting an unknown element as index 0 —
- * which is what a bare `indexOf` returning `-1` would become after a careless
- * clamp — would light the ring on slot 0 whenever the player Tabbed to the
- * address bar.
- */
-/** What `Array.prototype.indexOf` (and `findIndex`, below) return for a member never found. */
-const NOT_FOUND_INDEX = -1
+export type ClickLandingForTarget = (target: unknown) => ClickLanding
 
-/**
- * The group OBJECT a target resolved into, and its position — the shared core
- * of `resolveFocusTarget` and `resolveFocusNavigationTarget`.
- *
- * Kept internal (not exported) and returning the `FocusGroupTargets` itself
- * rather than its name, so `resolveFocusNavigationTarget` never has to look a
- * group up a SECOND time by `group.group === name` — a lookup that would
- * silently answer a DIFFERENT group object if two entries shared a name. Every
- * external caller still only ever sees the name (`FocusTarget.group: string`);
- * this is the one function that is allowed to hold the object instead.
- */
-const resolveFocusMember = (
-  groups: ReadonlyArray<FocusGroupTargets>,
-  target: unknown,
-): { readonly group: FocusGroupTargets; readonly index: number } | undefined => {
-  if (typeof target === 'undefined' || target === null) {
-    return
-  }
-  for (const group of groups) {
-    /* `findIndex` with an explicit `===`, not `indexOf(target)`: `target` is
-       `unknown` (it comes straight off `event.target`) and `targets` is now
-       `ReadonlyArray<FocusableTarget>` (DN-16 §5(a)), so `indexOf` would
-       demand an argument typed `FocusableTarget` — exactly the cast this file
-       exists to avoid. `findIndex`'s callback parameter is `FocusableTarget`,
-       but its body only ever compares, so `unknown` on the other side of `===`
-       needs nothing from it. */
-    const index = group.targets.findIndex((candidate) => candidate === target)
-    if (index > NOT_FOUND_INDEX) {
-      return { group, index }
-    }
-  }
-  return
-}
+export type FocusNavigationHandler = (direction: FocusNavigationDirection) => void
 
-/**
- * The group and position of a focused element, or `undefined` for an element in
- * no group at all.
- *
- * PURE and exported, so that "focus outside the hotbar is reported as no focus,
- * not as slot 0" is a unit test rather than something reachable only by firing
- * a fake event at a fake document.
- *
- * `undefined`, `null` and an element nobody named all resolve the same way, and
- * that is deliberate rather than lazy: all three mean "the keyboard is not on
- * UI this host asked about", and `HudView.setKeyboardFocus(undefined)` is the
- * one right answer to all three. Reporting an unknown element as index 0 —
- * which is what a bare `indexOf` returning `-1` would become after a careless
- * clamp — would light the ring on slot 0 whenever the player Tabbed to the
- * address bar.
- */
-export const resolveFocusTarget = (
-  groups: ReadonlyArray<FocusGroupTargets>,
-  target: unknown,
-): FocusTarget | undefined => {
-  const resolved = resolveFocusMember(groups, target)
-  if (typeof resolved === 'undefined') {
-    return
-  }
-  return { group: resolved.group.group, index: resolved.index }
-}
-
-/**
- * Where ONE press of a navigation code would move focus TO, given who holds it
- * now — or `undefined` when the press moves nothing: no group is focused, the
- * code is not a navigation code, or the pointer lock currently masks focus
- * (DN-16 §5(a): the same arrow may be steering the avatar, and moving the ring
- * underneath that would be the bug `reportsKeyboardFocus` already exists to
- * prevent on the read side).
- *
- * PURE and exported, for the reason `resolveFocusTarget` above is: "ArrowRight
- * from the last slot wraps to the first" has to be a unit test, not something
- * reachable only by firing a fake keydown at a fake document.
- *
- * Reuses `wrapHotbarSelection`'s arithmetic rather than re-deriving it — the
- * precedent this file's header already states for `notchesForWheelDelta`:
- * `wrapHotbarSelection` takes the size as an argument, stores no selection,
- * and exists purely so a second caller does not re-derive the wrap trap.
- * `current.index` is always in range because it and `current.group.targets`
- * came from the SAME `resolveFocusMember` call — there is no second, by-name
- * lookup here to disagree with it.
- */
-/**
- * What one `keydown` knows, gathered into one value rather than three
- * parameters — `max-params` is 3 in this repository, and a fourth would have
- * meant either loosening that or splitting a query that is one fact
- * ("what does this keydown mean for focus") into separate arguments a caller
- * would have to keep in step by hand.
- */
-export type FocusNavigationQuery = {
-  readonly activeElement: unknown
-  readonly code: string | undefined
-  readonly pointerLockHeld: boolean
-}
-
-export const resolveFocusNavigationTarget = (
-  groups: ReadonlyArray<FocusGroupTargets>,
-  query: FocusNavigationQuery,
-): FocusableTarget | undefined => {
-  if (query.pointerLockHeld) {
-    return
-  }
-  const step = focusNavigationStepForCode(query.code)
-  if (typeof step === 'undefined') {
-    return
-  }
-  const current = resolveFocusMember(groups, query.activeElement)
-  if (typeof current === 'undefined') {
-    return
-  }
-  return current.group.targets[wrapHotbarSelection(current.index, step, current.group.targets.length)]
-}
-
-/**
- * WHERE an unlocked click landed, resolved the only way this repository is
- * willing to look at an element: by `===`.
- *
- * PURE and exported, for the reason `resolveFocusTarget` above is: the three
- * cases — the lock target, declared UI, and NEITHER — have to be writable as
- * unit tests rather than reachable only by firing a fake event at a fake
- * document. `elsewhere` is the case that used not to exist and is the one worth
- * writing down: a click on the letterbox beside a fixed-aspect canvas, on the
- * page background, or on a header the host drew and did not declare.
- *
- * ---------------------------------------------------------------------------
- * Why `===` on `event.target` is enough, and why no `contains` was added
- * ---------------------------------------------------------------------------
- *
- * DN-16 §5(b) listed "`dom-surface.ts` grows `contains` or `composedPath`" as
- * the mc-render-side option, and it turns out neither is needed. `event.target`
- * is the DEEPEST element the hit test found, and the two shapes that matter both
- * fall out of that:
- *
- *   - a HUD drawn OVER the canvas is the target of a click on it, so the click
- *     resolves as `ui` (or `elsewhere`) and never as the canvas underneath —
- *     which is the hazard, closed;
- *   - a HUD element with `pointer-events: none` is not hit at all, the click
- *     reaches the canvas, and it also focuses nothing — so there is no ring to
- *     contradict and locking is right.
- *
- * `<canvas>` has no rendered children (its content is FALLBACK and is not hit
- * tested), so a click on the lock target is a click ON the lock target and
- * `contains` would have no subtree to walk. The limitation this does leave is
- * worth stating rather than discovering: a host that makes a CONTAINER its lock
- * target — `Element.requestPointerLock` exists on any element — gets `elsewhere`
- * for clicks on that container's children. That host should name the canvas.
- * Adding `contains` would reopen the DN-15 assignability proof (`EventTarget`
- * has no `contains`; `Node` does) for a case no host has.
- *
- * ---------------------------------------------------------------------------
- * Precedence
- * ---------------------------------------------------------------------------
- *
- * The lock target is checked FIRST. An element that is both the lock target and
- * a member of a focus roster is a host contradiction with no safe reading, and
- * the tie has to be broken somewhere; breaking it toward the lock target says
- * the true thing, because that IS the element `requestPointerLock` will be
- * called on. A host must not put its lock target in a focus group — and no host
- * does by accident, because a roster comes from a query like
- * `[data-mx-ui="slot"]`, which cannot return the canvas.
- */
 export const resolveClickLanding = (
   pointerLockTarget: unknown,
-  groups: ReadonlyArray<FocusGroupTargets>,
   target: unknown,
+  clickLandingForTarget?: ClickLandingForTarget,
 ): ClickLanding => {
   if (typeof target === 'undefined' || target === null) {
     /* A click the host cannot place. NOT the lock target even when the host
@@ -428,29 +208,23 @@ export const resolveClickLanding = (
   ) {
     return 'lock-target'
   }
-  if (typeof resolveFocusTarget(groups, target) === 'undefined') {
-    return 'elsewhere'
-  }
-  return 'ui'
+  return clickLandingForTarget?.(target) ?? 'elsewhere'
 }
 
 /**
  * One on-screen control, as the host names it.
  *
- * `target` is `unknown` for the reason `FocusGroupTargets.targets` is: THE
- * ADAPTER NEVER LOOKS INSIDE IT. It compares by `===` and reports the action the
- * host attached. In a browser this is the `<button>` the host drew; in a test it
- * is an object; the code that runs is the same either way.
+ * `target` is opaque to the adapter. It compares by `===` and reports the
+ * action the host attached. In a browser this is the `<button>` the host drew;
+ * in a test it is an object; the code that runs is the same either way.
  *
  * A touch sequence cannot rely on the event-level target for release: browsers
  * may retarget `touchend` or `touchcancel`. The listener therefore resolves each
  * contact from `changedTouches` on start and remembers the resulting action by
  * touch identifier until that contact ends.
  *
- * SINGULAR, unlike `FocusGroupTargets`, which holds an array. A focus group is a
- * roving-`tabindex` set whose ORDER is the reported index; a touch control is
- * one widget with one meaning, and a d-pad is four controls rather than one
- * control with four positions.
+ * SINGULAR: a touch control is one widget with one meaning, and a d-pad is four
+ * controls rather than one control with four positions.
  */
 export type TouchControlTarget = {
   readonly action: InputAction
@@ -461,10 +235,8 @@ export type TouchControlTarget = {
  * The action a tapped element stands for, or `undefined` for an element in no
  * roster.
  *
- * PURE and exported, for the reason `resolveFocusTarget` and
- * `resolveClickLanding` are: the case that matters — a tap on something the host
- * never declared — has to be writable as a unit test rather than reachable only
- * by firing a fake event at a fake window.
+ * PURE and exported so the case that matters — a tap on something the host
+ * never declared — can be tested without firing a fake event at a fake window.
  *
  * `undefined` is a DROP and not a report, which is the opposite of what
  * `focusin` does with the same non-answer. The asymmetry is deliberate: "focus
@@ -495,14 +267,14 @@ export const resolveTouchControl = (
  * argument of the same type so that `translateDomEvent` stays a pure function of
  * its inputs and can be tested without a document at all.
  *
- * `focusGroups` is the host's roster and is consulted only for `focusin`. It is
- * here for the same reason: the translation from an element to a
- * `FocusTarget` must be a pure function of its arguments, or the case that
- * matters — focus on something nobody named — could not be written as a test.
+ * The host owns DOM membership and supplies scalar classifications for focus
+ * and click events. This context carries those callbacks into the pure
+ * translation boundary without exposing a roster to mc-render.
  */
 export type DomEventContext = {
   readonly pointerLockHeld: boolean
-  readonly focusGroups: ReadonlyArray<FocusGroupTargets>
+  readonly focusTargetForElement?: FocusTargetForElement
+  readonly clickLandingForTarget?: ClickLandingForTarget
   /**
    * The element the pointer lock would be granted to — the host's canvas.
    *
@@ -556,12 +328,9 @@ export type DomEventContext = {
  *
  * The synthesised `mousedown` that this leaves alive was checked rather than
  * assumed, because it is the one that could have reopened DN-16 §5(b): it
- * carries the CONTROL as its target, so `resolveClickLanding` answers `ui` or
- * `elsewhere` for it, and `acquiresPointerLock` requires `lock-target`. A tap
- * therefore cannot take the pointer. See `resolveClickLanding` for why the
- * closed-world form is what makes that true — under `landing !== 'ui'` an
- * undeclared touch control would have read "not UI" and grabbed the pointer on
- * every single tap.
+ * carries the CONTROL as its target, so the host click classifier reports `ui`
+ * or `elsewhere` for it, and `acquiresPointerLock` requires `lock-target`. A
+ * tap therefore cannot take the pointer.
  */
 export const PREVENT_DEFAULT_EVENTS: ReadonlyArray<string> = ['wheel', 'contextmenu']
 
@@ -627,14 +396,22 @@ const resolvedMouseButton = (index: number | undefined) => {
   if (typeof index === 'undefined') {
     return
   }
-  return mouseButtonForIndex(index)
+  const result = mouseButtonForIndex(index)
+  if (Result.isFailure(result)) {
+    return
+  }
+  return result.success
 }
 
 const resolvedWheelDeltaMode = (index: number | undefined) => {
   if (typeof index === 'undefined') {
     return
   }
-  return wheelDeltaModeForIndex(index)
+  const result = wheelDeltaModeForIndex(index)
+  if (Result.isFailure(result)) {
+    return
+  }
+  return result.success
 }
 
 const translateKeyEvent = (
@@ -675,7 +452,7 @@ const translateMouseButtonEvent = (
   return {
     button,
     kind,
-    landing: resolveClickLanding(context.pointerLockTarget, context.focusGroups, event.target),
+    landing: resolveClickLanding(context.pointerLockTarget, event.target, context.clickLandingForTarget),
     target: planned.target,
   }
 }
@@ -710,10 +487,14 @@ const translateWheel = (event: DomInputEvent): InputEvent | undefined => {
   return { deltaMode, deltaY, kind: 'wheel' }
 }
 
-const translateFocusIn = (event: DomInputEvent, context: DomEventContext): InputEvent => ({
-  focus: resolveFocusTarget(context.focusGroups, event.target),
-  kind: 'focuschange',
-})
+const translateFocusIn = (event: DomInputEvent, context: DomEventContext): InputEvent => {
+  const { target } = event
+  let focus: FocusTarget | undefined = undefined
+  if (target !== null && typeof target !== 'undefined') {
+    focus = context.focusTargetForElement?.(target)
+  }
+  return { focus, kind: 'focuschange' }
+}
 
 const translateTouchEdge = (
   kind: 'touchpress' | 'touchrelease',
@@ -848,22 +629,23 @@ const suppressionFor = (
  * that wanted to `preventDefault()` after an await has already lost the right
  * to.
  *
- * `Effect.runSync` inside the handlers is safe by construction rather than by
- * luck: `dispatch` is a `Ref.update`, `shouldSuppressWheelScroll` is a
- * `Ref.get`, and neither can fail, suspend or need a service.
+ * The handlers use the host's synchronous runner. The effects it runs are safe
+ * by construction rather than by luck: `dispatch` is a `Ref.update`,
+ * `shouldSuppressWheelScroll` is a `Ref.get`, and neither can fail, suspend or
+ * need a service.
  */
 export type InstallInputListenersOptions = {
+  /** Synchronous Effect runner supplied by the host's entrypoint. */
+  readonly runSync: typeof Effect.runSync
   /**
-   * The focusable UI groups this host wants reported, in tab order.
-   *
-   * Defaults to NONE, which is a coherent state and not a degenerate one: a
-   * host with no roster registers the focus listeners anyway and reports every
-   * focus change as `undefined`. That is the truth for a preview that draws
-   * only a canvas — there is no focusable game UI, so the keyboard is never on
-   * any. It is also what keeps the listener table identical in every host, so
-   * `LISTENER_PLAN` stays the single answer to what is registered.
+   * Resolve a browser target to the public focus DTO. The host owns DOM
+   * membership and returns `undefined` when focus is outside its UI.
    */
-  readonly focusGroups?: ReadonlyArray<FocusGroupTargets>
+  readonly focusTargetForElement?: FocusTargetForElement
+  /** Classify a click target using the host's DOM membership knowledge. */
+  readonly clickLandingForTarget?: ClickLandingForTarget
+  /** Receive arrow-key intent so the host can resolve and move focus. */
+  readonly onFocusNavigationDirection?: FocusNavigationHandler
   /**
    * The element the pointer lock would be granted to — the canvas.
    *
@@ -882,8 +664,7 @@ export type InstallInputListenersOptions = {
    * The on-screen controls this host drew, in no particular order.
    *
    * Defaults to NONE, which is what every desktop host has. Order is
-   * meaningless here — unlike `focusGroups`, where the array position IS the
-   * reported index — because a control is resolved by identity to an action and
+   * meaningless because a control is resolved by identity to an action and
    * never to a position.
    */
   readonly touchControls?: ReadonlyArray<TouchControlTarget>
@@ -898,6 +679,7 @@ const ONE_FINGER_HOLDING = 1
 
 type TouchDispatchState = {
   readonly input: InputServiceApi
+  readonly runSync: typeof Effect.runSync
   readonly touchActionCounts: Map<InputAction, number>
   readonly touchActions: Map<number, InputAction>
   readonly touchControls: ReadonlyArray<TouchControlTarget>
@@ -919,7 +701,7 @@ const dispatchTouchPress = (
   const count = state.touchActionCounts.get(action) ?? NO_FINGERS_HOLDING
   state.touchActionCounts.set(action, count + ONE_FINGER_HOLDING)
   if (count === NO_FINGERS_HOLDING) {
-    Effect.runSync(state.input.dispatch({ action, kind: 'touchpress', target }))
+    state.runSync(state.input.dispatch({ action, kind: 'touchpress', target }))
   }
 }
 
@@ -936,7 +718,7 @@ const dispatchTouchRelease = (
   const count = state.touchActionCounts.get(action)
   if (count === undefined || count <= ONE_FINGER_HOLDING) {
     state.touchActionCounts.delete(action)
-    Effect.runSync(state.input.dispatch({ action, kind: 'touchrelease', target }))
+    state.runSync(state.input.dispatch({ action, kind: 'touchrelease', target }))
     return
   }
   state.touchActionCounts.set(action, count - ONE_FINGER_HOLDING)
@@ -970,55 +752,37 @@ const dispatchTouchEvent = (state: TouchDispatchState, request: TouchDispatchReq
   return true
 }
 
-/**
- * The DN-16 §5(a) side effect a `keydown` may trigger, factored out of
- * `installInputListeners`'s listener closure purely to keep that closure under
- * this repository's own `max-statements` — the logic is unchanged from what
- * was inline: resolve, then call `.focus()` on what came back, if anything
- * did. See the listener's own comment for why this runs AFTER the ordinary
- * `keydown` dispatch and never calls `event.preventDefault()`.
- *
- * Takes `eventName` and returns immediately for anything but `'keydown'`,
- * rather than leaving that check in the listener as a second statement: only
- * `keydown` can be arrow-key navigation, so every other event — `mousemove`
- * included — must skip the `activeElement` read and the roster walk below
- * before either happens, not after.
- *
- * One object parameter, not four positional ones — `max-params` is 3 in this
- * repository, and threading `targets`/`focusGroups`/`eventName`/`code`
- * separately would only invite a call site to pass them in the wrong order.
- */
+/** Translate an arrow key to host-owned navigation intent after key dispatch. */
 type FocusNavigationDispatch = {
   readonly targets: BrowserInputTargets
-  readonly focusGroups: ReadonlyArray<FocusGroupTargets>
   readonly eventName: string
   readonly code: string | undefined
+  readonly onDirection?: FocusNavigationHandler
 }
 
-const applyFocusNavigation = (dispatch: FocusNavigationDispatch): void => {
-  if (dispatch.eventName !== 'keydown') {
+const dispatchFocusNavigationIntent = (dispatch: FocusNavigationDispatch): void => {
+  if (dispatch.eventName !== 'keydown' || typeof dispatch.onDirection === 'undefined') {
     return
   }
-  const nextFocus = resolveFocusNavigationTarget(dispatch.focusGroups, {
-    activeElement: dispatch.targets.document.activeElement,
-    code: dispatch.code,
-    pointerLockHeld: isPointerLockHeld(dispatch.targets.document),
-  })
-  if (typeof nextFocus !== 'undefined') {
-    nextFocus.focus()
+  if (isPointerLockHeld(dispatch.targets.document)) {
+    return
+  }
+  const direction = focusNavigationDirectionForCode(dispatch.code)
+  if (typeof direction !== 'undefined') {
+    dispatch.onDirection(direction)
   }
 }
 
 export const installInputListeners = (
   targets: BrowserInputTargets,
   input: InputServiceApi,
-  options: InstallInputListenersOptions = {},
+  options: InstallInputListenersOptions,
 ): InstalledInputListeners => {
-  const focusGroups = options.focusGroups ?? []
-  const { pointerLockTarget } = options
+  const { pointerLockTarget, runSync } = options
   const touchControls = options.touchControls ?? []
   const touchState: TouchDispatchState = {
     input,
+    runSync,
     touchActionCounts: new Map<InputAction, number>(),
     touchActions: new Map<number, InputAction>(),
     touchControls,
@@ -1037,7 +801,7 @@ export const installInputListeners = (
          when the event turns out to be untranslatable. A wheel whose
          `deltaMode` cannot be named must still not scroll the page out from
          under a locked canvas. */
-      if (typeof suppression !== 'undefined' && Effect.runSync(suppression)) {
+      if (typeof suppression !== 'undefined' && runSync(suppression)) {
         event.preventDefault()
       }
 
@@ -1055,36 +819,39 @@ export const installInputListeners = (
       }
 
       const translated = translateDomEvent(planned, event, {
-        focusGroups,
+        ...(options.clickLandingForTarget && {
+          clickLandingForTarget: options.clickLandingForTarget,
+        }),
+        ...(options.focusTargetForElement && {
+          focusTargetForElement: options.focusTargetForElement,
+        }),
         pointerLockHeld: readsLockElement && isPointerLockHeld(targets.document),
         pointerLockTarget,
         touchControls,
       })
       if (typeof translated !== 'undefined') {
-        Effect.runSync(input.dispatch(translated))
+        runSync(input.dispatch(translated))
       }
 
       /* AFTER the ordinary dispatch above, not instead of it: the raw
          `keydown` — ArrowLeft included — still reaches the service as an
-         ordinary held code, exactly as Tab does (see the file header). This
-         is a SEPARATE effect layered on top: DN-16 §5(a)'s answer to "which
-         member does the group move to", applied by calling `.focus()`
-         directly rather than by inventing a new `InputEvent` case for it.
-         `.focus()` fires `focusout`/`focusin` on `document` SYNCHRONOUSLY —
-         both are already registered listeners — so the resulting
-         `keyboardFocus` update reaches `InputService` through the exact same
-         path a real Tab press or mouse click does, and this file never
-         becomes a second writer of it.
+         ordinary held code. The host receives a separate direction intent and
+         owns membership lookup and any focus movement.
 
          No `event.preventDefault()` here, and none is added: `mayPreventDefault`
          has no `keydown` case, on purpose (REGRESSION: Tab belongs to the user
          agent), and giving arrow keys an exception would have to be a `keydown`
          exception, which would make Tab eligible too. `ARROW_FOCUS_NAVIGATION_POLICY`
-         (`domain/focus-navigation.ts`) records `owner: 'host'` for exactly
-         this reason: suppressing whatever a moved arrow key would otherwise
-         have done is the HOST's call, made with its own listener, not this
-         adapter's. */
-      applyFocusNavigation({ code: event.code, eventName: planned.event, focusGroups, targets })
+         (`domain/focus-navigation.ts`) records `owner: 'host'`: the host owns
+         any default suppression or focus movement. */
+      dispatchFocusNavigationIntent({
+        code: event.code,
+        eventName: planned.event,
+        ...(options.onFocusNavigationDirection && {
+          onDirection: options.onFocusNavigationDirection,
+        }),
+        targets,
+      })
     }
 
     return {
@@ -1132,7 +899,7 @@ export const installInputListeners = (
 export const scopedInputListeners = (
   targets: BrowserInputTargets,
   input: InputServiceApi,
-  options: InstallInputListenersOptions = {},
+  options: InstallInputListenersOptions,
 ): Effect.Effect<InstalledInputListeners, never, Scope.Scope> =>
   Effect.acquireRelease(
     Effect.sync(() => installInputListeners(targets, input, options)),
@@ -1198,31 +965,37 @@ const ignore = (): void => {
  * becoming an unhandled rejection that takes the host down.
  */
 /** The try/catch/thenable-swallowing core of one pointer-lock request. */
-const attemptPointerLockRequest = (canvas: PointerLockTarget): PointerLockRequestOutcome => {
-  if (typeof canvas.requestPointerLock !== 'function') {
-    return 'unavailable'
-  }
-  try {
-    /* Called as a method so that `this` is the canvas, which is what the DOM
-       requires and what a `const request = canvas.requestPointerLock` would
-       have quietly broken. */
-    const result: unknown = canvas.requestPointerLock()
-    if (isThenable(result)) {
-      result.then(ignore, ignore)
-    }
-    return 'sent'
-  } catch {
-    return 'unavailable'
-  }
-}
+const attemptPointerLockRequest = (canvas: PointerLockTarget): Effect.Effect<PointerLockRequestOutcome> =>
+  Effect.match(
+    Effect.try({
+      catch: () => 'unavailable',
+      try: (): PointerLockRequestOutcome => {
+        if (typeof canvas.requestPointerLock !== 'function') {
+          return 'unavailable'
+        }
+        /* Called as a method so that `this` is the canvas, which is what the DOM
+           requires and what a `const request = canvas.requestPointerLock` would
+           have quietly broken. */
+        const result: unknown = canvas.requestPointerLock()
+        if (isThenable(result)) {
+          result.then(ignore, ignore)
+        }
+        return 'sent'
+      },
+    }),
+    {
+      onFailure: () => 'unavailable',
+      onSuccess: (outcome) => outcome,
+    },
+  )
 
 export const makeBrowserPointerLockPort = (options: BrowserPointerLockOptions): PointerLockPort => ({
-  request: Effect.sync((): PointerLockRequestOutcome => {
+  request: Effect.gen(function* requestPointerLock() {
     const { canvas } = options
     if (typeof options.allowsPointerLock !== 'undefined' && !options.allowsPointerLock()) {
       return 'unavailable'
     }
-    return attemptPointerLockRequest(canvas)
+    return yield* attemptPointerLockRequest(canvas)
   }),
 })
 
@@ -1242,31 +1015,24 @@ export const makeBrowserPointerLockPort = (options: BrowserPointerLockOptions): 
  */
 export type BrowserInputOptions = {
   readonly targets: BrowserInputTargets
+  /** The synchronous Effect runner owned by the host's runtime boundary. */
+  readonly runSync: typeof Effect.runSync
   readonly canvas?: PointerLockTarget
   readonly allowsPointerLock?: () => boolean
   readonly bindings?: Bindings
-  /**
-   * The focusable UI groups to report, in tab order. Optional, for the same
-   * reason `canvas` is: a preview that draws no focusable UI has none, and
-   * saying so by omission is better than by an empty array a reader has to
-   * interpret.
-   *
-   * A browser host building mx-ui's hotbar passes
-   * `[{ group: HOTBAR_FOCUS_GROUP, targets: slotElements }]`, where
-   * `slotElements` are the nine elements in slot order. mx-ui does not hand
-   * them out — they are reachable as
-   * `document.querySelectorAll('[data-mx-ui="hotbar"] [data-mx-ui="slot"]')`,
-   * and that query belongs to the host because the host is the only place that
-   * knows both repositories are on the page.
-   */
-  readonly focusGroups?: ReadonlyArray<FocusGroupTargets>
+  /** Resolves focus arrivals using mx-ui-owned DOM membership. */
+  readonly focusTargetForElement?: FocusTargetForElement
+  /** Classifies click arrivals using mx-ui-owned DOM membership. */
+  readonly clickLandingForTarget?: ClickLandingForTarget
+  /** Arrow navigation intent delivered to mx-ui. */
+  readonly onFocusNavigationDirection?: FocusNavigationHandler
   /**
    * The on-screen controls to bind, if this host drew any.
    *
    * A touch host passes one entry per control —
    * `[{ action: 'jump', target: jumpButton }, { action: 'escape', target: pauseButton }]`
-   * — and the elements come from the host for the reason `focusGroups`' do: the
-   * host is the only place that knows both repositories are on the page.
+   * — and the elements come from the host because the host is the only place that
+   * knows both repositories are on the page.
    *
    * `unboundTouchActions(bindings, controls.map(c => c.action))` is the check
    * worth running once at setup. A control whose action is bound to nothing is a
@@ -1300,7 +1066,7 @@ const pointerLockPortFor = (options: BrowserInputOptions): PointerLockPort => {
  * the same tag.
  */
 export const browserInputLayer = (options: BrowserInputOptions): Layer.Layer<InputService> =>
-  Layer.scoped(
+  Layer.effect(
     InputService,
     Effect.gen(function* makeBrowserInputService() {
       const input = yield* makeInputService(
@@ -1313,7 +1079,16 @@ export const browserInputLayer = (options: BrowserInputOptions): Layer.Layer<Inp
          — the declaration it already had to make now also scopes the
          acquisition (DN-16 §5(b)). */
       yield* scopedInputListeners(options.targets, input, {
-        focusGroups: options.focusGroups ?? [],
+        runSync: options.runSync,
+        ...(options.clickLandingForTarget && {
+          clickLandingForTarget: options.clickLandingForTarget,
+        }),
+        ...(options.focusTargetForElement && {
+          focusTargetForElement: options.focusTargetForElement,
+        }),
+        ...(options.onFocusNavigationDirection && {
+          onFocusNavigationDirection: options.onFocusNavigationDirection,
+        }),
         pointerLockTarget: options.canvas,
         touchControls: options.touchControls ?? [],
       })
@@ -1370,7 +1145,7 @@ export const TOUCH_CONTROL_ACTIONS: readonly [
 
 export type TouchControlAction = (typeof TOUCH_CONTROL_ACTIONS)[number]
 
-export type TouchControlTargets<Target = unknown> = Readonly<Record<TouchControlAction, Target>>
+export type TouchControlTargets<Target = unknown> = Readonly<Partial<Record<TouchControlAction, Target>>>
 
 /**
  * Build a `TouchControlTarget` roster from a host's `{action: element}` map.
@@ -1379,41 +1154,135 @@ export type TouchControlTargets<Target = unknown> = Readonly<Record<TouchControl
  * catches an action with no binding (see its own header — this is the check
  * answerable without a browser), and the two loops below catch a target the
  * host forgot to assign and a target the host assigned to two actions. A
- * roster is data a host writes by hand, and all three are typo classes, not
- * runtime conditions.
+ * roster is data a host writes by hand, and all three are validated while the
+ * host builds the roster.
  *
  * `bindings` defaults to `defaultBindings()` rather than being hardcoded to
  * it — the lowered original always checked the DEFAULT table, which can only
- * ever pass (every `TOUCH_CONTROL_ACTIONS` entry has a default binding, so
- * the throw below was unreachable from any caller and untestable). A host
+ * ever pass because every `TOUCH_CONTROL_ACTIONS` entry has a default binding.
+ * A host
  * that remapped its keys should validate its roster against what its player
  * ACTUALLY has bound, not the table nobody is using; the parameter also
- * makes the rejection reachable from a test.
+ * makes the typed rejection reachable from a test.
  */
 const NO_UNAVAILABLE_TOUCH_ACTIONS = 0
+
+export type TouchControlRosterError =
+  | {
+      readonly _tag: 'TouchControlRosterError'
+      readonly reason: 'unbound-actions'
+      readonly actions: ReadonlyArray<TouchControlAction>
+    }
+  | {
+      readonly _tag: 'TouchControlRosterError'
+      readonly reason: 'missing-target'
+      readonly action: TouchControlAction
+    }
+  | {
+      readonly _tag: 'TouchControlRosterError'
+      readonly reason: 'shared-target'
+      readonly owner: TouchControlAction
+      readonly action: TouchControlAction
+    }
+
+type TouchControlRosterResultShape =
+  | {
+      readonly _tag: 'Success'
+      readonly _op: 'Success'
+      readonly success: ReadonlyArray<TouchControlTarget>
+    }
+  | {
+      readonly _tag: 'Failure'
+      readonly _op: 'Failure'
+      readonly failure: TouchControlRosterError
+    }
+
+export const TouchControlRosterErrorSchema: Schema.Codec<TouchControlRosterError> = Schema.Union([
+  Schema.Struct({
+    _tag: Schema.Literal('TouchControlRosterError'),
+    actions: Schema.Array(Schema.Literals(TOUCH_CONTROL_ACTIONS)),
+    reason: Schema.Literal('unbound-actions'),
+  }),
+  Schema.Struct({
+    _tag: Schema.Literal('TouchControlRosterError'),
+    action: Schema.Literals(TOUCH_CONTROL_ACTIONS),
+    reason: Schema.Literal('missing-target'),
+  }),
+  Schema.Struct({
+    _tag: Schema.Literal('TouchControlRosterError'),
+    action: Schema.Literals(TOUCH_CONTROL_ACTIONS),
+    owner: Schema.Literals(TOUCH_CONTROL_ACTIONS),
+    reason: Schema.Literal('shared-target'),
+  }),
+])
+
+export const TouchControlRosterResultSchema: Schema.Codec<
+  TouchControlRosterResultShape
+> = Schema.Union([
+  Schema.Struct({
+    _op: Schema.Literal('Success'),
+    _tag: Schema.Literal('Success'),
+    success: Schema.Array(
+      Schema.Struct({
+        action: Schema.Literals(TOUCH_CONTROL_ACTIONS),
+        target: Schema.Unknown,
+      }),
+    ),
+  }),
+  Schema.Struct({
+    _op: Schema.Literal('Failure'),
+    _tag: Schema.Literal('Failure'),
+    failure: TouchControlRosterErrorSchema,
+  }),
+])
+
+type TouchControlRosterEntry = {
+  readonly action: TouchControlAction
+  readonly target: unknown
+  readonly owners: Map<unknown, TouchControlAction>
+  readonly roster: TouchControlTarget[]
+}
+
+const appendTouchControlTarget = ({
+  action,
+  target,
+  owners,
+  roster,
+}: TouchControlRosterEntry): TouchControlRosterError | undefined => {
+  if (target === null || target === undefined) {
+    return { _tag: 'TouchControlRosterError', action, reason: 'missing-target' }
+  }
+  const owner = owners.get(target)
+  if (owner !== undefined) {
+    return { _tag: 'TouchControlRosterError', action, owner, reason: 'shared-target' }
+  }
+  owners.set(target, action)
+  roster.push({ action, target })
+  return undefined
+}
 
 export const createTouchControlRoster = <Target>(
   targets: TouchControlTargets<Target>,
   bindings: Bindings = defaultBindings(),
-): ReadonlyArray<TouchControlTarget> => {
+): Result.Result<ReadonlyArray<TouchControlTarget>, TouchControlRosterError> => {
   const unavailable = unboundTouchActions(bindings, TOUCH_CONTROL_ACTIONS)
   if (unavailable.length > NO_UNAVAILABLE_TOUCH_ACTIONS) {
-    throw new Error(`Touch controls have no input binding: ${unavailable.join(', ')}`)
+    return Result.fail({
+      _tag: 'TouchControlRosterError',
+      actions: unavailable,
+      reason: 'unbound-actions',
+    })
   }
 
   const owners = new Map<unknown, TouchControlAction>()
-  return TOUCH_CONTROL_ACTIONS.map((action) => {
-    const target = targets[action]
-    if (target === null || target === undefined) {
-      throw new Error(`Touch control target is missing: ${action}`)
+  const roster: TouchControlTarget[] = []
+  for (const action of TOUCH_CONTROL_ACTIONS) {
+    const error = appendTouchControlTarget({ action, owners, roster, target: targets[action] })
+    if (typeof error !== 'undefined') {
+      return Result.fail(error)
     }
-    const owner = owners.get(target)
-    if (owner !== undefined) {
-      throw new Error(`Touch control target is shared by ${owner} and ${action}`)
-    }
-    owners.set(target, action)
-    return { action, target }
-  })
+  }
+  return Result.succeed(roster)
 }
 
 /**

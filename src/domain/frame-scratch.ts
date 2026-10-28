@@ -1,3 +1,5 @@
+import { Effect } from 'effect'
+
 /**
  * Per-frame scratch buffers: allocate once, reuse forever.
  *
@@ -89,15 +91,17 @@ export type ScratchViolation = {
   readonly message: string
 }
 
-export class ScratchMisuseError extends Error {
+export type ScratchMisuseError = Readonly<{
+  readonly _tag: 'ScratchMisuseError'
   readonly violation: ScratchViolation
+  readonly message: string
+}>
 
-  constructor(violation: ScratchViolation) {
-    super(violation.message)
-    this.name = 'ScratchMisuseError'
-    this.violation = violation
-  }
-}
+const scratchMisuseError = (violation: ScratchViolation): ScratchMisuseError => ({
+  _tag: 'ScratchMisuseError',
+  message: violation.message,
+  violation,
+})
 
 /** One lease entered or exited, for the `usage`/`borrowed` counters below — named so the `+= `/`-= ` reads as "one lease" rather than an arbitrary tuning knob. */
 const LEASE_STEP = 1
@@ -111,44 +115,27 @@ const scratchDisplayName = (name: string, initialCapacity: number | undefined): 
   return `${name}[~${String(initialCapacity)}]`
 }
 
+export type ScratchMapView<Key, Value> = {
+  size(): Effect.Effect<number, ScratchMisuseError>
+  clear(): Effect.Effect<void, ScratchMisuseError>
+  delete(key: Key): Effect.Effect<boolean, ScratchMisuseError>
+  entries(): Effect.Effect<ReadonlyArray<readonly [Key, Value]>, ScratchMisuseError>
+  forEach(
+    callbackfn: (value: Value, key: Key, map: ScratchMapView<Key, Value>) => void,
+    thisArg?: unknown,
+  ): Effect.Effect<void, ScratchMisuseError>
+  get(key: Key): Effect.Effect<Value | undefined, ScratchMisuseError>
+  has(key: Key): Effect.Effect<boolean, ScratchMisuseError>
+  keys(): Effect.Effect<ReadonlyArray<Key>, ScratchMisuseError>
+  set(key: Key, value: Value): Effect.Effect<void, ScratchMisuseError>
+  values(): Effect.Effect<ReadonlyArray<Value>, ScratchMisuseError>
+}
+
 type ScratchOwner = {
-  readonly assertActive: () => void
+  readonly access: <AccessResult>(operation: () => AccessResult) => Effect.Effect<AccessResult, ScratchMisuseError>
 }
 
-declare global {
-  interface SymbolConstructor {
-    readonly dispose: unique symbol
-  }
-}
-
-class GuardedIterator<Item> implements MapIterator<Item> {
-  private readonly source: Iterator<Item>
-  private readonly owner: ScratchOwner
-
-  constructor(source: Iterator<Item>, owner: ScratchOwner) {
-    this.source = source
-    this.owner = owner
-  }
-
-  next(...args: [] | [undefined]): IteratorResult<Item> {
-    this.owner.assertActive()
-    return this.source.next(...args)
-  }
-
-  [Symbol.iterator](): MapIterator<Item> {
-    this.owner.assertActive()
-    return this
-  }
-
-  [Symbol.dispose](): void {
-    this.owner.assertActive()
-  }
-
-}
-
-class GuardedMap<Key, Value> implements Map<Key, Value> {
-  readonly [Symbol.toStringTag] = 'Map'
-
+class GuardedMap<Key, Value> implements ScratchMapView<Key, Value> {
   private readonly source: Map<Key, Value>
   private readonly owner: ScratchOwner
 
@@ -157,86 +144,83 @@ class GuardedMap<Key, Value> implements Map<Key, Value> {
     this.owner = owner
   }
 
-  get size(): number {
-    this.owner.assertActive()
-    return this.source.size
+  size(): Effect.Effect<number, ScratchMisuseError> {
+    return this.owner.access(() => this.source.size)
   }
 
-  clear(): void {
-    this.owner.assertActive()
-    this.source.clear()
+  clear(): Effect.Effect<void, ScratchMisuseError> {
+    return this.owner.access(() => this.source.clear())
   }
 
-  delete(key: Key): boolean {
-    this.owner.assertActive()
-    return this.source.delete(key)
+  delete(key: Key): Effect.Effect<boolean, ScratchMisuseError> {
+    return this.owner.access(() => this.source.delete(key))
   }
 
-  entries(): MapIterator<[Key, Value]> {
-    this.owner.assertActive()
-    return new GuardedIterator(this.source.entries(), this.owner)
+  entries(): Effect.Effect<ReadonlyArray<readonly [Key, Value]>, ScratchMisuseError> {
+    return this.owner.access(() =>
+      Array.from(this.source, ([entryKey, value]) => [entryKey, value] as const),
+    )
   }
 
   forEach(
-    callbackfn: (value: Value, key: Key, map: Map<Key, Value>) => void,
+    callbackfn: (value: Value, key: Key, map: ScratchMapView<Key, Value>) => void,
     thisArg?: unknown,
-  ): void {
-    this.owner.assertActive()
-    this.source.forEach((value, key) => callbackfn.call(thisArg, value, key, this), thisArg)
+  ): Effect.Effect<void, ScratchMisuseError> {
+    return this.owner.access(() =>
+      this.source.forEach((value, key) => callbackfn.call(thisArg, value, key, this), thisArg),
+    )
   }
 
-  get(key: Key): Value | undefined {
-    this.owner.assertActive()
-    return this.source.get(key)
+  get(key: Key): Effect.Effect<Value | undefined, ScratchMisuseError> {
+    return this.owner.access(() => this.source.get(key))
   }
 
-  has(key: Key): boolean {
-    this.owner.assertActive()
-    return this.source.has(key)
+  has(key: Key): Effect.Effect<boolean, ScratchMisuseError> {
+    return this.owner.access(() => this.source.has(key))
   }
 
-  keys(): MapIterator<Key> {
-    this.owner.assertActive()
-    return new GuardedIterator(this.source.keys(), this.owner)
+  keys(): Effect.Effect<ReadonlyArray<Key>, ScratchMisuseError> {
+    return this.owner.access(() => Array.from(this.source.keys()))
   }
 
-  set(key: Key, value: Value): this {
-    this.owner.assertActive()
-    this.source.set(key, value)
-    return this
+  set(key: Key, value: Value): Effect.Effect<void, ScratchMisuseError> {
+    return this.owner.access(() => {
+      this.source.set(key, value)
+    })
   }
 
-  values(): MapIterator<Value> {
-    this.owner.assertActive()
-    return new GuardedIterator(this.source.values(), this.owner)
-  }
-
-  [Symbol.iterator](): ReturnType<Map<Key, Value>['entries']> {
-    return this.entries()
+  values(): Effect.Effect<ReadonlyArray<Value>, ScratchMisuseError> {
+    return this.owner.access(() => Array.from(this.source.values()))
   }
 }
 
 class ScratchState<Key, Value> implements ScratchOwner {
   readonly buffer: Map<Key, Value> = new Map<Key, Value>()
-  readonly view: Map<Key, Value>
+  readonly view: ScratchMapView<Key, Value>
   private active = false
   private usage = NO_ACTIVE_LEASES
   private borrowed = NO_ACTIVE_LEASES
 
   readonly name: string
 
+  readonly access = <AccessResult>(
+    operation: () => AccessResult,
+  ): Effect.Effect<AccessResult, ScratchMisuseError> =>
+    Effect.suspend(() => {
+      if (!this.active) {
+        return Effect.fail(
+          scratchMisuseError({
+            message: `scratch buffer '${this.name}' was used outside its withScratch borrow. Copy results with snapshotScratch before returning.`,
+            rule: 'escaped-buffer',
+          }),
+        )
+      }
+      return Effect.sync(operation)
+    })
+
   constructor(name: string) {
     this.name = name
     this.view = new GuardedMap(this.buffer, this)
-  }
-
-  assertActive(): void {
-    if (!this.active) {
-      throw new ScratchMisuseError({
-        message: `scratch buffer '${this.name}' was used outside its withScratch borrow. Copy results with snapshotScratch before returning.`,
-        rule: 'escaped-buffer',
-      })
-    }
   }
 
   enter(): void {
@@ -264,16 +248,18 @@ const scratchStates = new WeakMap<object, unknown>()
 const isScratchState = <Key, Value>(value: unknown): value is ScratchState<Key, Value> =>
   value instanceof ScratchState
 
-const stateFor = <Key, Value>(scratch: ScratchMap<Key, Value>): ScratchState<Key, Value> => {
+const stateFor = <Key, Value>(
+  scratch: ScratchMap<Key, Value>,
+): ScratchState<Key, Value> | ScratchMisuseError => {
   if (typeof scratch !== 'object' || scratch === null) {
-    throw new ScratchMisuseError({
+    return scratchMisuseError({
       message: 'withScratch received a non-object scratch value created outside makeScratchMap.',
       rule: 'foreign-scratch',
     })
   }
   const state = scratchStates.get(scratch)
   if (!isScratchState<Key, Value>(state)) {
-    throw new ScratchMisuseError({
+    return scratchMisuseError({
       message: 'withScratch received a ScratchMap that was not created by makeScratchMap.',
       rule: 'foreign-scratch',
     })
@@ -304,81 +290,78 @@ export function makeScratchMap<Key, Value>(name: string, initialCapacity?: numbe
 /** No lease is currently held on the buffer. */
 const NO_ACTIVE_BORROW = 0
 
-const assertNotReentrant = <Key, Value>(state: ScratchState<Key, Value>): void => {
-  if (state.borrowedCount() > NO_ACTIVE_BORROW) {
-    throw new ScratchMisuseError({
-      message:
-        `scratch buffer '${state.name}' is already borrowed. Two concurrent users share one ` +
-        'mutable buffer and will clobber each other. Give the inner operation its own buffer.',
-      rule: 're-entrant-borrow',
-    })
+const assertNotReentrant = <Key, Value>(
+  state: ScratchState<Key, Value>,
+): ScratchMisuseError | undefined => {
+  if (state.borrowedCount() <= NO_ACTIVE_BORROW) {
+    return undefined
   }
+  return scratchMisuseError({
+    message:
+      `scratch buffer '${state.name}' is already borrowed. Two concurrent users share one ` +
+      'mutable buffer and will clobber each other. Give the inner operation its own buffer.',
+    rule: 're-entrant-borrow',
+  })
 }
 
-const assertNotEscaped = <Key, Value>(state: ScratchState<Key, Value>, result: unknown): void => {
-  if (result === state.view) {
-    throw new ScratchMisuseError({
-      message:
-        `a caller returned scratch buffer '${state.name}' from withScratch. The buffer is ` +
-        'cleared and refilled every frame, so the escaped reference would silently change ' +
-        'under its holder. Copy what you need out of it instead.',
-      rule: 'escaped-buffer',
-    })
+const assertNotEscaped = <Key, Value>(
+  state: ScratchState<Key, Value>,
+  result: unknown,
+): ScratchMisuseError | undefined => {
+  if (result !== state.view) {
+    return undefined
   }
+  return scratchMisuseError({
+    message:
+      `a caller returned scratch buffer '${state.name}' from withScratch. The buffer is ` +
+      'cleared and refilled every frame, so the escaped reference would silently change ' +
+      'under its holder. Copy what you need out of it instead.',
+    rule: 'escaped-buffer',
+  })
 }
 
 /**
- * Borrow a scratch buffer for the duration of one operation.
- *
- * The buffer is cleared on entry, not on exit: a caller debugging a frame can
- * inspect the contents after the fact, and clearing on entry is the invariant
- * that actually matters (the callback must never see stale data).
- *
- * Throws `ScratchMisuseError` when:
- *
- * - the buffer is already borrowed (re-entrant use — two users clobbering);
- * - the callback returns the live buffer itself (the reference escapes the frame);
- * - a buffer or iterator retained by a caller is used after the borrow ends.
- *
- * Throwing, rather than returning an Either, is deliberate. Both conditions are
- * programmer errors that must fail loudly in development; neither is a
- * recoverable runtime state, and threading an error channel through the hot
- * path would reintroduce the allocation this module exists to avoid.
- *
- * NOTE for callers: `Map.prototype.set` returns the Map, so a concise arrow
- * body such as `withScratch(s, (b) => b.set(k, v))` returns the buffer and
- * trips the escape check. Use a block body. That the check catches it is the
- * system working — an implicitly returned buffer is exactly the accidental
- * escape this is here to prevent, and it is the easiest one to write by
- * mistake.
+ * Borrow a scratch buffer for one operation. The effect owns the lease and
+ * releases it on success, typed failure, interruption, or defect.
  */
-export const withScratch = <Key, Value, Result>(
+export const withScratch = <Key, Value, Result, Requirements>(
   scratch: ScratchMap<Key, Value>,
-  use: (buffer: Map<Key, Value>) => Result,
-): Result => {
+  use: (buffer: ScratchMapView<Key, Value>) => Effect.Effect<Result, ScratchMisuseError, Requirements>,
+): Effect.Effect<Result, ScratchMisuseError, Requirements> => {
   const state = stateFor(scratch)
-  assertNotReentrant(state)
-
-  state.enter()
-  try {
-    state.buffer.clear()
-    const result = use(state.view)
-    assertNotEscaped(state, result)
-    return result
-  } finally {
-    state.exit()
+  if ('_tag' in state) {
+    return Effect.fail(state)
   }
+  return Effect.acquireUseRelease(
+    Effect.suspend(() => {
+      const reentrant = assertNotReentrant(state)
+      if (reentrant !== undefined) {
+        return Effect.fail(reentrant)
+      }
+      state.enter()
+      state.buffer.clear()
+      return Effect.succeed(state.view)
+    }),
+    (view) =>
+      Effect.flatMap(Effect.suspend(() => use(view)), (result) => {
+        const escaped = assertNotEscaped(state, result)
+        if (escaped === undefined) {
+          return Effect.succeed(result)
+        }
+        return Effect.fail(escaped)
+      }),
+    () => Effect.sync(() => state.exit()),
+  )
 }
 
 /**
- * Copy a scratch buffer's contents out.
- *
- * The sanctioned way to keep results past the borrow. It allocates, which is
- * the point: the allocation is explicit and attributable, rather than a
- * reference that looks free and is not.
+ * Copy the live scratch entries while the lease is active.
  */
-export const snapshotScratch = <Key, Value>(buffer: ReadonlyMap<Key, Value>): ReadonlyMap<Key, Value> =>
-  new Map(buffer)
+export const snapshotScratch = <Key, Value>(
+  buffer: ScratchMapView<Key, Value>,
+): Effect.Effect<ReadonlyMap<Key, Value>, ScratchMisuseError> =>
+  Effect.map(buffer.entries(), (entries) => new Map(entries))
+
 
 /**
  * The buffers one frame needs.

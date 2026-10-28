@@ -56,7 +56,7 @@
  * from a tap.
  */
 import { describe, expect, it } from '@effect/vitest'
-import { Effect } from 'effect'
+import { Effect, Result, Schema } from 'effect'
 import {
   acquiresPointerLock,
   bindingFor,
@@ -80,6 +80,7 @@ import {
   advanceTouchLook,
   consumeTouchLook,
   createTouchControlRoster,
+  TouchControlRosterResultSchema,
   installInputListeners,
   resetTouchLook,
   resolveClickLanding,
@@ -107,15 +108,12 @@ import type { DomInputEvent, DomListener, DomListenerOptions } from '../src/appl
  * operation on it is `===`. A test that gave these `getAttribute` would be
  * testing an adapter this repository refused to write.
  *
- * `inventoryButton` and `pauseButton` carry a `focus()` nobody calls, purely so
- * they can ALSO stand in for a `FocusGroupTargets` roster member below
- * ("the synthesised mousedown..." — DN-16 §5(a) made `.focus()` a required
- * member) — added rather than reusing a spread copy, because `resolveClickLanding`
- * compares by IDENTITY and a copy would not be the SAME object the test later
- * passes as the click target.
+ * `inventoryButton` and `pauseButton` are the same opaque targets used by click
+ * and touch tests. The adapter compares those identities but does not inspect
+ * focus membership or move DOM focus.
  */
-const inventoryButton = { name: 'inventory-button', focus: () => undefined }
-const pauseButton = { name: 'pause-button', focus: () => undefined }
+const inventoryButton = { name: 'inventory-button' }
+const pauseButton = { name: 'pause-button' }
 const jumpButton = { name: 'jump-button' }
 const attackButton = { name: 'attack-button' }
 const undeclaredDecoration = { name: 'a-thing-the-host-never-declared' }
@@ -347,7 +345,6 @@ describe('PORTED #35: the same claim through the browser adapter', () => {
     Effect.sync(() => {
       const translated = translateDomEvent(planned('touchstart'), domEvent(inventoryButton), {
         pointerLockHeld: false,
-        focusGroups: [],
         touchControls: MOBILE_CONTROLS,
       })
       expect(translated).toStrictEqual({
@@ -368,7 +365,6 @@ describe('PORTED #35: the same claim through the browser adapter', () => {
         expect(
           translateDomEvent(planned(event), domEvent(jumpButton), {
             pointerLockHeld: false,
-            focusGroups: [],
             touchControls: MOBILE_CONTROLS,
           }),
         ).toStrictEqual({ kind: 'touchrelease', action: 'jump', target: GAMEPLAY_LISTENER_TARGET })
@@ -389,7 +385,6 @@ describe('PORTED #35: the same claim through the browser adapter', () => {
       expect(
         translateDomEvent(planned('touchstart'), domEvent(undeclaredDecoration), {
           pointerLockHeld: false,
-          focusGroups: [],
           touchControls: MOBILE_CONTROLS,
         }),
       ).toBeUndefined()
@@ -414,7 +409,7 @@ describe('PORTED #35: the same claim through the browser adapter', () => {
       }
 
       const input = yield* makeInputService()
-      installInputListeners(targets, input, { pointerLockTarget: canvas, touchControls: MOBILE_CONTROLS })
+      installInputListeners(targets, input, { pointerLockTarget: canvas, touchControls: MOBILE_CONTROLS, runSync: Effect.runSync })
 
       const fire = (type: string, element: unknown): void => {
         for (const call of added.filter((candidate) => candidate.type === type)) {
@@ -447,7 +442,7 @@ describe('PORTED #35: the same claim through the browser adapter', () => {
         document: { ...target, pointerLockElement: null, activeElement: null },
       }
       const input = yield* makeInputService()
-      installInputListeners(targets, input, { pointerLockTarget: canvas, touchControls: MOBILE_CONTROLS })
+      installInputListeners(targets, input, { pointerLockTarget: canvas, touchControls: MOBILE_CONTROLS, runSync: Effect.runSync })
 
       const fire = (type: string, event: DomInputEvent): void => {
         for (const call of added.filter((candidate) => candidate.type === type)) {
@@ -476,7 +471,7 @@ describe('PORTED #35: the same claim through the browser adapter', () => {
         document: { ...target, pointerLockElement: null, activeElement: null },
       }
       const input = yield* makeInputService()
-      installInputListeners(targets, input, { pointerLockTarget: canvas, touchControls: MOBILE_CONTROLS })
+      installInputListeners(targets, input, { pointerLockTarget: canvas, touchControls: MOBILE_CONTROLS, runSync: Effect.runSync })
       const fire = (type: string, event: DomInputEvent): void => {
         for (const call of added.filter((candidate) => candidate.type === type)) {
           call.listener(event)
@@ -643,10 +638,15 @@ describe('REGRESSION: a tap can NOT reach pointer-lock acquisition', () => {
       // `landing !== 'ui'` an undeclared control would read "not UI" and every
       // tap would grab the pointer; under `=== 'lock-target'` the worst case is
       // that mouselook does not engage, which is visible on the first try.
-      const groups = [{ group: 'touch', targets: [inventoryButton, pauseButton] }]
-      expect(resolveClickLanding(canvas, groups, inventoryButton)).toBe('ui')
-      expect(resolveClickLanding(canvas, [], inventoryButton)).toBe('elsewhere')
-      expect(resolveClickLanding(canvas, [], undeclaredDecoration)).toBe('elsewhere')
+      const clickLandingForTarget = (target: unknown) => {
+        if (target === inventoryButton || target === pauseButton) {
+          return 'ui' as const
+        }
+        return 'elsewhere' as const
+      }
+      expect(resolveClickLanding(canvas, inventoryButton, clickLandingForTarget)).toBe('ui')
+      expect(resolveClickLanding(canvas, inventoryButton)).toBe('elsewhere')
+      expect(resolveClickLanding(canvas, undeclaredDecoration, clickLandingForTarget)).toBe('elsewhere')
 
       for (const landing of ['ui', 'elsewhere'] as const) {
         expect(acquiresPointerLock('MouseLeft', 'unlocked', landing)).toBe(false)
@@ -671,10 +671,7 @@ describe('REGRESSION: a tap can NOT reach pointer-lock acquisition', () => {
       // two controls in different regions are equal by shape and are not the
       // same button — and reading an attribute would put `getAttribute` in
       // `dom-surface.ts`, which breaks the proof outright.
-      // Carries the same `focus()` `inventoryButton` was given for DN-16 §5(a)
-      // (see its declaration), or this "same SHAPE" assertion would fail for a
-      // reason that has nothing to do with the identity check it exists to prove.
-      const lookalike = { name: 'inventory-button', focus: inventoryButton.focus }
+      const lookalike = { name: 'inventory-button' }
       expect(lookalike).toStrictEqual(inventoryButton)
       expect(resolveTouchControl(MOBILE_CONTROLS, lookalike)).toBeUndefined()
       expect(resolveTouchControl(MOBILE_CONTROLS, inventoryButton)).toBe('openInventory')
@@ -683,7 +680,6 @@ describe('REGRESSION: a tap can NOT reach pointer-lock acquisition', () => {
       expect(
         translateDomEvent(planned('touchstart'), event, {
           pointerLockHeld: false,
-          focusGroups: [],
           touchControls: MOBILE_CONTROLS,
         }),
       ).toBeUndefined()
@@ -713,44 +709,80 @@ describe('createTouchControlRoster', () => {
 
   it.effect('builds one roster entry per TOUCH_CONTROL_ACTIONS, target intact', () =>
     Effect.sync(() => {
-      const roster = createTouchControlRoster(fullTargets)
-
-      expect(roster).toHaveLength(TOUCH_CONTROL_ACTIONS.length)
-      for (const action of TOUCH_CONTROL_ACTIONS) {
-        expect(roster.find((entry) => entry.action === action)?.target).toBe(fullTargets[action])
+      const result = createTouchControlRoster(fullTargets)
+      expect(Result.isSuccess(result)).toBe(true)
+      if (Result.isSuccess(result)) {
+        expect(result.success).toHaveLength(TOUCH_CONTROL_ACTIONS.length)
+        for (const action of TOUCH_CONTROL_ACTIONS) {
+          expect(result.success.find((entry) => entry.action === action)?.target).toBe(fullTargets[action])
+        }
       }
     }),
   )
 
-  it.effect('rejects a target map missing an action', () =>
+  it.effect('returns a typed error when a target is missing', () =>
     Effect.sync(() => {
       const { jump: _dropped, ...partial } = fullTargets
-
-      expect(() =>
-        createTouchControlRoster(partial as unknown as Readonly<Record<TouchControlAction, unknown>>),
-      ).toThrowError(/jump/u)
+      const result = createTouchControlRoster(partial)
+      const inspected = Schema.decodeUnknownResult(TouchControlRosterResultSchema, {
+        onExcessProperty: 'error',
+      })(result)
+      expect(Result.isSuccess(inspected)).toBe(true)
+      if (Result.isSuccess(inspected)) {
+        expect(inspected.success._tag).toBe('Failure')
+        if (inspected.success._tag === 'Failure') {
+          expect(inspected.success.failure).toStrictEqual({
+            _tag: 'TouchControlRosterError',
+            reason: 'missing-target',
+            action: 'jump',
+          })
+        }
+      }
     }),
   )
 
-  it.effect('rejects two actions sharing one target', () =>
+  it.effect('returns a typed error when actions share one target', () =>
     Effect.sync(() => {
       const sharedTarget = { name: 'shared' }
       const shared = { ...fullTargets, attack: sharedTarget, use: sharedTarget }
-
-      expect(() => createTouchControlRoster(shared)).toThrowError(/attack.*use|use.*attack/u)
+      const result = createTouchControlRoster(shared)
+      const inspected = Schema.decodeUnknownResult(TouchControlRosterResultSchema, {
+        onExcessProperty: 'error',
+      })(result)
+      expect(Result.isSuccess(inspected)).toBe(true)
+      if (Result.isSuccess(inspected)) {
+        expect(inspected.success._tag).toBe('Failure')
+        if (inspected.success._tag === 'Failure') {
+          expect(inspected.success.failure).toStrictEqual({
+            _tag: 'TouchControlRosterError',
+            reason: 'shared-target',
+            owner: 'attack',
+            action: 'use',
+          })
+        }
+      }
     }),
   )
 
-  it.effect(
-    'rejects an action with no binding at all, checked against the CALLER-SUPPLIED bindings — second angle: this branch is unreachable under defaultBindings() alone, which is why the parameter exists',
-    () =>
-      Effect.sync(() => {
-        // The same "strip one binding" idiom this file already uses above
-        // (`stripped: Bindings = { ...defaultBindings(), X: undefined as never }`).
-        const noJumpBinding: Bindings = { ...defaultBindings(), jump: undefined as never }
-
-        expect(() => createTouchControlRoster(fullTargets, noJumpBinding)).toThrowError(/jump/u)
-      }),
+  it.effect('rejects an action with no binding in the caller-supplied map', () =>
+    Effect.sync(() => {
+      const noJumpBinding: Bindings = { ...defaultBindings(), jump: undefined as never }
+      const result = createTouchControlRoster(fullTargets, noJumpBinding)
+      const inspected = Schema.decodeUnknownResult(TouchControlRosterResultSchema, {
+        onExcessProperty: 'error',
+      })(result)
+      expect(Result.isSuccess(inspected)).toBe(true)
+      if (Result.isSuccess(inspected)) {
+        expect(inspected.success._tag).toBe('Failure')
+        if (inspected.success._tag === 'Failure') {
+          expect(inspected.success.failure).toStrictEqual({
+            _tag: 'TouchControlRosterError',
+            reason: 'unbound-actions',
+            actions: ['jump'],
+          })
+        }
+      }
+    }),
   )
 })
 

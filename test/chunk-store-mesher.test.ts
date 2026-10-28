@@ -1,7 +1,8 @@
 import { describe, expect, it } from '@effect/vitest'
-import { BLOCK_IDS, BlockId, chunkCoord, propertyOfBlockId, type ChunkCoord } from '@nerima-games/mc-kernel'
-import { emptyBlocks, setBlockAt, type Chunk, type SubscriberId } from '@nerima-games/mc-worldgen'
-import { Effect, Ref } from 'effect'
+import { BLOCK_IDS, BlockAxis, BlockId, LocalAxis, propertyOfBlockId, type ChunkCoord } from '@nerima-games/mc-kernel'
+import type { Chunk, ReadonlyChunk } from '@nerima-games/mc-worldgen'
+import { emptyBlocks, setBlockAt, type SubscriberId } from '@nerima-games/mc-worldgen/testing'
+import { Effect, Ref, Result } from 'effect'
 import {
   attachChunkStoreRenderer,
   blockNameFromKernel,
@@ -12,14 +13,16 @@ import {
   type RendererChunkStore,
 } from '../src/application/chunk-store-mesher'
 import { makeWorldRenderer } from '../src/application/world-renderer'
+import { aoShade } from '../src/domain/chunk-geometry'
 import { FAKE_CANVAS, makeFakeThree } from './support/fake-three'
+import { chunkCoord } from './support/kernel-brands'
 
 const VIEWPORT = { width: 640, height: 360 }
 
 const chunk = (cx: number, cz: number, blocks: ReadonlyArray<readonly [number, number, number, number]>): Chunk => {
   const data = emptyBlocks()
   for (const [lx, y, lz, blockId] of blocks) {
-    setBlockAt(data, lx, y, lz, BlockId(blockId))
+    setBlockAt(data, LocalAxis(lx), BlockAxis(y), LocalAxis(lz), BlockId(blockId))
   }
   return {
     coord: chunkCoord(cx, cz),
@@ -28,16 +31,29 @@ const chunk = (cx: number, cz: number, blocks: ReadonlyArray<readonly [number, n
   }
 }
 
-const neighboursFor = (xPos?: Chunk): { xPos?: Chunk } => {
+const neighboursFor = (xPos?: ReadonlyChunk): { xPos?: ReadonlyChunk } => {
   if (xPos === undefined) {
     return {}
   }
   return { xPos }
 }
 
-const storeOf = (center?: Chunk, xPos?: Chunk): MeshingChunkStore => ({
+const storeOf = (center?: ReadonlyChunk, xPos?: ReadonlyChunk): MeshingChunkStore => ({
   peek: () => Effect.succeed(center),
   neighbours: () => Effect.succeed(neighboursFor(xPos)),
+})
+
+const storeWithNeighbours = (
+  center: ReadonlyChunk,
+  neighbours: {
+    readonly xPos?: ReadonlyChunk
+    readonly xNeg?: ReadonlyChunk
+    readonly zPos?: ReadonlyChunk
+    readonly zNeg?: ReadonlyChunk
+  },
+): MeshingChunkStore => ({
+  peek: () => Effect.succeed(center),
+  neighbours: () => Effect.succeed(neighbours),
 })
 
 describe('makeChunkStoreMesher', () => {
@@ -65,11 +81,46 @@ describe('makeChunkStoreMesher', () => {
     }),
   )
 
+  it.effect('keeps readonly worldgen block storage unchanged while meshing', () =>
+    Effect.gen(function* () {
+      const resident = chunk(0, 0, [[15, 20, 1, 2]])
+      const neighbour = chunk(1, 0, [[0, 20, 1, 2]])
+      const originalBlocks = resident.blocks.slice()
+      const originalNeighbourBlocks = neighbour.blocks.slice()
+
+      yield* makeChunkStoreMesher(storeOf(resident, neighbour))(chunkCoord(0, 0))
+
+      expect(resident.blocks).toStrictEqual(originalBlocks)
+      expect(neighbour.blocks).toStrictEqual(originalNeighbourBlocks)
+    }),
+  )
+
+  it.effect('returns InvalidChunkBlocksLength for a short worldgen chunk', () =>
+    Effect.gen(function* () {
+      const resident = chunk(0, 0, [])
+      const shortChunk = {
+        ...resident,
+        blocks: resident.blocks.subarray(0, resident.blocks.length - 1),
+      }
+
+      const result = yield* Effect.result(makeChunkStoreMesher(storeOf(shortChunk))(chunkCoord(0, 0)))
+
+      expect(Result.isFailure(result)).toBe(true)
+      if (Result.isFailure(result)) {
+        expect(result.failure).toMatchObject({
+          _tag: 'InvalidChunkBlocksLength',
+          actual: resident.blocks.length - 1,
+          expected: resident.blocks.length,
+        })
+      }
+    }),
+  )
+
   it.effect('derives fluid and cross-plant routing from kernel properties', () =>
     Effect.gen(function* () {
-      const waterId = BLOCK_IDS.find((blockId) => propertyOfBlockId(blockId, 'fluid') === 'water')
-      const lavaId = BLOCK_IDS.find((blockId) => propertyOfBlockId(blockId, 'fluid') === 'lava')
-      const plantId = BLOCK_IDS.find((blockId) => propertyOfBlockId(blockId, 'renderKind') === 'cross')
+      const waterId = BLOCK_IDS.find((blockId) => Result.getOrThrow(propertyOfBlockId(blockId, 'fluid')) === 'water')
+      const lavaId = BLOCK_IDS.find((blockId) => Result.getOrThrow(propertyOfBlockId(blockId, 'fluid')) === 'lava')
+      const plantId = BLOCK_IDS.find((blockId) => Result.getOrThrow(propertyOfBlockId(blockId, 'renderKind')) === 'cross')
       if (waterId === undefined || lavaId === undefined || plantId === undefined) {
         throw new Error('mc-kernel must expose water, lava, and cross-plant block IDs')
       }
@@ -100,6 +151,39 @@ describe('makeChunkStoreMesher', () => {
     }),
   )
 
+  it.effect('adapts the x-negative and z neighbours when hiding shared faces', () =>
+    Effect.gen(function* () {
+      const cases = [
+        {
+          center: chunk(0, 0, [[0, 20, 1, 2]]),
+          neighbour: chunk(-1, 0, [[15, 20, 1, 2]]),
+          neighbourKey: 'xNeg',
+          hiddenDirection: 'xNeg',
+        },
+        {
+          center: chunk(0, 0, [[1, 20, 15, 2]]),
+          neighbour: chunk(0, 1, [[1, 20, 0, 2]]),
+          neighbourKey: 'zPos',
+          hiddenDirection: 'zPos',
+        },
+        {
+          center: chunk(0, 0, [[1, 20, 0, 2]]),
+          neighbour: chunk(0, -1, [[1, 20, 15, 2]]),
+          neighbourKey: 'zNeg',
+          hiddenDirection: 'zNeg',
+        },
+      ] as const
+
+      for (const { center, neighbour, neighbourKey, hiddenDirection } of cases) {
+        const neighbours = { [neighbourKey]: neighbour }
+        const quads = yield* makeChunkStoreMesher(storeWithNeighbours(center, neighbours))(center.coord)
+
+        expect(quads).toHaveLength(5)
+        expect(quads?.some(({ direction }) => direction === hiddenDirection)).toBe(false)
+      }
+    }),
+  )
+
   it.effect('supports a meshing config without local shape routing', () =>
     Effect.gen(function* () {
       const resident = chunk(0, 0, [[1, 20, 1, 2]])
@@ -120,8 +204,8 @@ describe('makeChunkStoreMesher', () => {
 
 describe('blockNameFromKernel', () => {
   it('resolves canonical texture names and safely falls back for unknown ids', () => {
-    expect(blockNameFromKernel(4)).toBe('grass_block')
-    expect(blockNameFromKernel(255)).toBe('unknown')
+    expect(blockNameFromKernel(BlockId(4))).toBe('grass_block')
+    expect(blockNameFromKernel(BlockId(255))).toBe('unknown')
   })
 })
 
@@ -153,7 +237,7 @@ describe('attachChunkStoreRenderer', () => {
       yield* attachment.update
 
       expect(yield* renderer.chunkKeys).toStrictEqual(['0,0'])
-      expect(yield* getLightCalls).toBeGreaterThan(0)
+      expect(yield* Ref.get(getLightCalls)).toBeGreaterThan(0)
     }),
   )
 
@@ -186,7 +270,7 @@ describe('attachChunkStoreRenderer', () => {
       yield* attachment.update
 
       expect(yield* renderer.chunkKeys).toStrictEqual(['0,0'])
-      expect(yield* getLightCalls).toBe(0)
+      expect(yield* Ref.get(getLightCalls)).toBe(0)
     }),
   )
 
@@ -217,7 +301,7 @@ describe('makeChunkStoreLightColor', () => {
       // same quad differently — this is the assertion that would fail if the
       // `_tag !== 'Light'` branch silently used the wrong fallback value.
       expect(unansweredColor(quad)).not.toStrictEqual(litColor(quad))
-      expect(unansweredColor(quad)).toStrictEqual(unansweredColor(quad))
+      expect(unansweredColor(quad)).toStrictEqual([aoShade(quad.ao), 0, 0])
     }),
   )
 

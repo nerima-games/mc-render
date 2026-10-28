@@ -24,6 +24,7 @@ plan.md §2.3-1 の分類でいう **名詞**。「どう見えるか」の仕�
 | **実行時入力サービス** | キーボード / マウス / ポインタロック / タッチ / ゲームパッド / キーリマッピング | ポート越しに実装済 `application/input-service.ts` + `window` アダプタ `application/browser-input-adapter.ts` + `application/gamepad-input-adapter.ts`。ブラウザの `GamepadList` 取得はホストの責務 |
 | **フレーム stage 登録** | `render:input` / `render:camera-mirror` / `render:chunk-sync` / `render:draw` / `render:post-fx` | 登録位置は確定済 `stages/`。5 本とも実体。`render:post-fx` はチェーンを組み、既定の `src/browser.ts` または外部ホスト注入の `PostProcessingRenderer` が `EffectComposer` を実行する。 |
 | フレーム毎スクラッチ | 一時 `Map` の事前確保と再利用 | 実装済 `domain/frame-scratch.ts` |
+| **描画内容** | シーンを構成し、draw call を発行する | **mc-render** が所有する。ホストは `getContext` も draw call も書かず、canvas と描画 surface を渡す |
 | グラフィックス品質プリセット適用 | low / medium / high / ultra | `domain/post-processing.ts` がポストFX、`composerRenderTarget`、屈折間引き、DPR 上限、bloom 強度、god-rays サンプル数を定義し、既定ブラウザが EffectComposer／水面屈折へ反映。カメラ描画距離は生の `farPlane`（`WorldRendererOptions`、既定 300、`application/world-renderer.ts:529,166`）で上書きできるが、`WorldRendererOptions` に `renderDistance` という名のフィールドは無い——参照実装のチャンク基準の `renderDistance` は mc-sim 所有で未公開であり、本パッケージから届かない（`application/world-renderer.ts:145-166`）。影解像度と実 Three のライトは現行 API の責務外 |
 | テクスチャアセット | アトラス画像を同梱（plan.md §5.3「独立アセットリポジトリは作らない」） | **RGBAアトラス生成とレイアウト算術は実装済**。`domain/texture-atlas.ts` が512x512画像をDOM非依存で生成し、`src/browser.ts` が生成値・URLを Three の texture へ転送する。ゲーム固有アセットの配布・キャッシュはホストの責務 — §2.2 |
 | ライトグリッドの**適用** | worldgen が持つ 4bit ライトグリッドを描画に反映 | **実装済** —— world adapter が sky/block light を geometry に運び、chunk shader が AO と合成する。`planRenderEnvironment` は同じ shader の日照、空色、距離フォグを決定的に同期する。
@@ -113,7 +114,6 @@ DOM・Three・EffectComposer を結ぶ明示的な実装境界である。
 | **プレビュー共通ハーネス** | mc-playground-kit | plan.md §3.10。**依存してはならない**（devDependency 専用） |
 | **QA/デバッグAPI・E2E** | mc-compose | plan.md §3.15 |
 | **`three` 名前空間そのものを渡すこと** | **`src/browser.ts` または外部ホスト** | コア入口は `application/three-surface.ts` で構造的に記述し、ブラウザ入口が `window` / `document` / canvas と Three を接続する。外部ホストはコア入口を直接利用できる |
-| **何を描くか** | **mc-render** | ホストは `getContext` も draw call も書かない。ライブラリを渡すのは配線、何を描くか決めるのはルール |
 
 ### 3.1 境界が紛らわしい 5 件
 
@@ -184,10 +184,15 @@ mc-render は canvas を提供するが、設定状態やフィルタ資産を�
 
 | リポジトリ | 使うもの | 現状 |
 | --- | --- | --- |
-| `mc-kernel` | 語彙全般（`CameraPoseSnapshot`、座標、`GameModule`、Clock Port） | 公開 package から直接 import |
-| `mc-meshing` | `meshChunk(...) → opaque / water / transparentSolid / crossPlants / fluids` と quad の公開型 | 直接利用済み。`domain/chunk-geometry.ts` は投影・頂点バッファ化に固有のメタデータだけを持つ |
-| `mc-sim` | `CameraPoseSnapshot`、描画対象の状態（**チャンクダーティ購読はここではない** — `mc-worldgen`） | 直接利用済み |
-| `mc-worldgen` | `Chunk` データ、ライトグリッド、`ChunkStore` | 直接利用済み。dirty 通知を購読し、ライト値をメッシュへ運ぶ |
+| `mc-kernel` 0.11.0 | Shared vocabulary (`CameraPoseSnapshot`, coordinates, `GameModule`, Clock Port) | Imported directly from the public package |
+| `mc-meshing` 0.4.0 | `meshChunk(...) → opaque / water / transparentSolid / crossPlants / fluids` and public quad types | Used directly. `domain/chunk-geometry.ts` contains only render-specific projection and vertex-buffer metadata |
+| `mc-sim` 0.6.0 | `PlayerService` and render-target pose/state (**chunk dirty subscriptions belong to `mc-worldgen`**) | Uses the `PlayerService` root export and mirrors sim-owned pose into the camera |
+| `mc-worldgen` 0.7.0 | `ReadonlyChunk`, light grid, `ChunkStore` | Subscribes to dirty notifications and passes light values into meshes. Copies `ReadonlyChunk.blocks` before passing them to the mesher |
+
+worldgen 0.7.0 `peek` / `neighbours` return chunks and block arrays as read-only
+values. `application/chunk-store-mesher.ts` copies `blocks` into a new
+`Uint16Array` before passing it to mc-meshing, leaving worldgen-owned chunk data
+unchanged.
 
 ~~**mc-sim のチャンクダーティ通知が未設計であることが、`WorldRenderer` を書けない直接の原因である**~~ → 解消。購読先は **mc-worldgen** の `ChunkStore` である（mc-sim ではない）。[public-api.md §3.1](./public-api.md)
 （mc-sim の `docs/public-api.md` §5 参照）。

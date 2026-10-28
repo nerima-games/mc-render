@@ -11,7 +11,8 @@
  *   5. the sample point steps into the air, on all six directions
  */
 import { describe, expect, it } from '@effect/vitest'
-import { Effect, FastCheck } from 'effect'
+import { Effect } from 'effect'
+import * as FastCheck from 'fast-check'
 import {
   AO_MAX,
   AO_ONLY_SHADE,
@@ -23,7 +24,7 @@ import {
   type MeshQuad,
   type QuadColor,
 } from '../src/domain/chunk-geometry'
-import { LIGHT_LEVEL_MAX } from '@nerima-games/mc-kernel'
+import { LIGHT_LEVEL_MAX, LightLevelCandidate } from '@nerima-games/mc-kernel'
 import {
   AO_SHADE_FLOOR,
   AO_SHADE_RANGE,
@@ -48,6 +49,7 @@ import {
   type LightSampler,
   type SkyBlockLight,
 } from '../src/domain/voxel-lighting'
+import { blockId } from './support/kernel-brands'
 
 const FACE_DIRECTIONS: ReadonlyArray<FaceDirection> = ['xPos', 'xNeg', 'yPos', 'yNeg', 'zPos', 'zNeg']
 
@@ -63,7 +65,7 @@ const expectedAxisDelta = (normalComponent: number): number => {
 }
 
 const quad = (overrides: Partial<MeshQuad> = {}): MeshQuad => ({
-  blockId: 1,
+  blockId: blockId(1),
   direction: 'yPos',
   role: 'top',
   lx: 0,
@@ -76,7 +78,7 @@ const quad = (overrides: Partial<MeshQuad> = {}): MeshQuad => ({
 })
 
 const crossPlantQuad = (overrides: Partial<CrossPlantQuad> = {}): CrossPlantQuad => ({
-  blockId: 21,
+  blockId: blockId(21),
   role: 'side',
   vertices: [
     [0, 64, 0],
@@ -92,6 +94,11 @@ const crossPlantQuad = (overrides: Partial<CrossPlantQuad> = {}): CrossPlantQuad
 })
 
 const arbitraryLevel = FastCheck.integer({ min: 0, max: LIGHT_LEVEL_MAX })
+
+const lightReading = (sky: number, block: number): SkyBlockLight => ({
+  sky: LightLevelCandidate(sky),
+  block: LightLevelCandidate(block),
+})
 
 describe('the reference`s curve', () => {
   it.effect('REGRESSION: the two terms are the reference shader`s, at both endpoints', () =>
@@ -153,7 +160,7 @@ describe('the reference`s curve', () => {
       // And never actually reaches zero, at any legal input.
       FastCheck.assert(
         FastCheck.property(arbitraryLevel, arbitraryLevel, FastCheck.integer({ min: 0, max: AO_MAX }), (sky, block, ao) => {
-          const factor = combinedShadeFactor({ sky, block }, ao, { skyIntensity: 1 })
+          const factor = combinedShadeFactor(lightReading(sky, block), ao, { skyIntensity: 1 })
           expect(factor).toBeGreaterThan(0)
           expect(factor).toBeLessThanOrEqual(1)
         }),
@@ -231,8 +238,9 @@ describe('the fixed per-face brightness', () => {
           (direction, sky, block, ao, skyIntensity) => {
             // The ratio of the shaded value to the same value on a top face is
             // the face factor, whatever else is going on.
-            const shaded = combinedShadeFactor({ sky, block }, ao, { direction, skyIntensity })
-            const onTop = combinedShadeFactor({ sky, block }, ao, { direction: 'yPos', skyIntensity })
+            const reading = lightReading(sky, block)
+            const shaded = combinedShadeFactor(reading, ao, { direction, skyIntensity })
+            const onTop = combinedShadeFactor(reading, ao, { direction: 'yPos', skyIntensity })
             expect(shaded / onTop).toBeCloseTo(faceBrightness(direction), 10)
           },
         ),
@@ -258,7 +266,7 @@ describe('the fixed per-face brightness', () => {
           arbitraryLevel,
           FastCheck.integer({ min: 0, max: AO_MAX }),
           (direction, sky, block, ao) => {
-            expect(combinedShadeFactor({ sky, block }, ao, { direction, skyIntensity: 1 })).toBeGreaterThanOrEqual(darkest)
+            expect(combinedShadeFactor(lightReading(sky, block), ao, { direction, skyIntensity: 1 })).toBeGreaterThanOrEqual(darkest)
           },
         ),
         { seed: 0, numRuns: 300 },
@@ -273,20 +281,20 @@ describe('effectiveLightLevel', () => {
       // The rule the whole model rests on. A sum saturates at 15 almost
       // everywhere outdoors and erases every torch in daylight — which is why
       // mc-worldgen keeps the two grids separate in the first place.
-      expect(effectiveLightLevel({ sky: 15, block: 15 }, 1)).toBe(15)
-      expect(effectiveLightLevel({ sky: 8, block: 8 }, 1)).toBe(8)
-      expect(effectiveLightLevel({ sky: 0, block: 14 }, 1)).toBe(14)
+      expect(effectiveLightLevel(lightReading(15, 15), 1)).toBe(15)
+      expect(effectiveLightLevel(lightReading(8, 8), 1)).toBe(8)
+      expect(effectiveLightLevel(lightReading(0, 14), 1)).toBe(14)
     }),
   )
 
   it.effect('attenuates sky and NOT block, which is what makes a torch work at night', () =>
     Effect.sync(() => {
-      const torchlitAtDusk: SkyBlockLight = { sky: 15, block: 14 }
+      const torchlitAtDusk = lightReading(15, 14)
       expect(effectiveLightLevel(torchlitAtDusk, 0)).toBe(14)
       expect(effectiveLightLevel(torchlitAtDusk, 1)).toBe(15)
 
       // Midnight with no torch is genuinely dark — the sky term is gone.
-      expect(effectiveLightLevel({ sky: 15, block: 0 }, 0)).toBe(0)
+      expect(effectiveLightLevel(lightReading(15, 0), 0)).toBe(0)
     }),
   )
 
@@ -294,11 +302,11 @@ describe('effectiveLightLevel', () => {
     Effect.sync(() => {
       // `@nerima-games/mc-kernel`'s clampLightLevel contract names a host-supplied
       // function as exactly the seam an out-of-range value arrives through.
-      expect(effectiveLightLevel({ sky: 99, block: -5 }, 1)).toBe(LIGHT_LEVEL_MAX)
-      expect(effectiveLightLevel({ sky: -1, block: -1 }, 1)).toBe(0)
+      expect(effectiveLightLevel(lightReading(99, -5), 1)).toBe(LIGHT_LEVEL_MAX)
+      expect(effectiveLightLevel(lightReading(-1, -1), 1)).toBe(0)
       // skyIntensity is clamped too: a caller cannot brighten past noon.
-      expect(effectiveLightLevel({ sky: 15, block: 0 }, 5)).toBe(15)
-      expect(effectiveLightLevel({ sky: 15, block: 0 }, -1)).toBe(0)
+      expect(effectiveLightLevel(lightReading(15, 0), 5)).toBe(15)
+      expect(effectiveLightLevel(lightReading(15, 0), -1)).toBe(0)
     }),
   )
 })
@@ -476,7 +484,7 @@ describe('the injection seam', () => {
 
   it.effect('honours skyIntensity, so a day/night cycle has somewhere to plug in', () =>
     Effect.sync(() => {
-      const skyOnly: LightSampler = () => ({ sky: LIGHT_LEVEL_MAX, block: 0 })
+      const skyOnly: LightSampler = () => lightReading(LIGHT_LEVEL_MAX, 0)
       const noon = litShade(skyOnly, { skyIntensity: 1 })
       const midnight = litShade(skyOnly, { skyIntensity: 0 })
 

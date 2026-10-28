@@ -75,7 +75,7 @@ import {
   suppressesBrowserContextMenu,
   suppressesBrowserScroll,
 } from '../domain/input-bindings.js'
-import { Context, Effect, Layer, Ref } from 'effect'
+import { Context, Effect, Layer, Ref, Result } from 'effect'
 import type { GamepadAxes } from '../domain/gamepad-input.js'
 
 /**
@@ -564,11 +564,11 @@ export type InputServiceApi = {
   readonly resetBindings: Effect.Effect<void>
 }
 
-type InputServiceFields = InputServiceApi
-const InputServiceBase: Context.TagClass<InputService, '@nerima-games/mc-render/InputService', InputServiceFields> = Context.Tag('@nerima-games/mc-render/InputService')<
+const InputServiceBase: Context.ServiceClass<
   InputService,
-  InputServiceFields
->()
+  '@nerima-games/mc-render/InputService',
+  InputServiceApi
+> = Context.Service<InputService, InputServiceApi>()('@nerima-games/mc-render/InputService')
 
 export class InputService extends InputServiceBase {}
 
@@ -865,7 +865,11 @@ const withWheelDelta = (current: InputState, deltaY: number, deltaMode: WheelDel
   if (!isLocked(current)) {
     return current
   }
-  return { ...current, wheelNotches: current.wheelNotches + notchesForWheelDelta(deltaY, deltaMode) }
+  const notches = notchesForWheelDelta(deltaY, deltaMode)
+  if (Result.isFailure(notches)) {
+    return current
+  }
+  return { ...current, wheelNotches: current.wheelNotches + notches.success }
 }
 
 /**

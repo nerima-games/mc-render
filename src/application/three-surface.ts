@@ -476,8 +476,8 @@ export type ThreeShaderSurface<
  *
  * `ThreeBufferAttribute` above is opaque — the chunk path builds one, hands it
  * over and never touches it again, so it needs no members. A PARTICLE attribute
- * is the opposite case: `domain/particle-pool.ts` writes into the same five
- * typed arrays every frame and never reallocates them, which is the entire
+ * is the opposite case: `domain/particle-pool.ts` writes into its typed render
+ * buffers every frame and never reallocates them, which is the entire
  * point of a pool, and three has no way to notice that a `Float32Array` it
  * already uploaded has different bytes in it now.
  *

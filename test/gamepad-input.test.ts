@@ -1,7 +1,13 @@
 import { describe, expect, it } from '@effect/vitest'
-import { Effect } from 'effect'
+import { Effect, Result, Schema } from 'effect'
+import * as FastCheck from 'fast-check'
 import {
   DEFAULT_GAMEPAD_BINDINGS,
+  GamepadAxesInputErrorSchema,
+  GamepadAxesResultSchema,
+  GamepadButtonForIndexResultSchema,
+  GAMEPAD_BUTTONS,
+  gamepadButtonForIndex,
   normalizeGamepadAxes,
   type GamepadSnapshot,
 } from '../src/domain/gamepad-input'
@@ -17,6 +23,7 @@ import { makeInputService } from '../src/application/input-service'
 
 const PRESSED_BUTTON_VALUE = 1
 const RELEASED_BUTTON_VALUE = 0
+const FAST_CHECK_OPTIONS = { numRuns: 100, seed: 0x5eed }
 
 const defaultButtonValueFor = (pressed: boolean): number => {
   if (pressed) {
@@ -32,13 +39,116 @@ const pad = (buttons: ReadonlyArray<{ pressed: boolean; value?: number }>, axes:
 })
 
 describe('gamepad input', () => {
-  it.effect('applies a rescaled deadzone and clamps malformed axes', () =>
+  it.effect('applies a rescaled deadzone to valid axes', () =>
     Effect.sync(() => {
-      const normalized = normalizeGamepadAxes([0.1, -0.575, 2, Number.NaN])
-      expect(normalized.leftX).toBe(0)
-      expect(normalized.leftY).toBeCloseTo(-0.5, 10)
-      expect(normalized.rightX).toBe(1)
-      expect(normalized.rightY).toBe(0)
+      const normalized = normalizeGamepadAxes([0.1, -0.575, 0.85, 0])
+      expect(Result.isSuccess(normalized)).toBe(true)
+      if (Result.isSuccess(normalized)) {
+        expect(normalized.success.leftX).toBe(0)
+        expect(normalized.success.leftY).toBeCloseTo(-0.5, 10)
+        expect(normalized.success.rightX).toBeCloseTo(0.823529, 5)
+        expect(normalized.success.rightY).toBe(0)
+      }
+    }),
+  )
+
+  it.effect('rejects invalid axis values with a typed result', () =>
+    Effect.sync(() => {
+      const invalidAxisInputs = FastCheck.tuple(
+        FastCheck.integer({ min: 0, max: 3 }),
+        FastCheck.constantFrom<unknown>(
+          Number.NaN,
+          Number.POSITIVE_INFINITY,
+          Number.NEGATIVE_INFINITY,
+          -1.01,
+          1.01,
+          'not-an-axis',
+          null,
+          undefined,
+          {},
+        ),
+      )
+      FastCheck.assert(
+        FastCheck.property(invalidAxisInputs, ([index, value]) => {
+          const axes: unknown[] = [0, 0, 0, 0]
+          axes[index] = value
+          const result = normalizeGamepadAxes(axes)
+          const inspected = Schema.decodeUnknownResult(GamepadAxesResultSchema, {
+            onExcessProperty: 'error',
+          })(result)
+          return Result.isSuccess(inspected) && inspected.success._tag === 'Failure'
+        }),
+        FAST_CHECK_OPTIONS,
+      )
+
+      const invalidAxesInputs = FastCheck.constantFrom<unknown>(null, undefined, 'axes', {}, 0)
+      FastCheck.assert(
+        FastCheck.property(invalidAxesInputs, (axes) => {
+          const result = normalizeGamepadAxes(axes)
+          const inspected = Schema.decodeUnknownResult(GamepadAxesResultSchema, {
+            onExcessProperty: 'error',
+          })(result)
+          return Result.isSuccess(inspected) && inspected.success._tag === 'Failure'
+        }),
+        FAST_CHECK_OPTIONS,
+      )
+
+      const invalidDeadzones = FastCheck.constantFrom(
+        Number.NaN,
+        Number.POSITIVE_INFINITY,
+        Number.NEGATIVE_INFINITY,
+        -0.01,
+        1,
+        1.01,
+        '0.15',
+        null,
+      )
+      FastCheck.assert(
+        FastCheck.property(invalidDeadzones, (deadzone) => {
+          const result = normalizeGamepadAxes([], deadzone)
+          const inspected = Schema.decodeUnknownResult(GamepadAxesResultSchema, {
+            onExcessProperty: 'error',
+          })(result)
+          return Result.isSuccess(inspected) && inspected.success._tag === 'Failure'
+        }),
+        FAST_CHECK_OPTIONS,
+      )
+
+      const invalidButtonIndices = FastCheck.oneof(
+        FastCheck.integer({ min: -1000, max: -1 }),
+        FastCheck.integer({ min: GAMEPAD_BUTTONS.length, max: 1000 }),
+        FastCheck.constantFrom(Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, 0.5),
+        FastCheck.constantFrom<unknown>(null, undefined, '0', false, {}),
+      )
+      FastCheck.assert(
+        FastCheck.property(invalidButtonIndices, (index) => {
+          const result = gamepadButtonForIndex(index)
+          const inspected = Schema.decodeUnknownResult(GamepadButtonForIndexResultSchema, {
+            onExcessProperty: 'error',
+          })(result)
+          return Result.isSuccess(inspected) && inspected.success._tag === 'Failure'
+        }),
+        FAST_CHECK_OPTIONS,
+      )
+    }),
+  )
+
+  it.effect('invalid axes fail polling before input state changes', () =>
+    Effect.gen(function* () {
+      const input = yield* makeInputService()
+      const adapter = makeGamepadInputAdapter(input, () => [pad([{ pressed: true }], [1.01, 0, 0, 0])])
+      const outcome = yield* Effect.result(adapter.poll)
+      expect(Result.isFailure(outcome)).toBe(true)
+      if (Result.isFailure(outcome)) {
+        const inspected = Schema.decodeUnknownResult(GamepadAxesInputErrorSchema, {
+          onExcessProperty: 'error',
+        })(outcome.failure)
+        expect(Result.isSuccess(inspected)).toBe(true)
+      }
+      expect(yield* input.snapshot).toMatchObject({
+        pressed: new Set(),
+        gamepadAxes: { leftX: 0, leftY: 0, rightX: 0, rightY: 0 },
+      })
     }),
   )
 

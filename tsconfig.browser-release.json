@@ -1,0 +1,14 @@
+{
+  // Release build for the browser-only package entry. Keep DOM types scoped to
+  // this entry so the portable root export remains DOM-free.
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2024", "DOM", "DOM.Iterable"],
+    "types": [],
+    "noEmit": false,
+    "rootDir": "src",
+    "outDir": "dist"
+  },
+  "include": ["src/browser.ts"],
+  "exclude": ["node_modules", "coverage", "dist", "test/**", "scripts/**", "**/*.test.ts", "**/*.spec.ts"]
+}

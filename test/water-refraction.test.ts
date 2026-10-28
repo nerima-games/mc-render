@@ -7,22 +7,27 @@
  * change to a decision that costs a full scene render when it goes wrong.
  */
 import { describe, expect, it } from '@effect/vitest'
-import { Effect } from 'effect'
+import { Effect, Result, Schema } from 'effect'
+import * as FastCheck from 'fast-check'
 import { QUALITY_PRESETS, type QualityPreset } from '../src/domain/post-processing'
 import {
-  BEHIND_NEAR_PLANE_RATIO,
-  decideRefractionPrePass,
-  describeRefractionDecision,
-  isRefractionSkipped,
+  decideRefractionPrePass as decideRefractionPrePassResult,
+  RefractionBooleanResultSchema,
+  RefractionDecisionResultSchema,
+  RefractionNumberResultSchema,
+  RefractionStringResultSchema,
+  describeRefractionDecision as describeRefractionDecisionResult,
+  isRefractionSkipped as isRefractionSkippedResult,
   NDC_VIEWPORT_AREA,
   REFERENCE_REFRACTION_GATE_ORDER,
   REFRACTION_GATE_ORDER,
   REFRACTION_INTERVAL_FRAMES,
   REFRACTION_MIN_SCREEN_RATIO,
-  normalizeRefractionMinScreenRatio,
-  refractionRunsOnFrame,
-  sameRefractionKey,
-  screenRatioForNdcRect,
+  normalizeRefractionMinScreenRatio as normalizeRefractionMinScreenRatioResult,
+  refractionRunsOnFrame as refractionRunsOnFrameResult,
+  sameRefractionKey as sameRefractionKeyResult,
+  screenRatioForNdcRect as screenRatioForNdcRectResult,
+  shouldRunRefractionRatioGate as shouldRunRefractionRatioGateResult,
   type RefractionCameraKey,
   type RefractionDecision,
   type RefractionGate,
@@ -56,6 +61,13 @@ const RUNNING: RefractionInputs = {
   lastRenderedKey: undefined,
 }
 
+const minScreenRatioFailureReason = (value: number): 'not-finite' | 'out-of-range' => {
+  if (!Number.isFinite(value)) {
+    return 'not-finite'
+  }
+  return 'out-of-range'
+}
+
 /** Every permutation of an array. 6 gates is 720, which is cheap to exhaust. */
 const permutations = <A>(items: ReadonlyArray<A>): ReadonlyArray<ReadonlyArray<A>> => {
   if (items.length <= 1) {
@@ -71,6 +83,41 @@ const permutations = <A>(items: ReadonlyArray<A>): ReadonlyArray<ReadonlyArray<A
   }
   return result
 }
+
+const expectSuccess = <Value, Failure>(result: Result.Result<Value, Failure>): Value => {
+  if (Result.isFailure(result)) {
+    throw new Error(JSON.stringify(result.failure))
+  }
+  return result.success
+}
+
+const expectFailure = <Value, Failure>(result: Result.Result<Value, Failure>): Failure => {
+  if (Result.isSuccess(result)) {
+    throw new Error(JSON.stringify(result.success))
+  }
+  return result.failure
+}
+
+const normalizeRefractionMinScreenRatio = (value: unknown): number =>
+  expectSuccess(normalizeRefractionMinScreenRatioResult(value))
+
+const refractionRunsOnFrame = (interval: unknown, frame: unknown): boolean =>
+  expectSuccess(refractionRunsOnFrameResult(interval, frame))
+
+const sameRefractionKey = (first: unknown, second: unknown): boolean =>
+  expectSuccess(sameRefractionKeyResult(first, second))
+
+const screenRatioForNdcRect = (rect: unknown): number =>
+  expectSuccess(screenRatioForNdcRectResult(rect))
+
+const decideRefractionPrePass = (inputs: unknown, order?: unknown): RefractionDecision =>
+  expectSuccess(decideRefractionPrePassResult(inputs, order))
+
+const isRefractionSkipped = (decision: unknown): boolean =>
+  expectSuccess(isRefractionSkippedResult(decision))
+
+const describeRefractionDecision = (decision: unknown): string =>
+  expectSuccess(describeRefractionDecisionResult(decision))
 
 describe('the preset tables', () => {
   it.effect('are the reference values, asserted as literals', () =>
@@ -159,13 +206,76 @@ describe('the frame schedule', () => {
     }),
   )
 
-  it.effect('refuses intervals and frame numbers that are not positive integers', () =>
+  it.effect('returns typed failures for invalid intervals and frame numbers', () =>
     Effect.sync(() => {
-      expect(refractionRunsOnFrame(-1, 1)).toBe(false)
-      expect(refractionRunsOnFrame(1.5, 1)).toBe(false)
-      expect(refractionRunsOnFrame(Number.NaN, 1)).toBe(false)
-      expect(refractionRunsOnFrame(1, 0)).toBe(false)
-      expect(refractionRunsOnFrame(1, 2.5)).toBe(false)
+      const invalidSchedules = [
+        [-1, 1, 'out-of-range'],
+        [1.5, 1, 'invalid-integer'],
+        [Number.NaN, 1, 'invalid-integer'],
+        [1, 0, 'out-of-range'],
+        [1, 2.5, 'invalid-integer'],
+      ] as const
+      for (const [interval, frame, reason] of invalidSchedules) {
+        const actual = refractionRunsOnFrameResult(interval, frame)
+        const inspected = Schema.decodeUnknownResult(RefractionBooleanResultSchema, {
+          onExcessProperty: 'error',
+        })(actual)
+        expect(Result.isSuccess(inspected)).toBe(true)
+        if (Result.isFailure(inspected)) {
+          return
+        }
+        expect(inspected.success).toStrictEqual({
+          _tag: 'Failure',
+          _op: 'Failure',
+          failure: {
+            _tag: 'RefractionInputError',
+            operation: 'frame-schedule',
+            reason,
+          },
+        })
+      }
+    }),
+  )
+})
+
+describe('typed failures for invalid public inputs', () => {
+  it.effect('rejects malformed counts, ratios, and thresholds at the ratio gate', () =>
+    Effect.sync(() => {
+      expect(expectFailure(shouldRunRefractionRatioGateResult(Number.NaN, 0.5, 0.05))).toStrictEqual({
+        _tag: 'RefractionInputError', operation: 'ratio-gate', reason: 'invalid-integer',
+      })
+      expect(expectFailure(shouldRunRefractionRatioGateResult(1, Number.NaN, 0.05))).toStrictEqual({
+        _tag: 'RefractionInputError', operation: 'ratio-gate', reason: 'not-finite',
+      })
+      expect(expectFailure(shouldRunRefractionRatioGateResult(1, -0.01, 0.05))).toStrictEqual({
+        _tag: 'RefractionInputError', operation: 'ratio-gate', reason: 'out-of-range',
+      })
+      expect(expectFailure(shouldRunRefractionRatioGateResult(1, 0.5, 1.01))).toStrictEqual({
+        _tag: 'RefractionInputError', operation: 'ratio-gate', reason: 'out-of-range',
+      })
+      expect(shouldRunRefractionRatioGateResult(0, 1, 0.05)).toStrictEqual(Result.succeed(false))
+    }),
+  )
+
+  it.effect('rejects a malformed second camera key and unknown skip decisions', () =>
+    Effect.sync(() => {
+      expect(expectFailure(sameRefractionKeyResult(KEY, { ...KEY, projection14: Number.NaN }))).toStrictEqual({
+        _tag: 'RefractionInputError', operation: 'camera-key', reason: 'invalid-input',
+      })
+      expect(expectFailure(isRefractionSkippedResult('skip:unknown'))).toStrictEqual({
+        _tag: 'RefractionInputError', operation: 'description', reason: 'invalid-decision',
+      })
+    }),
+  )
+
+  it.effect('rejects malformed decision inputs and finite but out-of-range values', () =>
+    Effect.sync(() => {
+      expect(expectFailure(decideRefractionPrePassResult({ ...RUNNING, extra: true }))).toStrictEqual({
+        _tag: 'RefractionInputError', operation: 'decision', reason: 'invalid-input',
+      })
+      expect(expectFailure(decideRefractionPrePassResult({ ...RUNNING, visibleWaterMeshCount: 5 }))).toStrictEqual({
+        _tag: 'RefractionInputError', operation: 'decision', reason: 'out-of-range',
+      })
     }),
   )
 })
@@ -212,10 +322,26 @@ describe('the camera key', () => {
     }),
   )
 
-  it.effect('a NaN key never matches, including itself', () =>
+  it.effect('rejects a key with a non-finite coordinate', () =>
     Effect.sync(() => {
-      const broken: RefractionCameraKey = { ...KEY, worldX: Number.NaN }
-      expect(sameRefractionKey(broken, broken)).toBe(false)
+      const broken = { ...KEY, worldX: Number.NaN }
+      const actual = sameRefractionKeyResult(broken, broken)
+      const inspected = Schema.decodeUnknownResult(RefractionBooleanResultSchema, {
+        onExcessProperty: 'error',
+      })(actual)
+      expect(Result.isSuccess(inspected)).toBe(true)
+      if (Result.isFailure(inspected)) {
+        return
+      }
+      expect(inspected.success).toStrictEqual({
+        _tag: 'Failure',
+        _op: 'Failure',
+        failure: {
+          _tag: 'RefractionInputError',
+          operation: 'camera-key',
+          reason: 'invalid-input',
+        },
+      })
     }),
   )
 })
@@ -241,19 +367,25 @@ describe('the screen ratio', () => {
     }),
   )
 
-  it.effect('an inverted rect is empty, not negative', () =>
+  it.effect('rejects an inverted rectangle', () =>
     Effect.sync(() => {
-      expect(screenRatioForNdcRect({ maxX: -1, maxY: -1, minX: 1, minY: 1 })).toBe(0)
-    }),
-  )
-
-  it.effect('fails toward NOT skipping when the projection is unusable', () =>
-    Effect.sync(() => {
-      // Standing in water is when refraction matters most, and it is also when
-      // the surface AABB straddles the near plane. An estimator that failed
-      // toward "skip" would drop the effect exactly there.
-      expect(BEHIND_NEAR_PLANE_RATIO).toBe(1)
-      expect(screenRatioForNdcRect({ maxX: 1, maxY: 1, minX: Number.NaN, minY: -1 })).toBe(BEHIND_NEAR_PLANE_RATIO)
+      const actual = screenRatioForNdcRectResult({ maxX: -1, maxY: -1, minX: 1, minY: 1 })
+      const inspected = Schema.decodeUnknownResult(RefractionNumberResultSchema, {
+        onExcessProperty: 'error',
+      })(actual)
+      expect(Result.isSuccess(inspected)).toBe(true)
+      if (Result.isFailure(inspected)) {
+        return
+      }
+      expect(inspected.success).toStrictEqual({
+        _tag: 'Failure',
+        _op: 'Failure',
+        failure: {
+          _tag: 'RefractionInputError',
+          operation: 'ndc-rectangle',
+          reason: 'reversed-bounds',
+        },
+      })
     }),
   )
 })
@@ -279,7 +411,7 @@ describe('the decision', () => {
       expect(decideRefractionPrePass({ ...RUNNING, intervalFrames: 2, frameNumber: 2 })).toBe(
         'skip:not-this-frame',
       )
-      expect(decideRefractionPrePass({ ...RUNNING, waterMeshCount: 0 })).toBe('skip:no-water-meshes')
+      expect(decideRefractionPrePass({ ...RUNNING, waterMeshCount: 0, visibleWaterMeshCount: 0 })).toBe('skip:no-water-meshes')
       expect(decideRefractionPrePass({ ...RUNNING, visibleWaterMeshCount: 0 })).toBe(
         'skip:no-visible-water',
       )
@@ -311,13 +443,33 @@ describe('the decision', () => {
     }),
   )
 
-  it.effect('normalizes custom minScreenRatio values to the screen-ratio domain', () =>
+  it.effect('accepts a custom threshold only inside the screen-ratio domain', () =>
     Effect.sync(() => {
-      expect(normalizeRefractionMinScreenRatio(Number.NaN)).toBe(0)
-      expect(normalizeRefractionMinScreenRatio(-0.25)).toBe(0)
       expect(normalizeRefractionMinScreenRatio(0.25)).toBe(0.25)
-      expect(normalizeRefractionMinScreenRatio(1.25)).toBe(1)
-      expect(normalizeRefractionMinScreenRatio(Number.POSITIVE_INFINITY)).toBe(0)
+      const invalidThresholds = [
+        [Number.NaN, 'not-finite'],
+        [-0.25, 'out-of-range'],
+        [1.25, 'out-of-range'],
+        [Number.POSITIVE_INFINITY, 'not-finite'],
+      ] as const
+      for (const [value, reason] of invalidThresholds) {
+        const actual = normalizeRefractionMinScreenRatioResult(value)
+        const inspected = Schema.decodeUnknownResult(RefractionNumberResultSchema, {
+          onExcessProperty: 'error',
+        })(actual)
+        expect(Result.isSuccess(inspected)).toBe(true)
+        if (Result.isFailure(inspected)) {
+          return
+        }
+        expect(inspected.success._tag).toBe('Failure')
+        if (inspected.success._tag === 'Failure') {
+          expect(inspected.success.failure).toStrictEqual({
+            _tag: 'RefractionInputError',
+            operation: 'min-screen-ratio',
+            reason,
+          })
+        }
+      }
     }),
   )
 
@@ -331,28 +483,167 @@ describe('the decision', () => {
     }),
   )
 
-  it.effect('an unrecognised gate throws rather than silently passing or failing the frame', () =>
+  it.effect('property checks expose typed failures for invalid public inputs', () =>
     Effect.sync(() => {
-      // `RefractionGate` is a closed union, so no caller inside this
-      // codebase can reach `gateFires`'s `default` arm through the type
-      // checker. `order` is a runtime parameter of the public
-      // `decideRefractionPrePass`, though (that is the whole point of "the
-      // gate order changes the reason, never the answer" below), so a value
-      // from outside the union — a stale persisted preset, a typo surviving
-      // a rename — reaches it directly. The exhaustive `never` check must
-      // fail loudly rather than silently treating an unknown gate as "does
-      // not fire", which would make a broken gate invisible.
-      expect(() => decideRefractionPrePass(RUNNING, ['not-a-real-gate' as RefractionGate])).toThrow(
-        'Unhandled refraction gate: not-a-real-gate',
+      FastCheck.assert(
+        FastCheck.property(
+          FastCheck.oneof(
+            FastCheck.constantFrom(Number.NaN, Number.NEGATIVE_INFINITY, Number.POSITIVE_INFINITY),
+            FastCheck.integer({ min: -1000, max: -1 }).map((value) => value / 1000),
+            FastCheck.integer({ min: 1001, max: 2000 }).map((value) => value / 1000),
+          ),
+          (value) => {
+            const actual = normalizeRefractionMinScreenRatioResult(value)
+            const inspected = Schema.decodeUnknownResult(RefractionNumberResultSchema, {
+              onExcessProperty: 'error',
+            })(actual)
+            expect(Result.isSuccess(inspected)).toBe(true)
+            if (Result.isFailure(inspected)) {
+              return
+            }
+            expect(inspected.success._tag).toBe('Failure')
+            if (inspected.success._tag === 'Failure') {
+              expect(inspected.success.failure).toStrictEqual({
+                _tag: 'RefractionInputError',
+                operation: 'min-screen-ratio',
+                reason: minScreenRatioFailureReason(value),
+              })
+            }
+          },
+        ),
       )
+      FastCheck.assert(
+        FastCheck.property(FastCheck.integer({ min: -1000, max: -1 }), (interval) => {
+          const actual = refractionRunsOnFrameResult(interval, 1)
+          const inspected = Schema.decodeUnknownResult(RefractionBooleanResultSchema, {
+            onExcessProperty: 'error',
+          })(actual)
+          expect(Result.isSuccess(inspected)).toBe(true)
+          if (Result.isFailure(inspected)) {
+            return
+          }
+          expect(inspected.success).toStrictEqual({
+            _tag: 'Failure',
+            _op: 'Failure',
+            failure: {
+              _tag: 'RefractionInputError',
+              operation: 'frame-schedule',
+              reason: 'out-of-range',
+            },
+          })
+        }),
+      )
+      FastCheck.assert(
+        FastCheck.property(
+          FastCheck.constantFrom(Number.NaN, Number.NEGATIVE_INFINITY, Number.POSITIVE_INFINITY),
+          (coordinate) => {
+            const actual = screenRatioForNdcRectResult({
+              maxX: 1,
+              maxY: 1,
+              minX: coordinate,
+              minY: -1,
+            })
+            const inspected = Schema.decodeUnknownResult(RefractionNumberResultSchema, {
+              onExcessProperty: 'error',
+            })(actual)
+            expect(Result.isSuccess(inspected)).toBe(true)
+            if (Result.isFailure(inspected)) {
+              return
+            }
+            expect(inspected.success).toStrictEqual({
+              _tag: 'Failure',
+              _op: 'Failure',
+              failure: {
+                _tag: 'RefractionInputError',
+                operation: 'ndc-rectangle',
+                reason: 'invalid-input',
+              },
+            })
+          },
+        ),
+      )
+      FastCheck.assert(
+        FastCheck.property(FastCheck.integer({ min: -1000, max: -1 }), (visibleCount) => {
+          const actual = shouldRunRefractionRatioGateResult(visibleCount, 0.05, 0.005)
+          const inspected = Schema.decodeUnknownResult(RefractionBooleanResultSchema, {
+            onExcessProperty: 'error',
+          })(actual)
+          expect(Result.isSuccess(inspected)).toBe(true)
+          if (Result.isFailure(inspected)) {
+            return
+          }
+          expect(inspected.success).toStrictEqual({
+            _tag: 'Failure',
+            _op: 'Failure',
+            failure: {
+              _tag: 'RefractionInputError',
+              operation: 'ratio-gate',
+              reason: 'out-of-range',
+            },
+          })
+        }),
+      )
+      const unexpected = Schema.decodeUnknownResult(RefractionNumberResultSchema, {
+        onExcessProperty: 'error',
+      })({
+        _tag: 'Failure',
+        _op: 'Failure',
+        failure: {
+          _tag: 'RefractionInputError',
+          operation: 'min-screen-ratio',
+          reason: 'out-of-range',
+        },
+        extra: true,
+      })
+      expect(Result.isFailure(unexpected)).toBe(true)
+      const missing = Schema.decodeUnknownResult(RefractionNumberResultSchema, {
+        onExcessProperty: 'error',
+      })({ _tag: 'Success', _op: 'Success' })
+      expect(Result.isFailure(missing)).toBe(true)
     }),
   )
 
-  it.effect('an unrecognised decision throws rather than describing it as something else', () =>
+  it.effect('an unrecognised gate order returns its typed failure', () =>
     Effect.sync(() => {
-      expect(() =>
-        describeRefractionDecision('skip:not-a-real-reason' as unknown as RefractionDecision),
-      ).toThrow('Unhandled refraction decision: skip:not-a-real-reason')
+      const actual = decideRefractionPrePassResult(RUNNING, ['not-a-real-gate'])
+      const inspected = Schema.decodeUnknownResult(RefractionDecisionResultSchema, {
+        onExcessProperty: 'error',
+      })(actual)
+      expect(Result.isSuccess(inspected)).toBe(true)
+      if (Result.isFailure(inspected)) {
+        return
+      }
+      expect(inspected.success).toStrictEqual({
+        _tag: 'Failure',
+        _op: 'Failure',
+        failure: {
+          _tag: 'RefractionInputError',
+          operation: 'decision',
+          reason: 'invalid-order',
+        },
+      })
+    }),
+  )
+
+  it.effect('an unrecognised decision returns its typed failure', () =>
+    Effect.sync(() => {
+      const actual = describeRefractionDecisionResult('skip:not-a-real-reason')
+      const inspected = Schema.decodeUnknownResult(RefractionStringResultSchema, {
+        onExcessProperty: 'error',
+      })(actual)
+      expect(Result.isSuccess(inspected)).toBe(true)
+      if (Result.isFailure(inspected)) {
+        return
+      }
+      expect(inspected.success).toStrictEqual({
+        _tag: 'Failure',
+        _op: 'Failure',
+        failure: {
+          _tag: 'RefractionInputError',
+          operation: 'description',
+          reason: 'invalid-decision',
+        },
+      })
     }),
   )
 })

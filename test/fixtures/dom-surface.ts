@@ -27,16 +27,14 @@ import {
   type DomInputEvent,
   type DomListener,
   type DomListenerOptions,
-  type FocusableTarget,
   type PointerLockTarget,
 } from '../../src/application/dom-surface'
 
 declare const browserWindow: Window
 declare const browserDocument: Document
 declare const browserCanvas: HTMLCanvasElement
-/** The nine hotbar slots mx-ui creates, as a browser host would collect them. */
-declare const browserSlots: ReadonlyArray<HTMLElement>
-
+/** Touch controls remain identity-matched by the adapter. */
+declare const browserTouchControls: ReadonlyArray<HTMLElement>
 /** The gameplay listener target. `LISTENER_PLAN` puts keys and buttons here. */
 export const windowIsAnEventTarget: DomEventTarget = browserWindow
 
@@ -74,8 +72,7 @@ export const registersAndRemoves = (): void => {
 }
 
 /**
- * The member added for focus navigation, and the one direction that could have
- * broken everything above.
+ * The host's focus classifier receives the browser's target as opaque data.
  *
  * `Event.target` is `EventTarget | null`, so `DomInputEvent.target` has to
  * accept BOTH — and it has to do so without giving TypeScript a reason to stop
@@ -86,59 +83,22 @@ export const registersAndRemoves = (): void => {
  * no overlap against `EventTarget`, and TypeScript would reject it outright.
  *
  * If this file ever stops compiling here, the fix is NOT to widen `target` into
- * an element type — it is to keep comparing rather than reading.
+ * an element type — the host owns membership checks.
  */
 const focusHandler: DomListener = (event: DomInputEvent) => {
   const {target} = event
   if (target === null || target === undefined) {
     return
   }
-  // The only operation the adapter performs on it: identity, against elements
-  // the host named. `resolveFocusTarget` does exactly this, in a loop.
-  for (const slot of browserSlots) {
-    if (target === slot) {
-      return
-    }
-  }
 }
 
 /**
- * `resolveFocusTarget`'s own parameter — the element `focusin` reports — is
- * still `ReadonlyArray<unknown>` on the READING side, so a real element goes
- * in without a cast and nothing in this repository can read one by accident.
- */
-export const slotsAreOpaqueToTheAdapter: ReadonlyArray<unknown> = browserSlots
-
-/**
- * The WRITING side, added for DN-16 §5(a): a host's focus roster
- * (`FocusGroupTargets.targets`) is `ReadonlyArray<FocusableTarget>`, and a real
- * `HTMLElement.focus(options?: FocusOptions): void` satisfies `FocusableTarget`
- * without a cast — a function with an extra OPTIONAL parameter is assignable to
- * one that takes fewer. This is the half `slotsAreOpaqueToTheAdapter` above
- * does not cover, now that arrow-key navigation calls `.focus()` on a roster
- * member instead of only comparing it.
- */
-export const slotsAreFocusable: ReadonlyArray<FocusableTarget> = browserSlots
-
-/** `Document.activeElement` is `Element | null`; the adapter only compares it. */
-export const activeElementIsComparable: unknown = browserDocument.activeElement
-
-/**
- * The lock target is compared the same way, and needs no more of the DOM than
- * the roster does (DN-16 §5(b)).
+ * The adapter recognizes the exact pointer-lock target by identity. UI
+ * membership classification is provided by the host as a scalar DTO.
  *
- * This is the half of the fix that could have cost the surface a member.
- * `contains` (or `composedPath`) was the option DN-16 §5(b) named, and it would
- * have had to go on `DomInputEvent.target` or on the canvas: `EventTarget` has
- * no `contains` — `Node` does — so declaring one would make `Event` unassignable
- * to `DomInputEvent`, and listener parameters being contravariant under
- * `strictFunctionTypes`, `Window` would stop being assignable to
- * `DomEventTarget`. Silently, because `pnpm typecheck` has no DOM to be
- * assignable from. `===` on `event.target` needs none of it: the target IS the
- * deepest element hit, and `<canvas>` has no rendered children to descend into.
- *
- * If this file ever stops compiling here, the fix is NOT to reach for `contains`
- * — it is to keep comparing the element the host named.
+ * This structural surface does not expose `contains` or `composedPath`; the
+ * host's classifier owns UI membership and the adapter only compares the
+ * pointer-lock target.
  */
 const clickLandingHandler: DomListener = (event: DomInputEvent) => {
   const {target} = event
@@ -147,11 +107,6 @@ const clickLandingHandler: DomListener = (event: DomInputEvent) => {
   const lockTarget: unknown = browserCanvas
   if (target === lockTarget) {
     return
-  }
-  for (const slot of browserSlots) {
-    if (target === slot) {
-      return
-    }
   }
 }
 
@@ -165,11 +120,8 @@ export const scopesTheLockToAnElementItOnlyCompares = (): void => {
  *
  * Adding an input device is the classic occasion for a DOM surface to grow, and
  * the obvious growth is a position: `TouchList`, `changedTouches`, `clientX`.
- * None of it is here, because a tap is resolved by the IDENTITY of the control
- * it landed on, exactly as a focus and a click landing already are. So
- * `DomInputEvent` is byte-identical before and after touch support, and the
- * three assertions this file makes about `Window` and `Document` did not have to
- * be re-argued.
+ * Touch control mapping is identity-based inside the adapter; focus and click
+ * membership are host-owned. `TouchEvent` itself is still not named below.
  *
  * `TouchEvent` is deliberately not named below either. It never has to be
  * assignable to `DomInputEvent`: listener parameters are contravariant, so what
@@ -184,10 +136,9 @@ export const scopesTheLockToAnElementItOnlyCompares = (): void => {
 export const registersTheTouchTrio = (): void => {
   const touchHandler: DomListener = (event: DomInputEvent) => {
     const {target} = event
-    // The only operation, on the only member: `===` against the elements the
-    // host declared as controls. `resolveTouchControl` does exactly this.
-    for (const slot of browserSlots) {
-      if (target === slot) {
+    // `target` stays unknown; touch controls are matched by identity.
+    for (const control of browserTouchControls) {
+      if (target === control) {
         return
       }
     }

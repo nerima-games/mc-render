@@ -121,24 +121,31 @@
  * cache belongs to whatever owns the chunk meshes, not to the level rule.
  */
 import { CHUNK_SIZE, LOD_LEVELS, type LodLevel, STEP_FOR_LOD } from '@nerima-games/mc-meshing'
+import { type ChunkAxis, type ChunkCoord } from '@nerima-games/mc-kernel'
+import { Result, Schema } from 'effect'
 
 /** The three tiers, named — derived from `LOD_LEVELS` rather than re-spelling `0, 1, 2`. */
 const [LOD_LEVEL_FINEST, LOD_LEVEL_MIDDLE, LOD_LEVEL_COARSEST] = LOD_LEVELS
 
 /**
- * A chunk coordinate pair. Not a world position — the units are CHUNKS.
- *
- * Declared here rather than mirrored from mc-kernel's `ChunkCoord`, and the
- * reason is worth a line: this file needs only "two integers to subtract", and
- * kernel's coordinate types are branded, so mirroring one would oblige every
- * caller to brand its inputs before it could ask which tier a chunk is at.
- * This local coordinate pair mirrors only what this repository USES; a brand
- * imposed for a subtraction is not use.
+ * Chunk-space coordinates use mc-kernel's branded axes. Decode external values
+ * here so an unsafe integer cannot enter the distance calculation.
  */
-export type ChunkXZ = {
-  readonly chunkX: number
-  readonly chunkZ: number
-}
+export type ChunkXZ = ChunkCoord
+
+const ChunkAxisSchema: Schema.Codec<ChunkAxis, number> = Schema.Int.pipe(Schema.brand('ChunkAxis'))
+
+export const ChunkXZSchema: Schema.Codec<ChunkXZ, Readonly<{
+  readonly cx: number
+  readonly cz: number
+}>> = Schema.Struct({
+  cx: ChunkAxisSchema,
+  cz: ChunkAxisSchema,
+})
+
+const decodeChunkXZResult = Schema.decodeUnknownResult(ChunkXZSchema, {
+  onExcessProperty: 'error',
+})
 
 /**
  * Distance in chunks, in the CHEBYSHEV (L-infinity) norm: the larger of the two
@@ -160,16 +167,32 @@ export type ChunkXZ = {
  * `Math.abs` and not a squared comparison: the value is returned, not only
  * compared, because `lodScreenErrorPixels` takes it as a divisor.
  */
-export const chunkDistance = (from: ChunkXZ, to: ChunkXZ): number =>
-  Math.max(Math.abs(from.chunkX - to.chunkX), Math.abs(from.chunkZ - to.chunkZ))
+export const chunkDistance = (
+  from: ChunkXZ,
+  to: ChunkXZ,
+): Result.Result<number, LodInputError> => {
+  const decodedFrom = decodeChunkXZResult(from)
+  const decodedTo = decodeChunkXZResult(to)
+  if (Result.isFailure(decodedFrom) || Result.isFailure(decodedTo)) {
+    return Result.fail({
+      _tag: 'LodInputError',
+      operation: 'chunk-distance',
+      reason: 'invalid-chunk-coordinate',
+    })
+  }
+  return Result.succeed(Math.max(
+    Math.abs(decodedFrom.success.cx - decodedTo.success.cx),
+    Math.abs(decodedFrom.success.cz - decodedTo.success.cz),
+  ))
+}
 
 /**
  * The distance at which each tier takes over, in chunks.
  *
  * Two fields rather than an array indexed by level, because the array would have
  * a meaningless slot at index 0: LOD 0 is not "reached at a distance", it is
- * what a chunk is when it has reached nothing. `lodForDistance` returning 0 as
- * the fall-through says the same thing without a `thresholds[0]` that no reader
+ * what a chunk is when it has reached nothing. On valid input, `lodForDistance`
+ * returns 0 below the first threshold without a `thresholds[0]` that no reader
  * could interpret.
  */
 export type LodThresholds = {
@@ -177,6 +200,97 @@ export type LodThresholds = {
   readonly lod1: number
   /** At or beyond this many chunks, a chunk is at LOD 2. */
   readonly lod2: number
+}
+
+const ZERO_DISTANCE_CHUNKS = 0
+
+export const LodThresholdsSchema: Schema.Codec<LodThresholds> = Schema.Struct({
+  lod1: Schema.Finite.check(Schema.isGreaterThanOrEqualTo(ZERO_DISTANCE_CHUNKS)),
+  lod2: Schema.Finite.check(Schema.isGreaterThanOrEqualTo(ZERO_DISTANCE_CHUNKS)),
+})
+
+export type LodInputError = {
+  readonly _tag: 'LodInputError'
+  readonly operation: 'thresholds' | 'distance' | 'census' | 'chunk-distance'
+  readonly reason:
+    | 'invalid-render-distance'
+    | 'invalid-distance'
+    | 'invalid-thresholds'
+    | 'invalid-chunk-coordinate'
+}
+
+export const LodInputErrorSchema: Schema.Codec<LodInputError> = Schema.Struct({
+  _tag: Schema.Literal('LodInputError'),
+  operation: Schema.Literals(['thresholds', 'distance', 'census', 'chunk-distance']),
+  reason: Schema.Literals([
+    'invalid-render-distance',
+    'invalid-distance',
+    'invalid-thresholds',
+    'invalid-chunk-coordinate',
+  ]),
+})
+
+const LodLevelSchema: Schema.Codec<LodLevel> = Schema.Literals(LOD_LEVELS)
+
+type LodResultShape<Success, Failure> =
+  | {
+      readonly _tag: 'Success'
+      readonly _op: 'Success'
+      readonly success: Success
+    }
+  | {
+      readonly _tag: 'Failure'
+      readonly _op: 'Failure'
+      readonly failure: Failure
+    }
+
+/** Decode Result schemas with `onExcessProperty: 'error'` to enforce exact shapes. */
+export const LodThresholdsResultSchema: Schema.Codec<
+  LodResultShape<LodThresholds, LodInputError>
+> = Schema.Union([
+  Schema.Struct({
+    _op: Schema.Literal('Success'),
+    _tag: Schema.Literal('Success'),
+    success: LodThresholdsSchema,
+  }),
+  Schema.Struct({
+    _op: Schema.Literal('Failure'),
+    _tag: Schema.Literal('Failure'),
+    failure: LodInputErrorSchema,
+  }),
+])
+
+export const LodForDistanceResultSchema: Schema.Codec<
+  LodResultShape<LodLevel, LodInputError>
+> = Schema.Union([
+  Schema.Struct({
+    _op: Schema.Literal('Success'),
+    _tag: Schema.Literal('Success'),
+    success: LodLevelSchema,
+  }),
+  Schema.Struct({
+    _op: Schema.Literal('Failure'),
+    _tag: Schema.Literal('Failure'),
+    failure: LodInputErrorSchema,
+  }),
+])
+
+const isValidRenderDistance = (renderDistance: number): boolean =>
+  Number.isSafeInteger(renderDistance) && renderDistance >= ZERO_DISTANCE_CHUNKS
+
+const lodInputError = (
+  operation: LodInputError['operation'],
+  reason: LodInputError['reason'],
+): LodInputError => ({ _tag: 'LodInputError', operation, reason })
+
+const lodForValidDistance = (distanceChunks: number, thresholds: LodThresholds): LodLevel => {
+  if (distanceChunks >= thresholds.lod2) {
+    return LOD_LEVEL_COARSEST
+  }
+  if (distanceChunks >= thresholds.lod1) {
+    return LOD_LEVEL_MIDDLE
+  }
+  return LOD_LEVEL_FINEST
 }
 
 /**
@@ -229,45 +343,50 @@ export const REFERENCE_LOD_THRESHOLDS: LodThresholds = {
  * should wait for lighting. Preferring this to the reference's pair is a claim
  * about REACHABILITY only, and that claim is arithmetic — `lodTierCensus` proves
  * it — rather than perceptual.
+ *
+ * The input must be a non-negative safe integer render distance. Invalid values
+ * return `LodInputError` instead of being rounded or clamped into success.
  */
-/** The floor every threshold is clamped to: a `lod1` of 0 would put the player's own chunk at LOD 1. */
+/** The minimum threshold: a `lod1` of 0 would put the player's own chunk at LOD 1. */
 const MIN_LOD_THRESHOLD_CHUNKS = 1
 /** `lod1`'s ratio of the render distance: half. */
 const LOD1_RENDER_DISTANCE_RATIO = 2
 
-export const lodThresholdsForRenderDistance = (renderDistance: number): LodThresholds => ({
-  lod1: Math.max(MIN_LOD_THRESHOLD_CHUNKS, Math.round(renderDistance / LOD1_RENDER_DISTANCE_RATIO)),
-  lod2: Math.max(MIN_LOD_THRESHOLD_CHUNKS, Math.round(renderDistance)),
-})
+export const lodThresholdsForRenderDistance = (
+  renderDistance: number,
+): Result.Result<LodThresholds, LodInputError> => {
+  if (!isValidRenderDistance(renderDistance)) {
+    return Result.fail(lodInputError('thresholds', 'invalid-render-distance'))
+  }
+
+  return Result.succeed({
+    lod1: Math.max(MIN_LOD_THRESHOLD_CHUNKS, Math.round(renderDistance / LOD1_RENDER_DISTANCE_RATIO)),
+    lod2: Math.max(MIN_LOD_THRESHOLD_CHUNKS, Math.round(renderDistance)),
+  })
+}
 
 /**
- * The level a chunk at this distance is drawn at.
- *
- * TOTAL: every real number maps to a level, including negatives and NaN. A
- * distance is a measurement and a renderer that threw on a strange one would
- * take down the frame for a bookkeeping error — the same rule `aoShade` in
- * `./chunk-geometry.ts` and `mouseButtonForIndex` in `./input-bindings.ts`
- * already follow in this repository.
- *
- * The comparison order matters and is coarsest-first: with thresholds that
- * cross (`lod1 > lod2`, which `lodThresholdsForRenderDistance` cannot produce
- * but a hand-written pair can) a distance satisfying both must resolve to the
- * COARSER tier. Testing `lod1` first would return LOD 1 for a chunk beyond the
- * LOD 2 boundary, which is the direction that costs frame time rather than
- * fidelity.
- *
- * NaN falls through both `>=` comparisons to LOD 0 — the finest, most expensive
- * and most correct-looking tier. Degrading toward "draw it properly" is the safe
- * direction for a value nobody can interpret.
+ * Selects a LOD tier for a finite non-negative distance and an exact threshold pair.
+ * Crossed thresholds are valid and resolve coarsest-first.
  */
-export const lodForDistance = (distanceChunks: number, thresholds: LodThresholds): LodLevel => {
-  if (distanceChunks >= thresholds.lod2) {
-    return LOD_LEVEL_COARSEST
+export const lodForDistance = (
+  distanceChunks: number,
+  thresholds: LodThresholds,
+): Result.Result<LodLevel, LodInputError> => {
+  if (!Number.isFinite(distanceChunks) || distanceChunks < ZERO_DISTANCE_CHUNKS) {
+    return Result.fail(lodInputError('distance', 'invalid-distance'))
   }
-  if (distanceChunks >= thresholds.lod1) {
-    return LOD_LEVEL_MIDDLE
+
+  const decodedThresholds = Schema.decodeUnknownResult(LodThresholdsSchema, {
+    onExcessProperty: 'error',
+  })(thresholds)
+  if (Result.isFailure(decodedThresholds)) {
+    return Result.fail(lodInputError('distance', 'invalid-thresholds'))
   }
-  return LOD_LEVEL_FINEST
+
+  return Result.succeed(
+    lodForValidDistance(distanceChunks, decodedThresholds.success),
+  )
 }
 
 /** The viewing conditions the apparent error depends on. */
@@ -398,6 +517,44 @@ export const distanceForScreenErrorPixels = (
 /** How many of the loaded chunks fall in each tier. Indexed by `LodLevel`. */
 export type LodTierCensus = Readonly<Record<LodLevel, number>>
 
+const LodTierCountSchema = Schema.Finite.check(Schema.isGreaterThanOrEqualTo(ZERO_DISTANCE_CHUNKS))
+
+export const LodTierCensusSchema: Schema.Codec<LodTierCensus> = Schema.Struct({
+  0: LodTierCountSchema,
+  1: LodTierCountSchema,
+  2: LodTierCountSchema,
+})
+
+export const LodTierCensusResultSchema: Schema.Codec<
+  LodResultShape<LodTierCensus, LodInputError>
+> = Schema.Union([
+  Schema.Struct({
+    _op: Schema.Literal('Success'),
+    _tag: Schema.Literal('Success'),
+    success: LodTierCensusSchema,
+  }),
+  Schema.Struct({
+    _op: Schema.Literal('Failure'),
+    _tag: Schema.Literal('Failure'),
+    failure: LodInputErrorSchema,
+  }),
+])
+
+export const UnreachableLodTiersResultSchema: Schema.Codec<
+  LodResultShape<ReadonlyArray<LodLevel>, LodInputError>
+> = Schema.Union([
+  Schema.Struct({
+    _op: Schema.Literal('Success'),
+    _tag: Schema.Literal('Success'),
+    success: Schema.Array(LodLevelSchema),
+  }),
+  Schema.Struct({
+    _op: Schema.Literal('Failure'),
+    _tag: Schema.Literal('Failure'),
+    failure: LodInputErrorSchema,
+  }),
+])
+
 /**
  * Count the loaded chunks at each tier, for a render distance and a threshold pair.
  *
@@ -405,9 +562,10 @@ export type LodTierCensus = Readonly<Record<LodLevel, number>>
  * `renderDistance = 4` the coarsest tier never fires because no chunk is ever 8
  * away — and prose is what this project's retrospective identifies as the form
  * in which four wrong blockers survived: a category cannot be checked, a thing
- * can. `lodTierCensus(4, REFERENCE_LOD_THRESHOLDS)[2] === 0` is a thing, and
- * `test/level-of-detail.test.ts` asserts it, so the defect is pinned in its
- * current wrong state and the day a threshold rule fixes it, that test says so.
+ * can. The census result records 0 at LOD 2 for render distance 4 under
+ * `REFERENCE_LOD_THRESHOLDS`, and `test/level-of-detail.test.ts` asserts it, so
+ * the defect is pinned in its current wrong state and the day a threshold rule
+ * fixes it, that test says so.
  *
  * Exact rather than sampled, and it has to be: a sampled census would answer
  * "approximately zero" for the dead tier, and approximately zero is the one
@@ -415,9 +573,8 @@ export type LodTierCensus = Readonly<Record<LodLevel, number>>
  * the square `[-R, R]^2` and ring `d` holds exactly `8d` chunks for `d > 0` and
  * 1 for `d = 0`, so the loop below counts rings rather than chunks and is O(R).
  *
- * `renderDistance` is truncated toward zero and floored at 0: a fractional
- * render distance is not a thing the loader can honour, and a negative one still
- * loads the chunk the player is in.
+ * The render distance must be a non-negative safe integer. Invalid values fail
+ * with `LodInputError` instead of being truncated or clamped.
  */
 /** `lodTierCensus`'s ring counter starts at the centre and advances one ring at a time. */
 const CENTER_RING = 0
@@ -434,24 +591,33 @@ const ringChunkCount = (ring: number): number => {
   return CHUNKS_PER_RING_UNIT * ring
 }
 
-/** A render distance never yields a negative radius: a negative one still loads the player's own chunk. */
-const MIN_RENDER_RADIUS_CHUNKS = 0
-
-export const lodTierCensus = (renderDistance: number, thresholds: LodThresholds): LodTierCensus => {
-  const radius = Math.max(MIN_RENDER_RADIUS_CHUNKS, Math.trunc(renderDistance))
-  const counts: Record<LodLevel, number> = { 0: 0, 1: 0, 2: 0 }
-
-  for (let ring = CENTER_RING; ring <= radius; ring += RING_STEP) {
-    counts[lodForDistance(ring, thresholds)] += ringChunkCount(ring)
+export const lodTierCensus = (
+  renderDistance: number,
+  thresholds: LodThresholds,
+): Result.Result<LodTierCensus, LodInputError> => {
+  if (!isValidRenderDistance(renderDistance)) {
+    return Result.fail(lodInputError('census', 'invalid-render-distance'))
   }
 
-  return counts
+  const decodedThresholds = Schema.decodeUnknownResult(LodThresholdsSchema, {
+    onExcessProperty: 'error',
+  })(thresholds)
+  if (Result.isFailure(decodedThresholds)) {
+    return Result.fail(lodInputError('census', 'invalid-thresholds'))
+  }
+
+  const counts: Record<LodLevel, number> = { 0: 0, 1: 0, 2: 0 }
+  for (let ring = CENTER_RING; ring <= renderDistance; ring += RING_STEP) {
+    counts[lodForValidDistance(ring, decodedThresholds.success)] += ringChunkCount(ring)
+  }
+
+  return Result.succeed(counts)
 }
 
 /**
  * The tiers that no chunk can ever be drawn at, given a render distance.
  *
- * The census read as a verdict, so a caller can assert "no tier is unreachable"
+ * A successful census is read as a verdict, so a caller can assert "no tier is unreachable"
  * without knowing which tier to look at — the shape that survives a fourth level
  * being added to `LOD_LEVELS`, which is otherwise the change that would leave a
  * hand-written `census[2] > 0` check silently covering less than it reads as.
@@ -468,7 +634,10 @@ const NO_CHUNKS_AT_TIER = 0
 export const unreachableLodTiers = (
   renderDistance: number,
   thresholds: LodThresholds,
-): ReadonlyArray<LodLevel> => {
+): Result.Result<ReadonlyArray<LodLevel>, LodInputError> => {
   const census = lodTierCensus(renderDistance, thresholds)
-  return LOD_LEVELS.filter((level) => census[level] === NO_CHUNKS_AT_TIER)
+  if (Result.isFailure(census)) {
+    return Result.fail(census.failure)
+  }
+  return Result.succeed(LOD_LEVELS.filter((level) => census.success[level] === NO_CHUNKS_AT_TIER))
 }

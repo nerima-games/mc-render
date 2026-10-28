@@ -1,0 +1,668 @@
+[
+  {
+    "count": 2,
+    "file": "src/application/browser-input-adapter.ts",
+    "ruleId": "no-raw-exported-function-parameter",
+    "text": "string"
+  },
+  {
+    "count": 2,
+    "file": "src/application/chunk-store-mesher.ts",
+    "ruleId": "no-raw-exported-function-parameter",
+    "text": "number"
+  },
+  {
+    "count": 1,
+    "file": "src/application/input-service.ts",
+    "ruleId": "no-raw-exported-function-parameter",
+    "text": "number"
+  },
+  {
+    "count": 3,
+    "file": "src/application/world-renderer-geometry.ts",
+    "ruleId": "no-raw-exported-function-parameter",
+    "text": "number"
+  },
+  {
+    "count": 2,
+    "file": "src/application/world-renderer-materials.ts",
+    "ruleId": "no-raw-exported-function-parameter",
+    "text": "number"
+  },
+  {
+    "count": 1,
+    "file": "src/application/world-renderer-materials.ts",
+    "ruleId": "no-raw-exported-function-parameter",
+    "text": "string"
+  },
+  {
+    "count": 2,
+    "file": "src/application/world-renderer.ts",
+    "ruleId": "no-raw-exported-function-parameter",
+    "text": "number"
+  },
+  {
+    "count": 1,
+    "file": "src/application/world-renderer.ts",
+    "ruleId": "no-raw-exported-function-parameter",
+    "text": "string"
+  },
+  {
+    "count": 1,
+    "file": "src/application/world-sync.ts",
+    "ruleId": "no-raw-exported-function-parameter",
+    "text": "number"
+  },
+  {
+    "count": 1,
+    "file": "src/domain/adaptive-quality.ts",
+    "ruleId": "no-raw-exported-function-parameter",
+    "text": "number"
+  },
+  {
+    "count": 1,
+    "file": "src/domain/block-texture-map.ts",
+    "ruleId": "no-raw-exported-function-parameter",
+    "text": "number"
+  },
+  {
+    "count": 1,
+    "file": "src/domain/block-texture-map.ts",
+    "ruleId": "no-raw-exported-function-parameter",
+    "text": "string"
+  },
+  {
+    "count": 4,
+    "file": "src/domain/browser-render-policy.ts",
+    "ruleId": "no-raw-exported-function-parameter",
+    "text": "number"
+  },
+  {
+    "count": 2,
+    "file": "src/domain/browser-render-policy.ts",
+    "ruleId": "no-raw-exported-function-parameter",
+    "text": "string"
+  },
+  {
+    "count": 12,
+    "file": "src/domain/chunk-geometry.ts",
+    "ruleId": "no-raw-exported-function-parameter",
+    "text": "number"
+  },
+  {
+    "count": 1,
+    "file": "src/domain/chunk-shader.ts",
+    "ruleId": "no-raw-exported-function-parameter",
+    "text": "number"
+  },
+  {
+    "count": 2,
+    "file": "src/domain/focus-navigation.ts",
+    "ruleId": "no-raw-exported-function-parameter",
+    "text": "string"
+  },
+  {
+    "count": 1,
+    "file": "src/domain/frame-scratch.ts",
+    "ruleId": "no-raw-exported-function-parameter",
+    "text": "number"
+  },
+  {
+    "count": 1,
+    "file": "src/domain/frame-scratch.ts",
+    "ruleId": "no-raw-exported-function-parameter",
+    "text": "string"
+  },
+  {
+    "count": 6,
+    "file": "src/domain/level-of-detail.ts",
+    "ruleId": "no-raw-exported-function-parameter",
+    "text": "number"
+  },
+  {
+    "count": 2,
+    "file": "src/domain/mob-visual.ts",
+    "ruleId": "no-raw-exported-function-parameter",
+    "text": "string"
+  },
+  {
+    "count": 2,
+    "file": "src/domain/particle-pool.ts",
+    "ruleId": "no-raw-exported-function-parameter",
+    "text": "number"
+  },
+  {
+    "count": 2,
+    "file": "src/domain/post-processing.ts",
+    "ruleId": "no-raw-exported-function-parameter",
+    "text": "string"
+  },
+  {
+    "count": 2,
+    "file": "src/domain/render-environment.ts",
+    "ruleId": "no-raw-exported-function-parameter",
+    "text": "number"
+  },
+  {
+    "count": 1,
+    "file": "src/domain/ssim-adaptive-quality.ts",
+    "ruleId": "no-raw-exported-function-parameter",
+    "text": "number"
+  },
+  {
+    "count": 8,
+    "file": "src/domain/texture-atlas.ts",
+    "ruleId": "no-raw-exported-function-parameter",
+    "text": "number"
+  },
+  {
+    "count": 2,
+    "file": "src/domain/vehicle-visual.ts",
+    "ruleId": "no-raw-exported-function-parameter",
+    "text": "number"
+  },
+  {
+    "count": 11,
+    "file": "src/domain/voxel-lighting.ts",
+    "ruleId": "no-raw-exported-function-parameter",
+    "text": "number"
+  },
+  {
+    "count": 12,
+    "file": "src/domain/water-surface.ts",
+    "ruleId": "no-raw-exported-function-parameter",
+    "text": "number"
+  },
+  {
+    "count": 2,
+    "file": "src/application/world-sync.ts",
+    "ruleId": "no-raw-exported-function-return",
+    "text": "number"
+  },
+  {
+    "count": 2,
+    "file": "src/domain/block-texture-map.ts",
+    "ruleId": "no-raw-exported-function-return",
+    "text": "number"
+  },
+  {
+    "count": 8,
+    "file": "src/domain/browser-render-policy.ts",
+    "ruleId": "no-raw-exported-function-return",
+    "text": "number"
+  },
+  {
+    "count": 1,
+    "file": "src/domain/browser-render-policy.ts",
+    "ruleId": "no-raw-exported-function-return",
+    "text": "string"
+  },
+  {
+    "count": 1,
+    "file": "src/domain/camera-mirror.ts",
+    "ruleId": "no-raw-exported-function-return",
+    "text": "number"
+  },
+  {
+    "count": 7,
+    "file": "src/domain/chunk-geometry.ts",
+    "ruleId": "no-raw-exported-function-return",
+    "text": "number"
+  },
+  {
+    "count": 3,
+    "file": "src/domain/chunk-shader.ts",
+    "ruleId": "no-raw-exported-function-return",
+    "text": "string"
+  },
+  {
+    "count": 2,
+    "file": "src/domain/input-bindings.ts",
+    "ruleId": "no-raw-exported-function-return",
+    "text": "number"
+  },
+  {
+    "count": 3,
+    "file": "src/domain/level-of-detail.ts",
+    "ruleId": "no-raw-exported-function-return",
+    "text": "number"
+  },
+  {
+    "count": 4,
+    "file": "src/domain/particle-pool.ts",
+    "ruleId": "no-raw-exported-function-return",
+    "text": "number"
+  },
+  {
+    "count": 2,
+    "file": "src/domain/particle-shader.ts",
+    "ruleId": "no-raw-exported-function-return",
+    "text": "string"
+  },
+  {
+    "count": 1,
+    "file": "src/domain/post-processing.ts",
+    "ruleId": "no-raw-exported-function-return",
+    "text": "number"
+  },
+  {
+    "count": 4,
+    "file": "src/domain/texture-atlas.ts",
+    "ruleId": "no-raw-exported-function-return",
+    "text": "number"
+  },
+  {
+    "count": 2,
+    "file": "src/domain/texture-atlas.ts",
+    "ruleId": "no-raw-exported-function-return",
+    "text": "string"
+  },
+  {
+    "count": 9,
+    "file": "src/domain/voxel-lighting.ts",
+    "ruleId": "no-raw-exported-function-return",
+    "text": "number"
+  },
+  {
+    "count": 2,
+    "file": "src/domain/water-refraction.ts",
+    "ruleId": "no-raw-exported-function-return",
+    "text": "number"
+  },
+  {
+    "count": 1,
+    "file": "src/domain/water-refraction.ts",
+    "ruleId": "no-raw-exported-function-return",
+    "text": "string"
+  },
+  {
+    "count": 3,
+    "file": "src/domain/water-shader.ts",
+    "ruleId": "no-raw-exported-function-return",
+    "text": "string"
+  },
+  {
+    "count": 7,
+    "file": "src/domain/water-surface.ts",
+    "ruleId": "no-raw-exported-function-return",
+    "text": "number"
+  },
+  {
+    "count": 4,
+    "file": "src/application/browser-input-adapter.ts",
+    "ruleId": "no-raw-exported-type-field",
+    "text": "number"
+  },
+  {
+    "count": 2,
+    "file": "src/application/browser-input-adapter.ts",
+    "ruleId": "no-raw-exported-type-field",
+    "text": "string"
+  },
+  {
+    "count": 1,
+    "file": "src/application/browser-worker-port.ts",
+    "ruleId": "no-raw-exported-type-field",
+    "text": "number"
+  },
+  {
+    "count": 1,
+    "file": "src/application/browser-worker-port.ts",
+    "ruleId": "no-raw-exported-type-field",
+    "text": "string"
+  },
+  {
+    "count": 8,
+    "file": "src/application/dom-surface.ts",
+    "ruleId": "no-raw-exported-type-field",
+    "text": "number"
+  },
+  {
+    "count": 3,
+    "file": "src/application/dom-surface.ts",
+    "ruleId": "no-raw-exported-type-field",
+    "text": "string"
+  },
+  {
+    "count": 5,
+    "file": "src/application/entity-visual-plan.ts",
+    "ruleId": "no-raw-exported-type-field",
+    "text": "number"
+  },
+  {
+    "count": 2,
+    "file": "src/application/entity-visual-plan.ts",
+    "ruleId": "no-raw-exported-type-field",
+    "text": "string"
+  },
+  {
+    "count": 7,
+    "file": "src/application/input-service.ts",
+    "ruleId": "no-raw-exported-type-field",
+    "text": "number"
+  },
+  {
+    "count": 1,
+    "file": "src/application/particle-event-adapter.ts",
+    "ruleId": "no-raw-exported-type-field",
+    "text": "string"
+  },
+  {
+    "count": 9,
+    "file": "src/application/particle-service.ts",
+    "ruleId": "no-raw-exported-type-field",
+    "text": "number"
+  },
+  {
+    "count": 1,
+    "file": "src/application/particle-system.ts",
+    "ruleId": "no-raw-exported-type-field",
+    "text": "number"
+  },
+  {
+    "count": 13,
+    "file": "src/application/three-surface.ts",
+    "ruleId": "no-raw-exported-type-field",
+    "text": "number"
+  },
+  {
+    "count": 3,
+    "file": "src/application/three-surface.ts",
+    "ruleId": "no-raw-exported-type-field",
+    "text": "string"
+  },
+  {
+    "count": 1,
+    "file": "src/application/weather-renderer.ts",
+    "ruleId": "no-raw-exported-type-field",
+    "text": "number"
+  },
+  {
+    "count": 14,
+    "file": "src/application/worker-pool.ts",
+    "ruleId": "no-raw-exported-type-field",
+    "text": "number"
+  },
+  {
+    "count": 2,
+    "file": "src/application/world-renderer-materials.ts",
+    "ruleId": "no-raw-exported-type-field",
+    "text": "string"
+  },
+  {
+    "count": 4,
+    "file": "src/application/world-renderer-production.ts",
+    "ruleId": "no-raw-exported-type-field",
+    "text": "number"
+  },
+  {
+    "count": 1,
+    "file": "src/application/world-renderer-production.ts",
+    "ruleId": "no-raw-exported-type-field",
+    "text": "string"
+  },
+  {
+    "count": 21,
+    "file": "src/application/world-renderer.ts",
+    "ruleId": "no-raw-exported-type-field",
+    "text": "number"
+  },
+  {
+    "count": 4,
+    "file": "src/application/world-renderer.ts",
+    "ruleId": "no-raw-exported-type-field",
+    "text": "string"
+  },
+  {
+    "count": 3,
+    "file": "src/application/world-sync.ts",
+    "ruleId": "no-raw-exported-type-field",
+    "text": "number"
+  },
+  {
+    "count": 2,
+    "file": "src/browser-water-visibility.ts",
+    "ruleId": "no-raw-exported-type-field",
+    "text": "number"
+  },
+  {
+    "count": 4,
+    "file": "src/browser.ts",
+    "ruleId": "no-raw-exported-type-field",
+    "text": "number"
+  },
+  {
+    "count": 1,
+    "file": "src/browser.ts",
+    "ruleId": "no-raw-exported-type-field",
+    "text": "string"
+  },
+  {
+    "count": 2,
+    "file": "src/domain/adaptive-quality.ts",
+    "ruleId": "no-raw-exported-type-field",
+    "text": "number"
+  },
+  {
+    "count": 6,
+    "file": "src/domain/block-shapes.ts",
+    "ruleId": "no-raw-exported-type-field",
+    "text": "number"
+  },
+  {
+    "count": 3,
+    "file": "src/domain/browser-render-policy.ts",
+    "ruleId": "no-raw-exported-type-field",
+    "text": "number"
+  },
+  {
+    "count": 6,
+    "file": "src/domain/browser-render-policy.ts",
+    "ruleId": "no-raw-exported-type-field",
+    "text": "string"
+  },
+  {
+    "count": 4,
+    "file": "src/domain/camera-mirror.ts",
+    "ruleId": "no-raw-exported-type-field",
+    "text": "number"
+  },
+  {
+    "count": 3,
+    "file": "src/domain/chunk-geometry.ts",
+    "ruleId": "no-raw-exported-type-field",
+    "text": "number"
+  },
+  {
+    "count": 4,
+    "file": "src/domain/chunk-shader.ts",
+    "ruleId": "no-raw-exported-type-field",
+    "text": "string"
+  },
+  {
+    "count": 5,
+    "file": "src/domain/frame-scratch.ts",
+    "ruleId": "no-raw-exported-type-field",
+    "text": "number"
+  },
+  {
+    "count": 6,
+    "file": "src/domain/frame-scratch.ts",
+    "ruleId": "no-raw-exported-type-field",
+    "text": "string"
+  },
+  {
+    "count": 23,
+    "file": "src/domain/frustum-culling.ts",
+    "ruleId": "no-raw-exported-type-field",
+    "text": "number"
+  },
+  {
+    "count": 6,
+    "file": "src/domain/gamepad-input.ts",
+    "ruleId": "no-raw-exported-type-field",
+    "text": "number"
+  },
+  {
+    "count": 3,
+    "file": "src/domain/input-bindings.ts",
+    "ruleId": "no-raw-exported-type-field",
+    "text": "number"
+  },
+  {
+    "count": 2,
+    "file": "src/domain/input-bindings.ts",
+    "ruleId": "no-raw-exported-type-field",
+    "text": "string"
+  },
+  {
+    "count": 4,
+    "file": "src/domain/level-of-detail.ts",
+    "ruleId": "no-raw-exported-type-field",
+    "text": "number"
+  },
+  {
+    "count": 1,
+    "file": "src/domain/material-policy.ts",
+    "ruleId": "no-raw-exported-type-field",
+    "text": "number"
+  },
+  {
+    "count": 4,
+    "file": "src/domain/material-policy.ts",
+    "ruleId": "no-raw-exported-type-field",
+    "text": "string"
+  },
+  {
+    "count": 19,
+    "file": "src/domain/meshing-vocabulary.ts",
+    "ruleId": "no-raw-exported-type-field",
+    "text": "number"
+  },
+  {
+    "count": 3,
+    "file": "src/domain/mob-visual.ts",
+    "ruleId": "no-raw-exported-type-field",
+    "text": "number"
+  },
+  {
+    "count": 2,
+    "file": "src/domain/mob-visual.ts",
+    "ruleId": "no-raw-exported-type-field",
+    "text": "string"
+  },
+  {
+    "count": 39,
+    "file": "src/domain/particle-pool.ts",
+    "ruleId": "no-raw-exported-type-field",
+    "text": "number"
+  },
+  {
+    "count": 4,
+    "file": "src/domain/particle-pool.ts",
+    "ruleId": "no-raw-exported-type-field",
+    "text": "string"
+  },
+  {
+    "count": 4,
+    "file": "src/domain/particle-shader.ts",
+    "ruleId": "no-raw-exported-type-field",
+    "text": "string"
+  },
+  {
+    "count": 2,
+    "file": "src/domain/player-control.ts",
+    "ruleId": "no-raw-exported-type-field",
+    "text": "number"
+  },
+  {
+    "count": 5,
+    "file": "src/domain/post-processing.ts",
+    "ruleId": "no-raw-exported-type-field",
+    "text": "number"
+  },
+  {
+    "count": 1,
+    "file": "src/domain/post-processing.ts",
+    "ruleId": "no-raw-exported-type-field",
+    "text": "string"
+  },
+  {
+    "count": 10,
+    "file": "src/domain/render-environment.ts",
+    "ruleId": "no-raw-exported-type-field",
+    "text": "number"
+  },
+  {
+    "count": 1,
+    "file": "src/domain/ssim-adaptive-quality.ts",
+    "ruleId": "no-raw-exported-type-field",
+    "text": "number"
+  },
+  {
+    "count": 14,
+    "file": "src/domain/texture-atlas.ts",
+    "ruleId": "no-raw-exported-type-field",
+    "text": "number"
+  },
+  {
+    "count": 3,
+    "file": "src/domain/vehicle-visual.ts",
+    "ruleId": "no-raw-exported-type-field",
+    "text": "number"
+  },
+  {
+    "count": 1,
+    "file": "src/domain/vehicle-visual.ts",
+    "ruleId": "no-raw-exported-type-field",
+    "text": "string"
+  },
+  {
+    "count": 9,
+    "file": "src/domain/voxel-lighting.ts",
+    "ruleId": "no-raw-exported-type-field",
+    "text": "number"
+  },
+  {
+    "count": 22,
+    "file": "src/domain/water-refraction.ts",
+    "ruleId": "no-raw-exported-type-field",
+    "text": "number"
+  },
+  {
+    "count": 3,
+    "file": "src/domain/water-shader.ts",
+    "ruleId": "no-raw-exported-type-field",
+    "text": "string"
+  },
+  {
+    "count": 9,
+    "file": "src/domain/water-surface.ts",
+    "ruleId": "no-raw-exported-type-field",
+    "text": "number"
+  },
+  {
+    "count": 19,
+    "file": "src/domain/weather-rendering.ts",
+    "ruleId": "no-raw-exported-type-field",
+    "text": "number"
+  },
+  {
+    "count": 10,
+    "file": "src/domain/wither-visual.ts",
+    "ruleId": "no-raw-exported-type-field",
+    "text": "number"
+  },
+  {
+    "count": 1,
+    "file": "src/domain/wither-visual.ts",
+    "ruleId": "no-raw-exported-type-field",
+    "text": "string"
+  },
+  {
+    "count": 3,
+    "file": "src/stages/registration.ts",
+    "ruleId": "no-raw-exported-type-field",
+    "text": "number"
+  }
+]

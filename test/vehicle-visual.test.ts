@@ -1,4 +1,5 @@
 import { describe, expect, it } from '@effect/vitest'
+import { AngleRadians, PositionAxis, VehicleVelocityComponent, position } from '@nerima-games/mc-kernel'
 import type { OccupantId, Vehicle, VehicleId } from '@nerima-games/mc-sim'
 import {
   interpolateVehicle,
@@ -7,13 +8,21 @@ import {
   type VehicleRenderPlan,
 } from '../src/index'
 
+const positionOf = (x: number, y: number, z: number) => position(PositionAxis(x), PositionAxis(y), PositionAxis(z))
+
+const velocityOf = (x: number, y: number, z: number) => ({
+  x: VehicleVelocityComponent(x),
+  y: VehicleVelocityComponent(y),
+  z: VehicleVelocityComponent(z),
+})
+
 const vehicle = (overrides: Partial<Vehicle> = {}): Vehicle => ({
   id: 'v:7' as VehicleId,
   type: 'boat',
   dimension: 'overworld',
-  position: { x: 2, y: 4, z: 6 },
-  velocity: { x: 0, y: 0, z: 0 },
-  yawRadians: 0,
+  position: positionOf(2, 4, 6),
+  velocity: velocityOf(0, 0, 0),
+  yawRadians: AngleRadians(0),
   ...overrides,
 })
 
@@ -37,14 +46,14 @@ describe('vehicle visual descriptors', () => {
 describe('vehicle interpolation', () => {
   it('interpolates transforms and takes the shortest path across the yaw seam', () => {
     const previous = vehicle({
-      position: { x: 0, y: 2, z: 4 },
-      velocity: { x: 0, y: 0, z: 2 },
-      yawRadians: (170 * Math.PI) / 180,
+      position: positionOf(0, 2, 4),
+      velocity: velocityOf(0, 0, 2),
+      yawRadians: AngleRadians((170 * Math.PI) / 180),
     })
     const current = vehicle({
-      position: { x: 10, y: 4, z: 8 },
-      velocity: { x: 4, y: 2, z: 0 },
-      yawRadians: (-170 * Math.PI) / 180,
+      position: positionOf(10, 4, 8),
+      velocity: velocityOf(4, 2, 0),
+      yawRadians: AngleRadians((-170 * Math.PI) / 180),
     })
     const sample = interpolateVehicle(previous, current, 0.5)
 
@@ -54,21 +63,32 @@ describe('vehicle interpolation', () => {
   })
 
   it('clamps invalid amounts and does not blend unrelated vehicles', () => {
-    const current = vehicle({ position: { x: 10, y: 4, z: 8 }, yawRadians: 2 })
+    const current = vehicle({ position: positionOf(10, 4, 8), yawRadians: AngleRadians(2) })
     expect(interpolateVehicle(vehicle(), current, Number.NaN).position).toStrictEqual(vehicle().position)
     expect(interpolateVehicle(vehicle(), current, 99).position).toStrictEqual(current.position)
     const unrelated = vehicle({
       id: 'v:8' as VehicleId,
-      position: { x: 20, y: 30, z: 40 },
+      position: positionOf(20, 30, 40),
     })
     expect(interpolateVehicle(vehicle(), unrelated, 0).position).toStrictEqual(unrelated.position)
+  })
+
+  it('keeps yaw finite when subtracting finite endpoints would overflow', () => {
+    const previous = vehicle({ yawRadians: AngleRadians(Number.MAX_VALUE) })
+    const current = vehicle({ position: positionOf(10, 4, 8), yawRadians: AngleRadians(-Number.MAX_VALUE) })
+
+    const sample = interpolateVehicle(previous, current, 0.5)
+
+    expect(Number.isFinite(sample.yawRadians)).toBe(true)
+    expect(sample.yawRadians).toBe(previous.yawRadians)
+    expect(sample.position).toStrictEqual({ x: 6, y: 4, z: 7 })
   })
 })
 
 describe('vehicle render planning', () => {
   it('exposes a world-space occupant anchor and camera visibility decision', () => {
     const occupant = 'player:local' as OccupantId
-    const occupied = vehicle({ occupant, yawRadians: Math.PI / 2 })
+    const occupied = vehicle({ occupant, yawRadians: AngleRadians(Math.PI / 2) })
     const firstPerson: VehicleRenderPlan = planVehicleVisual(occupied, {
       camera: { localOccupantId: occupant },
     })
@@ -88,8 +108,8 @@ describe('vehicle render planning', () => {
 
   it('uses the interpolated vehicle pose for the occupant in the same frame', () => {
     const occupant = 'player:remote' as OccupantId
-    const plan = planVehicleVisual(vehicle({ position: { x: 10, y: 4, z: 6 }, occupant }), {
-      previous: vehicle({ position: { x: 0, y: 2, z: 6 }, occupant }),
+    const plan = planVehicleVisual(vehicle({ position: positionOf(10, 4, 6), occupant }), {
+      previous: vehicle({ position: positionOf(0, 2, 6), occupant }),
       interpolation: 0.25,
     })
 
@@ -101,8 +121,8 @@ describe('vehicle render planning', () => {
   it('defaults to a full blend when previous is given without an explicit interpolation amount', () => {
     // No `interpolation` field at all (not even `undefined`), so resolveSample must fall
     // back to DEFAULT_INTERPOLATION_AMOUNT (1) rather than leaving it `undefined`.
-    const previous = vehicle({ position: { x: 0, y: 2, z: 4 }, velocity: { x: 0, y: 0, z: 0 }, yawRadians: 0 })
-    const current = vehicle({ position: { x: 10, y: 4, z: 8 }, velocity: { x: 1, y: 1, z: 1 }, yawRadians: 1 })
+    const previous = vehicle({ position: positionOf(0, 2, 4), velocity: velocityOf(0, 0, 0), yawRadians: AngleRadians(0) })
+    const current = vehicle({ position: positionOf(10, 4, 8), velocity: velocityOf(1, 1, 1), yawRadians: AngleRadians(1) })
 
     const plan = planVehicleVisual(current, { previous })
 
