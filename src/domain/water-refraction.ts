@@ -325,6 +325,10 @@ const FRAME_NUMBER_ORIGIN = 1
 /** A frame offset that lands exactly on the interval. */
 const ON_INTERVAL_REMAINDER = 0
 
+const isRefractionFrame = (intervalFrames: number, frameNumber: number): boolean =>
+  intervalFrames > DISABLED_INTERVAL &&
+  (frameNumber - FRAME_NUMBER_ORIGIN) % intervalFrames === ON_INTERVAL_REMAINDER
+
 const validateFrameSchedule = (
   intervalFrames: unknown,
   frameNumber: unknown,
@@ -352,12 +356,7 @@ export const refractionRunsOnFrame = (
   if (Result.isFailure(schedule)) {
     return Result.fail(schedule.failure)
   }
-  if (schedule.success.intervalFrames === DISABLED_INTERVAL) {
-    return Result.succeed(false)
-  }
-  return Result.succeed(
-    (schedule.success.frameNumber - FRAME_NUMBER_ORIGIN) % schedule.success.intervalFrames === ON_INTERVAL_REMAINDER,
-  )
+  return Result.succeed(isRefractionFrame(schedule.success.intervalFrames, schedule.success.frameNumber))
 }
 
 // --- The camera key ---------------------------------------------------------
@@ -424,6 +423,20 @@ export const RefractionCameraKeySchema: Schema.Codec<RefractionCameraKey> = Sche
  * matches anything, including itself. That is the inert direction: an
  * uninterpretable camera re-renders rather than serving a stale texture forever.
  */
+const refractionKeysAreEqual = (left: RefractionCameraKey, right: RefractionCameraKey): boolean =>
+  left.sceneVersion === right.sceneVersion &&
+  left.worldX === right.worldX &&
+  left.worldY === right.worldY &&
+  left.worldZ === right.worldZ &&
+  left.qx === right.qx &&
+  left.qy === right.qy &&
+  left.qz === right.qz &&
+  left.qw === right.qw &&
+  left.projection0 === right.projection0 &&
+  left.projection5 === right.projection5 &&
+  left.projection10 === right.projection10 &&
+  left.projection14 === right.projection14
+
 export const sameRefractionKey = (first: unknown, second: unknown): Result.Result<boolean, RefractionInputError> => {
   const decodedFirst = Schema.decodeUnknownResult(RefractionCameraKeySchema, {
     onExcessProperty: 'error',
@@ -437,22 +450,7 @@ export const sameRefractionKey = (first: unknown, second: unknown): Result.Resul
   if (Result.isFailure(decodedSecond)) {
     return Result.fail(refractionInputError('camera-key', 'invalid-input'))
   }
-  const left = decodedFirst.success
-  const right = decodedSecond.success
-  return Result.succeed(
-    left.sceneVersion === right.sceneVersion &&
-      left.worldX === right.worldX &&
-      left.worldY === right.worldY &&
-      left.worldZ === right.worldZ &&
-      left.qx === right.qx &&
-      left.qy === right.qy &&
-      left.qz === right.qz &&
-      left.qw === right.qw &&
-      left.projection0 === right.projection0 &&
-      left.projection5 === right.projection5 &&
-      left.projection10 === right.projection10 &&
-      left.projection14 === right.projection14,
-  )
+  return Result.succeed(refractionKeysAreEqual(decodedFirst.success, decodedSecond.success))
 }
 
 // --- Screen ratio -----------------------------------------------------------
@@ -698,39 +696,26 @@ export const isRefractionSkipped = (decision: unknown): Result.Result<boolean, R
 /** The `minScreenRatio` value that disables the screen-ratio gate entirely. */
 const SCREEN_RATIO_GATE_DISABLED = 0
 
+type PreparedRefractionDecision = { readonly input: RefractionInputs; readonly order: ReadonlyArray<RefractionGate> }
+
 /** Evaluate one gate. `true` means this gate says skip. */
 const REFRACTION_GATE_EVALUATORS: Readonly<
-  Record<RefractionGate, (inputs: RefractionInputs) => Result.Result<boolean, RefractionInputError>>
+  Record<RefractionGate, (prepared: PreparedRefractionDecision) => boolean>
 > = {
-  'below-screen-ratio': (inputs) => {
-    const threshold = normalizeRefractionMinScreenRatio(inputs.minScreenRatio)
-    if (Result.isFailure(threshold)) {
-      return Result.fail(threshold.failure)
-    }
-    return Result.succeed(
-      threshold.success > SCREEN_RATIO_GATE_DISABLED && inputs.waterScreenRatio < threshold.success,
-    )
+  'below-screen-ratio': ({ input }) =>
+    input.minScreenRatio > SCREEN_RATIO_GATE_DISABLED && input.waterScreenRatio < input.minScreenRatio,
+  'camera-and-scene-unchanged': ({ input }) => {
+    const { cameraKey, lastRenderedKey } = input
+    return lastRenderedKey !== undefined && refractionKeysAreEqual(cameraKey, lastRenderedKey)
   },
-  'camera-and-scene-unchanged': ({ cameraKey, lastRenderedKey }) => {
-    if (!lastRenderedKey) {
-      return Result.succeed(false)
-    }
-    return sameRefractionKey(cameraKey, lastRenderedKey)
-  },
-  'interval-disabled': ({ intervalFrames }) => Result.succeed(intervalFrames === DISABLED_INTERVAL),
-  'no-visible-water': ({ visibleWaterMeshCount }) => Result.succeed(visibleWaterMeshCount <= EMPTY_MESH_COUNT),
-  'no-water-meshes': ({ waterMeshCount }) => Result.succeed(waterMeshCount <= EMPTY_MESH_COUNT),
-  'not-this-frame': (inputs) => {
-    const scheduled = refractionRunsOnFrame(inputs.intervalFrames, inputs.frameNumber)
-    if (Result.isFailure(scheduled)) {
-      return Result.fail(scheduled.failure)
-    }
-    return Result.succeed(!scheduled.success)
-  },
+  'interval-disabled': ({ input }) => input.intervalFrames === DISABLED_INTERVAL,
+  'no-visible-water': ({ input }) => input.visibleWaterMeshCount <= EMPTY_MESH_COUNT,
+  'no-water-meshes': ({ input }) => input.waterMeshCount <= EMPTY_MESH_COUNT,
+  'not-this-frame': ({ input }) => !isRefractionFrame(input.intervalFrames, input.frameNumber),
 }
 
-const gateFires = (gate: RefractionGate, inputs: RefractionInputs): Result.Result<boolean, RefractionInputError> =>
-  REFRACTION_GATE_EVALUATORS[gate](inputs)
+const gateFires = (gate: RefractionGate, prepared: PreparedRefractionDecision): boolean =>
+  REFRACTION_GATE_EVALUATORS[gate](prepared)
 
 /**
  * Should the refraction pre-pass run?
@@ -746,8 +731,6 @@ const gateFires = (gate: RefractionGate, inputs: RefractionInputs): Result.Resul
  * settings answer and "it is not this frame's turn" is a scheduling one — and a
  * skip reason that cannot tell them apart is a skip reason nobody can act on.
  */
-type PreparedRefractionDecision = { readonly input: RefractionInputs; readonly order: ReadonlyArray<RefractionGate> }
-
 const prepareRefractionDecision = (
   inputs: unknown,
   order: unknown,
@@ -785,19 +768,14 @@ const prepareRefractionDecision = (
 }
 
 const firstFiredRefractionGate = (
-  input: RefractionInputs,
-  order: ReadonlyArray<RefractionGate>,
-): Result.Result<RefractionDecision, RefractionInputError> => {
-  for (const gate of order) {
-    const fires = gateFires(gate, input)
-    if (Result.isFailure(fires)) {
-      return Result.fail(fires.failure)
-    }
-    if (fires.success) {
-      return Result.succeed(REFRACTION_SKIP_DECISION[gate])
+  prepared: PreparedRefractionDecision,
+): RefractionDecision => {
+  for (const gate of prepared.order) {
+    if (gateFires(gate, prepared)) {
+      return REFRACTION_SKIP_DECISION[gate]
     }
   }
-  return Result.succeed('run')
+  return 'run'
 }
 
 export const decideRefractionPrePass = (
@@ -808,7 +786,7 @@ export const decideRefractionPrePass = (
   if (Result.isFailure(prepared)) {
     return Result.fail(prepared.failure)
   }
-  return firstFiredRefractionGate(prepared.success.input, prepared.success.order)
+  return Result.succeed(firstFiredRefractionGate(prepared.success))
 }
 
 /**
@@ -818,27 +796,20 @@ export const decideRefractionPrePass = (
  * every frame. The same split `domain/material-policy.ts` makes between
  * `requiresForceSinglePass` and `describeMaterialPolicy`.
  */
+const REFRACTION_DECISION_DESCRIPTIONS: Readonly<Record<RefractionDecision, string>> = {
+  run: 'Rendering the refraction pre-pass: a second full scene render with water hidden.',
+  'skip:below-screen-ratio': 'Water covers less of the screen than the preset threshold; a full scene render is not worth it.',
+  'skip:camera-and-scene-unchanged': 'Camera pose, projection and scene version are all unchanged, so the retained texture is still correct.',
+  'skip:interval-disabled': 'This quality preset never refracts (REFRACTION_INTERVAL_FRAMES is 0 on low and medium).',
+  'skip:no-visible-water': 'Every water mesh is culled, so nothing on screen would read the result.',
+  'skip:no-water-meshes': 'No water meshes exist, so there is nothing that could sample a refraction texture.',
+  'skip:not-this-frame': 'The pre-pass is throttled and this is not one of its frames; the retained texture stands.',
+}
+
 export const describeRefractionDecision = (decision: unknown): Result.Result<string, RefractionInputError> => {
   const decoded = Schema.decodeUnknownResult(RefractionDecisionSchema)(decision)
   if (Result.isFailure(decoded)) {
     return Result.fail(refractionInputError('description', 'invalid-decision'))
   }
-  switch (decoded.success) {
-    case 'run':
-      return Result.succeed('Rendering the refraction pre-pass: a second full scene render with water hidden.')
-    case 'skip:interval-disabled':
-      return Result.succeed('This quality preset never refracts (REFRACTION_INTERVAL_FRAMES is 0 on low and medium).')
-    case 'skip:not-this-frame':
-      return Result.succeed('The pre-pass is throttled and this is not one of its frames; the retained texture stands.')
-    case 'skip:no-water-meshes':
-      return Result.succeed('No water meshes exist, so there is nothing that could sample a refraction texture.')
-    case 'skip:no-visible-water':
-      return Result.succeed('Every water mesh is culled, so nothing on screen would read the result.')
-    case 'skip:camera-and-scene-unchanged':
-      return Result.succeed('Camera pose, projection and scene version are all unchanged, so the retained texture is still correct.')
-    case 'skip:below-screen-ratio':
-      return Result.succeed('Water covers less of the screen than the preset threshold; a full scene render is not worth it.')
-    default:
-      return Result.fail(refractionInputError('description', 'invalid-decision'))
-  }
+  return Result.succeed(REFRACTION_DECISION_DESCRIPTIONS[decoded.success])
 }

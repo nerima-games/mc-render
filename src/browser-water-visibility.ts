@@ -140,21 +140,10 @@ const addWaterScreenRatio = (
   screenRatio: number,
   mesh: THREE.Mesh,
   camera: THREE.Camera,
-): Result.Result<number, RefractionInputError> => {
-  const meshScreenRatio = resolveWaterScreenRatio(mesh, camera)
-  if (Result.isFailure(meshScreenRatio)) {
-    return Result.fail(meshScreenRatio.failure)
-  }
-  const combinedScreenRatio = screenRatio + meshScreenRatio.success
-  if (!Number.isFinite(combinedScreenRatio)) {
-    return Result.fail({
-      _tag: 'RefractionInputError',
-      operation: 'ndc-rectangle',
-      reason: 'not-finite',
-    })
-  }
-  return Result.succeed(combinedScreenRatio)
-}
+): Result.Result<number, RefractionInputError> =>
+  resolveWaterScreenRatio(mesh, camera).pipe(
+    Result.map((meshScreenRatio) => screenRatio + meshScreenRatio),
+  )
 
 const measureWaterVisibilityForMesh = (
   visibility: BrowserWaterVisibility,
@@ -171,14 +160,12 @@ const measureWaterVisibilityForMesh = (
   if (!meshValue.visible) {
     return Result.succeed(visibility)
   }
-  const nextScreenRatio = addWaterScreenRatio(visibility.screenRatio, meshValue, camera)
-  if (Result.isFailure(nextScreenRatio)) {
-    return Result.fail(nextScreenRatio.failure)
-  }
-  return Result.succeed({
-    screenRatio: nextScreenRatio.success,
-    visibleMeshCount: visibility.visibleMeshCount + VISIBLE_MESH_COUNT_INCREMENT,
-  })
+  return addWaterScreenRatio(visibility.screenRatio, meshValue, camera).pipe(
+    Result.map((screenRatio) => ({
+      screenRatio,
+      visibleMeshCount: visibility.visibleMeshCount + VISIBLE_MESH_COUNT_INCREMENT,
+    })),
+  )
 }
 
 const measureValidWaterMeshes = (

@@ -389,11 +389,7 @@ export const notchesForWheelDelta = (deltaY: unknown, mode: unknown): Result.Res
     return Result.fail(input.failure)
   }
   const unit = NOTCHES_PER_UNIT[input.success.mode]
-  const notches = input.success.deltaY / unit
-  if (!Number.isFinite(notches)) {
-    return Result.fail(inputValidationError('wheel-delta', 'non-finite-delta'))
-  }
-  return Result.succeed(notches)
+  return Result.succeed(input.success.deltaY / unit)
 }
 
 
