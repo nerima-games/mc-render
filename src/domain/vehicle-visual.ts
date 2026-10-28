@@ -1,12 +1,12 @@
 /** Renderer-independent vehicle silhouettes, interpolation and occupant placement. */
 
-import { PositionAxis, VehicleVelocityComponent } from '@nerima-games/mc-kernel'
 import {
   type OccupantId,
   type Vehicle,
   type VehicleId,
   type VehicleType,
 } from '@nerima-games/mc-sim'
+import { PositionAxis, VehicleVelocityComponent } from '@nerima-games/mc-kernel'
 
 export type VehicleVisualVector = readonly [xAxis: number, yAxis: number, zAxis: number]
 export type VehicleVisualColor = readonly [red: number, green: number, blue: number]

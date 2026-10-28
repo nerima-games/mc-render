@@ -132,7 +132,7 @@ export type ScratchMapView<Key, Value> = {
 }
 
 type ScratchOwner = {
-  readonly access: <A>(operation: () => A) => Effect.Effect<A, ScratchMisuseError>
+  readonly access: <AccessResult>(operation: () => AccessResult) => Effect.Effect<AccessResult, ScratchMisuseError>
 }
 
 class GuardedMap<Key, Value> implements ScratchMapView<Key, Value> {
@@ -203,7 +203,9 @@ class ScratchState<Key, Value> implements ScratchOwner {
 
   readonly name: string
 
-  readonly access = <A>(operation: () => A): Effect.Effect<A, ScratchMisuseError> =>
+  readonly access = <AccessResult>(
+    operation: () => AccessResult,
+  ): Effect.Effect<AccessResult, ScratchMisuseError> =>
     Effect.suspend(() => {
       if (!this.active) {
         return Effect.fail(
@@ -290,29 +292,33 @@ const NO_ACTIVE_BORROW = 0
 
 const assertNotReentrant = <Key, Value>(
   state: ScratchState<Key, Value>,
-): ScratchMisuseError | undefined =>
-  state.borrowedCount() > NO_ACTIVE_BORROW
-    ? scratchMisuseError({
-        message:
-          `scratch buffer '${state.name}' is already borrowed. Two concurrent users share one ` +
-          'mutable buffer and will clobber each other. Give the inner operation its own buffer.',
-        rule: 're-entrant-borrow',
-      })
-    : undefined
+): ScratchMisuseError | undefined => {
+  if (state.borrowedCount() <= NO_ACTIVE_BORROW) {
+    return undefined
+  }
+  return scratchMisuseError({
+    message:
+      `scratch buffer '${state.name}' is already borrowed. Two concurrent users share one ` +
+      'mutable buffer and will clobber each other. Give the inner operation its own buffer.',
+    rule: 're-entrant-borrow',
+  })
+}
 
 const assertNotEscaped = <Key, Value>(
   state: ScratchState<Key, Value>,
   result: unknown,
-): ScratchMisuseError | undefined =>
-  result === state.view
-    ? scratchMisuseError({
-        message:
-          `a caller returned scratch buffer '${state.name}' from withScratch. The buffer is ` +
-          'cleared and refilled every frame, so the escaped reference would silently change ' +
-          'under its holder. Copy what you need out of it instead.',
-        rule: 'escaped-buffer',
-      })
-    : undefined
+): ScratchMisuseError | undefined => {
+  if (result !== state.view) {
+    return undefined
+  }
+  return scratchMisuseError({
+    message:
+      `a caller returned scratch buffer '${state.name}' from withScratch. The buffer is ` +
+      'cleared and refilled every frame, so the escaped reference would silently change ' +
+      'under its holder. Copy what you need out of it instead.',
+    rule: 'escaped-buffer',
+  })
+}
 
 /**
  * Borrow a scratch buffer for one operation. The effect owns the lease and
@@ -339,7 +345,10 @@ export const withScratch = <Key, Value, Result, Requirements>(
     (view) =>
       Effect.flatMap(Effect.suspend(() => use(view)), (result) => {
         const escaped = assertNotEscaped(state, result)
-        return escaped === undefined ? Effect.succeed(result) : Effect.fail(escaped)
+        if (escaped === undefined) {
+          return Effect.succeed(result)
+        }
+        return Effect.fail(escaped)
       }),
     () => Effect.sync(() => state.exit()),
   )

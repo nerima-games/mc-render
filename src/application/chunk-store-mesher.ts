@@ -12,8 +12,8 @@ import {
 } from '@nerima-games/mc-kernel'
 import {
   CHUNK_HEIGHT,
-  type ReadonlyChunk,
   type ChunkStoreApi,
+  type ReadonlyChunk,
   type ChunkNeighbours as WorldgenChunkNeighbours,
 } from '@nerima-games/mc-worldgen'
 import {
@@ -237,12 +237,47 @@ type ReadonlyWorldgenChunkNeighbours = Readonly<{
 }>
 
 /** Adapt mc-worldgen's four read-only neighbours to meshing views. */
-const toMeshingNeighbours = (neighbours: ReadonlyWorldgenChunkNeighbours): MeshingChunkNeighbours => ({
-  ...(neighbours.xPos === undefined ? {} : { xPos: toChunkView(neighbours.xPos) }),
-  ...(neighbours.xNeg === undefined ? {} : { xNeg: toChunkView(neighbours.xNeg) }),
-  ...(neighbours.zPos === undefined ? {} : { zPos: toChunkView(neighbours.zPos) }),
-  ...(neighbours.zNeg === undefined ? {} : { zNeg: toChunkView(neighbours.zNeg) }),
-})
+const toMeshingNeighbours = (neighbours: ReadonlyWorldgenChunkNeighbours): MeshingChunkNeighbours => {
+  const adapted: {
+    xPos?: ChunkView
+    xNeg?: ChunkView
+    zPos?: ChunkView
+    zNeg?: ChunkView
+  } = {}
+  if (neighbours.xPos !== undefined) {
+    adapted.xPos = toChunkView(neighbours.xPos)
+  }
+  if (neighbours.xNeg !== undefined) {
+    adapted.xNeg = toChunkView(neighbours.xNeg)
+  }
+  if (neighbours.zPos !== undefined) {
+    adapted.zPos = toChunkView(neighbours.zPos)
+  }
+  if (neighbours.zNeg !== undefined) {
+    adapted.zNeg = toChunkView(neighbours.zNeg)
+  }
+  return adapted
+}
+
+const meshWorldgenChunk = (
+  worldgenChunk: ReadonlyChunk,
+  worldgenNeighbours: ReadonlyWorldgenChunkNeighbours,
+  config: RenderMeshConfig,
+) => {
+  const chunkView = toChunkView(worldgenChunk)
+  const meshingNeighbours = toMeshingNeighbours(worldgenNeighbours)
+  const layers = Result.getOrThrow(meshChunk(chunkView, meshingNeighbours, config))
+  const blockShapeKinds = config.blockShapeKinds ?? EMPTY_BLOCK_SHAPE_KINDS
+  const quads = [...layers.opaque, ...layers.water, ...layers.transparentSolid].filter(
+    (quad) => !blockShapeKinds.has(quad.blockId),
+  )
+  const blockShapes = meshBlockShapes(chunkView, meshingNeighbours, blockShapeKinds)
+  return Object.assign(quads, {
+    blockShapes,
+    crossPlants: layers.crossPlants,
+    fluids: layers.fluids,
+  })
+}
 
 /** Adapt a worldgen chunk store to the renderer's pull-based meshing port. */
 export const makeChunkStoreMesher = (
@@ -258,19 +293,7 @@ export const makeChunkStoreMesher = (
       }
 
       const worldgenNeighbours = yield* store.neighbours(coord)
-      const chunkView = toChunkView(worldgenChunk)
-      const meshingNeighbours = toMeshingNeighbours(worldgenNeighbours)
-      const layers = Result.getOrThrow(meshChunk(chunkView, meshingNeighbours, config))
-      const blockShapeKinds = config.blockShapeKinds ?? EMPTY_BLOCK_SHAPE_KINDS
-      const quads = [...layers.opaque, ...layers.water, ...layers.transparentSolid].filter(
-        (quad) => !blockShapeKinds.has(quad.blockId),
-      )
-      const blockShapes = meshBlockShapes(chunkView, meshingNeighbours, blockShapeKinds)
-      return Object.assign(quads, {
-        blockShapes,
-        crossPlants: layers.crossPlants,
-        fluids: layers.fluids,
-      })
+      return meshWorldgenChunk(worldgenChunk, worldgenNeighbours, config)
     })
 
 /** `options` with a light-sampling `colorForChunk` filled in, unless the caller already supplied one (or a flat `color`). */

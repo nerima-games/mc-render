@@ -435,30 +435,32 @@ const makeWorkerFailureHandlers = <TPayload, TResult>({
       return Result.succeed(undefined)
     }
     const replacement = Effect.runSync(Effect.result(Effect.try({
-      try: () => replaceWorker(workerIndex),
       catch: (reason) => reason,
+      try: () => replaceWorker(workerIndex),
     })))
     if (Result.isFailure(replacement)) {
       return replacement
     }
-    return Result.succeed(replacement.success === failedPort ? undefined : replacement.success)
+    if (replacement.success === failedPort) {
+      return Result.succeed(undefined)
+    }
+    return Result.succeed(replacement.success)
   }
 
   const restoreFailedWorker = (
     current: PoolState<TPayload, TResult>,
     failure: WorkerFailure<TPayload, TResult>,
   ): Result.Result<RestoredWorker<TPayload, TResult> | undefined, unknown> => {
-    const { failedPort, workerIndex } = failure
-    const replacement = createReplacement(failedPort, workerIndex)
+    const replacement = createReplacement(failure.failedPort, failure.workerIndex)
     if (Result.isFailure(replacement)) {
       return Result.fail(replacement.failure)
     }
-    const generation = portGenerations.at(workerIndex)
+    const generation = portGenerations.at(failure.workerIndex)
     if (replacement.success === undefined || generation === undefined) {
       return Result.succeed(undefined)
     }
-    activePorts[workerIndex] = replacement.success
-    current.idle.push(workerIndex)
+    activePorts[failure.workerIndex] = replacement.success
+    current.idle.push(failure.workerIndex)
     current.restarted += ONE_AFFECTED_JOB
     return Result.succeed({ generation, port: replacement.success })
   }
@@ -473,6 +475,14 @@ const makeWorkerFailureHandlers = <TPayload, TResult>({
     removeIdleWorker(current, workerIndex)
     failRunningJobsOnWorkerFailure(current, workerIndex, reason)
     failedPort.terminate()
+  }
+
+  const failWithoutRestoredWorker = (
+    current: PoolState<TPayload, TResult>,
+    reason: unknown,
+  ): void => {
+    current.deadWorkers += ONE_AFFECTED_JOB
+    failQueuedWithoutWorkers(current, reason, activePorts.some((candidate) => candidate !== undefined))
   }
 
   const isCurrentFailure = (
@@ -494,11 +504,9 @@ const makeWorkerFailureHandlers = <TPayload, TResult>({
     invalidateFailedWorker(current, failure)
     const restored = restoreFailedWorker(current, failure)
     if (Result.isFailure(restored)) {
-      current.deadWorkers += ONE_AFFECTED_JOB
-      failQueuedWithoutWorkers(current, restored.failure, activePorts.some((candidate) => candidate !== undefined))
+      failWithoutRestoredWorker(current, restored.failure)
     } else if (restored.success === undefined) {
-      current.deadWorkers += ONE_AFFECTED_JOB
-      failQueuedWithoutWorkers(current, failure.reason, activePorts.some((candidate) => candidate !== undefined))
+      failWithoutRestoredWorker(current, failure.reason)
     } else {
       attach({ ...restored.success, workerIndex: failure.workerIndex })
     }

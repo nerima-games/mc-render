@@ -1,4 +1,3 @@
-import { Result, Schema } from 'effect'
 import {
   CHUNK_SHADER_UNIFORMS,
   chunkShaderSource,
@@ -12,6 +11,7 @@ import {
   type Viewport,
   planRenderEnvironment,
 } from '../domain/render-environment.js'
+import { Result, Schema } from 'effect'
 import {
   THREE_DOUBLE_SIDE,
   type ThreeBufferGeometry,
@@ -28,6 +28,7 @@ import { waterShaderSource } from '../domain/water-shader.js'
 
 /** Full daylight used when no environment plan has been supplied. */
 export const FULL_SUN_INTENSITY = 1
+const NO_POLICY_VIOLATIONS = 0
 
 /** The material and stable uniform boxes shared by all chunk meshes. */
 export type ChunkShaderMaterial<TShaderMaterial extends ThreeMaterial> = {
@@ -87,13 +88,13 @@ export const RendererMaterialPolicyResultSchema: Schema.Codec<
   RendererMaterialPolicyResultShape<void>
 > = Schema.Union([
   Schema.Struct({
-    _tag: Schema.Literal('Success'),
     _op: Schema.Literal('Success'),
+    _tag: Schema.Literal('Success'),
     success: Schema.Undefined,
   }),
   Schema.Struct({
-    _tag: Schema.Literal('Failure'),
     _op: Schema.Literal('Failure'),
+    _tag: Schema.Literal('Failure'),
     failure: RendererMaterialPolicyErrorSchema,
   }),
 ])
@@ -134,7 +135,7 @@ export const assertRendererMaterialPolicies = (
   particleMaterial: ThreeMaterial,
 ): Result.Result<void, RendererMaterialPolicyError> => {
   const violations = findRendererMaterialPolicyViolations(waterMaterial, particleMaterial)
-  if (violations.length === 0) {
+  if (violations.length === NO_POLICY_VIOLATIONS) {
     return Result.succeed(undefined)
   }
 

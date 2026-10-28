@@ -438,16 +438,16 @@ type BudgetedDirtySourceResultShape =
 /** Decode with `onExcessProperty: 'error'` to enforce exact result and error shapes. */
 export const BudgetedDirtySourceResultSchema: Schema.Codec<BudgetedDirtySourceResultShape> = Schema.Union([
   Schema.Struct({
-    _tag: Schema.Literal('Success'),
     _op: Schema.Literal('Success'),
+    _tag: Schema.Literal('Success'),
     success: Schema.Struct({
       drain: Schema.Unknown,
       enqueue: Schema.Unknown,
     }),
   }),
   Schema.Struct({
-    _tag: Schema.Literal('Failure'),
     _op: Schema.Literal('Failure'),
+    _tag: Schema.Literal('Failure'),
     failure: BudgetedDirtySourceInputErrorSchema,
   }),
 ])

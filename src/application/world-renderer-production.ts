@@ -11,6 +11,14 @@ import {
 } from '../domain/particle-pool.js'
 import { ParticleService, ParticleServiceLive, ParticleServicePoolAccess } from './particle-service.js'
 import { type ParticleSystem, makeParticleSystem } from './particle-system.js'
+import {
+  type RendererMaterialPolicyError,
+  type Viewport,
+  applyChunkShaderEnvironment,
+  assertRendererMaterialPolicies,
+  makeChunkShaderMaterial,
+  makeWaterMaterial,
+} from './world-renderer-materials.js'
 import type {
   ThreeBufferGeometry,
   ThreeEuler,
@@ -22,17 +30,9 @@ import type {
   ThreeUniform,
   ThreeVector3,
 } from './three-surface.js'
-import {
-  type Viewport,
-  applyChunkShaderEnvironment,
-  assertRendererMaterialPolicies,
-  makeChunkShaderMaterial,
-  makeWaterMaterial,
-  type RendererMaterialPolicyError,
-} from './world-renderer-materials.js'
 import { type WorldRenderer, type WorldRendererOptions, makeWorldRenderer } from './world-renderer.js'
 import type { Dimension } from '@nerima-games/mc-kernel'
-import { Effect, Result } from 'effect'
+import { Effect } from 'effect'
 
 /**
  * Production renderer composition.
@@ -105,10 +105,7 @@ export const makeProductionWorldRenderer = <
     const particleService = yield* ParticleService
     const particlePool = yield* ParticleServicePoolAccess
     const particles = yield* makeParticleSystem(three, particlePool, atlasTexture)
-    const materialPolicy = assertRendererMaterialPolicies(water.material, particles.material)
-    if (Result.isFailure(materialPolicy)) {
-      return yield* Effect.fail(materialPolicy.failure)
-    }
+    yield* Effect.fromResult(assertRendererMaterialPolicies(water.material, particles.material))
     const { particles: _particles, ...rendererOptions } = options
     const renderer = yield* makeWorldRenderer(three, canvas, viewport, {
       ...rendererOptions,
