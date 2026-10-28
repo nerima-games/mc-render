@@ -120,12 +120,12 @@ describe('ParticleRequestSchema', () => {
   it.effect('property: invalid request fields and extra fields fail the decoded Result', () =>
     Effect.sync(() => {
       const decode = decodeParticleRequest
-      const position = { dimension: 'overworld', x: 1, y: 2, z: 3 }
+      const validPosition = { dimension: 'overworld', x: 1, y: 2, z: 3 }
 
       FastCheck.assert(
         FastCheck.property(
           FastCheck.constantFrom<unknown>('spark', 'unknown', null, undefined, 3, {}),
-          (kind) => Result.isFailure(decode({ kind, position })),
+          (kind) => Result.isFailure(decode({ kind, position: validPosition })),
         ),
         FAST_CHECK_OPTIONS,
       )
@@ -140,7 +140,7 @@ describe('ParticleRequestSchema', () => {
             '1',
             null,
           ),
-          (x) => Result.isFailure(decode({ kind: 'block-break', position: { ...position, x } })),
+          (x) => Result.isFailure(decode({ kind: 'block-break', position: { ...validPosition, x } })),
         ),
         FAST_CHECK_OPTIONS,
       )
@@ -150,7 +150,7 @@ describe('ParticleRequestSchema', () => {
           FastCheck.constantFrom<unknown>(Number.NaN, -0.01, 1.01, Number.POSITIVE_INFINITY, 'red'),
           (red) => Result.isFailure(decode({
             kind: 'block-break',
-            position,
+            position: validPosition,
             color: { red, green: 0.5, blue: 0.5 },
           })),
         ),
@@ -160,7 +160,11 @@ describe('ParticleRequestSchema', () => {
       FastCheck.assert(
         FastCheck.property(
           FastCheck.constantFrom<unknown>(0, -1, Number.NaN, Number.POSITIVE_INFINITY, '0.2'),
-          (lifetimeSeconds) => Result.isFailure(decode({ kind: 'block-break', position, lifetimeSeconds })),
+          (lifetimeSeconds) => Result.isFailure(decode({
+            kind: 'block-break',
+            position: validPosition,
+            lifetimeSeconds,
+          })),
         ),
         FAST_CHECK_OPTIONS,
       )
@@ -174,14 +178,14 @@ describe('ParticleRequestSchema', () => {
             { x: 1, y: 0, z: 0, extra: 1 },
             'north',
           ),
-          (direction) => Result.isFailure(decode({ kind: 'explosion', position, direction })),
+          (direction) => Result.isFailure(decode({ kind: 'explosion', position: validPosition, direction })),
         ),
         FAST_CHECK_OPTIONS,
       )
 
       FastCheck.assert(
         FastCheck.property(FastCheck.integer(), (extra) =>
-          Result.isFailure(decode({ kind: 'block-break', position, extra }))
+          Result.isFailure(decode({ kind: 'block-break', position: validPosition, extra }))
         ),
         FAST_CHECK_OPTIONS,
       )
@@ -190,7 +194,7 @@ describe('ParticleRequestSchema', () => {
         FastCheck.property(FastCheck.integer(), (extra) =>
           Result.isFailure(decode({
             kind: 'block-break',
-            position: { ...position, extra },
+            position: { ...validPosition, extra },
           }))
         ),
         FAST_CHECK_OPTIONS,

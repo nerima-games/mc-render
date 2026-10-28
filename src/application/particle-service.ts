@@ -8,11 +8,11 @@ import {
 import {
   PARTICLE_LIFETIME_SECS,
   type ParticleFrameSnapshot,
+  ParticleFrameSnapshotSchema,
   type ParticlePool,
   type ParticlePoolInputError,
   type ParticlePoolOptions,
   type ParticleSpawnSpec,
-  ParticleFrameSnapshotSchema,
   makeParticlePool,
   spawnParticle,
 } from '../domain/particle-pool.js'
@@ -262,7 +262,10 @@ const spawnParticles = (
     }
     accepted = result.success || accepted
   }
-  return Result.succeed(accepted ? PARTICLE_REQUEST_ACCEPTED : PARTICLE_REQUEST_REJECTED)
+  if (accepted) {
+    return Result.succeed(PARTICLE_REQUEST_ACCEPTED)
+  }
+  return Result.succeed(PARTICLE_REQUEST_REJECTED)
 }
 
 const spawnParticleRequest = (
@@ -303,12 +306,12 @@ const makeParticleService = (
       } satisfies ParticlePoolInputError)
     }
     return Effect.try({
-      try: () => decodeParticleFrameSnapshot(readRenderContext()),
       catch: () => ({
         _tag: 'ParticlePoolInputError',
         operation: 'render-context',
         reason: 'render-context-failed',
       } satisfies ParticlePoolInputError),
+      try: () => decodeParticleFrameSnapshot(readRenderContext()),
     }).pipe(Effect.flatMap((context) => {
       if (Result.isFailure(context)) {
         return Effect.fail({

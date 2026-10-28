@@ -159,8 +159,8 @@
  * row, and this file does not pretend to cover them.
  */
 
-import { Result, Schema } from 'effect'
 import { ATLAS_TILE_COUNT, TILE_UV_SPAN, tileUvOrigin } from './texture-atlas.js'
+import { Result, Schema } from 'effect'
 import type { Dimension } from '@nerima-games/mc-kernel'
 import { type MaterialSpec } from './material-policy.js'
 
@@ -298,8 +298,8 @@ const PRNG_MULTIPLIER = 16_807
 /** The shared "empty slot" / "no offset" / "off" value used throughout this file. */
 const ZERO = 0
 const INITIAL_SPAWN_SEQUENCE = 0n
-/** The upper bound accepted for each RGB tint channel. */
-const MAX_PARTICLE_TINT_CHANNEL = 1
+/** The upper bound for normalized color and texture coordinates. */
+const UNIT_INTERVAL_MAXIMUM = 1
 const MAX_PARTICLE_FLOAT32_VALUE = 3.4028234663852886e38
 
 /** The single-slot step used by every index-advancing loop and counter in this file. */
@@ -319,7 +319,10 @@ const NORMALISED_SEED_FALLBACK = ONE_SLOT
  */
 const normaliseSeed = (seed: number): number => {
   const folded = Math.abs(Math.trunc(seed)) % PRNG_MODULUS
-  return folded === ZERO ? NORMALISED_SEED_FALLBACK : folded
+  if (folded === ZERO) {
+    return NORMALISED_SEED_FALLBACK
+  }
+  return folded
 }
 
 // --- The pool ---------------------------------------------------------------
@@ -388,8 +391,6 @@ type ParticleState = {
   readonly followEntityIds: Array<string | undefined>
 }
 const particlePools = new WeakSet<object>()
-
-const poolState = (pool: ParticlePoolImpl): ParticleState => ParticlePoolImpl.stateFor(pool)
 
 const isKnownParticlePool = (pool: ParticlePool): pool is ParticlePoolImpl => particlePools.has(pool)
 
@@ -476,6 +477,31 @@ export const ParticlePoolOptionsSchema: Schema.Codec<ParticlePoolOptions> = Sche
   )),
 })
 
+const decodeParticlePoolOptions = (options: ParticlePoolOptions | undefined) => {
+  const decode = Schema.decodeUnknownResult(ParticlePoolOptionsSchema, {
+    onExcessProperty: 'error',
+  })
+  if (options === undefined) {
+    return decode({})
+  }
+  return decode(options)
+}
+
+const particlePoolOptionsFailureReason = (
+  options: ParticlePoolOptions | undefined,
+): ParticlePoolInputReason => {
+  const capacity = options?.capacity
+  if (capacity !== undefined &&
+    (!Number.isSafeInteger(capacity) || capacity < ONE_SLOT || capacity > PARTICLE_POOL_CAPACITY)) {
+    return 'invalid-capacity'
+  }
+  const seed = options?.seed
+  if (seed !== undefined && !Number.isSafeInteger(seed)) {
+    return 'invalid-seed'
+  }
+  return 'invalid-options'
+}
+
 type ParticlePoolInputResultShape<Success> =
   | Readonly<{ readonly _tag: 'Success'; readonly _op: 'Success'; readonly success: Success }>
   | Readonly<{ readonly _tag: 'Failure'; readonly _op: 'Failure'; readonly failure: ParticlePoolInputError }>
@@ -483,13 +509,13 @@ type ParticlePoolInputResultShape<Success> =
 /** Decode Result values with `onExcessProperty: 'error'` to enforce exact envelopes. */
 export const ParticlePoolInputResultSchema: Schema.Codec<ParticlePoolInputResultShape<unknown>> = Schema.Union([
   Schema.Struct({
-    _tag: Schema.Literal('Success'),
     _op: Schema.Literal('Success'),
+    _tag: Schema.Literal('Success'),
     success: Schema.Unknown,
   }),
   Schema.Struct({
-    _tag: Schema.Literal('Failure'),
     _op: Schema.Literal('Failure'),
+    _tag: Schema.Literal('Failure'),
     failure: ParticlePoolInputErrorSchema,
   }),
 ])
@@ -548,7 +574,7 @@ const ParticleFloat32ValueSchema = Schema.Finite.check(
 )
 
 const ParticleUvCoordinateSchema = Schema.Finite.check(
-  Schema.isBetween({ maximum: 1 - TILE_UV_SPAN, minimum: ZERO }),
+  Schema.isBetween({ maximum: UNIT_INTERVAL_MAXIMUM - TILE_UV_SPAN, minimum: ZERO }),
 )
 
 const ParticleFloat32VectorSchema = Schema.Struct({
@@ -558,9 +584,9 @@ const ParticleFloat32VectorSchema = Schema.Struct({
 })
 
 const ParticleTintSchema = Schema.Struct({
-  blue: Schema.Finite.check(Schema.isBetween({ maximum: MAX_PARTICLE_TINT_CHANNEL, minimum: ZERO })),
-  green: Schema.Finite.check(Schema.isBetween({ maximum: MAX_PARTICLE_TINT_CHANNEL, minimum: ZERO })),
-  red: Schema.Finite.check(Schema.isBetween({ maximum: MAX_PARTICLE_TINT_CHANNEL, minimum: ZERO })),
+  blue: Schema.Finite.check(Schema.isBetween({ maximum: UNIT_INTERVAL_MAXIMUM, minimum: ZERO })),
+  green: Schema.Finite.check(Schema.isBetween({ maximum: UNIT_INTERVAL_MAXIMUM, minimum: ZERO })),
+  red: Schema.Finite.check(Schema.isBetween({ maximum: UNIT_INTERVAL_MAXIMUM, minimum: ZERO })),
 })
 
 const ParticleFollowLinkSchema = Schema.Struct({
@@ -718,22 +744,14 @@ class ParticlePoolImpl implements ParticlePool {
   }
 }
 
+const poolState = (pool: ParticlePoolImpl): ParticleState => ParticlePoolImpl.stateFor(pool)
+
 export const makeParticlePool = (
   options?: ParticlePoolOptions,
 ): Result.Result<ParticlePool, ParticlePoolInputError> => {
-  const decoded = Schema.decodeUnknownResult(ParticlePoolOptionsSchema, {
-    onExcessProperty: 'error',
-  })(options === undefined ? {} : options)
+  const decoded = decodeParticlePoolOptions(options)
   if (Result.isFailure(decoded)) {
-    const capacity = options?.capacity
-    const seed = options?.seed
-    const reason = capacity !== undefined &&
-        (!Number.isSafeInteger(capacity) || capacity < ONE_SLOT || capacity > PARTICLE_POOL_CAPACITY)
-      ? 'invalid-capacity'
-      : seed !== undefined && !Number.isSafeInteger(seed)
-        ? 'invalid-seed'
-        : 'invalid-options'
-    return Result.fail(particlePoolInputError('pool', reason))
+    return Result.fail(particlePoolInputError('pool', particlePoolOptionsFailureReason(options)))
   }
 
   const capacity = decoded.success.capacity ?? PARTICLE_POOL_CAPACITY
@@ -941,6 +959,21 @@ const spawnValidatedParticle = (pool: ParticlePoolImpl, spawn: ParticleSpawnSpec
 const isParticleFloat32Vector = (x: number, y: number, z: number): boolean =>
   Math.max(Math.abs(x), Math.abs(y), Math.abs(z)) <= MAX_PARTICLE_FLOAT32_VALUE
 
+const particleBurstFailureReason = (
+  count: number,
+  positionX: number,
+  positionY: number,
+  positionZ: number,
+): ParticlePoolInputReason => {
+  if (!Number.isSafeInteger(count) || count < ONE_SLOT) {
+    return 'invalid-count'
+  }
+  if (!isParticleFloat32Vector(positionX, positionY, positionZ)) {
+    return 'invalid-position'
+  }
+  return 'invalid-uv'
+}
+
 export const spawnParticle = (
   pool: ParticlePool,
   spawn: ParticleSpawnSpec,
@@ -1026,12 +1059,10 @@ export const spawnBurst = (
     uv: { u: uvU, v: uvV },
   })
   if (Result.isFailure(decoded)) {
-    const reason = !Number.isSafeInteger(count) || count < ONE_SLOT
-      ? 'invalid-count'
-      : !isParticleFloat32Vector(positionX, positionY, positionZ)
-        ? 'invalid-position'
-        : 'invalid-uv'
-    return Result.fail(particlePoolInputError('burst', reason))
+    return Result.fail(particlePoolInputError(
+      'burst',
+      particleBurstFailureReason(count, positionX, positionY, positionZ),
+    ))
   }
 
   const requested = Math.min(decoded.success.count, pool.capacity)
@@ -1234,6 +1265,22 @@ const advanceSlot = (
   return advanceLiveSlot(internals, slot, remaining, dt, frame)
 }
 
+const advanceKnownPool = (
+  pool: ParticlePoolImpl,
+  dt: number,
+  frame: ParticleFrameSnapshot | undefined,
+): number => {
+  let expired = ZERO
+  for (let slot = 0; slot < pool.capacity; slot += ONE_SLOT) {
+    if (advanceSlot(pool, slot, dt, frame)) {
+      expired += ONE_SLOT
+    }
+  }
+  const state = poolState(pool)
+  state.active = Math.max(ZERO, state.active - expired)
+  return expired
+}
+
 /**
  * Integrate one frame without per-slot allocation.
  *
@@ -1264,19 +1311,7 @@ export const advanceParticles = (
     return Result.fail(particlePoolInputError('advance', 'invalid-delta'))
   }
   const dt = Math.min(decodedDelta.success, MAX_PARTICLE_STEP_SECS)
-
-  const internals = pool
-  let expired = ZERO
-
-  for (let slot = 0; slot < pool.capacity; slot += ONE_SLOT) {
-    if (advanceSlot(internals, slot, dt, frame)) {
-      expired += ONE_SLOT
-    }
-  }
-
-  poolState(internals).active = Math.max(ZERO, poolState(internals).active - expired)
-
-  return Result.succeed(expired)
+  return Result.succeed(advanceKnownPool(pool, dt, frame))
 }
 
 /**

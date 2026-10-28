@@ -66,6 +66,17 @@ const advanceParticles = (...args: Parameters<typeof advanceParticlesResult>) =>
   Result.getOrThrow(advanceParticlesResult(...args))
 const clearParticles = (...args: Parameters<typeof clearParticlesResult>) =>
   Result.getOrThrow(clearParticlesResult(...args))
+const particleSpawn = (overrides: Partial<ParticleSpawnSpec> = {}): ParticleSpawnSpec => ({
+  dimension: 'overworld',
+  lifetimeSecs: 0.4,
+  positionX: 1,
+  positionY: 2,
+  positionZ: 3,
+  tint: { blue: 0.3, green: 0.2, red: 0.1 },
+  uvU: 0.25,
+  uvV: 0.5,
+  ...overrides,
+})
 
 const isDecodedParticleInputFailure = (
   result: ReturnType<typeof makeParticlePoolResult> | ReturnType<typeof spawnBurstResult> |
@@ -923,18 +934,6 @@ describe('reading slots', () => {
       }
     }),
   )
-})
-
-const particleSpawn = (overrides: Partial<ParticleSpawnSpec> = {}): ParticleSpawnSpec => ({
-  dimension: 'overworld',
-  lifetimeSecs: 0.4,
-  positionX: 1,
-  positionY: 2,
-  positionZ: 3,
-  tint: { blue: 0.3, green: 0.2, red: 0.1 },
-  uvU: 0.25,
-  uvV: 0.5,
-  ...overrides,
 })
 
 describe('C6 particle spawn state', () => {
