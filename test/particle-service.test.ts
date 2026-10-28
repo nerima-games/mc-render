@@ -1,6 +1,7 @@
 import { describe, expect, it } from '@effect/vitest'
 import { Effect, Result, Schema } from 'effect'
 import * as FastCheck from 'fast-check'
+import { afterEach, vi } from 'vitest'
 import {
   EntityIdSchema,
   WorldPositionSchema,
@@ -25,6 +26,30 @@ import {
   readSlot,
   type ParticleFrameSnapshot,
 } from '../src/domain/particle-pool.js'
+
+const particlePoolMock = vi.hoisted(() => {
+  const spawnOutcomes: Array<boolean> = []
+  return { spawnOutcomes }
+})
+
+vi.mock('../src/domain/particle-pool.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/domain/particle-pool.js')>()
+  const effectModule = await import('effect')
+
+  return {
+    ...actual,
+    spawnParticle: (...args: Parameters<typeof actual.spawnParticle>) => {
+      if (particlePoolMock.spawnOutcomes.shift() === false) {
+        return effectModule.Result.succeed(false)
+      }
+      return actual.spawnParticle(...args)
+    },
+  }
+})
+
+afterEach(() => {
+  particlePoolMock.spawnOutcomes.length = 0
+})
 
 const FAST_CHECK_OPTIONS = { numRuns: 100, seed: 0x5eed }
 const decodeParticleRequest = Schema.decodeUnknownResult(ParticleRequestSchema, {
@@ -204,6 +229,32 @@ describe('ParticleRequestSchema', () => {
 })
 
 describe('ParticleServiceLive', () => {
+  it.effect('returns rejected when the pool declines the only spawn attempt', () =>
+    Effect.gen(function* () {
+      const service = yield* ParticleService
+      const pool = yield* ParticleServicePoolAccess
+      particlePoolMock.spawnOutcomes.push(false)
+
+      expect(yield* service.spawn(particleRequest())).toBe(0)
+      expect(pool.activeCount()).toBe(0)
+      expect(particlePoolMock.spawnOutcomes).toStrictEqual([])
+    }).pipe(Effect.provide(ParticleServiceLive({ pool: { capacity: 1 } }))),
+  )
+
+  it.effect('keeps an accepted request when a later spawn attempt is declined', () =>
+    Effect.gen(function* () {
+      const service = yield* ParticleService
+      const pool = yield* ParticleServicePoolAccess
+      particlePoolMock.spawnOutcomes.push(true, false)
+
+      expect(yield* service.spawn(particleRequest())).toBe(1)
+      expect(pool.activeCount()).toBe(1)
+      expect(readSlot(pool, 0)).toBeDefined()
+      expect(readSlot(pool, 1)).toBeUndefined()
+      expect(particlePoolMock.spawnOutcomes).toStrictEqual([])
+    }).pipe(Effect.provide(ParticleServiceLive({ pool: { capacity: 2 } }))),
+  )
+
   it.effect('fixes each kind default and applies unnormalized direction, lifetime, and tint overrides', () =>
     Effect.gen(function* () {
       const service = yield* ParticleService
