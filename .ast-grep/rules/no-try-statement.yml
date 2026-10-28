@@ -1,0 +1,12 @@
+id: no-try-statement
+language: TypeScript
+severity: error
+files:
+  - "src/**/*.ts"
+  - "src/**/*.tsx"
+  - "src/**/*.mts"
+  - "src/**/*.cts"
+message: >-
+  Model recoverable failure with Effect instead of a JavaScript try statement.
+rule:
+  kind: try_statement

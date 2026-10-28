@@ -1,0 +1,14 @@
+id: no-error-subclass
+language: TypeScript
+severity: error
+files:
+  - "src/**/*.ts"
+  - "src/**/*.tsx"
+  - "src/**/*.mts"
+  - "src/**/*.cts"
+message: >-
+  Represent failures with typed Effect errors instead of subclasses of Error.
+rule:
+  any:
+    - pattern: class $NAME extends Error { $$$BODY }
+    - pattern: class extends Error { $$$BODY }

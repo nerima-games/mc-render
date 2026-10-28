@@ -387,11 +387,11 @@ type ParticleState = {
   readonly followOffsets: Float32Array
   readonly followEntityIds: Array<string | undefined>
 }
-const particleStates = new WeakMap<object, ParticleState>()
+const particlePools = new WeakSet<object>()
 
-const poolState = (pool: ParticlePool): ParticleState => particleStates.get(pool)! // All public mutators check factory identity first.
+const poolState = (pool: ParticlePoolImpl): ParticleState => ParticlePoolImpl.stateFor(pool)
 
-const isKnownParticlePool = (pool: ParticlePool): boolean => particleStates.has(pool)
+const isKnownParticlePool = (pool: ParticlePool): pool is ParticlePoolImpl => particlePools.has(pool)
 
 /** Construction-time options. Not on the frame path, so an object is fine here. */
 export type ParticlePoolOptions = {
@@ -682,6 +682,7 @@ const particlePoolBuffersFor = (capacity: number): ParticlePoolBuffers => ({
 })
 
 class ParticlePoolImpl implements ParticlePool {
+  #state: ParticleState
   declare readonly [particlePoolBrand]: never
   declare readonly capacity: number
   declare readonly positions: ParticleBuffer
@@ -693,13 +694,17 @@ class ParticlePoolImpl implements ParticlePool {
   declare readonly colors: ParticleTintBuffer
   declare readonly dimensions: Array<Dimension | undefined>
   declare readonly followEntityIds: Array<string | undefined>
-  readonly activeCount = (): number => poolState(this).active
-  readonly seed = (): number => poolState(this).seedState
-  readonly evictionCount = (): number => poolState(this).evictions
+  readonly activeCount = (): number => this.#state.active
+  readonly seed = (): number => this.#state.seedState
+  readonly evictionCount = (): number => this.#state.evictions
+
+  static stateFor(pool: ParticlePoolImpl): ParticleState {
+    return pool.#state
+  }
 
   constructor(options: ParticlePoolOptions | undefined, capacity: number) {
     Object.assign(this, particlePoolBuffersFor(capacity))
-    particleStates.set(this, {
+    this.#state = {
       active: 0,
       evictions: 0,
       followEntityIds: this.followEntityIds,
@@ -708,7 +713,8 @@ class ParticlePoolImpl implements ParticlePool {
       nextSpawnSequence: INITIAL_SPAWN_SEQUENCE,
       seedState: normaliseSeed(options?.seed ?? DEFAULT_PARTICLE_SEED),
       spawnSequences: Array.from({ length: capacity }, () => INITIAL_SPAWN_SEQUENCE),
-    })
+    }
+    particlePools.add(this)
   }
 }
 
@@ -742,14 +748,14 @@ export const makeParticlePool = (
  * exactly 1 on the largest state — outside the half-open interval every caller
  * assumes.
  */
-const nextUnitRoll = (pool: ParticlePool): number => {
+const nextUnitRoll = (pool: ParticlePoolImpl): number => {
   const state = (PRNG_MULTIPLIER * normaliseSeed(poolState(pool).seedState)) % PRNG_MODULUS
   poolState(pool).seedState = state
   return (state - PRNG_OUTPUT_OFFSET) / PRNG_MODULUS
 }
 
 /** Draw uniformly from `[min, max)`. */
-const nextInRange = (pool: ParticlePool, min: number, max: number): number =>
+const nextInRange = (pool: ParticlePoolImpl, min: number, max: number): number =>
   min + nextUnitRoll(pool) * (max - min)
 
 /**
@@ -762,7 +768,7 @@ const nextInRange = (pool: ParticlePool, min: number, max: number): number =>
  * evicts deterministically. Returns 0 when no slot is live, which cannot happen
  * on the only path that calls it and is the inert answer if it ever does.
  */
-const findOldestSlot = (pool: ParticlePool): number => {
+const findOldestSlot = (pool: ParticlePoolImpl): number => {
   let oldest = 0
   let oldestSequence: bigint | undefined = undefined
 
@@ -791,7 +797,7 @@ const findOldestSlot = (pool: ParticlePool): number => {
  * cost is "distance to the next free slot", and always restarting from 0 makes
  * that distance grow with occupancy on every single spawn.
  */
-const acquireSlot = (pool: ParticlePool): number => {
+const acquireSlot = (pool: ParticlePoolImpl): number => {
   if (poolState(pool).active < pool.capacity) {
     for (let step = 0; step < pool.capacity; step += ONE_SLOT) {
       const candidate = (poolState(pool).nextSlot + step) % pool.capacity
@@ -824,7 +830,7 @@ const THIRD_COMPONENT_OFFSET = 2
  * to avoid.
  */
 const writeParticlePosition = (
-  internals: ParticlePool,
+  internals: ParticlePoolImpl,
   vectorBase: number,
   positionX: number,
   positionY: number,
@@ -837,7 +843,7 @@ const writeParticlePosition = (
 
 /** Jittered velocity write for one particle. See `writeParticlePosition` for the spread. */
 const writeParticleVelocity = (
-  internals: ParticlePool,
+  internals: ParticlePoolImpl,
   vectorBase: number,
   velocity?: ParticleVelocity | undefined,
 ): void => {
@@ -872,20 +878,20 @@ const followOffset = (position: number, targetPosition: number | undefined): num
   return position - targetPosition
 }
 
-const writeParticleUvOffset = (internals: ParticlePool, slot: number, spawn: ParticleSpawnSpec): void => {
+const writeParticleUvOffset = (internals: ParticlePoolImpl, slot: number, spawn: ParticleSpawnSpec): void => {
   const uvBase = slot * PARTICLE_UV_STRIDE
   internals.uvOffsets[uvBase] = spawn.uvU
   internals.uvOffsets[uvBase + SECOND_COMPONENT_OFFSET] = spawn.uvV
 }
 
-const writeParticleColor = (internals: ParticlePool, slot: number, spawn: ParticleSpawnSpec): void => {
+const writeParticleColor = (internals: ParticlePoolImpl, slot: number, spawn: ParticleSpawnSpec): void => {
   const colorBase = slot * PARTICLE_COLOR_STRIDE
   internals.colors[colorBase] = spawn.tint.red
   internals.colors[colorBase + SECOND_COMPONENT_OFFSET] = spawn.tint.green
   internals.colors[colorBase + THIRD_COMPONENT_OFFSET] = spawn.tint.blue
 }
 
-const writeParticleFollow = (internals: ParticlePool, slot: number, spawn: ParticleSpawnSpec): void => {
+const writeParticleFollow = (internals: ParticlePoolImpl, slot: number, spawn: ParticleSpawnSpec): void => {
   const vectorBase = slot * PARTICLE_VECTOR_STRIDE
   const state = poolState(internals)
   const { follow } = spawn
@@ -898,7 +904,7 @@ const writeParticleFollow = (internals: ParticlePool, slot: number, spawn: Parti
     followOffset(spawn.positionZ, follow?.z)
 }
 
-const writeParticleLifetime = (internals: ParticlePool, slot: number, spawn: ParticleSpawnSpec): void => {
+const writeParticleLifetime = (internals: ParticlePoolImpl, slot: number, spawn: ParticleSpawnSpec): void => {
   const state = poolState(internals)
   internals.lifetimesSecs[slot] = spawn.lifetimeSecs
   internals.initialLifetimesSecs[slot] = spawn.lifetimeSecs
@@ -917,7 +923,7 @@ const writeParticleLifetime = (internals: ParticlePool, slot: number, spawn: Par
  * particle on the frame path (see `spawnBurst`'s doc comment for why that rules
  * out an allocating options object here too).
  */
-const writeParticle = (internals: ParticlePool, slot: number, spawn: ParticleSpawnSpec): void => {
+const writeParticle = (internals: ParticlePoolImpl, slot: number, spawn: ParticleSpawnSpec): void => {
   const vectorBase = slot * PARTICLE_VECTOR_STRIDE
   writeParticlePosition(internals, vectorBase, spawn.positionX, spawn.positionY, spawn.positionZ)
   writeParticleVelocity(internals, vectorBase, spawn.velocity)
@@ -927,7 +933,7 @@ const writeParticle = (internals: ParticlePool, slot: number, spawn: ParticleSpa
   writeParticleLifetime(internals, slot, spawn)
 }
 
-const spawnValidatedParticle = (pool: ParticlePool, spawn: ParticleSpawnSpec): void => {
+const spawnValidatedParticle = (pool: ParticlePoolImpl, spawn: ParticleSpawnSpec): void => {
   const slot = acquireSlot(pool)
   writeParticle(pool, slot, spawn)
 }
@@ -960,7 +966,7 @@ export const spawnParticle = (
  * object would meaningfully clarify.
  */
 const spawnRequestedParticles = (
-  internals: ParticlePool,
+  internals: ParticlePoolImpl,
   requested: number,
   positionX: number,
   positionY: number,
@@ -1088,7 +1094,7 @@ export const spawnBlockBurst = (
  * left alone because the next spawn overwrites both, and clearing them
  * would be six writes per expiry that nothing reads.
  */
-const expireSlot = (internals: ParticlePool, slot: number): void => {
+const expireSlot = (internals: ParticlePoolImpl, slot: number): void => {
   internals.lifetimesSecs[slot] = 0
   internals.initialLifetimesSecs[slot] = 0
   internals.scales[slot] = 0
@@ -1106,7 +1112,7 @@ const expireSlot = (internals: ParticlePool, slot: number): void => {
  * `writeParticle`: this runs once per live particle per frame, and an object
  * per particle per frame is the allocation this file exists to avoid.
  */
-const integrateFreeParticlePosition = (internals: ParticlePool, slot: number, dt: number): void => {
+const integrateFreeParticlePosition = (internals: ParticlePoolImpl, slot: number, dt: number): void => {
   const vectorBase = slot * PARTICLE_VECTOR_STRIDE
   const vy =
     readFloat(internals.velocities, vectorBase + SECOND_COMPONENT_OFFSET) - PARTICLE_GRAVITY_M_PER_S2 * dt
@@ -1121,7 +1127,7 @@ const integrateFreeParticlePosition = (internals: ParticlePool, slot: number, dt
 }
 
 const integrateSlot = (
-  internals: ParticlePool,
+  internals: ParticlePoolImpl,
   slot: number,
   nextRemaining: number,
   dt: number,
@@ -1142,7 +1148,7 @@ const integrateSlot = (
 }
 
 const updatePositionFromFollowEntity = (
-  internals: ParticlePool,
+  internals: ParticlePoolImpl,
   slot: number,
   entity: ParticleFollowTarget,
 ): void => {
@@ -1168,7 +1174,7 @@ const findFollowEntity = (
 }
 
 const updateFollowPosition = (
-  internals: ParticlePool,
+  internals: ParticlePoolImpl,
   slot: number,
   frame: ParticleFrameSnapshot | undefined,
 ): boolean => {
@@ -1191,7 +1197,7 @@ const updateFollowPosition = (
 }
 
 const advanceLiveSlot = (
-  internals: ParticlePool,
+  internals: ParticlePoolImpl,
   slot: number,
   remaining: number,
   dt: number,
@@ -1216,7 +1222,7 @@ const advanceLiveSlot = (
  * slot, an expiring slot) are ordinary returns rather than loop `continue`s.
  */
 const advanceSlot = (
-  internals: ParticlePool,
+  internals: ParticlePoolImpl,
   slot: number,
   dt: number,
   frame?: ParticleFrameSnapshot | undefined,
@@ -1292,7 +1298,7 @@ export const visibleParticleCount = (pool: ParticlePool): number => {
   return ZERO
 }
 
-const clearParticleState = (pool: ParticlePool): void => {
+const clearParticleState = (pool: ParticlePoolImpl): void => {
   const state = poolState(pool)
   state.spawnSequences.fill(INITIAL_SPAWN_SEQUENCE)
   state.followOffsets.fill(ZERO)

@@ -1,0 +1,12 @@
+id: no-throw-statement
+language: TypeScript
+severity: error
+files:
+  - "src/**/*.ts"
+  - "src/**/*.tsx"
+  - "src/**/*.mts"
+  - "src/**/*.cts"
+message: >-
+  Return a typed failure through Effect instead of throwing an exception.
+rule:
+  kind: throw_statement
