@@ -6,6 +6,9 @@ import {
   WorldPositionSchema,
 } from '@nerima-games/mc-kernel'
 import {
+  MAX_PARTICLE_LIFETIME_SECS,
+  MAX_PARTICLE_SPEED_M_PER_SECOND,
+  MAX_PARTICLE_WORLD_COORDINATE,
   PARTICLE_LIFETIME_SECS,
   type ParticleFrameSnapshot,
   ParticleFrameSnapshotSchema,
@@ -13,9 +16,6 @@ import {
   type ParticlePoolInputError,
   type ParticlePoolOptions,
   type ParticleSpawnSpecEncoded,
-  MAX_PARTICLE_LIFETIME_SECS,
-  MAX_PARTICLE_SPEED_M_PER_SECOND,
-  MAX_PARTICLE_WORLD_COORDINATE,
   makeParticlePool,
   spawnParticle,
 } from '../domain/particle-pool.js'

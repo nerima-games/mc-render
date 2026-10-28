@@ -213,56 +213,60 @@ const inspectRefraction = async (options: RefractionRuntimeOptions): Promise<Ref
 }
 
 const inspectGpuTimer = async (options: BrowserRuntimeOptions & Readonly<{ frameCount: number; maxPollFrames: number }>): Promise<GpuTimerResult> => {
-  const browser = globalThis as unknown as BrowserWithAnimationFrame
-  const [runtimeModule, effectModule] = await Promise.all([
-    import(new URL('/src/browser.ts', browser.location.href).href),
-    import(new URL('/node_modules/.vite/deps/effect.js', browser.location.href).href),
-  ])
-  const canvas = Object.assign(browser.document.createElement('canvas'), {
-    height: options.canvasHeight,
-    style: { height: `${options.canvasHeight}px`, width: `${options.canvasWidth}px` },
-    width: options.canvasWidth,
-  })
-  browser.document.body.appendChild(canvas)
-  const runtime = await effectModule.Effect.runPromise(runtimeModule.makeBrowserWorldRuntime({
-    autoResize: false,
-    canvas,
-    maxPixelRatio: options.maxPixelRatio,
-    quality: 'low',
-  }))
-  const tools = {
-    nextFrame: (): Promise<void> => new Promise<void>((resolve) => {
-      browser.requestAnimationFrame(() => {
-        resolve()
-      })
-    }),
-    renderFrames: async (remaining: number): Promise<void> => {
+  const createRuntime = async () => {
+    const browser = globalThis as unknown as BrowserWithAnimationFrame
+    const [runtimeModule, effectModule] = await Promise.all([
+      import(new URL('/src/browser.ts', browser.location.href).href),
+      import(new URL('/node_modules/.vite/deps/effect.js', browser.location.href).href),
+    ])
+    const canvas = Object.assign(browser.document.createElement('canvas'), {
+      height: options.canvasHeight,
+      style: { height: `${options.canvasHeight}px`, width: `${options.canvasWidth}px` },
+      width: options.canvasWidth,
+    })
+    browser.document.body.appendChild(canvas)
+    const runtime = await effectModule.Effect.runPromise(runtimeModule.makeBrowserWorldRuntime({
+      autoResize: false,
+      canvas,
+      maxPixelRatio: options.maxPixelRatio,
+      quality: 'low',
+    }))
+    return { browser, effectModule, runtime }
+  }
+  const { browser, effectModule, runtime } = await createRuntime()
+  const renderGpuTimerFrames = async (): Promise<void> => {
+    const renderFrames = async (remaining: number): Promise<void> => {
       if (remaining === options.zero) {
         return
       }
-      await tools.nextFrame()
+      await new Promise<void>((resolve) => {
+        browser.requestAnimationFrame(() => {
+          resolve()
+        })
+      })
       await effectModule.Effect.runPromise(runtime.render(options.camera))
-      await tools.renderFrames(remaining - options.one)
-    },
-    pollForGpuTime: async (remaining: number): Promise<void> => {
-      if (
-        remaining === options.zero ||
-        !runtime.gpuTimingSupported ||
-        runtime.latestGpuTimeMs !== undefined
-      ) {
+      await renderFrames(remaining - options.one)
+    }
+    const pollForGpuTime = async (remaining: number): Promise<void> => {
+      if (remaining === options.zero || !runtime.gpuTimingSupported || runtime.latestGpuTimeMs !== undefined) {
         return
       }
-      await tools.nextFrame()
+      await new Promise<void>((resolve) => {
+        browser.requestAnimationFrame(() => {
+          resolve()
+        })
+      })
       await effectModule.Effect.runPromise(runtime.render(options.camera))
-      await tools.pollForGpuTime(remaining - options.one)
-    },
+      await pollForGpuTime(remaining - options.one)
+    }
+    if (runtime.gpuTimingSupported) {
+      await pollForGpuTime(options.maxPollFrames)
+    } else {
+      await renderFrames(options.frameCount)
+    }
   }
   try {
-    if (runtime.gpuTimingSupported) {
-      await tools.pollForGpuTime(options.maxPollFrames)
-    } else {
-      await tools.renderFrames(options.frameCount)
-    }
+    await renderGpuTimerFrames()
     return {
       gpuTimingSupported: runtime.gpuTimingSupported,
       latestGpuTimeMs: runtime.latestGpuTimeMs,
@@ -397,8 +401,8 @@ test('GPU timer uses a completed query when available and keeps rendering withou
     canvasHeight: CANVAS_HEIGHT,
     canvasWidth: CANVAS_WIDTH,
     frameCount: FRAME_COUNT,
-    maxPollFrames: GPU_TIMER_POLL_FRAME_LIMIT,
     maxPixelRatio: PIXEL_RATIO,
+    maxPollFrames: GPU_TIMER_POLL_FRAME_LIMIT,
     one: ONE,
     zero: ZERO,
   })

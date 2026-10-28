@@ -46,10 +46,10 @@ import {
   buildFluidGeometry,
   combineChunkGeometry,
 } from '../domain/chunk-geometry.js'
+import { CHUNK_SIZE, meshChunk } from '@nerima-games/mc-meshing'
 import { type ChunkCoord, chunkCoord } from '@nerima-games/mc-kernel'
 import { type ChunkGeometryUpdate, type ChunkKey, type WorldRenderer } from './world-renderer.js'
 import { Effect, Ref, Result, Schema, Semaphore } from 'effect'
-import { CHUNK_SIZE, meshChunk } from '@nerima-games/mc-meshing'
 import { chunkKeyOf as worldgenChunkKeyOf } from '@nerima-games/mc-worldgen'
 
 /**
