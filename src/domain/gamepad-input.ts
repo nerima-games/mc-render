@@ -83,13 +83,13 @@ export const GamepadAxesResultSchema: Schema.Codec<
   ResultRuntimeShape<GamepadAxes, GamepadAxesInputError>
 > = Schema.Union([
   Schema.Struct({
-    _tag: Schema.Literal('Success'),
     _op: Schema.Literal('Success'),
+    _tag: Schema.Literal('Success'),
     success: GamepadAxesSchema,
   }),
   Schema.Struct({
-    _tag: Schema.Literal('Failure'),
     _op: Schema.Literal('Failure'),
+    _tag: Schema.Literal('Failure'),
     failure: GamepadAxesInputErrorSchema,
   }),
 ])
@@ -106,13 +106,13 @@ export const GamepadButtonForIndexResultSchema: Schema.Codec<
   ResultRuntimeShape<GamepadButton, GamepadButtonIndexError>
 > = Schema.Union([
   Schema.Struct({
-    _tag: Schema.Literal('Success'),
     _op: Schema.Literal('Success'),
+    _tag: Schema.Literal('Success'),
     success: Schema.Literals(GAMEPAD_BUTTONS),
   }),
   Schema.Struct({
-    _tag: Schema.Literal('Failure'),
     _op: Schema.Literal('Failure'),
+    _tag: Schema.Literal('Failure'),
     failure: GamepadButtonIndexErrorSchema,
   }),
 ])
@@ -137,6 +137,7 @@ const AXIS_CLAMP_MIN = -1
 const AXIS_CLAMP_MAX = 1
 /** Axis value reported when a stick is centered or the device omits that axis. */
 const NEUTRAL_AXIS_VALUE = 0
+const MIN_GAMEPAD_DEADZONE = 0
 /** Fraction of full deflection ignored near center to absorb stick drift. */
 const DEFAULT_GAMEPAD_DEADZONE = 0.15
 /** Index into the raw `Gamepad.axes` array for each analog stick axis. */
@@ -179,41 +180,43 @@ export const normalizeGamepadAxes = (
   if (!Array.isArray(axes)) {
     return Result.fail({ _tag: 'GamepadAxesInputError', reason: 'invalid-axes' })
   }
-  if (typeof deadzone !== 'number' || !Number.isFinite(deadzone) || deadzone < 0 || deadzone >= AXIS_CLAMP_MAX) {
+  if (
+    typeof deadzone !== 'number' ||
+    !Number.isFinite(deadzone) ||
+    deadzone < MIN_GAMEPAD_DEADZONE ||
+    deadzone >= AXIS_CLAMP_MAX
+  ) {
     return Result.fail({ _tag: 'GamepadAxesInputError', reason: 'invalid-deadzone' })
   }
   const values: ReadonlyArray<unknown> = axes
-  const leftX = axis(values, LEFT_STICK_X_AXIS_INDEX)
-  if (Result.isFailure(leftX)) {
-    return Result.fail(leftX.failure)
-  }
-  const leftY = axis(values, LEFT_STICK_Y_AXIS_INDEX)
-  if (Result.isFailure(leftY)) {
-    return Result.fail(leftY.failure)
-  }
-  const rightX = axis(values, RIGHT_STICK_X_AXIS_INDEX)
-  if (Result.isFailure(rightX)) {
-    return Result.fail(rightX.failure)
-  }
-  const rightY = axis(values, RIGHT_STICK_Y_AXIS_INDEX)
-  if (Result.isFailure(rightY)) {
-    return Result.fail(rightY.failure)
+  const normalized = Result.all({
+    leftX: axis(values, LEFT_STICK_X_AXIS_INDEX),
+    leftY: axis(values, LEFT_STICK_Y_AXIS_INDEX),
+    rightX: axis(values, RIGHT_STICK_X_AXIS_INDEX),
+    rightY: axis(values, RIGHT_STICK_Y_AXIS_INDEX),
+  })
+  if (Result.isFailure(normalized)) {
+    return Result.fail(normalized.failure)
   }
   return Result.succeed({
-    leftX: applyDeadzone(leftX.success, deadzone),
-    leftY: applyDeadzone(leftY.success, deadzone),
-    rightX: applyDeadzone(rightX.success, deadzone),
-    rightY: applyDeadzone(rightY.success, deadzone),
+    leftX: applyDeadzone(normalized.success.leftX, deadzone),
+    leftY: applyDeadzone(normalized.success.leftY, deadzone),
+    rightX: applyDeadzone(normalized.success.rightX, deadzone),
+    rightY: applyDeadzone(normalized.success.rightY, deadzone),
   })
 }
 
 export const ZERO_GAMEPAD_AXES: GamepadAxes = { leftX: 0, leftY: 0, rightX: 0, rightY: 0 }
 
 export const gamepadButtonForIndex = (index: unknown): Result.Result<GamepadButton, GamepadButtonIndexError> => {
-  const button = typeof index === 'number' && Number.isInteger(index) ? GAMEPAD_BUTTONS[index] : undefined
-  return typeof button === 'undefined'
-    ? Result.fail({ _tag: 'GamepadButtonIndexError' })
-    : Result.succeed(button)
+  if (typeof index !== 'number' || !Number.isInteger(index)) {
+    return Result.fail({ _tag: 'GamepadButtonIndexError' })
+  }
+  const button = GAMEPAD_BUTTONS[index]
+  if (typeof button === 'undefined') {
+    return Result.fail({ _tag: 'GamepadButtonIndexError' })
+  }
+  return Result.succeed(button)
 }
 
 export const gamepadButtonIsPressed = (button: GamepadButtonState | undefined): boolean =>

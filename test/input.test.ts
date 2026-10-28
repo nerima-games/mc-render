@@ -73,8 +73,12 @@ import {
 } from '../src/application/input-service'
 import { PREVENT_DEFAULT_EVENTS, mayPreventDefault } from '../src/application/browser-input-adapter'
 
-const resultValue = <Value, Error>(result: Result.Result<Value, Error>): Value | undefined =>
-  Result.isSuccess(result) ? result.success : undefined
+const resultValue = <Value, Error>(result: Result.Result<Value, Error>): Value | undefined => {
+  if (Result.isSuccess(result)) {
+    return result.success
+  }
+  return undefined
+}
 
 const FAST_CHECK_OPTIONS = { numRuns: 100, seed: 0x5eed }
 

@@ -153,6 +153,28 @@ export const INPUT_ACTIONS = [
 ] as const
 
 export type InputAction = (typeof INPUT_ACTIONS)[number]
+type BindableAction = Exclude<InputAction, 'escape'>
+
+export type InputValidationError = {
+  readonly _tag: 'InputValidationError'
+  readonly operation: 'mouse-button-index' | 'wheel-mode-index' | 'wheel-delta' | 'hotbar-selection'
+  readonly reason:
+    | 'invalid-index'
+    | 'non-finite-delta'
+    | 'invalid-delta-mode'
+    | 'invalid-hotbar-size'
+    | 'non-finite-current'
+    | 'non-finite-steps'
+}
+
+const inputValidationError = (
+  operation: InputValidationError['operation'],
+  reason: InputValidationError['reason'],
+): InputValidationError => ({ _tag: 'InputValidationError', operation, reason })
+
+const BINDABLE_ACTIONS: ReadonlyArray<BindableAction> = INPUT_ACTIONS.filter(
+  (action): action is BindableAction => action !== 'escape',
+)
 
 /**
  * `KeyboardEvent.code` values. A branded string is not used: the browser is
@@ -215,10 +237,14 @@ export const MOUSE_BUTTON_BY_INDEX: ReadonlyArray<MouseButton> = MOUSE_BUTTONS
  * adapter can deliberately drop it rather than guessing.
  */
 export const mouseButtonForIndex = (index: unknown): Result.Result<MouseButton, InputValidationError> => {
-  const button = typeof index === 'number' && Number.isInteger(index) ? MOUSE_BUTTON_BY_INDEX[index] : undefined
-  return typeof button === 'undefined'
-    ? Result.fail(inputValidationError('mouse-button-index', 'invalid-index'))
-    : Result.succeed(button)
+  if (typeof index !== 'number' || !Number.isInteger(index)) {
+    return Result.fail(inputValidationError('mouse-button-index', 'invalid-index'))
+  }
+  const button = MOUSE_BUTTON_BY_INDEX[index]
+  if (typeof button === 'undefined') {
+    return Result.fail(inputValidationError('mouse-button-index', 'invalid-index'))
+  }
+  return Result.succeed(button)
 }
 
 /**
@@ -307,10 +333,14 @@ export const WHEEL_DELTA_MODE_BY_INDEX: ReadonlyArray<WheelDeltaMode> = WHEEL_DE
  * 33x is worse than ignoring it.
  */
 export const wheelDeltaModeForIndex = (index: unknown): Result.Result<WheelDeltaMode, InputValidationError> => {
-  const mode = typeof index === 'number' && Number.isInteger(index) ? WHEEL_DELTA_MODE_BY_INDEX[index] : undefined
-  return typeof mode === 'undefined'
-    ? Result.fail(inputValidationError('wheel-mode-index', 'invalid-index'))
-    : Result.succeed(mode)
+  if (typeof index !== 'number' || !Number.isInteger(index)) {
+    return Result.fail(inputValidationError('wheel-mode-index', 'invalid-index'))
+  }
+  const mode = WHEEL_DELTA_MODE_BY_INDEX[index]
+  if (typeof mode === 'undefined') {
+    return Result.fail(inputValidationError('wheel-mode-index', 'invalid-index'))
+  }
+  return Result.succeed(mode)
 }
 
 /**
@@ -336,7 +366,10 @@ const NOTCHES_PER_UNIT: Readonly<Record<WheelDeltaMode, number>> = {
  * Convert a browser wheel delta to fractional notches, or return a typed error
  * for a non-finite delta or an unrecognized mode.
  */
-export const notchesForWheelDelta = (deltaY: unknown, mode: unknown): Result.Result<number, InputValidationError> => {
+const validWheelDeltaInput = (
+  deltaY: unknown,
+  mode: unknown,
+): Result.Result<{ readonly deltaY: number; readonly mode: WheelDeltaMode }, InputValidationError> => {
   if (typeof deltaY !== 'number' || !Number.isFinite(deltaY)) {
     return Result.fail(inputValidationError('wheel-delta', 'non-finite-delta'))
   }
@@ -347,14 +380,44 @@ export const notchesForWheelDelta = (deltaY: unknown, mode: unknown): Result.Res
   if (typeof unit === 'undefined') {
     return Result.fail(inputValidationError('wheel-delta', 'invalid-delta-mode'))
   }
-  const notches = deltaY / unit
-  return Number.isFinite(notches)
-    ? Result.succeed(notches)
-    : Result.fail(inputValidationError('wheel-delta', 'non-finite-delta'))
+  return Result.succeed({ deltaY, mode })
+}
+
+export const notchesForWheelDelta = (deltaY: unknown, mode: unknown): Result.Result<number, InputValidationError> => {
+  const input = validWheelDeltaInput(deltaY, mode)
+  if (Result.isFailure(input)) {
+    return Result.fail(input.failure)
+  }
+  const unit = NOTCHES_PER_UNIT[input.success.mode]
+  const notches = input.success.deltaY / unit
+  if (!Number.isFinite(notches)) {
+    return Result.fail(inputValidationError('wheel-delta', 'non-finite-delta'))
+  }
+  return Result.succeed(notches)
 }
 
 
 const MIN_HOTBAR_SIZE = 1
+const NO_HOTBAR_REMAINDER = 0
+
+const positiveRemainder = (value: number, size: number): number => {
+  const remainder = Math.trunc(value) % size
+  if (remainder === NO_HOTBAR_REMAINDER) {
+    return NO_HOTBAR_REMAINDER
+  }
+  if (remainder < NO_HOTBAR_REMAINDER) {
+    return remainder + size
+  }
+  return remainder
+}
+
+const wrappedHotbarRemainder = (from: number, by: number, size: number): number => {
+  const gap = size - by
+  if (from >= gap) {
+    return from - gap
+  }
+  return from + by
+}
 
 /**
  * Wrap a selection by its full signed step count. Invalid sizes and non-finite
@@ -374,17 +437,9 @@ export const wrapHotbarSelection = (
   if (typeof steps !== 'number' || !Number.isFinite(steps)) {
     return Result.fail(inputValidationError('hotbar-selection', 'non-finite-steps'))
   }
-  const positiveRemainder = (value: number): number => {
-    const remainder = Math.trunc(value) % size
-    if (remainder === 0) {
-      return 0
-    }
-    return remainder < 0 ? remainder + size : remainder
-  }
-  const from = positiveRemainder(current)
-  const by = positiveRemainder(steps)
-  const gap = size - by
-  return Result.succeed(from >= gap ? from - gap : from + by)
+  const from = positiveRemainder(current, size)
+  const by = positiveRemainder(steps, size)
+  return Result.succeed(wrappedHotbarRemainder(from, by, size))
 }
 
 /**
@@ -469,17 +524,8 @@ export const InputSettingsDecodeErrorSchema: Schema.Codec<InputSettingsDecodeErr
   reason: Schema.Literals(['invalid-bindings', 'reserved-code', 'duplicate-code']),
 })
 
-export type InputValidationError = {
-  readonly _tag: 'InputValidationError'
-  readonly operation: 'mouse-button-index' | 'wheel-mode-index' | 'wheel-delta' | 'hotbar-selection'
-  readonly reason:
-    | 'invalid-index'
-    | 'non-finite-delta'
-    | 'invalid-delta-mode'
-    | 'invalid-hotbar-size'
-    | 'non-finite-current'
-    | 'non-finite-steps'
-}
+const MIN_INPUT_CODE_LENGTH = 1
+const RESERVED_INPUT_CODES: ReadonlySet<InputCode> = new Set([ESCAPE_KEY_CODE, FOCUS_NAVIGATION_KEY_CODE])
 
 type ResultRuntimeShape<Success, Failure> =
   | {
@@ -516,11 +562,6 @@ export const InputValidationErrorSchema: Schema.Codec<InputValidationError> = Sc
   }),
 ])
 
-const inputValidationError = (
-  operation: InputValidationError['operation'],
-  reason: InputValidationError['reason'],
-): InputValidationError => ({ _tag: 'InputValidationError', operation, reason })
-
 /** Runtime boundary for persisted input-settings JSON. */
 const BindingsShapeSchema: Schema.Codec<
   Record<string, string>,
@@ -529,11 +570,10 @@ const BindingsShapeSchema: Schema.Codec<
   never
 > = Schema.Record(Schema.String, Schema.String).check(
   Schema.makeFilter<Record<string, string>>((bindings) => {
-    const requiredActions = INPUT_ACTIONS.filter((action) => action !== 'escape')
     const keys = Object.keys(bindings)
     return (
-      keys.length === requiredActions.length &&
-      requiredActions.every((action) => Object.prototype.hasOwnProperty.call(bindings, action))
+      keys.length === BINDABLE_ACTIONS.length &&
+      BINDABLE_ACTIONS.every((action) => Object.hasOwn(bindings, action))
     ) || 'Bindings must contain exactly one code for each bindable action.'
   }),
 )
@@ -547,7 +587,7 @@ export const BindingsSchema: Schema.Codec<
   Schema.makeFilter<Record<string, string>>((bindings) => {
     const codes = Object.values(bindings)
     const containsOnlyUsableCodes = codes.every(
-      (code) => code.length > 0 && !RESERVED_INPUT_CODES.has(code),
+      (code) => code.length >= MIN_INPUT_CODE_LENGTH && !RESERVED_INPUT_CODES.has(code),
     )
     return (
       containsOnlyUsableCodes &&
@@ -560,13 +600,13 @@ export const BindingsDecodeResultSchema: Schema.Codec<
   ResultRuntimeShape<Bindings, InputSettingsDecodeError>
 > = Schema.Union([
   Schema.Struct({
-    _tag: Schema.Literal('Success'),
     _op: Schema.Literal('Success'),
+    _tag: Schema.Literal('Success'),
     success: BindingsSchema,
   }),
   Schema.Struct({
-    _tag: Schema.Literal('Failure'),
     _op: Schema.Literal('Failure'),
+    _tag: Schema.Literal('Failure'),
     failure: InputSettingsDecodeErrorSchema,
   }),
 ])
@@ -575,13 +615,13 @@ export const MouseButtonForIndexResultSchema: Schema.Codec<
   ResultRuntimeShape<MouseButton, InputValidationError>
 > = Schema.Union([
   Schema.Struct({
-    _tag: Schema.Literal('Success'),
     _op: Schema.Literal('Success'),
+    _tag: Schema.Literal('Success'),
     success: Schema.Literals(MOUSE_BUTTONS),
   }),
   Schema.Struct({
-    _tag: Schema.Literal('Failure'),
     _op: Schema.Literal('Failure'),
+    _tag: Schema.Literal('Failure'),
     failure: InputValidationErrorSchema,
   }),
 ])
@@ -590,72 +630,81 @@ export const WheelDeltaModeForIndexResultSchema: Schema.Codec<
   ResultRuntimeShape<WheelDeltaMode, InputValidationError>
 > = Schema.Union([
   Schema.Struct({
-    _tag: Schema.Literal('Success'),
     _op: Schema.Literal('Success'),
+    _tag: Schema.Literal('Success'),
     success: Schema.Literals(WHEEL_DELTA_MODES),
   }),
   Schema.Struct({
-    _tag: Schema.Literal('Failure'),
     _op: Schema.Literal('Failure'),
+    _tag: Schema.Literal('Failure'),
     failure: InputValidationErrorSchema,
   }),
 ])
 
 export const WheelNotchesResultSchema: Schema.Codec<ResultRuntimeShape<number, InputValidationError>> = Schema.Union([
   Schema.Struct({
-    _tag: Schema.Literal('Success'),
     _op: Schema.Literal('Success'),
+    _tag: Schema.Literal('Success'),
     success: Schema.Finite,
   }),
   Schema.Struct({
-    _tag: Schema.Literal('Failure'),
     _op: Schema.Literal('Failure'),
+    _tag: Schema.Literal('Failure'),
     failure: InputValidationErrorSchema,
   }),
 ])
 
 export const HotbarSelectionResultSchema: Schema.Codec<ResultRuntimeShape<number, InputValidationError>> = Schema.Union([
   Schema.Struct({
-    _tag: Schema.Literal('Success'),
     _op: Schema.Literal('Success'),
+    _tag: Schema.Literal('Success'),
     success: Schema.Finite,
   }),
   Schema.Struct({
-    _tag: Schema.Literal('Failure'),
     _op: Schema.Literal('Failure'),
+    _tag: Schema.Literal('Failure'),
     failure: InputValidationErrorSchema,
   }),
 ])
 
-const MIN_INPUT_CODE_LENGTH = 1
+const decodeBindingCode = (
+  code: unknown,
+  seen: Set<InputCode>,
+): Result.Result<InputCode, InputSettingsDecodeError> => {
+  if (typeof code !== 'string' || code.length < MIN_INPUT_CODE_LENGTH) {
+    return Result.fail({ _tag: 'InputSettingsDecodeError', reason: 'invalid-bindings' })
+  }
+  if (RESERVED_INPUT_CODES.has(code)) {
+    return Result.fail({ _tag: 'InputSettingsDecodeError', reason: 'reserved-code' })
+  }
+  if (seen.has(code)) {
+    return Result.fail({ _tag: 'InputSettingsDecodeError', reason: 'duplicate-code' })
+  }
+  seen.add(code)
+  return Result.succeed(code)
+}
 
-const RESERVED_INPUT_CODES: ReadonlySet<InputCode> = new Set([ESCAPE_KEY_CODE, FOCUS_NAVIGATION_KEY_CODE])
+const decodeBindingsFromShape = (
+  decoded: Record<string, string>,
+): Result.Result<Bindings, InputSettingsDecodeError> => {
+  const bindings: Record<string, InputCode> = {}
+  const seen = new Set<InputCode>()
+  for (const action of BINDABLE_ACTIONS) {
+    const code = decodeBindingCode(decoded[action], seen)
+    if (Result.isFailure(code)) {
+      return Result.fail(code.failure)
+    }
+    bindings[action] = code.success
+  }
+  return Result.succeed(bindings)
+}
 
 export const decodeBindings = (input: unknown): Result.Result<Bindings, InputSettingsDecodeError> => {
   const decoded = Schema.decodeUnknownResult(BindingsShapeSchema, { onExcessProperty: 'error' })(input)
   if (Result.isFailure(decoded)) {
     return Result.fail({ _tag: 'InputSettingsDecodeError', reason: 'invalid-bindings' })
   }
-  const bindings: Record<string, InputCode> = {}
-  const seen = new Set<InputCode>()
-  for (const action of INPUT_ACTIONS) {
-    if (action === 'escape') {
-      continue
-    }
-    const code = decoded.success[action]
-    if (typeof code !== 'string' || code.length < MIN_INPUT_CODE_LENGTH) {
-      return Result.fail({ _tag: 'InputSettingsDecodeError', reason: 'invalid-bindings' })
-    }
-    if (RESERVED_INPUT_CODES.has(code)) {
-      return Result.fail({ _tag: 'InputSettingsDecodeError', reason: 'reserved-code' })
-    }
-    if (seen.has(code)) {
-      return Result.fail({ _tag: 'InputSettingsDecodeError', reason: 'duplicate-code' })
-    }
-    seen.add(code)
-    bindings[action] = code
-  }
-  return Result.succeed(bindings)
+  return decodeBindingsFromShape(decoded.success)
 }
 
 export const defaultBindings = (): Bindings => ({ ...DEFAULT_BINDINGS })
@@ -690,12 +739,13 @@ export type RemapOutcome =
 
 export const RemapOutcomeSchema: Schema.Codec<RemapOutcome> = Schema.Union([
   Schema.Struct({
-    kind: Schema.Literal('ok'),
     bindings: BindingsSchema,
+    kind: Schema.Literal('ok'),
   }),
   Schema.Struct({
     kind: Schema.Literal('rejected'),
     rejection: Schema.Struct({
+      message: Schema.String,
       reason: Schema.Literals([
         'escape-is-not-bindable',
         'key-reserved-by-user-agent',
@@ -703,7 +753,6 @@ export const RemapOutcomeSchema: Schema.Codec<RemapOutcome> = Schema.Union([
         'unknown-action',
         'invalid-key',
       ]),
-      message: Schema.String,
     }),
   }),
 ])
@@ -746,40 +795,51 @@ const conflictRemapRejection = (
   }
 }
 
-export const remap = (bindings: Bindings, action: unknown, key: unknown): RemapOutcome => {
-  if (typeof action !== 'string' || !isInputAction(action)) {
-    const message = typeof action === 'string'
-      ? `'${action}' is not a known input action.`
-      : 'The input action must be a known string.'
-    return { kind: 'rejected', rejection: { message, reason: 'unknown-action' } }
+const rejectedRemap = (rejection: RemapRejection): RemapOutcome => ({
+  kind: 'rejected',
+  rejection,
+})
+
+const unknownActionRemapRejection = (action: unknown): RemapRejection => {
+  if (typeof action === 'string') {
+    return { message: `'${action}' is not a known input action.`, reason: 'unknown-action' }
   }
-  if (action === 'escape') {
-    return {
-      kind: 'rejected',
-      rejection: {
-        message:
-          'escape is not a bindable action: it is owned by the single frame-level handler ' +
-          `(ESCAPE_OWNER = '${ESCAPE_OWNER}'). A second owner is how one key press closes a modal ` +
-          'AND opens the pause menu.',
-        reason: 'escape-is-not-bindable',
-      },
-    }
-  }
-  if (typeof key !== 'string' || key.length === 0) {
-    return {
-      kind: 'rejected',
-      rejection: { message: 'The input code must be a non-empty string.', reason: 'invalid-key' },
-    }
+  return { message: 'The input action must be a known string.', reason: 'unknown-action' }
+}
+
+const remapBindableAction = (
+  bindings: Bindings,
+  action: BindableAction,
+  key: unknown,
+): RemapOutcome => {
+  if (typeof key !== 'string' || key.length < MIN_INPUT_CODE_LENGTH) {
+    return rejectedRemap({ message: 'The input code must be a non-empty string.', reason: 'invalid-key' })
   }
   const ownershipRejection = ownershipRemapRejection(action, key)
   if (typeof ownershipRejection !== 'undefined') {
-    return { kind: 'rejected', rejection: ownershipRejection }
+    return rejectedRemap(ownershipRejection)
   }
   const conflictRejection = conflictRemapRejection(bindings, action, key)
   if (typeof conflictRejection !== 'undefined') {
-    return { kind: 'rejected', rejection: conflictRejection }
+    return rejectedRemap(conflictRejection)
   }
   return { bindings: { ...bindings, [action]: key }, kind: 'ok' }
+}
+
+export const remap = (bindings: Bindings, action: unknown, key: unknown): RemapOutcome => {
+  if (typeof action !== 'string' || !isInputAction(action)) {
+    return rejectedRemap(unknownActionRemapRejection(action))
+  }
+  if (action === 'escape') {
+    return rejectedRemap({
+      message:
+        'escape is not a bindable action: it is owned by the single frame-level handler ' +
+        `(ESCAPE_OWNER = '${ESCAPE_OWNER}'). A second owner is how one key press closes a modal ` +
+        'AND opens the pause menu.',
+      reason: 'escape-is-not-bindable',
+    })
+  }
+  return remapBindableAction(bindings, action, key)
 }
 
 /**

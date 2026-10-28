@@ -8,8 +8,8 @@ import {
   gamepadButtonIsPressed,
   normalizeGamepadAxes,
 } from '../domain/gamepad-input.js'
-import { GAMEPLAY_LISTENER_TARGET, type InputAction } from '../domain/input-bindings.js'
 import { Effect, Result } from 'effect'
+import { GAMEPLAY_LISTENER_TARGET, type InputAction } from '../domain/input-bindings.js'
 import type { InputServiceApi } from './input-service.js'
 
 export type GamepadSource = () => ReadonlyArray<GamepadSnapshot | null>

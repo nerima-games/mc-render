@@ -397,7 +397,10 @@ const resolvedMouseButton = (index: number | undefined) => {
     return
   }
   const result = mouseButtonForIndex(index)
-  return Result.isFailure(result) ? undefined : result.success
+  if (Result.isFailure(result)) {
+    return
+  }
+  return result.success
 }
 
 const resolvedWheelDeltaMode = (index: number | undefined) => {
@@ -405,7 +408,10 @@ const resolvedWheelDeltaMode = (index: number | undefined) => {
     return
   }
   const result = wheelDeltaModeForIndex(index)
-  return Result.isFailure(result) ? undefined : result.success
+  if (Result.isFailure(result)) {
+    return
+  }
+  return result.success
 }
 
 const translateKeyEvent = (
@@ -957,6 +963,7 @@ const ignore = (): void => {
 const attemptPointerLockRequest = (canvas: PointerLockTarget): Effect.Effect<PointerLockRequestOutcome> =>
   Effect.match(
     Effect.try({
+      catch: () => 'unavailable',
       try: (): PointerLockRequestOutcome => {
         if (typeof canvas.requestPointerLock !== 'function') {
           return 'unavailable'
@@ -970,7 +977,6 @@ const attemptPointerLockRequest = (canvas: PointerLockTarget): Effect.Effect<Poi
         }
         return 'sent'
       },
-      catch: () => 'unavailable',
     }),
     {
       onFailure: () => 'unavailable',
@@ -1186,19 +1192,19 @@ type TouchControlRosterResultShape =
 export const TouchControlRosterErrorSchema: Schema.Codec<TouchControlRosterError> = Schema.Union([
   Schema.Struct({
     _tag: Schema.Literal('TouchControlRosterError'),
-    reason: Schema.Literal('unbound-actions'),
     actions: Schema.Array(Schema.Literals(TOUCH_CONTROL_ACTIONS)),
+    reason: Schema.Literal('unbound-actions'),
   }),
   Schema.Struct({
     _tag: Schema.Literal('TouchControlRosterError'),
+    action: Schema.Literals(TOUCH_CONTROL_ACTIONS),
     reason: Schema.Literal('missing-target'),
-    action: Schema.Literals(TOUCH_CONTROL_ACTIONS),
   }),
   Schema.Struct({
     _tag: Schema.Literal('TouchControlRosterError'),
-    reason: Schema.Literal('shared-target'),
-    owner: Schema.Literals(TOUCH_CONTROL_ACTIONS),
     action: Schema.Literals(TOUCH_CONTROL_ACTIONS),
+    owner: Schema.Literals(TOUCH_CONTROL_ACTIONS),
+    reason: Schema.Literal('shared-target'),
   }),
 ])
 
@@ -1206,8 +1212,8 @@ export const TouchControlRosterResultSchema: Schema.Codec<
   TouchControlRosterResultShape
 > = Schema.Union([
   Schema.Struct({
-    _tag: Schema.Literal('Success'),
     _op: Schema.Literal('Success'),
+    _tag: Schema.Literal('Success'),
     success: Schema.Array(
       Schema.Struct({
         action: Schema.Literals(TOUCH_CONTROL_ACTIONS),
@@ -1216,11 +1222,36 @@ export const TouchControlRosterResultSchema: Schema.Codec<
     ),
   }),
   Schema.Struct({
-    _tag: Schema.Literal('Failure'),
     _op: Schema.Literal('Failure'),
+    _tag: Schema.Literal('Failure'),
     failure: TouchControlRosterErrorSchema,
   }),
 ])
+
+type TouchControlRosterEntry = {
+  readonly action: TouchControlAction
+  readonly target: unknown
+  readonly owners: Map<unknown, TouchControlAction>
+  readonly roster: TouchControlTarget[]
+}
+
+const appendTouchControlTarget = ({
+  action,
+  target,
+  owners,
+  roster,
+}: TouchControlRosterEntry): TouchControlRosterError | undefined => {
+  if (target === null || target === undefined) {
+    return { _tag: 'TouchControlRosterError', action, reason: 'missing-target' }
+  }
+  const owner = owners.get(target)
+  if (owner !== undefined) {
+    return { _tag: 'TouchControlRosterError', action, owner, reason: 'shared-target' }
+  }
+  owners.set(target, action)
+  roster.push({ action, target })
+  return undefined
+}
 
 export const createTouchControlRoster = <Target>(
   targets: TouchControlTargets<Target>,
@@ -1230,24 +1261,18 @@ export const createTouchControlRoster = <Target>(
   if (unavailable.length > NO_UNAVAILABLE_TOUCH_ACTIONS) {
     return Result.fail({
       _tag: 'TouchControlRosterError',
-      reason: 'unbound-actions',
       actions: unavailable,
+      reason: 'unbound-actions',
     })
   }
 
   const owners = new Map<unknown, TouchControlAction>()
   const roster: TouchControlTarget[] = []
   for (const action of TOUCH_CONTROL_ACTIONS) {
-    const target = targets[action]
-    if (target === null || target === undefined) {
-      return Result.fail({ _tag: 'TouchControlRosterError', reason: 'missing-target', action })
+    const error = appendTouchControlTarget({ action, owners, roster, target: targets[action] })
+    if (typeof error !== 'undefined') {
+      return Result.fail(error)
     }
-    const owner = owners.get(target)
-    if (owner !== undefined) {
-      return Result.fail({ _tag: 'TouchControlRosterError', reason: 'shared-target', owner, action })
-    }
-    owners.set(target, action)
-    roster.push({ action, target })
   }
   return Result.succeed(roster)
 }
