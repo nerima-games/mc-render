@@ -303,7 +303,7 @@ const UNIT_INTERVAL_MAXIMUM = 1
 export const MAX_PARTICLE_WORLD_COORDINATE = 30_000_000
 export const MAX_PARTICLE_SPEED_M_PER_SECOND = 64
 export const MAX_PARTICLE_LIFETIME_SECS = 10
-const MAX_PARTICLE_FOLLOW_OFFSET = MAX_PARTICLE_WORLD_COORDINATE * 2
+const MAX_PARTICLE_FOLLOW_OFFSET = MAX_PARTICLE_WORLD_COORDINATE + MAX_PARTICLE_WORLD_COORDINATE
 
 /** The single-slot step used by every index-advancing loop and counter in this file. */
 const ONE_SLOT = 1
@@ -1300,6 +1300,17 @@ const findFollowEntity = (
   return undefined
 }
 
+const updateFollowedPosition = (
+  internals: ParticlePoolImpl,
+  slot: number,
+  entity: ParticleFollowTarget,
+): 'followed' | 'expired' => {
+  if (!updatePositionFromFollowEntity(internals, slot, entity)) {
+    return 'expired'
+  }
+  return 'followed'
+}
+
 const updateFollowPosition = (
   internals: ParticlePoolImpl,
   slot: number,
@@ -1322,10 +1333,7 @@ const updateFollowPosition = (
     internals.followEntityIds[slot] = undefined
     return 'followed'
   }
-  if (!updatePositionFromFollowEntity(internals, slot, entity)) {
-    return 'expired'
-  }
-  return 'followed'
+  return updateFollowedPosition(internals, slot, entity)
 }
 
 const advanceLiveSlot = (

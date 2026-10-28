@@ -1,9 +1,8 @@
-import { Effect } from 'effect'
-import type { DeltaTimeSecs, Dimension } from '@nerima-games/mc-kernel'
 import {
   DEFAULT_DIMENSION,
   type RenderEnvironmentPlan,
 } from '../domain/render-environment.js'
+import type { DeltaTimeSecs, Dimension } from '@nerima-games/mc-kernel'
 import {
   type ParticleFrameSnapshot,
   type ParticlePool,
@@ -33,6 +32,7 @@ import type {
   ThreeVector3,
 } from './three-surface.js'
 import { type WorldRenderer, type WorldRendererOptions, makeWorldRenderer } from './world-renderer.js'
+import { Effect } from 'effect'
 /**
  * Production renderer composition.
  *
