@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import type { Effect } from 'effect'
 
 const WEB_ORIGIN = 'http://127.0.0.1:5182'
 const ZERO = 0
@@ -70,10 +71,22 @@ type FixtureResources = Readonly<{
   squareGeometry: { dispose: () => void }
 }>
 
+type RuntimeLike = Readonly<{
+  dispose: () => Effect.Effect<void, unknown>
+  latestSsim: number | undefined
+  qualityPreset: string | undefined
+  render: (camera: typeof CAMERA) => Effect.Effect<void, unknown>
+  scene: {
+    add: (...objects: Array<unknown>) => unknown
+    background: unknown
+  }
+}>
+
 const runAdaptiveScenario = async (options: AdaptiveScenarioOptions): Promise<AdaptiveResult> => {
   const browser = globalThis as unknown as Browser
-  const [runtimeModule, three] = await Promise.all([
+  const [runtimeModule, effectModule, three] = await Promise.all([
     import(new URL('/src/browser.ts', browser.location.href).href),
+    import(new URL('/node_modules/.vite/deps/effect.js', browser.location.href).href),
     import(new URL('/node_modules/three/build/three.module.js', browser.location.href).href),
   ])
   const canvas = Object.assign(browser.document.createElement('canvas'), {
@@ -82,12 +95,12 @@ const runAdaptiveScenario = async (options: AdaptiveScenarioOptions): Promise<Ad
     width: options.canvasWidth,
   })
   browser.document.body.appendChild(canvas)
-  const runtime = await runtimeModule.makeBrowserWorldRuntime({
+  const runtime: RuntimeLike = await effectModule.Effect.runPromise(runtimeModule.makeBrowserWorldRuntime({
     autoResize: false,
     canvas,
     maxPixelRatio: options.maxPixelRatio,
     quality: 'medium',
-  })
+  }))
   const tools = {
     addTile: (tile: Readonly<{
       brightSquares: InstanceType<typeof three.InstancedMesh>
@@ -137,12 +150,12 @@ const runAdaptiveScenario = async (options: AdaptiveScenarioOptions): Promise<Ad
       fixture.scene.add(brightSquares, darkSquares)
       return { brightMaterial, darkMaterial, squareGeometry }
     },
-    createResult: (input: Readonly<{
+    createResult: async (input: Readonly<{
       options: AdaptiveScenarioOptions
-      runtime: typeof runtime
-    }>): AdaptiveResult => {
+      runtime: RuntimeLike
+    }>): Promise<AdaptiveResult> => {
       const initialPreset = input.runtime.qualityPreset
-      const samples = tools.renderFrames({
+      const samples = await tools.renderFrames({
         camera: input.options.camera,
         frameCount: input.options.comparisonsToDowngrade + input.options.rendersAfterDowngrade,
         one: input.options.one,
@@ -151,14 +164,17 @@ const runAdaptiveScenario = async (options: AdaptiveScenarioOptions): Promise<Ad
       })
       return { initialPreset, ...samples }
     },
-    dispose: (input: Readonly<{
+    dispose: async (input: Readonly<{
       fixture: FixtureResources
-      runtime: typeof runtime
-    }>): void => {
-      input.runtime.dispose()
-      input.fixture.squareGeometry.dispose()
-      input.fixture.brightMaterial.dispose()
-      input.fixture.darkMaterial.dispose()
+      runtime: RuntimeLike
+    }>): Promise<void> => {
+      try {
+        await effectModule.Effect.runPromise(input.runtime.dispose())
+      } finally {
+        input.fixture.squareGeometry.dispose()
+        input.fixture.brightMaterial.dispose()
+        input.fixture.darkMaterial.dispose()
+      }
     },
     fillCheckerboard: (board: Readonly<{
       brightSquares: InstanceType<typeof three.InstancedMesh>
@@ -182,28 +198,33 @@ const runAdaptiveScenario = async (options: AdaptiveScenarioOptions): Promise<Ad
       board.brightSquares.instanceMatrix.needsUpdate = true
       board.darkSquares.instanceMatrix.needsUpdate = true
     },
-    renderFrames: (frameSet: Readonly<{
+    renderFrames: async (frameSet: Readonly<{
       camera: typeof CAMERA
       frameCount: number
       one: number
-      runtime: typeof runtime
+      runtime: RuntimeLike
       zero: number
-    }>) => {
+    }>): Promise<Readonly<{ presets: Array<string | undefined>; ssims: Array<number | undefined> }>> => {
       const ssims: Array<number | undefined> = []
       const presets: Array<string | undefined> = []
-      for (let frame = frameSet.zero; frame < frameSet.frameCount; frame += frameSet.one) {
-        frameSet.runtime.render(frameSet.camera)
+      const renderFrame = async (frame: number): Promise<void> => {
+        if (frame >= frameSet.frameCount) {
+          return
+        }
+        await effectModule.Effect.runPromise(frameSet.runtime.render(frameSet.camera))
         ssims.push(frameSet.runtime.latestSsim)
         presets.push(frameSet.runtime.qualityPreset)
+        await renderFrame(frame + frameSet.one)
       }
+      await renderFrame(frameSet.zero)
       return { presets, ssims }
     },
   }
   const fixture = tools.createFixture({ options, scene: runtime.scene, three })
   try {
-    return tools.createResult({ options, runtime })
+    return await tools.createResult({ options, runtime })
   } finally {
-    tools.dispose({ fixture, runtime })
+    await tools.dispose({ fixture, runtime })
   }
 }
 

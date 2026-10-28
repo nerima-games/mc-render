@@ -117,10 +117,10 @@ changes and baseline changes reviewable together.
 
 ### 2.4 プレビューの依存
 
-`apps/preview-render/` is the terminal diagnostic app. It imports mc-sim and
-stays on the 0.5 API until mc-sim 0.6.0 is published; its deferred migration is
-separate from `apps/render-preview/`, the browser fixture used by Playwright.
-The terminal preview continues to use the injected `MonotonicTimeSecs` clock.
+`apps/preview-render/` is the terminal diagnostic app. It imports the published
+mc-sim 0.6.0 API. `apps/render-preview/` is the browser fixture used by
+Playwright. The terminal preview continues to use the injected
+`MonotonicTimeSecs` clock.
 
 ### 2.5 スクリーンショット比較の決定性 —— **実測して片付けた**
 

@@ -29,8 +29,8 @@ const config: ReturnType<typeof defineConfig> = defineConfig({
     dedupe: ['effect'],
   },
   optimizeDeps: {
-    // The preview app imports the root barrel, which reaches the deferred
-    // mc-sim 0.5 Effect 3 exports. Optimize the browser test's direct runtime
+    // The preview app imports the root barrel, which reaches the
+    // mc-sim 0.6.0 Effect 4 exports. Optimize the browser test's direct runtime
     // dependencies without crawling that unrelated entry.
     include: [
       'effect',
@@ -45,7 +45,7 @@ const config: ReturnType<typeof defineConfig> = defineConfig({
     target: 'es2024',
     outDir: 'build',
     sourcemap: true,
-    // `rolldownOptions`, not `rollupOptions`: this pin of `vite` (8.2.2) builds
+    // `rolldownOptions`, not `rollupOptions`: this pin of `vite` (8.3.5) builds
     // on Rolldown, and mc-compose's config — this file's source — found
     // `rollupOptions` silently ignored (its own header, on the codeSplitting
     // group below: a generic vendor group broke ESM interop; that was

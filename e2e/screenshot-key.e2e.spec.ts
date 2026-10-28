@@ -1,4 +1,5 @@
 import { type Page, expect, test } from '@playwright/test'
+import type { Effect } from 'effect'
 import { readFile } from 'node:fs/promises'
 
 const WEB_ORIGIN = 'http://127.0.0.1:5182'
@@ -15,7 +16,10 @@ type CanvasLike = {
   width: number
 }
 
-type RuntimeLike = { readonly dispose: () => void; readonly render: (camera: unknown) => void }
+type RuntimeLike = Readonly<{
+  dispose: () => Effect.Effect<void, unknown>
+  render: (camera: unknown) => Effect.Effect<void, unknown>
+}>
 
 type BrowserWithRuntime = {
   readonly document: {
@@ -35,7 +39,10 @@ type InstallRuntimeOptions = Readonly<{
 
 const installBrowserRuntime = async (options: InstallRuntimeOptions): Promise<void> => {
   const browser = globalThis as unknown as BrowserWithRuntime
-  const runtimeModule = await import(new URL('/src/browser.ts', browser.location.href).href)
+  const [runtimeModule, effectModule] = await Promise.all([
+    import(new URL('/src/browser.ts', browser.location.href).href),
+    import(new URL('/node_modules/.vite/deps/effect.js', browser.location.href).href),
+  ])
   const canvas = browser.document.createElement('canvas')
   Object.assign(canvas, {
     height: options.canvasHeight,
@@ -43,24 +50,32 @@ const installBrowserRuntime = async (options: InstallRuntimeOptions): Promise<vo
     width: options.canvasWidth,
   })
   browser.document.body.appendChild(canvas)
-  const runtime = await runtimeModule.makeBrowserWorldRuntime({
+  const runtime: RuntimeLike = await effectModule.Effect.runPromise(runtimeModule.makeBrowserWorldRuntime({
     autoResize: false,
     canvas,
     maxPixelRatio: options.maxPixelRatio,
     quality: 'low',
-  })
-  runtime.render({
+  }))
+  await effectModule.Effect.runPromise(runtime.render({
     position: { x: 0, y: 3, z: 6 },
     rotation: { order: 'YXZ', x: -0.45, y: 0, z: 0 },
     sourceCapturedAtSecs: options.zeroSeconds,
-  })
+  }))
   browser.e2eRuntime = runtime
 }
 
 const disposeBrowserRuntime = async (): Promise<void> => {
   const browser = globalThis as unknown as BrowserWithRuntime
-  browser.e2eRuntime?.dispose()
-  delete browser.e2eRuntime
+  const runtime = browser.e2eRuntime
+  if (!runtime) {
+    return
+  }
+  try {
+    const effectModule = await import(new URL('/node_modules/.vite/deps/effect.js', browser.location.href).href)
+    await effectModule.Effect.runPromise(runtime.dispose())
+  } finally {
+    delete browser.e2eRuntime
+  }
 }
 
 const expectPngDownload = async (page: Page): Promise<void> => {

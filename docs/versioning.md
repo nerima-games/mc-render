@@ -8,7 +8,7 @@
 | 公開状態 | **未公開**。GitHub Packages にはまだ上げていない |
 | `main` / `types` / `exports` | root entry は `./dist/index.js` / `./dist/index.d.ts`。`exports` は root と `./browser` を公開する |
 | ビルドパイプライン | `pnpm build` が `dist/` を掃除し、DOM-free root と browser entry を各 release tsconfig で出力する |
-| `dependencies` | `mc-kernel@0.9.0` / `mc-meshing@0.4.0` / `mc-sim@0.5.0` / `mc-worldgen@0.6.0` / `effect@4.0.5` / `three@0.186.1` |
+| `dependencies` | `mc-kernel@0.11.0` / `mc-meshing@0.4.0` / `mc-sim@0.6.0` / `mc-worldgen@0.7.0` / `effect@4.0.5` / `three@0.186.1` |
 
 ## 2. なぜ `0.x` に留めるのか
 
@@ -191,7 +191,7 @@ packed package and resolves them from a consumer.
 | 依存 | 現在 | 方針 |
 | --- | --- | --- |
 | `effect` | `4.0.5` (exact) | Keep Effect APIs and service types on one major version |
-| `@nerima-games/*` | `mc-kernel 0.9.0` / `mc-meshing 0.4.0` / `mc-sim 0.5.0` / `mc-worldgen 0.6.0` | Pin published versions; update mc-sim after 0.6.0 is published |
+| `@nerima-games/*` | `mc-kernel 0.11.0` / `mc-meshing 0.4.0` / `mc-sim 0.6.0` / `mc-worldgen 0.7.0` | Pin published versions; keep exact versions aligned with package.json and lockfile |
 | `three` / `@types/three` | `0.186.1` / `0.186.0` (exact; runtime and development dependencies) | Keep the browser runtime and declarations on the same minor version |
 | `typescript` / `vitest` | `7.0.2` / `5.0.5` (exact) | Pin resolved development tools in the lockfile |
 | `oxlint` | **package.json devDependency ではない** | `flake.nix` の devShell が `pkgs.oxlint`（org 全体で `nix flake lock --override-input` により 624af665 に固定）を入れる。16 リポジトリが各自 npm 解決で drift するのを防ぐため、Nix 側で一本化した単一ソース |

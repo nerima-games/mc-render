@@ -1,4 +1,5 @@
 import { type Page, expect, test } from '@playwright/test'
+import type { Effect } from 'effect'
 
 const WEB_ORIGIN = 'http://127.0.0.1:5182'
 const ZERO = 0
@@ -89,6 +90,24 @@ type CompositeRuntimeResult = Readonly<{
   rendererCalls: number
 }>
 
+type CompositeRuntime = Readonly<{
+  advanceFrame: (frame: Readonly<{
+    cameraPosition: typeof FRAME_CAMERA_POSITION
+    deltaSecs: number
+    elapsedSecs: number
+  }>) => Effect.Effect<void, unknown>
+  captureScreenshot: () => Effect.Effect<Blob, unknown>
+  dispose: () => Effect.Effect<void, unknown>
+  quality: Readonly<{ useCompositePass: boolean }>
+  render: (camera: typeof CAMERA) => Effect.Effect<void, unknown>
+  threeRenderer: Readonly<{
+    info: Readonly<{
+      programs: ReadonlyArray<unknown> | undefined
+      render: Readonly<{ calls: number }>
+    }>
+  }>
+}>
+
 type GpuTimerResult = Readonly<{
   gpuTimingSupported: boolean
   latestGpuTimeMs: number | undefined
@@ -101,7 +120,10 @@ type RefractionResult = Readonly<{
 
 const inspectCompositeRuntime = async (options: CompositeRuntimeOptions): Promise<CompositeRuntimeResult> => {
   const browser = globalThis as unknown as BrowserWithPerformance
-  const runtimeModule = await import(new URL('/src/browser.ts', browser.location.href).href)
+  const [runtimeModule, effectModule] = await Promise.all([
+    import(new URL('/src/browser.ts', browser.location.href).href),
+    import(new URL('/node_modules/.vite/deps/effect.js', browser.location.href).href),
+  ])
   const tools = {
     createCanvas: (): CanvasLike => {
       const canvas = Object.assign(browser.document.createElement('canvas'), {
@@ -112,14 +134,14 @@ const inspectCompositeRuntime = async (options: CompositeRuntimeOptions): Promis
       browser.document.body.appendChild(canvas)
       return canvas
     },
-    renderAndInspect: async (runtime: Awaited<ReturnType<typeof runtimeModule.makeBrowserWorldRuntime>>) => {
-      runtime.advanceFrame({
+    renderAndInspect: async (runtime: CompositeRuntime) => {
+      await effectModule.Effect.runPromise(runtime.advanceFrame({
         cameraPosition: options.cameraPosition,
         deltaSecs: options.deltaSecs,
         elapsedSecs: options.elapsedSecs,
-      })
-      runtime.render(options.camera)
-      const screenshot = await runtime.captureScreenshot()
+      }))
+      await effectModule.Effect.runPromise(runtime.render(options.camera))
+      const screenshot = await effectModule.Effect.runPromise(runtime.captureScreenshot())
       const measures = ['render.browser.advanceFrame', 'render.browser.draw'].map((name) => ({
         durations: browser.performance.getEntriesByName(name).map((entry) => entry.duration),
         name,
@@ -135,23 +157,24 @@ const inspectCompositeRuntime = async (options: CompositeRuntimeOptions): Promis
     },
   }
   const canvas = tools.createCanvas()
-  const runtime = await runtimeModule.makeBrowserWorldRuntime({
+  const runtime = await effectModule.Effect.runPromise(runtimeModule.makeBrowserWorldRuntime({
     autoResize: false,
     canvas,
     maxPixelRatio: options.maxPixelRatio,
     quality: 'ultra',
-  })
+  }))
   try {
-    return tools.renderAndInspect(runtime)
+    return await tools.renderAndInspect(runtime)
   } finally {
-    runtime.dispose()
+    await effectModule.Effect.runPromise(runtime.dispose())
   }
 }
 
 const inspectRefraction = async (options: RefractionRuntimeOptions): Promise<RefractionResult> => {
   const browser = globalThis as unknown as BrowserBase
-  const [runtimeModule, three] = await Promise.all([
+  const [runtimeModule, effectModule, three] = await Promise.all([
     import(new URL('/src/browser.ts', browser.location.href).href),
+    import(new URL('/node_modules/.vite/deps/effect.js', browser.location.href).href),
     import(new URL('/node_modules/three/build/three.module.js', browser.location.href).href),
   ])
   const tools = {
@@ -163,19 +186,22 @@ const inspectRefraction = async (options: RefractionRuntimeOptions): Promise<Ref
       })
       browser.document.body.appendChild(canvas)
       const waterGeometry = new three.PlaneGeometry(size, size).rotateX(-options.halfTurnRadians)
-      const runtime = await runtimeModule.makeBrowserWorldRuntime({
+      const runtime = await effectModule.Effect.runPromise(runtimeModule.makeBrowserWorldRuntime({
         autoResize: false,
         canvas,
         maxPixelRatio: options.maxPixelRatio,
         quality: 'ultra',
         waterGeometry,
-      })
+      }))
       try {
-        runtime.render(options.camera)
+        await effectModule.Effect.runPromise(runtime.render(options.camera))
         return runtime.world.waterUniforms['uRefractionValid']?.value ?? options.noQueryResult
       } finally {
-        runtime.dispose()
-        waterGeometry.dispose()
+        try {
+          await effectModule.Effect.runPromise(runtime.dispose())
+        } finally {
+          waterGeometry.dispose()
+        }
       }
     },
   }
@@ -187,19 +213,22 @@ const inspectRefraction = async (options: RefractionRuntimeOptions): Promise<Ref
 
 const inspectGpuTimer = async (options: BrowserRuntimeOptions & Readonly<{ frameCount: number }>): Promise<GpuTimerResult> => {
   const browser = globalThis as unknown as BrowserWithAnimationFrame
-  const runtimeModule = await import(new URL('/src/browser.ts', browser.location.href).href)
+  const [runtimeModule, effectModule] = await Promise.all([
+    import(new URL('/src/browser.ts', browser.location.href).href),
+    import(new URL('/node_modules/.vite/deps/effect.js', browser.location.href).href),
+  ])
   const canvas = Object.assign(browser.document.createElement('canvas'), {
     height: options.canvasHeight,
     style: { height: `${options.canvasHeight}px`, width: `${options.canvasWidth}px` },
     width: options.canvasWidth,
   })
   browser.document.body.appendChild(canvas)
-  const runtime = await runtimeModule.makeBrowserWorldRuntime({
+  const runtime = await effectModule.Effect.runPromise(runtimeModule.makeBrowserWorldRuntime({
     autoResize: false,
     canvas,
     maxPixelRatio: options.maxPixelRatio,
     quality: 'low',
-  })
+  }))
   const tools = {
     nextFrame: (): Promise<void> => new Promise<void>((resolve) => {
       browser.requestAnimationFrame(() => {
@@ -211,7 +240,7 @@ const inspectGpuTimer = async (options: BrowserRuntimeOptions & Readonly<{ frame
         return
       }
       await tools.nextFrame()
-      runtime.render(options.camera)
+      await effectModule.Effect.runPromise(runtime.render(options.camera))
       await tools.renderFrames(remaining - options.one)
     },
   }
@@ -222,7 +251,7 @@ const inspectGpuTimer = async (options: BrowserRuntimeOptions & Readonly<{ frame
       latestGpuTimeMs: runtime.latestGpuTimeMs,
     }
   } finally {
-    runtime.dispose()
+    await effectModule.Effect.runPromise(runtime.dispose())
   }
 }
 
@@ -244,27 +273,30 @@ const disableGpuTimerExtension = (): void => {
 
 const inspectGpuFallback = async (options: BrowserRuntimeOptions): Promise<GpuTimerResult> => {
   const browser = globalThis as unknown as BrowserBase
-  const runtimeModule = await import(new URL('/src/browser.ts', browser.location.href).href)
+  const [runtimeModule, effectModule] = await Promise.all([
+    import(new URL('/src/browser.ts', browser.location.href).href),
+    import(new URL('/node_modules/.vite/deps/effect.js', browser.location.href).href),
+  ])
   const canvas = Object.assign(browser.document.createElement('canvas'), {
     height: options.canvasHeight,
     style: { height: `${options.canvasHeight}px`, width: `${options.canvasWidth}px` },
     width: options.canvasWidth,
   })
   browser.document.body.appendChild(canvas)
-  const runtime = await runtimeModule.makeBrowserWorldRuntime({
+  const runtime = await effectModule.Effect.runPromise(runtimeModule.makeBrowserWorldRuntime({
     autoResize: false,
     canvas,
     maxPixelRatio: options.maxPixelRatio,
     quality: 'low',
-  })
+  }))
   try {
-    runtime.render(options.camera)
+    await effectModule.Effect.runPromise(runtime.render(options.camera))
     return {
       gpuTimingSupported: runtime.gpuTimingSupported,
       latestGpuTimeMs: runtime.latestGpuTimeMs,
     }
   } finally {
-    runtime.dispose()
+    await effectModule.Effect.runPromise(runtime.dispose())
   }
 }
 
