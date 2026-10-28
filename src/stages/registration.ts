@@ -321,7 +321,8 @@ export const renderStages = ({
     // Thing nobody files.
     run: () =>
       Effect.gen(function* () {
-        const pose = yield* player.cameraPose
+        // StageRegistration has no typed error channel; keep camera failures visible as defects.
+        const pose = yield* player.cameraPose.pipe(Effect.orDie)
         const offset = yield* Ref.get(state.viewOffset)
         const mirrored = mirroredCameraState(pose, offset)
         yield* Ref.set(state.mirroredCamera, mirrored)

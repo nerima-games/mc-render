@@ -13,7 +13,7 @@
  * says which test holds the claim, and each KNOWN GAP says why it is a pin
  * rather than a fix.
  */
-import { Effect } from 'effect'
+import { Effect, Ref, Result } from 'effect'
 import {
   InputService,
   InputServiceLayer,
@@ -32,15 +32,17 @@ import {
   makeScratchMap,
   withScratch,
   type ScratchMap,
+  type ScratchMisuseError,
 } from '../../src/domain/frame-scratch'
 import {
   defaultBindings,
   notchesForWheelDelta,
   POINTER_LOCK_STATES,
+  type InputValidationError,
   type PointerLockState,
 } from '../../src/domain/input-bindings'
 import { MonotonicTimeSecs } from '@nerima-games/mc-kernel'
-import { PlayerServiceLayer } from '@nerima-games/mc-sim'
+import { PlayerServiceLayer, type PlayerServiceInputError } from '@nerima-games/mc-sim'
 import { buildPostProcessingChain, QUALITY_PRESETS } from '../../src/domain/post-processing'
 import { makeRenderFrameState, renderModule } from '../../src/stages/registration'
 import { RENDER_STAGE_IDS } from '../../src/stages/stage-ids'
@@ -85,8 +87,8 @@ const lockMachineProbe = Effect.gen(function* () {
     probeOne('pointerlockerror', (dispatch) => dispatch({ kind: 'pointerlockerror' })),
     probeOne('keydown / mousedown / wheel', (dispatch) =>
       dispatch({ kind: 'keydown', code: 'KeyW', target: 'window' }).pipe(
-        Effect.zipRight(dispatch({ kind: 'mousedown', button: 'MouseLeft', target: 'window', landing: 'lock-target' })),
-        Effect.zipRight(dispatch(wheel(100))),
+        Effect.andThen(dispatch({ kind: 'mousedown', button: 'MouseLeft', target: 'window', landing: 'lock-target' })),
+        Effect.andThen(dispatch(wheel(100))),
       ),
     ),
   ])
@@ -172,9 +174,15 @@ const wheelLedgerProbe = Effect.gen(function* () {
       // harmless: `snapshot` is a pure read.
       yield* service.endFrame(seen)
       const after = (yield* service.snapshot).wheelNotches
-      const accumulated =
-        notchesForWheelDelta(FIRST_DELTA_PIXELS, 'pixel') +
-        notchesForWheelDelta(SECOND_DELTA_PIXELS, 'pixel')
+      const firstNotches = notchesForWheelDelta(FIRST_DELTA_PIXELS, 'pixel')
+      if (Result.isFailure(firstNotches)) {
+        return yield* Effect.fail(firstNotches.failure)
+      }
+      const secondNotches = notchesForWheelDelta(SECOND_DELTA_PIXELS, 'pixel')
+      if (Result.isFailure(secondNotches)) {
+        return yield* Effect.fail(secondNotches.failure)
+      }
+      const accumulated = firstNotches.success + secondNotches.success
       return {
         reported: seen.wheelSteps,
         consumed: Math.round(accumulated - after),
@@ -318,7 +326,7 @@ const mirrorProbe = Effect.gen(function* () {
     '   right and the sentence above it was wrong — the worse way round for a threshold somebody',
     '   will eventually tune, because tuning starts from the prose.',
     '',
-    `   (state.framesDrawn exists and starts at ${String(yield* state.framesDrawn.pipe(Effect.map((value) => value)))}; it is here so the probe touches the built state rather than a mock.)`,
+    `   (state.framesDrawn exists and starts at ${String(yield* Ref.get(state.framesDrawn))}; it is here so the probe touches the built state rather than a mock.)`,
   ]
 })
 
@@ -408,43 +416,39 @@ const registrationLayerProbe = Effect.gen(function* () {
 
 const scratchProbe = (): ReadonlyArray<string> => {
   const scratch = makeScratchMap<string, number>('probe', 8)
+  const outcomeLabel = <A>(outcome: Result.Result<A, ScratchMisuseError>): string =>
+    Result.isFailure(outcome) ? outcome.failure.violation.rule : 'success'
+  const capture = <A>(effect: Effect.Effect<A, ScratchMisuseError>): Result.Result<A, ScratchMisuseError> =>
+    Effect.runSync(Effect.result(effect))
 
-  const attempt = (thunk: () => unknown): string => {
-    try {
-      thunk()
-      return 'no throw'
-    } catch (error) {
-      return error instanceof Error ? error.constructor.name : 'threw'
-    }
-  }
-
-  const reentrant = attempt(() =>
-    withScratch(scratch, () => withScratch(scratch, (inner) => inner.size)),
+  const reentrant = capture(
+    withScratch(scratch, () => withScratch(scratch, (inner) => inner.size())),
   )
-  const identity = attempt(() => withScratch(scratch, (buffer) => buffer))
+  const identity = capture(withScratch(scratch, (buffer) => Effect.succeed(buffer)))
 
-  const wrapped = withScratch(scratch, (buffer) => {
-    buffer.set('a', 1)
-    return { escaped: buffer }
-  })
-  const wrappedUse = attempt(() => wrapped.escaped.size)
+  const wrapped = Effect.runSync(
+    withScratch(scratch, (buffer) =>
+      Effect.flatMap(buffer.set('a', 1), () => Effect.succeed({ escaped: buffer })),
+    ),
+  )
+  const wrappedUse = capture(wrapped.escaped.size())
 
-  const closure = withScratch(scratch, (buffer) => {
-    buffer.set('b', 2)
-    buffer.set('c', 3)
-    return (): number => buffer.size
-  })
-  const closureBeforeNextBorrow = attempt(closure)
-  withScratch(scratch, (buffer) => buffer.size)
-  const closureAfterNextBorrow = attempt(closure)
+  const closure = Effect.runSync(
+    withScratch(scratch, (buffer) =>
+      Effect.flatMap(buffer.set('b', 2), () =>
+        Effect.flatMap(buffer.set('c', 3), () => Effect.succeed(() => buffer.size())),
+      ),
+    ),
+  )
+  const closureAfterLease = capture(closure())
 
-  const deferred = withScratch(scratch, (buffer) => Effect.sync(() => buffer.size))
-  const deferredResult = attempt(() => Effect.runSync(deferred))
+  const deferred = Effect.runSync(withScratch(scratch, (buffer) => Effect.succeed(buffer.size())))
+  const deferredResult = capture(deferred)
 
-  const foreign = attempt(() =>
+  const foreign = capture(
     withScratch(
       { name: 'foreign', usageCount: () => 0, borrowedCount: () => 0 } as ScratchMap<string, number>,
-      (buffer) => buffer.size,
+      (buffer) => buffer.size(),
     ),
   )
 
@@ -454,41 +458,39 @@ const scratchProbe = (): ReadonlyArray<string> => {
   return [
     ...section(
       'SCRATCH-DISCIPLINE',
-      'withScratch guards the borrow. Which escapes does it actually catch?',
+      'withScratch guards the borrow. Which lease violations does it report?',
     ),
     `   ${cell('attempt', 44)}${cell('result', 22)}`,
-    `   ${cell('re-entrant borrow', 44)}${cell(reentrant, 22)}   caught`,
-    `   ${cell('return the buffer itself', 44)}${cell(identity, 22)}   caught`,
-    `   ${cell('return { escaped: buffer }', 44)}${cell(wrappedUse, 22)}   caught on use`,
-    `   ${cell('return () => buffer.size', 44)}${cell(`${closureBeforeNextBorrow}, then ${closureAfterNextBorrow}`, 22)}   caught on use`,
-    `   ${cell('a deferred callback (Effect / Promise)', 44)}${cell(deferredResult, 22)}   caught on use`,
+    `   ${cell('re-entrant borrow', 44)}${cell(outcomeLabel(reentrant), 22)}   typed failure`,
+    `   ${cell('return the buffer itself', 44)}${cell(outcomeLabel(identity), 22)}   typed failure`,
+    `   ${cell('return { escaped: buffer }', 44)}${cell(outcomeLabel(wrappedUse), 22)}   typed failure on use`,
+    `   ${cell('deferred closure after lease', 44)}${cell(outcomeLabel(closureAfterLease), 22)}   typed failure on use`,
+    `   ${cell('deferred Effect after lease', 44)}${cell(outcomeLabel(deferredResult), 22)}   typed failure on use`,
     `   ${cell('raw buffer field outside any borrow', 44)}${cell(directRead, 22)}   not exposed`,
-    `   ${cell('a ScratchMap built elsewhere', 44)}${cell(foreign, 22)}   caught`,
+    `   ${cell('a ScratchMap built elsewhere', 44)}${cell(outcomeLabel(foreign), 22)}   typed failure`,
     '',
     `   usageCount() after the borrows above: ${String(usage)}`,
     '',
-    '   RND-7 is enforced by a lease-checked Map view. A wrapper, closure, iterator, or',
-    '   deferred Effect may retain the view, but every operation checks that its borrow is still',
-    '   active and throws after the lease ends. The public ScratchMap has no raw buffer field.',
+    '   RND-7 is enforced by an effectful lease-checked Map view. A wrapper, closure, or deferred',
+    '   Effect may retain the view, but each later operation fails through the typed error channel.',
+    '   The public ScratchMap has no raw buffer field.',
     '',
-    '   The deferred-callback row is the sharpest one, because it is the shape Effect code',
-    '   naturally reaches for. `withScratch` releases the lease in a `finally`, so',
-    '   `withScratch(s, b => Effect.sync(() => b.size))` returns an unevaluated Effect, but its',
-    '   later read fails loudly instead of observing a cleared or refilled buffer.',
+    '   The deferred-callback row is the sharpest one. `withScratch` brackets the lease, so an',
+    '   unevaluated Effect can be returned and run later; its read then receives the typed failure',
+    '   instead of observing a cleared or refilled buffer.',
     '',
-    '   The lease-checked facade is intentionally created once per scratch buffer, not once per',
-    '   borrow. The hot path still clears and reuses the native Map; the facade only adds the',
-    '   lifetime check required to make the ownership contract executable.',
+    '   The lease-checked facade is created once per scratch buffer. The hot path still clears and',
+    '   reuses the native Map; the facade owns the lease checks.',
     '',
     '   A foreign ScratchMap is rejected through the same ownership check. `snapshotScratch` is',
     '   the explicit copying API for values that must survive the lease; callers never receive',
     '   the native backing Map itself.',
     '',
     '   usageCount is documented as "Frames this buffer has served". It increments in `enter()`,',
-    '   i.e. once per BORROW — and a borrow that dies on the escape check has already counted.',
+    '   i.e. once per BORROW — and a borrow that ends in an escape failure has already counted.',
     '',
     '   Every row above is pinned by test/frame-scratch.test.ts, including wrappers, closures,',
-    '   iterators, deferred Effects, foreign handles, and the absence of a public raw buffer.',
+    '   deferred Effects, foreign handles, and the absence of a public raw buffer.',
   ]
 }
 
@@ -577,7 +579,7 @@ const FOOTER: ReadonlyArray<string> = [
   '   the input state machine in particular has no other home: Playwright cannot do pointer lock.',
 ]
 
-export const statsReport: Effect.Effect<ReadonlyArray<string>> = Effect.gen(function* () {
+export const statsReport: Effect.Effect<ReadonlyArray<string>, PlayerServiceInputError | InputValidationError> = Effect.gen(function* () {
   return [
     ...HEADER,
     ...(yield* lockMachineProbe),

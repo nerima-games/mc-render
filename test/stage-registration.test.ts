@@ -1,5 +1,5 @@
 import { describe, expect, it } from '@effect/vitest'
-import { Effect, Layer, Ref } from 'effect'
+import { Cause, Effect, Layer, Ref, Result } from 'effect'
 import { isMirrorStale, type MirroredCameraState } from '../src/domain/camera-mirror'
 import { type ChunkSyncPort } from '../src/application/world-sync'
 import { NO_DRAW_TARGET, type DrawPort } from '../src/application/world-renderer'
@@ -9,26 +9,31 @@ import {
   MODAL_LISTENER_TARGET,
 } from '../src/domain/input-bindings'
 import {
+  AngleRadians,
   DeltaTimeSecs,
   EpochMillis,
   FixedClockLayer,
   MonotonicTimeSecs,
+  PositionAxis,
   position,
   StageId,
   type CameraPoseSnapshot,
   type StageRegistration,
 } from '@nerima-games/mc-kernel'
 import { chainPasses, QUALITY_PRESETS } from '../src/domain/post-processing'
-import { PlayerService, type PlayerServiceApi } from '@nerima-games/mc-sim'
+import { PlayerService, type CameraPoseError, type PlayerServiceApi } from '@nerima-games/mc-sim'
 import {
   InputService,
   InputServiceLayer,
+  type InputServiceApi,
   type PointerLockPort,
   type PointerLockRequestOutcome,
 } from '../src/application/input-service'
 import {
+  makeRenderFrameState,
   makeRenderStagesForPreview,
   renderModule,
+  renderStages,
   type RenderFrameState,
 } from '../src/stages/registration'
 import {
@@ -46,20 +51,23 @@ const FRAME_SERVICES = FixedClockLayer({
 const dt = DeltaTimeSecs(0.016)
 
 const PLAYER_POSE: CameraPoseSnapshot = {
-  position: position(8, 65, -12),
-  yawRadians: 0.5,
-  pitchRadians: -0.25,
+  position: position(PositionAxis(8), PositionAxis(65), PositionAxis(-12)),
+  yawRadians: AngleRadians(0.5),
+  pitchRadians: AngleRadians(-0.25),
   capturedAtSecs: MonotonicTimeSecs(99.5),
 }
 
 const FAKE_PLAYER_SERVICE: PlayerServiceApi = {
-  pose: Effect.succeed({ feetPosition: position(8, 63.38, -12), yawRadians: 0.5, pitchRadians: -0.25 }),
+  pose: Effect.succeed({ feetPosition: position(PositionAxis(8), PositionAxis(63.38), PositionAxis(-12)), yawRadians: AngleRadians(0.5), pitchRadians: AngleRadians(-0.25) }),
   dimension: Effect.succeed('overworld'),
-  look: () => Effect.succeed({ feetPosition: position(8, 63.38, -12), yawRadians: 0.5, pitchRadians: -0.25 }),
+  look: () => Effect.succeed({ feetPosition: position(PositionAxis(8), PositionAxis(63.38), PositionAxis(-12)), yawRadians: AngleRadians(0.5), pitchRadians: AngleRadians(-0.25) }),
   moveTo: () => Effect.void,
   setDimension: () => Effect.void,
   cameraPose: Effect.succeed(PLAYER_POSE),
   restore: () => Effect.void,
+  snapshot: Effect.die(new Error('not used by render-stage tests')),
+  replicatedCandidate: Effect.die(new Error('not used by render-stage tests')),
+  submitReplicatedCandidate: () => Effect.die(new Error('not used by render-stage tests')),
   reset: Effect.void,
 }
 
@@ -71,7 +79,7 @@ const withStages = <A>(
   use: (
     stages: ReadonlyArray<StageRegistration>,
     state: RenderFrameState,
-    input: InputService['Type'],
+    input: InputServiceApi,
   ) => Effect.Effect<A>,
 ): Effect.Effect<A> =>
   Effect.gen(function* () {
@@ -93,7 +101,7 @@ const withStagesUsingPointerLock = <A>(
   use: (
     stages: ReadonlyArray<StageRegistration>,
     state: RenderFrameState,
-    input: InputService['Type'],
+    input: InputServiceApi,
     asked: Ref.Ref<number>,
   ) => Effect.Effect<A>,
 ): Effect.Effect<A> =>
@@ -466,6 +474,38 @@ describe('render:input', () => {
 
 describe('render:camera-mirror', () => {
   const pose = PLAYER_POSE
+
+  it.effect('turns an invalid camera snapshot into the stage boundary defect', () => {
+    const cameraError: CameraPoseError = {
+      _tag: 'CameraPoseInputError',
+      field: 'capturedAtSecs',
+    }
+    const failingPlayer: PlayerServiceApi = {
+      ...FAKE_PLAYER_SERVICE,
+      cameraPose: Effect.fail(cameraError),
+    }
+
+    return Effect.gen(function* () {
+      const input = yield* InputService
+      const state = yield* makeRenderFrameState()
+      const stages = renderStages({ input, player: failingPlayer, state })
+      const outcome = yield* Effect.exit(
+        stageById(stages, RENDER_STAGE_IDS.cameraMirror)
+          .run(dt)
+          .pipe(Effect.provide(FRAME_SERVICES)),
+      )
+
+      expect(outcome._tag).toBe('Failure')
+      if (outcome._tag === 'Failure') {
+        expect(Cause.hasDies(outcome.cause)).toBe(true)
+        const defect = Cause.findDefect(outcome.cause)
+        expect(Result.isSuccess(defect)).toBe(true)
+        if (Result.isSuccess(defect)) {
+          expect(defect.success).toBe(cameraError)
+        }
+      }
+    }).pipe(Effect.provide(InputServiceLayer()))
+  })
 
   it.effect('copies the authoritative pose into renderer state, one direction only', () =>
     withStages((stages, state) =>

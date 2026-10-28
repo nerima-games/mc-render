@@ -1,11 +1,74 @@
 import { describe, expect, it } from '@effect/vitest'
-import { Effect } from 'effect'
-import { makeMachine } from '../apps/preview-render/machine'
+import { Effect, Ref, Result } from 'effect'
+import { MonotonicTimeSecs, PositionAxis, position } from '@nerima-games/mc-kernel'
+import { cameraPoseOf } from '@nerima-games/mc-sim'
+import { makeMachine, makePreviewPlayerService } from '../apps/preview-render/machine'
 
 const makeMirrorMachine = () =>
   Effect.promise(() => makeMachine({ scenario: 'mirror-staleness', lockPort: 'unavailable' }))
 
 describe('preview render machine camera lifecycle', () => {
+  it.effect('preserves position input errors from injected preview commands', () =>
+    Effect.gen(function* () {
+      const machine = yield* makeMirrorMachine()
+      const error = yield* Effect.promise(() =>
+        machine
+          .inject({ kind: 'publishPose', x: Number.NaN, y: 0, z: 0 })
+          .then(
+            () => undefined,
+            (failure: unknown) => failure,
+          ),
+      )
+
+      expect(error).toMatchObject({
+        _tag: 'PlayerServiceInputError',
+        reason: 'invalid-position',
+        field: 'feetPosition.x',
+      })
+      expect((yield* Effect.promise(() => machine.view())).poseNeverPublished).toBe(true)
+    }),
+  )
+
+  it.effect('maps applyLook failures and keeps the prior pose', () =>
+    Effect.gen(function* () {
+      const capturedAt = yield* Ref.make<MonotonicTimeSecs | undefined>(undefined)
+      const player = yield* makePreviewPlayerService(capturedAt)
+      const initial = yield* player.pose
+      yield* player.restore(
+        { ...initial, yawRadians: Number.MAX_VALUE },
+        'overworld',
+      )
+      const before = yield* player.pose
+      const invalidLook = yield* Effect.result(player.look(Number.MAX_VALUE, 0))
+
+      expect(Result.isFailure(invalidLook)).toBe(true)
+      if (Result.isFailure(invalidLook)) {
+        expect(invalidLook.failure).toMatchObject({
+          _tag: 'PlayerServiceInputError',
+          reason: 'invalid-look',
+          field: 'yawRadians',
+        })
+      }
+      expect(yield* player.pose).toStrictEqual(before)
+    }),
+  )
+
+  it('returns a Result failure for an invalid camera pose', () => {
+    const result = cameraPoseOf(
+      {
+        feetPosition: position(PositionAxis(0), PositionAxis(0), PositionAxis(0)),
+        yawRadians: Number.NaN,
+        pitchRadians: 0,
+      },
+      MonotonicTimeSecs(0),
+    )
+
+    expect(Result.isFailure(result)).toBe(true)
+    if (Result.isFailure(result)) {
+      expect(result.failure).toMatchObject({ _tag: 'BrandError' })
+    }
+  })
+
   it.effect('keeps the initial view pending before the first pose publication', () =>
     Effect.gen(function* () {
       const machine = yield* makeMirrorMachine()

@@ -12,7 +12,7 @@ import {
 } from '@nerima-games/mc-kernel'
 import {
   CHUNK_HEIGHT,
-  type Chunk,
+  type ReadonlyChunk,
   type ChunkStoreApi,
   type ChunkNeighbours as WorldgenChunkNeighbours,
 } from '@nerima-games/mc-worldgen'
@@ -215,7 +215,7 @@ export const makeChunkStoreLightColor = (
 /**
  * `@nerima-games/mc-worldgen`'s `Chunk` has no `height` field — it is a fixed-height column
  * baked into its own constants (`CHUNK_VOLUME = CHUNK_SIZE_XZ * CHUNK_SIZE_XZ
- * * CHUNK_HEIGHT`), not a per-chunk value. mc-meshing 0.3.0's `ChunkView`
+ * * CHUNK_HEIGHT`), not a per-chunk value. mc-meshing's `ChunkView`
  * added an explicit, required per-chunk `height` for its own variable-height
  * support. This repository is the adapter between the two: every mc-worldgen
  * chunk it hands to mc-meshing today is exactly `CHUNK_HEIGHT` tall, so that
@@ -225,25 +225,23 @@ export const makeChunkStoreLightColor = (
  * packages agree on the number. A real variable-height chunk is Wave 1
  * pin-alignment work in mc-worldgen, not something to invent here.
  */
-const toChunkView = (chunk: Chunk): ChunkView => ({ ...chunk, height: CHUNK_HEIGHT })
+const toChunkView = (chunk: ReadonlyChunk): ChunkView => ({
+  ...chunk,
+  // Worldgen exposes live read-only buffers, so meshing receives detached storage.
+  blocks: new Uint16Array(chunk.blocks),
+  height: CHUNK_HEIGHT,
+})
 
-/** One optional worldgen neighbour, converted to a `ChunkView` entry only when present. */
-const toMeshingNeighbourEntry = (
-  direction: keyof MeshingChunkNeighbours,
-  neighbour: Chunk | undefined,
-): MeshingChunkNeighbours => {
-  if (neighbour === undefined) {
-    return {}
-  }
-  return { [direction]: toChunkView(neighbour) }
-}
+type ReadonlyWorldgenChunkNeighbours = Readonly<{
+  [Key in keyof WorldgenChunkNeighbours]: ReadonlyChunk
+}>
 
-/** Adapt mc-worldgen's 4-neighbour map to mc-meshing's `ChunkNeighbours`. */
-const toMeshingNeighbours = (neighbours: WorldgenChunkNeighbours): MeshingChunkNeighbours => ({
-  ...toMeshingNeighbourEntry('xPos', neighbours.xPos),
-  ...toMeshingNeighbourEntry('xNeg', neighbours.xNeg),
-  ...toMeshingNeighbourEntry('zPos', neighbours.zPos),
-  ...toMeshingNeighbourEntry('zNeg', neighbours.zNeg),
+/** Adapt mc-worldgen's four read-only neighbours to meshing views. */
+const toMeshingNeighbours = (neighbours: ReadonlyWorldgenChunkNeighbours): MeshingChunkNeighbours => ({
+  ...(neighbours.xPos === undefined ? {} : { xPos: toChunkView(neighbours.xPos) }),
+  ...(neighbours.xNeg === undefined ? {} : { xNeg: toChunkView(neighbours.xNeg) }),
+  ...(neighbours.zPos === undefined ? {} : { zPos: toChunkView(neighbours.zPos) }),
+  ...(neighbours.zNeg === undefined ? {} : { zNeg: toChunkView(neighbours.zNeg) }),
 })
 
 /** Adapt a worldgen chunk store to the renderer's pull-based meshing port. */
@@ -260,18 +258,14 @@ export const makeChunkStoreMesher = (
       }
 
       const worldgenNeighbours = yield* store.neighbours(coord)
-      const layers = Result.getOrThrow(
-        meshChunk(toChunkView(worldgenChunk), toMeshingNeighbours(worldgenNeighbours), config),
-      )
+      const chunkView = toChunkView(worldgenChunk)
+      const meshingNeighbours = toMeshingNeighbours(worldgenNeighbours)
+      const layers = Result.getOrThrow(meshChunk(chunkView, meshingNeighbours, config))
       const blockShapeKinds = config.blockShapeKinds ?? EMPTY_BLOCK_SHAPE_KINDS
       const quads = [...layers.opaque, ...layers.water, ...layers.transparentSolid].filter(
         (quad) => !blockShapeKinds.has(quad.blockId),
       )
-      const blockShapes = meshBlockShapes(
-        toChunkView(worldgenChunk),
-        toMeshingNeighbours(worldgenNeighbours),
-        blockShapeKinds,
-      )
+      const blockShapes = meshBlockShapes(chunkView, meshingNeighbours, blockShapeKinds)
       return Object.assign(quads, {
         blockShapes,
         crossPlants: layers.crossPlants,

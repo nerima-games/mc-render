@@ -32,7 +32,7 @@
  * `MIRROR_LAG_WARNING_SECS` can be crossed on purpose rather than waited for.
  * No `Date.now()`, no `performance.now()`, no escape hatch.
  */
-import { Effect, Layer, Ref } from 'effect'
+import { Effect, Ref, Result, Schedule } from 'effect'
 import {
   makeInputService,
   type InputEvent,
@@ -62,21 +62,20 @@ import {
   EpochMillis,
   FixedClockLayer,
   MonotonicTimeSecs,
+  PositionAxis,
   monotonicSecs,
   type CameraPoseSnapshot,
-  type Dimension,
+  type Position,
   type StageRegistration,
   position,
 } from '@nerima-games/mc-kernel'
 import {
   INITIAL_PLAYER_DIMENSION,
-  INITIAL_PLAYER_POSE,
-  PlayerService,
-  applyLook,
   cameraPoseOf,
-  type PlayerPose,
+  makePlayerService,
+  type CameraPoseError,
   type PlayerServiceApi,
-  withFeetPosition,
+  type PlayerServiceInputError,
 } from '@nerima-games/mc-sim'
 import { makeRenderFrameState, renderStages, type RenderFrameState } from '../../src/stages/registration'
 import { RENDER_STAGE_IDS } from '../../src/stages/stage-ids'
@@ -186,33 +185,55 @@ type Book = {
   log: Array<LogLine>
 }
 
-const makePreviewPlayerService = (
-  pose: Ref.Ref<PlayerPose>,
-  dimension: Ref.Ref<Dimension>,
+export const makePreviewPlayerService = (
   capturedAtSecs: Ref.Ref<MonotonicTimeSecs | undefined>,
-): PlayerServiceApi => ({
-  pose: Ref.get(pose),
-  dimension: Ref.get(dimension),
-  look: (deltaYaw, deltaPitch) =>
-    Ref.modify(pose, (current) => {
-      const next = applyLook(current, deltaYaw, deltaPitch)
-      return [next, next]
-    }),
-  moveTo: (feetPosition) => Ref.update(pose, (current) => withFeetPosition(current, feetPosition)),
-  setDimension: (next) => Ref.set(dimension, next),
-  cameraPose: Effect.gen(function* () {
-    const current = yield* Ref.get(pose)
-    const capturedAt = yield* Ref.get(capturedAtSecs)
-    return cameraPoseOf(current, capturedAt ?? (yield* monotonicSecs))
-  }),
-  restore: (nextPose, nextDimension) =>
-    Effect.all([Ref.set(pose, nextPose), Ref.set(dimension, nextDimension)]).pipe(Effect.asVoid),
-  reset: Effect.all([
-    Ref.set(pose, INITIAL_PLAYER_POSE),
-    Ref.set(dimension, INITIAL_PLAYER_DIMENSION),
-    Ref.set(capturedAtSecs, undefined),
-  ]).pipe(Effect.asVoid),
-})
+): Effect.Effect<PlayerServiceApi, PlayerServiceInputError> =>
+  Effect.gen(function* () {
+    const player = yield* makePlayerService()
+    return {
+      ...player,
+      cameraPose: Effect.gen(function* () {
+        const pose = yield* player.pose
+        const capturedAt = yield* Ref.get(capturedAtSecs)
+        const result = cameraPoseOf(pose, capturedAt ?? (yield* monotonicSecs))
+        if (Result.isFailure(result)) {
+          return yield* Effect.fail(result.failure)
+        }
+        return result.success
+      }),
+      reset: Effect.all([player.reset, Ref.set(capturedAtSecs, undefined)]).pipe(Effect.asVoid),
+    }
+  })
+
+
+const previewPosition = (
+  x: number,
+  y: number,
+  z: number,
+): Effect.Effect<Position, PlayerServiceInputError> => {
+  if (!Number.isFinite(x)) {
+    return Effect.fail({
+      _tag: 'PlayerServiceInputError',
+      reason: 'invalid-position',
+      field: 'feetPosition.x',
+    })
+  }
+  if (!Number.isFinite(y)) {
+    return Effect.fail({
+      _tag: 'PlayerServiceInputError',
+      reason: 'invalid-position',
+      field: 'feetPosition.y',
+    })
+  }
+  if (!Number.isFinite(z)) {
+    return Effect.fail({
+      _tag: 'PlayerServiceInputError',
+      reason: 'invalid-position',
+      field: 'feetPosition.z',
+    })
+  }
+  return Effect.succeed(position(PositionAxis(x), PositionAxis(y), PositionAxis(z)))
+}
 
 export type Machine = {
   readonly config: MachineConfig
@@ -304,14 +325,8 @@ const INPUT_EVENT_KINDS: ReadonlySet<string> = new Set([
 const isInputEventKind = (kind: string): boolean => INPUT_EVENT_KINDS.has(kind)
 
 export const makeMachine = async (config: MachineConfig): Promise<Machine> => {
-  const playerPoseRef = await Effect.runPromise(Ref.make(INITIAL_PLAYER_POSE))
-  const dimensionRef = await Effect.runPromise(Ref.make(INITIAL_PLAYER_DIMENSION))
   const poseCapturedAtRef = await Effect.runPromise(Ref.make<MonotonicTimeSecs | undefined>(undefined))
-  const playerLayer = Layer.succeed(
-    PlayerService,
-    makePreviewPlayerService(playerPoseRef, dimensionRef, poseCapturedAtRef),
-  )
-  const player = await Effect.runPromise(PlayerService.pipe(Effect.provide(playerLayer)))
+  const player = await Effect.runPromise(makePreviewPlayerService(poseCapturedAtRef))
 
   const service: InputServiceApi = await Effect.runPromise(
     makeInputService(defaultBindings(), portFor(config.lockPort)),
@@ -342,7 +357,7 @@ export const makeMachine = async (config: MachineConfig): Promise<Machine> => {
 
   const scenario = scenarioFor(config.scenario)
 
-  const runCommand = (command: Command): Effect.Effect<void> => {
+  const runCommand = (command: Command): Effect.Effect<void, PlayerServiceInputError> => {
     switch (command.kind) {
       case 'requestLock':
         return service.requestPointerLock.pipe(
@@ -424,7 +439,7 @@ export const makeMachine = async (config: MachineConfig): Promise<Machine> => {
 
       case 'clearHeld':
         return service.clearHeld.pipe(
-          Effect.zipRight(Effect.sync(() => { push(book, 'clearHeld', 'command') })),
+          Effect.andThen(Effect.sync(() => { push(book, 'clearHeld', 'command') })),
         )
 
       case 'rebind':
@@ -447,7 +462,7 @@ export const makeMachine = async (config: MachineConfig): Promise<Machine> => {
 
       case 'resetBindings':
         return service.resetBindings.pipe(
-          Effect.zipRight(Effect.sync(() => { push(book, 'resetBindings', 'command') })),
+          Effect.andThen(Effect.sync(() => { push(book, 'resetBindings', 'command') })),
         )
 
       case 'advanceClock':
@@ -461,7 +476,7 @@ export const makeMachine = async (config: MachineConfig): Promise<Machine> => {
           const previous = yield* book.player.pose
           yield* book.player.restore(
             {
-              feetPosition: position(command.x, command.y, command.z),
+              feetPosition: yield* previewPosition(command.x, command.y, command.z),
               yawRadians: command.yawRadians ?? previous.yawRadians,
               pitchRadians: command.pitchRadians ?? previous.pitchRadians,
             },
@@ -482,10 +497,10 @@ export const makeMachine = async (config: MachineConfig): Promise<Machine> => {
     }
   }
 
-  const runThing = (thing: InputEvent | Command): Effect.Effect<void> =>
+  const runThing = (thing: InputEvent | Command): Effect.Effect<void, PlayerServiceInputError> =>
     'kind' in thing && isInputEventKind(thing.kind)
       ? service.dispatch(thing as InputEvent).pipe(
-          Effect.zipRight(
+          Effect.andThen(
             Effect.sync(() => {
               push(book, describeEvent(thing as InputEvent), 'event')
             }),
@@ -493,7 +508,7 @@ export const makeMachine = async (config: MachineConfig): Promise<Machine> => {
         )
       : runCommand(thing as Command)
 
-  const runCameraMirror = (): Effect.Effect<void> => {
+  const runCameraMirror = (): Effect.Effect<void, CameraPoseError> => {
     if (book.poseNeverPublished) {
       return Effect.void
     }
@@ -525,13 +540,13 @@ export const makeMachine = async (config: MachineConfig): Promise<Machine> => {
     const count = Math.max(0, Math.trunc(steps))
     return count === 0
       ? Promise.resolve()
-      : Effect.runPromise(Effect.repeatN(oneStep, count - 1).pipe(Effect.asVoid))
+      : Effect.runPromise(Effect.repeat(oneStep, Schedule.recurs(count - 1)).pipe(Effect.asVoid))
   }
 
   const inject = (thing: InputEvent | Command): Promise<void> =>
     Effect.runPromise(
       runThing(thing).pipe(
-        Effect.zipRight(
+        Effect.andThen(
           Effect.sync(() => {
             book.lastThing =
               'kind' in thing && isInputEventKind(thing.kind)

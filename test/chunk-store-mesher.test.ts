@@ -1,6 +1,6 @@
 import { describe, expect, it } from '@effect/vitest'
 import { BLOCK_IDS, BlockAxis, BlockId, LocalAxis, propertyOfBlockId, type ChunkCoord } from '@nerima-games/mc-kernel'
-import type { Chunk } from '@nerima-games/mc-worldgen'
+import type { Chunk, ReadonlyChunk } from '@nerima-games/mc-worldgen'
 import { emptyBlocks, setBlockAt, type SubscriberId } from '@nerima-games/mc-worldgen/testing'
 import { Effect, Ref, Result } from 'effect'
 import {
@@ -30,14 +30,14 @@ const chunk = (cx: number, cz: number, blocks: ReadonlyArray<readonly [number, n
   }
 }
 
-const neighboursFor = (xPos?: Chunk): { xPos?: Chunk } => {
+const neighboursFor = (xPos?: ReadonlyChunk): { xPos?: ReadonlyChunk } => {
   if (xPos === undefined) {
     return {}
   }
   return { xPos }
 }
 
-const storeOf = (center?: Chunk, xPos?: Chunk): MeshingChunkStore => ({
+const storeOf = (center?: ReadonlyChunk, xPos?: ReadonlyChunk): MeshingChunkStore => ({
   peek: () => Effect.succeed(center),
   neighbours: () => Effect.succeed(neighboursFor(xPos)),
 })
@@ -64,6 +64,20 @@ describe('makeChunkStoreMesher', () => {
       expect(quads).toHaveLength(12)
       expect(quads?.fluids?.length).toBeGreaterThan(0)
       expect(new Set(quads?.fluids?.map(({ blockId }) => blockId))).toEqual(new Set([6]))
+    }),
+  )
+
+  it.effect('keeps readonly worldgen block storage unchanged while meshing', () =>
+    Effect.gen(function* () {
+      const resident = chunk(0, 0, [[15, 20, 1, 2]])
+      const neighbour = chunk(1, 0, [[0, 20, 1, 2]])
+      const originalBlocks = resident.blocks.slice()
+      const originalNeighbourBlocks = neighbour.blocks.slice()
+
+      yield* makeChunkStoreMesher(storeOf(resident, neighbour))(chunkCoord(0, 0))
+
+      expect(resident.blocks).toStrictEqual(originalBlocks)
+      expect(neighbour.blocks).toStrictEqual(originalNeighbourBlocks)
     }),
   )
 

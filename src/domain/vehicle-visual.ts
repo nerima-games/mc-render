@@ -1,6 +1,12 @@
 /** Renderer-independent vehicle silhouettes, interpolation and occupant placement. */
 
-import type { OccupantId, Vehicle, VehicleId, VehicleType } from '@nerima-games/mc-sim'
+import { PositionAxis, VehicleVelocityComponent } from '@nerima-games/mc-kernel'
+import {
+  type OccupantId,
+  type Vehicle,
+  type VehicleId,
+  type VehicleType,
+} from '@nerima-games/mc-sim'
 
 export type VehicleVisualVector = readonly [xAxis: number, yAxis: number, zAxis: number]
 export type VehicleVisualColor = readonly [red: number, green: number, blue: number]
@@ -299,29 +305,45 @@ const clamp01 = (value: number): number => {
 }
 
 const lerp = (from: number, to: number, amount: number): number =>
-  from + (to - from) * amount
+  (CLAMP01_MAX - amount) * from + amount * to
 
-const shortestAngleDelta = (from: number, to: number): number =>
-  Math.atan2(Math.sin(to - from), Math.cos(to - from))
+const shortestAngleDelta = (from: number, to: number): number => {
+  const difference = to - from
+  if (Number.isFinite(difference)) {
+    return Math.atan2(Math.sin(difference), Math.cos(difference))
+  }
+  const fromSin = Math.sin(from)
+  const fromCos = Math.cos(from)
+  const toSin = Math.sin(to)
+  const toCos = Math.cos(to)
+  return Math.atan2(toSin * fromCos - toCos * fromSin, toCos * fromCos + toSin * fromSin)
+}
 
 /**
  * Axis keys for `id-length`: `Vehicle['position']`/`Vehicle['velocity']` are
  * real mc-sim field names read by out-of-scope callers (see the doc comment
  * on `VehicleInterpolationSample` above), so they cannot be renamed — but a
  * computed property sourced from a named constant keeps every identifier in
- * this file at least two characters while the object `vec3` below produces
- * still has exactly the keys `x`, `y`, `z`.
+ * this file at least two characters while the vector helpers below produce
+ * objects with exactly the keys `x`, `y`, `z`.
  */
 type VectorAxisKey = 'x' | 'y' | 'z'
 const VECTOR_X_AXIS: VectorAxisKey = 'x'
 const VECTOR_Y_AXIS: VectorAxisKey = 'y'
 const VECTOR_Z_AXIS: VectorAxisKey = 'z'
 
-/** Build a `{x,y,z}` vector from three already-computed components. */
-const vec3 = (xValue: number, yValue: number, zValue: number): Vehicle['position'] => ({
-  [VECTOR_X_AXIS]: xValue,
-  [VECTOR_Y_AXIS]: yValue,
-  [VECTOR_Z_AXIS]: zValue,
+/** Build a branded position from three interpolated components. */
+const positionVector = (xValue: number, yValue: number, zValue: number): Vehicle['position'] => ({
+  [VECTOR_X_AXIS]: PositionAxis(xValue),
+  [VECTOR_Y_AXIS]: PositionAxis(yValue),
+  [VECTOR_Z_AXIS]: PositionAxis(zValue),
+})
+
+/** Build branded velocity components from three interpolated values. */
+const velocityVector = (xValue: number, yValue: number, zValue: number): Vehicle['velocity'] => ({
+  [VECTOR_X_AXIS]: VehicleVelocityComponent(xValue),
+  [VECTOR_Y_AXIS]: VehicleVelocityComponent(yValue),
+  [VECTOR_Z_AXIS]: VehicleVelocityComponent(zValue),
 })
 
 /** Interpolate matching simulation snapshots without mutating either snapshot. */
@@ -344,12 +366,12 @@ export const interpolateVehicle = (
   }
 
   return {
-    position: vec3(
+    position: positionVector(
       lerp(previous.position.x, current.position.x, safeAmount),
       lerp(previous.position.y, current.position.y, safeAmount),
       lerp(previous.position.z, current.position.z, safeAmount),
     ),
-    velocity: vec3(
+    velocity: velocityVector(
       lerp(previous.velocity.x, current.velocity.x, safeAmount),
       lerp(previous.velocity.y, current.velocity.y, safeAmount),
       lerp(previous.velocity.z, current.velocity.z, safeAmount),
@@ -391,7 +413,7 @@ const buildOccupant = (options: BuildOccupantOptions): VehicleOccupantRenderPlan
   return {
     facingRadians: sample.yawRadians,
     id: vehicle.occupant,
-    position: vec3(
+    position: positionVector(
       sample.position.x + anchorX * cosYaw - anchorZ * sinYaw,
       sample.position.y + anchorY,
       sample.position.z + anchorX * sinYaw + anchorZ * cosYaw,
