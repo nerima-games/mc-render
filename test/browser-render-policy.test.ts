@@ -115,6 +115,9 @@ describe('browser render policy', () => {
         failure: { _tag: 'BrowserRenderPolicyError', operation: 'runtime', reason: 'disposed' },
       })
     }
+    expect(expectFailure(assertBrowserRuntimeActive(undefined))).toStrictEqual({
+      _tag: 'BrowserRenderPolicyError', operation: 'runtime', reason: 'invalid-input',
+    })
   })
 
   it('requires runtime surfaces and timer state captured during initialization', () => {
@@ -171,6 +174,15 @@ describe('browser render policy', () => {
         failure: { _tag: 'BrowserRenderPolicyError', operation: 'refraction', reason: 'invalid-refraction-input' },
       })
     }
+    expect(expectFailure(resolveBrowserQuality('cinematic'))).toStrictEqual({
+      _tag: 'BrowserRenderPolicyError', operation: 'quality', reason: 'invalid-input',
+    })
+    expect(expectFailure(resolveBrowserQuality({ ...custom, godRaysSamples: -1 }))).toStrictEqual({
+      _tag: 'BrowserRenderPolicyError', operation: 'god-ray-samples', reason: 'out-of-range',
+    })
+    expect(expectFailure(resolveBrowserQuality({ ...custom, refractionMinScreenRatio: 1.1 }))).toStrictEqual({
+      _tag: 'BrowserRenderPolicyError', operation: 'refraction', reason: 'invalid-refraction-input',
+    })
   })
 
   it('accepts valid pixel ratios and rejects invalid external values', () => {
@@ -230,8 +242,20 @@ describe('browser render policy', () => {
       })
     }
     expect(expectFailure(resolveBrowserRefractionTargetSize({ width: 1, height: 1 }, 0)).reason).toBe('out-of-range')
+    expect(expectFailure(resolveBrowserRefractionTargetSize(null, 1))).toStrictEqual({
+      _tag: 'BrowserRenderPolicyError', operation: 'refraction-target-size', reason: 'invalid-input',
+    })
+    expect(expectFailure(resolveBrowserRefractionTargetSize({ width: 1.5, height: 1 }, 1))).toStrictEqual({
+      _tag: 'BrowserRenderPolicyError', operation: 'refraction-target-size', reason: 'out-of-range',
+    })
+    expect(expectFailure(resolveBrowserRefractionTargetSize({ width: 1, height: 1 }, Number.NaN))).toStrictEqual({
+      _tag: 'BrowserRenderPolicyError', operation: 'refraction-target-size', reason: 'not-finite',
+    })
     expect(expectSuccess(resolveBrowserDrawingBufferSize(320.9, 200.2))).toStrictEqual({ width: 320, height: 200 })
     expect(expectFailure(resolveBrowserDrawingBufferSize(0, 0)).reason).toBe('out-of-range')
+    expect(expectFailure(resolveBrowserDrawingBufferSize(Number.NaN, 1))).toStrictEqual({
+      _tag: 'BrowserRenderPolicyError', operation: 'drawing-buffer-size', reason: 'not-finite',
+    })
   })
 
   it('captures, hides, and restores water mesh visibility', () => {
@@ -277,6 +301,10 @@ describe('browser render policy', () => {
     const failed = Effect.runSyncExit(measureBrowserStage(api, 'render.failure', () => { throw new Error('render failed') }))
     expect(failed._tag).toBe('Failure')
     expect(marks.clearMarks).toHaveBeenCalledWith('render.failure:end')
+    const failedWithoutPerformanceApi = Effect.runSyncExit(
+      measureBrowserStage(undefined, 'render.failure-without-api', () => { throw new Error('render failed') }),
+    )
+    expect(failedWithoutPerformanceApi._tag).toBe('Failure')
   })
 
   it('validates shader sample and bloom parameters', () => {
@@ -350,6 +378,41 @@ describe('browser render policy', () => {
       quality: { ...QUALITY_PRESETS.low, bloomStrength: 2 },
       viewport: { width: 1, height: 1 },
     }))).toBe(true)
+    expect(expectFailure(createBrowserGodRaysShader(20, () => { throw new Error('vector creation failed') }))).toStrictEqual({
+      _tag: 'BrowserRenderPolicyError', operation: 'runtime', reason: 'invalid-input',
+    })
+    expect(expectFailure(createBrowserCompositeShader({}))).toStrictEqual({
+      _tag: 'BrowserRenderPolicyError', operation: 'runtime', reason: 'invalid-input',
+    })
+    const compositeInput = {
+      camera: { near: 0.1, far: 10 },
+      effects: [],
+      makeVector2,
+      quality: QUALITY_PRESETS.low,
+      viewport: { width: 1, height: 1 },
+    }
+    expect(expectFailure(createBrowserCompositeShader({ ...compositeInput, camera: null }))).toStrictEqual({
+      _tag: 'BrowserRenderPolicyError', operation: 'runtime', reason: 'invalid-input',
+    })
+    expect(expectFailure(createBrowserCompositeShader({ ...compositeInput, viewport: { width: 0, height: 1 } }))).toStrictEqual({
+      _tag: 'BrowserRenderPolicyError', operation: 'runtime', reason: 'invalid-input',
+    })
+    expect(expectFailure(createBrowserCompositeShader({ ...compositeInput, makeVector2: () => { throw new Error('resolution failed') } }))).toStrictEqual({
+      _tag: 'BrowserRenderPolicyError', operation: 'runtime', reason: 'invalid-input',
+    })
+    let vectorCalls = 0
+    expect(expectFailure(createBrowserCompositeShader({
+      ...compositeInput,
+      makeVector2: (x: number, y: number) => {
+        vectorCalls += 1
+        if (vectorCalls === 2) {
+          throw new Error('light position creation failed')
+        }
+        return { x, y }
+      },
+    }))).toStrictEqual({
+      _tag: 'BrowserRenderPolicyError', operation: 'runtime', reason: 'invalid-input',
+    })
   })
 
   it('chooses timer query support only for a complete extension and normalizes samples', () => {
@@ -427,6 +490,25 @@ describe('browser render policy', () => {
         failure: { _tag: 'BrowserRenderPolicyError', operation: 'refraction', reason: 'invalid-refraction-input' },
       })
     }
+    expect(expectFailure(shouldCaptureBrowserRefraction({}))).toStrictEqual({
+      _tag: 'BrowserRenderPolicyError', operation: 'refraction', reason: 'invalid-input',
+    })
+    expect(expectFailure(shouldCaptureBrowserRefraction({
+      quality: high,
+      visibleWaterMeshCount: 1,
+      waterScreenRatio: 0.5,
+      frameNumber: -1,
+    }))).toStrictEqual({
+      _tag: 'BrowserRenderPolicyError', operation: 'refraction', reason: 'invalid-refraction-input',
+    })
+    expect(expectFailure(shouldCaptureBrowserRefraction({
+      quality: { ...high, refractionThrottleFrames: -1 },
+      visibleWaterMeshCount: 1,
+      waterScreenRatio: 0.5,
+      frameNumber: 1,
+    }))).toStrictEqual({
+      _tag: 'BrowserRenderPolicyError', operation: 'refraction', reason: 'invalid-refraction-input',
+    })
   })
 
   it('wraps FPS transitions with the SSIM skip signal', () => {
@@ -495,5 +577,13 @@ describe('browser render policy', () => {
         failure: { _tag: 'BrowserRenderPolicyError', operation: 'similarity', reason: 'size-mismatch' },
       })
     }
+    expect(expectFailure(structuralSimilarity({}))).toStrictEqual({
+      _tag: 'BrowserRenderPolicyError', operation: 'similarity', reason: 'invalid-input',
+    })
+    expect(expectFailure(structuralSimilarity({
+      left: new Uint8Array(0), right: new Uint8Array(0), width: 0, height: 1,
+    }))).toStrictEqual({
+      _tag: 'BrowserRenderPolicyError', operation: 'similarity', reason: 'invalid-input',
+    })
   })
 })

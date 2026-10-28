@@ -72,6 +72,17 @@ describe('vehicle interpolation', () => {
     })
     expect(interpolateVehicle(vehicle(), unrelated, 0).position).toStrictEqual(unrelated.position)
   })
+
+  it('keeps yaw finite when subtracting finite endpoints would overflow', () => {
+    const previous = vehicle({ yawRadians: AngleRadians(Number.MAX_VALUE) })
+    const current = vehicle({ position: positionOf(10, 4, 8), yawRadians: AngleRadians(-Number.MAX_VALUE) })
+
+    const sample = interpolateVehicle(previous, current, 0.5)
+
+    expect(Number.isFinite(sample.yawRadians)).toBe(true)
+    expect(sample.yawRadians).toBe(previous.yawRadians)
+    expect(sample.position).toStrictEqual({ x: 6, y: 4, z: 7 })
+  })
 })
 
 describe('vehicle render planning', () => {

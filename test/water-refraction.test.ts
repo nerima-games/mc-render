@@ -91,6 +91,13 @@ const expectSuccess = <Value, Failure>(result: Result.Result<Value, Failure>): V
   return result.success
 }
 
+const expectFailure = <Value, Failure>(result: Result.Result<Value, Failure>): Failure => {
+  if (Result.isSuccess(result)) {
+    throw new Error(JSON.stringify(result.success))
+  }
+  return result.failure
+}
+
 const normalizeRefractionMinScreenRatio = (value: unknown): number =>
   expectSuccess(normalizeRefractionMinScreenRatioResult(value))
 
@@ -227,6 +234,48 @@ describe('the frame schedule', () => {
           },
         })
       }
+    }),
+  )
+})
+
+describe('typed failures for invalid public inputs', () => {
+  it.effect('rejects malformed counts, ratios, and thresholds at the ratio gate', () =>
+    Effect.sync(() => {
+      expect(expectFailure(shouldRunRefractionRatioGateResult(Number.NaN, 0.5, 0.05))).toStrictEqual({
+        _tag: 'RefractionInputError', operation: 'ratio-gate', reason: 'invalid-integer',
+      })
+      expect(expectFailure(shouldRunRefractionRatioGateResult(1, Number.NaN, 0.05))).toStrictEqual({
+        _tag: 'RefractionInputError', operation: 'ratio-gate', reason: 'not-finite',
+      })
+      expect(expectFailure(shouldRunRefractionRatioGateResult(1, -0.01, 0.05))).toStrictEqual({
+        _tag: 'RefractionInputError', operation: 'ratio-gate', reason: 'out-of-range',
+      })
+      expect(expectFailure(shouldRunRefractionRatioGateResult(1, 0.5, 1.01))).toStrictEqual({
+        _tag: 'RefractionInputError', operation: 'ratio-gate', reason: 'out-of-range',
+      })
+      expect(shouldRunRefractionRatioGateResult(0, 1, 0.05)).toStrictEqual(Result.succeed(false))
+    }),
+  )
+
+  it.effect('rejects a malformed second camera key and unknown skip decisions', () =>
+    Effect.sync(() => {
+      expect(expectFailure(sameRefractionKeyResult(KEY, { ...KEY, projection14: Number.NaN }))).toStrictEqual({
+        _tag: 'RefractionInputError', operation: 'camera-key', reason: 'invalid-input',
+      })
+      expect(expectFailure(isRefractionSkippedResult('skip:unknown'))).toStrictEqual({
+        _tag: 'RefractionInputError', operation: 'description', reason: 'invalid-decision',
+      })
+    }),
+  )
+
+  it.effect('rejects malformed decision inputs and finite but out-of-range values', () =>
+    Effect.sync(() => {
+      expect(expectFailure(decideRefractionPrePassResult({ ...RUNNING, extra: true }))).toStrictEqual({
+        _tag: 'RefractionInputError', operation: 'decision', reason: 'invalid-input',
+      })
+      expect(expectFailure(decideRefractionPrePassResult({ ...RUNNING, visibleWaterMeshCount: 5 }))).toStrictEqual({
+        _tag: 'RefractionInputError', operation: 'decision', reason: 'out-of-range',
+      })
     }),
   )
 })

@@ -22,6 +22,7 @@ import {
   bindingFor,
   defaultBindings,
   decodeBindings,
+  BindingsSchema,
   BindingsDecodeResultSchema,
   HotbarSelectionResultSchema,
   MouseButtonForIndexResultSchema,
@@ -109,6 +110,16 @@ describe('input settings boundary', () => {
       }),
       FAST_CHECK_OPTIONS,
     )
+  })
+
+  it('validates usable, distinct codes at the public bindings schema boundary', () => {
+    const decode = Schema.decodeUnknownResult(BindingsSchema, { onExcessProperty: 'error' })
+    const defaults = defaultBindings()
+
+    expect(Result.isSuccess(decode(defaults))).toBe(true)
+    expect(Result.isFailure(decode({ ...defaults, jump: defaults.moveForward }))).toBe(true)
+    expect(Result.isFailure(decode({ ...defaults, jump: ESCAPE_KEY_CODE }))).toBe(true)
+    expect(Result.isFailure(decode({ ...defaults, jump: '' }))).toBe(true)
   })
 })
 
@@ -270,6 +281,13 @@ describe('key remapping', () => {
 
   it.effect('remap rejects unknown actions and invalid keys', () =>
     Effect.sync(() => {
+      const nonStringAction = remap(defaultBindings(), undefined, 'KeyQ')
+      expect(nonStringAction.kind).toBe('rejected')
+      expect(nonStringAction.kind === 'rejected' && nonStringAction.rejection).toStrictEqual({
+        message: 'The input action must be a known string.',
+        reason: 'unknown-action',
+      })
+
       FastCheck.assert(
         FastCheck.property(FastCheck.string().map((action) => `unknown:${action}`), (action) => {
           const outcome = remap(defaultBindings(), action, 'KeyQ')
@@ -953,6 +971,34 @@ describe('the wheel is a DELTA — not an edge, not a level', () => {
         }),
         FAST_CHECK_OPTIONS,
       )
+    }),
+  )
+
+  it.effect('rejects a runtime-added wheel mode that has no notch unit', () =>
+    Effect.sync(() => {
+      const originalModes = [...WHEEL_DELTA_MODES]
+      const unsupportedMode = 'runtime-extension'
+      let appended = false
+      try {
+        Reflect.apply(Array.prototype.push, WHEEL_DELTA_MODES, [unsupportedMode])
+        appended = true
+
+        const result = notchesForWheelDelta(WHEEL_PIXELS_PER_NOTCH, unsupportedMode)
+        expect(Result.isFailure(result)).toBe(true)
+        if (Result.isFailure(result)) {
+          expect(result.failure).toStrictEqual({
+            _tag: 'InputValidationError',
+            operation: 'wheel-delta',
+            reason: 'invalid-delta-mode',
+          })
+        }
+      } finally {
+        if (appended) {
+          Reflect.apply(Array.prototype.pop, WHEEL_DELTA_MODES, [])
+        }
+      }
+
+      expect(WHEEL_DELTA_MODES).toStrictEqual(originalModes)
     }),
   )
 

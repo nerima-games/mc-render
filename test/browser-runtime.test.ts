@@ -201,6 +201,16 @@ describe('browser GPU timer service', () => {
 const browserMocks = vi.hoisted(() => ({
   settings: {
     activePixel: 0,
+    failAtlasDataTextureCreation: false,
+    failAtlasUrlLoad: false,
+    failRefractionTargetRender: false,
+    failScreenshotCanvasCreation: false,
+    failScreenshotImageData: false,
+    failScreenshotLinkClick: false,
+    failScreenshotLinkCreation: false,
+    failScreenshotListenerInstall: false,
+    failScreenshotToBlob: false,
+    failReferenceReadback: false,
     gpuTimerExtension: true,
     hiddenWaterWasRendered: false,
     invalidCompositeResolution: false,
@@ -241,7 +251,12 @@ vi.mock('three', () => {
   }
 
   class FakeDataTexture extends FakeTexture {
-    constructor(..._args: ReadonlyArray<unknown>) { super() }
+    constructor(..._args: ReadonlyArray<unknown>) {
+      super()
+      if (browserMocks.settings.failAtlasDataTextureCreation) {
+        throw new Error('atlas texture allocation failed')
+      }
+    }
   }
 
   class FakeDepthTexture extends FakeTexture {
@@ -391,6 +406,9 @@ vi.mock('three', () => {
       _height: number,
       pixels: Uint8Array,
     ): void {
+      if (browserMocks.settings.failReferenceReadback) {
+        throw new Error('reference readback failed')
+      }
       this.lastReadTarget = target
       this.lastReadPixels = pixels
       pixels.fill(browserMocks.settings.referencePixel)
@@ -400,6 +418,9 @@ vi.mock('three', () => {
     lastRenderedScene: unknown
     lastRenderedCamera: unknown
     render(scene: unknown, camera: unknown): void {
+      if (browserMocks.settings.failRefractionTargetRender) {
+        throw new Error('refraction render failed')
+      }
       this.lastRenderedScene = scene
       this.lastRenderedCamera = camera
     }
@@ -414,6 +435,9 @@ vi.mock('three', () => {
     loadedUrl: string | undefined
     async loadAsync(url: string): Promise<FakeTexture> {
       this.loadedUrl = url
+      if (browserMocks.settings.failAtlasUrlLoad) {
+        throw new Error('atlas URL load failed')
+      }
       return new FakeTexture()
     }
   }
@@ -638,9 +662,17 @@ beforeEach(() => {
     body: { append: (element) => { appendedElements.push(element) } },
     defaultView: { HTMLElement: FakeHtmlElement },
     listeners: new Map(),
-    addEventListener(type, listener) { this.listeners.set(type, listener) },
+    addEventListener(type, listener) {
+      if (browserMocks.settings.failScreenshotListenerInstall) {
+        throw new Error('screenshot listener installation failed')
+      }
+      this.listeners.set(type, listener)
+    },
     createElement(name) {
       if (name === 'canvas') {
+        if (browserMocks.settings.failScreenshotCanvasCreation) {
+          throw new Error('screenshot canvas creation failed')
+        }
         return {
           width: 0,
           height: 0,
@@ -650,6 +682,9 @@ beforeEach(() => {
             }
             return {
               createImageData(width: number, height: number) {
+                if (browserMocks.settings.failScreenshotImageData) {
+                  throw new Error('screenshot image allocation failed')
+                }
                 return { data: new Uint8ClampedArray(width * height * 4) }
               },
               putImageData(image: { readonly data: Uint8ClampedArray }) {
@@ -659,6 +694,9 @@ beforeEach(() => {
             }
           },
           toBlob(callback: (blob: Blob | null) => void, type: string) {
+            if (browserMocks.settings.failScreenshotToBlob) {
+              throw new Error('screenshot encoding failed')
+            }
             if (screenshotBlobAvailable) {
               callback(new Blob([], { type }))
               return
@@ -667,11 +705,19 @@ beforeEach(() => {
           },
         }
       }
+      if (name === 'a' && browserMocks.settings.failScreenshotLinkCreation) {
+        throw new Error('screenshot link creation failed')
+      }
       const link = {
         download: '',
         hidden: false,
         href: '',
-        click() { downloadedFiles.push(this.download) },
+        click() {
+          if (browserMocks.settings.failScreenshotLinkClick) {
+            throw new Error('screenshot link click failed')
+          }
+          downloadedFiles.push(this.download)
+        },
         removed: false,
         remove() { this.removed = true },
       }
@@ -734,6 +780,16 @@ beforeEach(() => {
     },
   })
   browserMocks.settings.activePixel = 0
+  browserMocks.settings.failAtlasDataTextureCreation = false
+  browserMocks.settings.failAtlasUrlLoad = false
+  browserMocks.settings.failRefractionTargetRender = false
+  browserMocks.settings.failScreenshotCanvasCreation = false
+  browserMocks.settings.failScreenshotImageData = false
+  browserMocks.settings.failScreenshotLinkClick = false
+  browserMocks.settings.failScreenshotLinkCreation = false
+  browserMocks.settings.failScreenshotListenerInstall = false
+  browserMocks.settings.failScreenshotToBlob = false
+  browserMocks.settings.failReferenceReadback = false
   browserMocks.settings.gpuTimerExtension = true
   browserMocks.settings.hiddenWaterWasRendered = false
   browserMocks.settings.invalidCompositeResolution = false
@@ -809,6 +865,59 @@ describe('browser world runtime', () => {
         })
       }),
     )
+  })
+
+  it('returns typed failures when runtime pixel ratio or viewport inputs are invalid', () => {
+    Object.defineProperty(globalThis, 'devicePixelRatio', { configurable: true, value: 0 })
+    expect(browserRuntimeFailure(makeBrowserWorldRuntimeEffect({
+      atlas: new THREE.Texture(),
+      autoResize: false,
+      canvas: new HTMLCanvasElement(),
+    }))).toStrictEqual({
+      _tag: 'BrowserRenderPolicyError',
+      operation: 'pixel-ratio',
+      reason: 'out-of-range',
+    })
+
+    Object.defineProperty(globalThis, 'devicePixelRatio', { configurable: true, value: 1 })
+    const canvas = new HTMLCanvasElement()
+    Object.defineProperty(canvas, 'clientWidth', { configurable: true, value: Number.NaN })
+    expect(browserRuntimeFailure(makeBrowserWorldRuntimeEffect({
+      atlas: new THREE.Texture(),
+      autoResize: false,
+      canvas,
+    }))).toStrictEqual({
+      _tag: 'BrowserRenderPolicyError',
+      operation: 'viewport',
+      reason: 'invalid-input',
+    })
+  })
+
+  it('maps atlas loader and texture allocation failures to initialization errors', async () => {
+    browserMocks.settings.failAtlasUrlLoad = true
+    const urlFailure = await browserRuntimeFailureAsync(makeBrowserWorldRuntimeEffect({
+      atlas: 'https://assets.test/missing-atlas.png',
+      autoResize: false,
+      canvas: new HTMLCanvasElement(),
+    }))
+    expect(urlFailure).toMatchObject({
+      _tag: 'BrowserRuntimeError',
+      operation: 'initialization',
+      reason: 'operation-failed',
+    })
+
+    browserMocks.settings.failAtlasUrlLoad = false
+    browserMocks.settings.failAtlasDataTextureCreation = true
+    const textureFailure = browserRuntimeFailure(makeBrowserWorldRuntimeEffect({
+      atlas: { data: new Uint8ClampedArray([1, 2, 3, 4]), height: 1, width: 1 },
+      autoResize: false,
+      canvas: new HTMLCanvasElement(),
+    }))
+    expect(textureFailure).toMatchObject({
+      _tag: 'BrowserRuntimeError',
+      operation: 'initialization',
+      reason: 'operation-failed',
+    })
   })
 
   it('reports a malformed post-processing pass from the runtime boundary', async () => {
@@ -1033,6 +1142,82 @@ describe('browser world runtime', () => {
     Effect.runSync(missingBlob.dispose())
   })
 
+  it('maps screenshot canvas, pixel-copy, and encoding exceptions to typed failures', async () => {
+    const runtime = await makeBrowserWorldRuntime({
+      atlas: new THREE.Texture(),
+      autoResize: false,
+      canvas: new HTMLCanvasElement(),
+      quality: 'low',
+    })
+    Effect.runSync(runtime.render(testCamera))
+
+    browserMocks.settings.failScreenshotCanvasCreation = true
+    expect(browserRuntimeFailure(runtime.captureScreenshot())).toMatchObject({
+      _tag: 'BrowserRuntimeError',
+      operation: 'screenshot',
+      reason: 'operation-failed',
+    })
+
+    browserMocks.settings.failScreenshotCanvasCreation = false
+    browserMocks.settings.failScreenshotImageData = true
+    expect(browserRuntimeFailure(runtime.captureScreenshot())).toMatchObject({
+      _tag: 'BrowserRuntimeError',
+      operation: 'screenshot',
+      reason: 'operation-failed',
+    })
+
+    browserMocks.settings.failScreenshotImageData = false
+    browserMocks.settings.failScreenshotToBlob = true
+    expect(await browserRuntimeFailureAsync(runtime.captureScreenshot())).toMatchObject({
+      _tag: 'BrowserRuntimeError',
+      operation: 'screenshot',
+      reason: 'encoding-failed',
+    })
+    Effect.runSync(runtime.dispose())
+  })
+
+  it('reports screenshot URL and click failures while releasing a created download link', async () => {
+    const runtime = await makeBrowserWorldRuntime({
+      atlas: new THREE.Texture(),
+      autoResize: false,
+      canvas: new HTMLCanvasElement(),
+      quality: 'low',
+    })
+    Effect.runSync(runtime.render(testCamera))
+    const screenshotError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const shortcut = requireFakeDocument().listeners.get('keydown')
+    if (typeof shortcut !== 'function') {
+      throw new Error('screenshot shortcut listener was not installed')
+    }
+    const pressShortcut = (): void => shortcut({
+      altKey: false,
+      code: 'F2',
+      ctrlKey: false,
+      metaKey: false,
+      preventDefault: vi.fn(),
+      repeat: false,
+      shiftKey: false,
+      target: null,
+    })
+
+    const createObjectUrl = vi.spyOn(URL, 'createObjectURL').mockImplementation(() => {
+      throw new Error('object URL creation failed')
+    })
+    pressShortcut()
+    await vi.waitFor(() => expect(screenshotError).toHaveBeenCalledOnce())
+    expect(createObjectUrl).toHaveBeenCalledOnce()
+    createObjectUrl.mockRestore()
+
+    screenshotError.mockClear()
+    browserMocks.settings.failScreenshotLinkClick = true
+    pressShortcut()
+    await vi.waitFor(() => expect(screenshotError).toHaveBeenCalledOnce())
+    expect(appendedElements).toHaveLength(1)
+    expect(appendedElements[0]).toMatchObject({ removed: true })
+    await vi.waitFor(() => expect(revokedUrls).toEqual(['blob:runtime-test']))
+    Effect.runSync(runtime.dispose())
+  })
+
   it('validates Three surface instances and requires WebGL2', async () => {
     const scene = new THREE.Scene()
     const camera = new THREE.PerspectiveCamera()
@@ -1183,5 +1368,120 @@ describe('browser world runtime', () => {
       autoResize: false,
       canvas: new HTMLCanvasElement(),
     }))).toMatchObject({ _tag: 'BrowserRenderPolicyError', operation: 'runtime', reason: 'missing-value' })
+  })
+
+  it('maps refraction setup, refraction rendering, and reference readback exceptions', async () => {
+    const setupFailure = await makeBrowserWorldRuntime({
+      atlas: new THREE.Texture(),
+      autoResize: false,
+      canvas: new HTMLCanvasElement(),
+      quality: 'high',
+      waterGeometry: new THREE.BufferGeometry(),
+    })
+    const [setupFailureMesh] = setupFailure.waterMeshes
+    if (!setupFailureMesh) {
+      throw new Error('water mesh was not attached')
+    }
+    Object.defineProperty(setupFailureMesh, 'visible', {
+      configurable: true,
+      get: () => true,
+      set: () => { throw new Error('water visibility update failed') },
+    })
+    expect(browserRuntimeFailure(setupFailure.render(testCamera))).toMatchObject({
+      _tag: 'BrowserRuntimeError',
+      operation: 'runtime',
+      reason: 'operation-failed',
+    })
+    Effect.runSync(setupFailure.dispose())
+
+    const renderFailure = await makeBrowserWorldRuntime({
+      atlas: new THREE.Texture(),
+      autoResize: false,
+      canvas: new HTMLCanvasElement(),
+      quality: 'high',
+      waterGeometry: new THREE.BufferGeometry(),
+    })
+    browserMocks.settings.failRefractionTargetRender = true
+    expect(browserRuntimeFailure(renderFailure.render(testCamera))).toMatchObject({
+      _tag: 'BrowserRuntimeError',
+      operation: 'runtime',
+      reason: 'operation-failed',
+    })
+    browserMocks.settings.failRefractionTargetRender = false
+    Effect.runSync(renderFailure.dispose())
+
+    const readbackFailure = await makeBrowserWorldRuntime({
+      atlas: new THREE.Texture(),
+      autoResize: false,
+      canvas: new HTMLCanvasElement(),
+      quality: 'high',
+    })
+    browserMocks.settings.failReferenceReadback = true
+    expect(browserRuntimeFailure(readbackFailure.render(testCamera))).toMatchObject({
+      _tag: 'BrowserRuntimeError',
+      operation: 'runtime',
+      reason: 'operation-failed',
+    })
+    browserMocks.settings.failReferenceReadback = false
+    Effect.runSync(readbackFailure.dispose())
+  })
+
+  it('rejects invalid water surface method arguments at the public runtime boundary', async () => {
+    const runtime = await makeBrowserWorldRuntime({
+      atlas: new THREE.Texture(),
+      autoResize: false,
+      canvas: new HTMLCanvasElement(),
+    })
+
+    const invalidAttach = browserRuntimeFailure(Reflect.apply(
+      Reflect.get(runtime, 'attachWaterSurface'),
+      runtime,
+      [{}],
+    ))
+    expect(invalidAttach).toMatchObject({
+      _tag: 'BrowserRuntimeError',
+      operation: 'runtime',
+      reason: 'invalid-input',
+    })
+
+    const invalidDetach = browserRuntimeFailure(Reflect.apply(
+      Reflect.get(runtime, 'detachWaterSurface'),
+      runtime,
+      [{}],
+    ))
+    expect(invalidDetach).toMatchObject({
+      _tag: 'BrowserRuntimeError',
+      operation: 'runtime',
+      reason: 'invalid-input',
+    })
+    Effect.runSync(runtime.dispose())
+  })
+
+  it('maps world option assembly and runtime installation exceptions to initialization failures', () => {
+    const world = Object.defineProperty({}, 'invalidOption', {
+      enumerable: true,
+      get: () => { throw new Error('world option inspection failed') },
+    })
+    expect(browserRuntimeFailure(makeBrowserWorldRuntimeEffect({
+      atlas: new THREE.Texture(),
+      autoResize: false,
+      canvas: new HTMLCanvasElement(),
+      world,
+    }))).toMatchObject({
+      _tag: 'BrowserRuntimeError',
+      operation: 'initialization',
+      reason: 'operation-failed',
+    })
+
+    browserMocks.settings.failScreenshotListenerInstall = true
+    expect(browserRuntimeFailure(makeBrowserWorldRuntimeEffect({
+      atlas: new THREE.Texture(),
+      autoResize: false,
+      canvas: new HTMLCanvasElement(),
+    }))).toMatchObject({
+      _tag: 'BrowserRuntimeError',
+      operation: 'initialization',
+      reason: 'operation-failed',
+    })
   })
 })

@@ -42,6 +42,19 @@ const storeOf = (center?: ReadonlyChunk, xPos?: ReadonlyChunk): MeshingChunkStor
   neighbours: () => Effect.succeed(neighboursFor(xPos)),
 })
 
+const storeWithNeighbours = (
+  center: ReadonlyChunk,
+  neighbours: {
+    readonly xPos?: ReadonlyChunk
+    readonly xNeg?: ReadonlyChunk
+    readonly zPos?: ReadonlyChunk
+    readonly zNeg?: ReadonlyChunk
+  },
+): MeshingChunkStore => ({
+  peek: () => Effect.succeed(center),
+  neighbours: () => Effect.succeed(neighbours),
+})
+
 describe('makeChunkStoreMesher', () => {
   it.effect('returns undefined when the requested chunk is not resident', () =>
     Effect.gen(function* () {
@@ -113,6 +126,39 @@ describe('makeChunkStoreMesher', () => {
 
       expect(quads).toHaveLength(5)
       expect(quads?.some(({ direction }) => direction === 'xPos')).toBe(false)
+    }),
+  )
+
+  it.effect('adapts the x-negative and z neighbours when hiding shared faces', () =>
+    Effect.gen(function* () {
+      const cases = [
+        {
+          center: chunk(0, 0, [[0, 20, 1, 2]]),
+          neighbour: chunk(-1, 0, [[15, 20, 1, 2]]),
+          neighbourKey: 'xNeg',
+          hiddenDirection: 'xNeg',
+        },
+        {
+          center: chunk(0, 0, [[1, 20, 15, 2]]),
+          neighbour: chunk(0, 1, [[1, 20, 0, 2]]),
+          neighbourKey: 'zPos',
+          hiddenDirection: 'zPos',
+        },
+        {
+          center: chunk(0, 0, [[1, 20, 0, 2]]),
+          neighbour: chunk(0, -1, [[1, 20, 15, 2]]),
+          neighbourKey: 'zNeg',
+          hiddenDirection: 'zNeg',
+        },
+      ] as const
+
+      for (const { center, neighbour, neighbourKey, hiddenDirection } of cases) {
+        const neighbours = { [neighbourKey]: neighbour }
+        const quads = yield* makeChunkStoreMesher(storeWithNeighbours(center, neighbours))(center.coord)
+
+        expect(quads).toHaveLength(5)
+        expect(quads?.some(({ direction }) => direction === hiddenDirection)).toBe(false)
+      }
     }),
   )
 

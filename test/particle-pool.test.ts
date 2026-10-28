@@ -461,6 +461,16 @@ describe('spawning', () => {
     }),
   )
 
+  it.effect('preserves the block-burst operation when a valid tile reaches an invalid burst', () =>
+    Effect.sync(() => {
+      const pool = makeParticlePool({ capacity: 4 })
+      const result = spawnBlockBurstResult(pool, 0, 0, 0, 7, 0)
+
+      expect(isDecodedParticleInputFailure(result, 'block-burst', 'invalid-count')).toBe(true)
+      expect(pool.activeCount()).toBe(0)
+    }),
+  )
+
   it.effect('a non-finite UV origin is rejected instead of becoming the neutral origin', () =>
     Effect.sync(() => {
       const pool = makeParticlePool({ capacity: 4 })
