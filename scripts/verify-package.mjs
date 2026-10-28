@@ -194,6 +194,7 @@ if (declaredPackageExports.length !== ${importSpecifiers.length}) {
         compilerOptions: {
           strict: true,
           target: "ES2022",
+          lib: ["ES2022", "DOM", "DOM.Iterable", "ESNext.Disposable"],
           module: "NodeNext",
           moduleResolution: "NodeNext",
           noEmit: true,

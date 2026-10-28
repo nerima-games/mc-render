@@ -609,10 +609,13 @@ TypeScript 7 の `typescript/unstable/sync` API を使い、fixture が実際に
 DOM 型を名指しするのが目的のファイルであり、DOM の無いプロジェクトに入れれば落ちるだけで、
 出荷プロジェクトに入れれば `"DOM"` が裏口から入ったのと同じになる。
 
-API ロックの生成器・ロックファイル・専用コマンドはこのパッケージには置かない。
-公開面は `package.json` の `exports` と `tsconfig.release.json` の declaration 出力で定義し、
-`pnpm typecheck`、`pnpm build`、`pnpm pack --dry-run` と実行時 import で検証する。
-詳細は [public-api.md](./public-api.md) の「公開 API と package 検証」を参照する。
+This package has no API lock file or API lock commands. Its public surface is
+defined by `package.json` exports and declarations emitted from the release
+TypeScript projects. `pnpm typecheck` and `pnpm build` validate the source
+projects and declaration output. `pnpm package:verify` installs the packed
+archive in a scratch consumer and checks every declared export at runtime and
+through its declarations. Use `pnpm pack --dry-run` to inspect archive contents.
+See [public-api.md](./public-api.md) for the package checks.
 
 ## 9. `stages/` の検証範囲
 
@@ -645,10 +648,11 @@ DOM 証明と同じ `inspectTypeScriptFixture` の機構である。
 | `ThreeMaterial` に `dispose` を持たせる | `Mesh` の第 2 引数は `Material \| Material[]` で、**配列に `dispose` は無い** |
 | `ThreeCamera` に `aspect` を持たせる | `WebGLRenderer.render` が取るのは `Camera` で、`aspect` は `PerspectiveCamera` にしか無い |
 
-同じテストが 3 つの周辺事実も固定している: `tsconfig.build.json` が
-`lib: ["ES2024"]` / `types: []` のままであること、**出荷ファイルに `three` の import が
-1 つも無いこと**（grep。`skipLibCheck` があるので型検査では見えない）、
-`three` と `@types/three` のバージョン文字列が一致していること。
+The same test locks three adjacent facts: `tsconfig.build.json` stays on
+`lib: ["ES2024"]` / `types: []`; no file in the portable root build imports
+`three` (the grep is necessary because `skipLibCheck` would hide declaration
+references); and the browser entry is a separate export whose published
+`@types/three` dependency matches the pinned `three` major and minor version.
 
 ### 12.2 `test/chunk-geometry.test.ts` —— merged extent と per-face AO
 

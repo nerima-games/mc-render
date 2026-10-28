@@ -144,12 +144,13 @@ describe('REGRESSION: the THREE surface is a real subset of the real three', () 
       })
       expect(manifest.dependencies?.['three']).toBeDefined()
       expect(manifest.devDependencies?.['three']).toBeUndefined()
-      // Keep the type package on the same major/minor as THREE because THREE
-      // ships breaking changes in MINOR releases; patch releases may differ.
+      // Keep the published type package on the same major/minor as THREE because
+      // THREE ships breaking changes in MINOR releases; patch releases may differ.
       const minorVersion = (version: string | undefined): string | undefined =>
         version?.match(/(?<minor>\d+\.\d+)/u)?.groups?.['minor']
-      expect(manifest.devDependencies?.['@types/three']).toBeDefined()
-      expect(minorVersion(manifest.devDependencies?.['@types/three'])).toBe(
+      expect(manifest.dependencies?.['@types/three']).toBeDefined()
+      expect(manifest.devDependencies?.['@types/three']).toBeUndefined()
+      expect(minorVersion(manifest.dependencies?.['@types/three'])).toBe(
         minorVersion(manifest.dependencies?.['three']),
       )
     }),

@@ -1242,11 +1242,12 @@ The public package surface is defined by the entry points listed in
 `src/browser.ts`. Review the emitted declarations and both package export paths
 when changing the public API.
 
-| 検査 | 保証するもの |
+| Check | Guarantees |
 | --- | --- |
 | `pnpm typecheck` | build / test / preview / browser TypeScript projects resolve successfully |
 | `pnpm build` | Removes stale `dist/` output and emits declarations and ESM for both entries |
-| `pnpm pack --dry-run` | `package.json#files` に従った package 内容になること |
+| `pnpm package:verify` | Packs and installs the archive in a scratch consumer, then checks every declared export at runtime and through its declarations |
+| `pnpm pack --dry-run` | Archive contents follow `package.json#files` |
 | `pnpm test` | Behavior tests |
 | `pnpm test:coverage` | Behavior tests and 100% statements / branches / functions / lines for Node coverage scope; browser runtime behavior is checked by `pnpm test:browser` |
 

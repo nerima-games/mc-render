@@ -72,6 +72,7 @@
     "@nerima-games/mc-meshing": "0.4.0",
     "@nerima-games/mc-sim": "0.6.0",
     "@nerima-games/mc-worldgen": "0.7.0",
+    "@types/three": "0.186.0",
     "effect": "4.0.5",
     "three": "0.186.1"
   },
@@ -81,7 +82,6 @@
     "@effect/vitest": "4.0.5",
     "@playwright/test": "1.64.1",
     "@types/node": "26.6.5",
-    "@types/three": "0.186.0",
     "@vitest/coverage-v8": "5.0.5",
     "fast-check": "4.10.2",
     "knip": "6.42.1",
