@@ -1,4 +1,5 @@
 import { describe, expect, it } from '@effect/vitest'
+import * as FastCheck from 'fast-check'
 import { AngleRadians, PositionAxis, VehicleVelocityComponent, position } from '@nerima-games/mc-kernel'
 import type { OccupantId, Vehicle, VehicleId } from '@nerima-games/mc-sim'
 import {
@@ -71,6 +72,50 @@ describe('vehicle interpolation', () => {
       position: positionOf(20, 30, 40),
     })
     expect(interpolateVehicle(vehicle(), unrelated, 0).position).toStrictEqual(unrelated.position)
+  })
+
+  it('keeps vehicle samples at the interpolation boundaries and immediately outside them', () => {
+    const coordinate = FastCheck.integer({ min: -1_000, max: 1_000 })
+    const vehicleSample = FastCheck.tuple(
+      coordinate,
+      coordinate,
+      coordinate,
+      coordinate,
+      coordinate,
+      coordinate,
+    )
+
+    FastCheck.assert(
+      FastCheck.property(vehicleSample, vehicleSample, (previousValues, currentValues) => {
+        const [previousX, previousY, previousZ, previousVelocityX, previousVelocityY, previousVelocityZ] = previousValues
+        const [currentX, currentY, currentZ, currentVelocityX, currentVelocityY, currentVelocityZ] = currentValues
+        const previous = vehicle({
+          position: positionOf(previousX, previousY, previousZ),
+          velocity: velocityOf(previousVelocityX, previousVelocityY, previousVelocityZ),
+          yawRadians: AngleRadians(0),
+        })
+        const current = vehicle({
+          position: positionOf(currentX, currentY, currentZ),
+          velocity: velocityOf(currentVelocityX, currentVelocityY, currentVelocityZ),
+          yawRadians: AngleRadians(0),
+        })
+        const previousSample = {
+          position: previous.position,
+          velocity: previous.velocity,
+          yawRadians: previous.yawRadians,
+        }
+        const currentSample = {
+          position: current.position,
+          velocity: current.velocity,
+          yawRadians: current.yawRadians,
+        }
+
+        expect(interpolateVehicle(previous, current, -Number.MIN_VALUE)).toStrictEqual(previousSample)
+        expect(interpolateVehicle(previous, current, 0)).toStrictEqual(previousSample)
+        expect(interpolateVehicle(previous, current, 1)).toStrictEqual(currentSample)
+        expect(interpolateVehicle(previous, current, 1 + Number.EPSILON)).toStrictEqual(currentSample)
+      }),
+    )
   })
 
   it('keeps yaw finite when subtracting finite endpoints would overflow', () => {
