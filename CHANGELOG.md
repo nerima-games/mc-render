@@ -1,5 +1,11 @@
 # @nerima-games/mc-render
 
+## 0.10.0
+
+### Minor Changes
+
+- Pin mc-kernel to 0.14.0, mc-meshing to 0.5.0, mc-sim to 0.9.0, and mc-worldgen to 0.8.0.
+
 ## 0.9.0
 
 ### Minor Changes
