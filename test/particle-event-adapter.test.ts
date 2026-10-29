@@ -1,6 +1,8 @@
 import { describe, expect, it } from '@effect/vitest'
-import { Schema } from 'effect'
+import { Result, Schema } from 'effect'
+import * as FastCheck from 'fast-check'
 import {
+  ACHIEVEMENT_IDS,
   DomainEventSchema,
   WorldPositionSchema,
   type DomainEvent,
@@ -237,7 +239,7 @@ describe('particleRequestForDomainEvent', () => {
 
   it('maps every explicit no-particle event even when an entity resolver is available', () => {
     const noParticleEvents = [
-      event({ _tag: 'AchievementUnlocked', tick: 1, player: 'player-1', achievement: 'first-step' }),
+      event({ _tag: 'AchievementUnlocked', tick: 1, player: 'player-1', achievement: 'minecraft:story/root' }),
       event({ _tag: 'VehicleTransition', tick: 1, actor: 'player-1', vehicle: 'boat-1', transition: 'mounted' }),
     ]
 
@@ -247,10 +249,24 @@ describe('particleRequestForDomainEvent', () => {
   })
 
   it('does not invent a position for ItemPickedUp when the actor cannot be resolved', () => {
-    const itemPickedUp = event(mappedEvents[12]?.value)
+    const itemPickedUp = event({
+      _tag: 'ItemPickedUp',
+      tick: 1,
+      actor: 'player-1',
+      source: {
+        _tag: 'BrewingStand',
+        address: { dimension: 'overworld', position: { x: 4, y: 64, z: 6 } },
+      },
+      item: 1,
+      count: 1,
+    })
 
     expect(particleRequestForDomainEvent(itemPickedUp)).toBeUndefined()
     expect(particleRequestForDomainEvent(itemPickedUp, { positionOfEntity: () => undefined })).toBeUndefined()
+    expect(particleRequestForDomainEvent(itemPickedUp, entityContext)).toMatchObject({
+      kind: 'level-up',
+      position: resolvedEntityPosition,
+    })
   })
 
   it('maps weather effects to no request when the effect entity cannot be resolved', () => {
@@ -267,7 +283,7 @@ describe('particleRequestForDomainEvent', () => {
       _tag: 'AchievementUnlocked',
       tick: 1,
       player: 'player-1',
-      achievement: 'first-step',
+      achievement: 'minecraft:story/root',
     })
     Object.defineProperty(recognizedEvent, '_tag', { value: 'FutureDomainEvent' })
 
@@ -275,6 +291,48 @@ describe('particleRequestForDomainEvent', () => {
       _tag: 'UnhandledParticleEvent',
       eventTag: 'FutureDomainEvent',
     })
+  })
+
+  it('accepts catalogued achievement IDs and rejects values just outside the kernel catalog', () => {
+    FastCheck.assert(
+      FastCheck.property(FastCheck.constantFrom(...ACHIEVEMENT_IDS), (achievement) => {
+        const decoded = Schema.decodeUnknownResult(DomainEventSchema)({
+          _tag: 'AchievementUnlocked',
+          tick: 1,
+          player: 'player-1',
+          achievement,
+        })
+
+        expect(Result.isSuccess(decoded)).toBe(true)
+      }),
+    )
+
+    FastCheck.assert(
+      FastCheck.property(
+        FastCheck.constantFrom(...ACHIEVEMENT_IDS).map((achievement) => `${achievement}#`),
+        (achievement) => {
+          const decoded = Schema.decodeUnknownResult(DomainEventSchema)({
+            _tag: 'AchievementUnlocked',
+            tick: 1,
+            player: 'player-1',
+            achievement,
+          })
+
+          expect(Result.isFailure(decoded)).toBe(true)
+        },
+      ),
+    )
+
+    for (const removedAlias of ['minecraft:story/obtain_obsidian', 'first-step']) {
+      const decoded = Schema.decodeUnknownResult(DomainEventSchema)({
+        _tag: 'AchievementUnlocked',
+        tick: 1,
+        player: 'player-1',
+        achievement: removedAlias,
+      })
+
+      expect(Result.isFailure(decoded)).toBe(true)
+    }
   })
 
   it('returns an explicit result for an unrecognized explosion source', () => {
