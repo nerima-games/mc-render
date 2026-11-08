@@ -108,6 +108,7 @@ import type {
   ThreeInstancedSurface,
   ThreeMaterial,
   ThreeMesh,
+  ThreeObject3D,
   ThreePerspectiveCamera,
   ThreeScene,
   ThreeShaderSurface,
@@ -248,7 +249,7 @@ export const SKY_CLEAR_ALPHA = 1
  */
 export type DrawPort = {
   /** Draw one frame from the mirrored pose. Never reads the live camera. */
-  readonly draw: (camera: MirroredCameraState) => Effect.Effect<void>
+  readonly draw: (camera: MirroredCameraState) => Effect.Effect<void, unknown>
   /** Tell the renderer the drawing surface changed size. */
   readonly resize: (width: number, height: number) => Effect.Effect<void>
   /** Select the immutable post-FX plan used by the next draw. */
@@ -836,10 +837,14 @@ export type WorldRenderer = DrawPort & {
   readonly framesRendered: Effect.Effect<number>
   /** The latest post-processing plan supplied by the frame pipeline. */
   readonly postProcessingChain: Effect.Effect<ReadonlyArray<PostProcessingStep>>
-  /** Add a renderer-adjacent mesh, such as the shared particle pool. */
-  readonly attachSceneObject: (object: ThreeMesh) => Effect.Effect<void>
-  /** Remove an attached mesh without assuming ownership of its resources. */
-  readonly detachSceneObject: (object: ThreeMesh) => Effect.Effect<void>
+  /** Add an object to the world scene. */
+  readonly attachSceneObject: (object: ThreeObject3D) => Effect.Effect<void>
+  /** Remove an object without assuming ownership of its resources. */
+  readonly detachSceneObject: (object: ThreeObject3D) => Effect.Effect<void>
+  /** Add an object to the camera-space scene. */
+  readonly attachCameraObject: (object: ThreeObject3D) => Effect.Effect<void>
+  /** Remove a camera-space object without assuming ownership of its resources. */
+  readonly detachCameraObject: (object: ThreeObject3D) => Effect.Effect<void>
   /** Release the renderer, all cached geometry, and every shared material. */
   readonly dispose: Effect.Effect<void>
 }
@@ -899,6 +904,7 @@ export type WorldRendererOptions<TMaterial extends ThreeMaterial = ThreeMaterial
   readonly weather?: WeatherFrameOptions
   /** Optional host-owned compositor; absent in headless and preview renders. */
   readonly postProcessing?: PostProcessingRendererFactory
+  readonly beforeDraw?: ((camera: MirroredCameraState) => Effect.Effect<void, unknown>) | undefined
 }
 
 export type PostProcessingRenderer = {
@@ -1762,9 +1768,11 @@ export const makeWorldRenderer = <
     yield* weather.resize(viewport)
 
     return {
-      attachSceneObject: (object) => Effect.sync(() => scene.add(object)),
+      attachCameraObject: (object) => Effect.sync(() => { camera.add(object) }),
+      attachSceneObject: (object) => Effect.sync(() => { scene.add(object) }),
       chunkKeys: Ref.get(chunks).pipe(Effect.map((current) => [...current.keys()])),
-      detachSceneObject: (object) => Effect.sync(() => scene.remove(object)),
+      detachCameraObject: (object) => Effect.sync(() => { camera.remove(object) }),
+      detachSceneObject: (object) => Effect.sync(() => { scene.remove(object) }),
       dispose: weather.dispose.pipe(
         Effect.andThen(
           Effect.all([
@@ -1782,6 +1790,7 @@ export const makeWorldRenderer = <
       draw: (mirrored: MirroredCameraState) =>
         Effect.gen(function* drawFrame() {
           ops.applyCameraPose(mirrored)
+          yield* (options.beforeDraw?.(mirrored) ?? Effect.void)
           const [currentChunks, aspect] = yield* Effect.all([
             Ref.get(chunks),
             Ref.get(viewportAspect),

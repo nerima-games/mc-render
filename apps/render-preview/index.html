@@ -29,11 +29,25 @@
         padding: 0.75rem;
         margin: 0;
       }
+      #presentation-links {
+        color: #b9e3f4;
+        padding: 0 0.75rem 0.75rem;
+      }
+      #presentation-links a {
+        color: inherit;
+      }
     </style>
   </head>
   <body data-render-preview="running">
     <canvas id="preview-canvas"></canvas>
     <pre id="preview-report">drawing…</pre>
+    <p id="presentation-links">
+      <a href="?presentation=1">Show selection, mining, first-person and damage feedback</a>
+      ·
+      <a href="?presentation=sky">Show sun and clouds</a>
+      ·
+      <a href="?presentation=stars">Show moon and stars</a>
+    </p>
   <script type="module" src="./main.ts"></script>
   </body>
 </html>

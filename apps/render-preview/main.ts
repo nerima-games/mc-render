@@ -44,6 +44,9 @@ import {
   browserInputLayer,
 } from '../../src/application/browser-input-adapter.js'
 import { InputService } from '../../src/application/input-service.js'
+import { createInteractionRenderer } from '../../src/application/interaction-renderer.js'
+import { createSkyRenderer } from '../../src/application/sky-renderer.js'
+import type { PresentationObject3D } from '../../src/application/render-presentation-surface.js'
 import { makeChunkShaderMaterial, makeWorldRenderer, SKY_CLEAR_COLOR } from '../../src/application/world-renderer.js'
 import { chunkKeyOf, syncWorld, type ChunkRef } from '../../src/application/world-sync.js'
 import { ATLAS_COLUMNS } from '../../src/domain/texture-atlas.js'
@@ -94,15 +97,28 @@ const MAX_PITCH = Math.PI / 2 - 0.01
  * and the streaming assertion would pass without streaming.
  */
 const STREAM_RADIUS_CHUNKS = 2
+const PRESENTATION_DAY_START = 6_000
+const PRESENTATION_DAWN_START = 0
+const PRESENTATION_NIGHT_START = 18_000
+const ANIMATION_TICKS_PER_SECOND = 20
+const PRESENTATION_TICKS_PER_SECOND = 1_200
+const PRESENTATION_MOON_PHASE = 5
+const PRESENTATION_BLOCK_TILE_INDEX = 5
+const PRESENTATION_CAMERA_PITCH = -0.4
+const PRESENTATION_CAMERA_Z = 48
+const STARS_PREVIEW_CAMERA_PITCH = 1.2
+const SKY_PREVIEW_CAMERA_HEIGHT = 188
+const PRESENTATION_TARGET = {
+  position: { x: 8, y: 38, z: 22 },
+  shape: { boxes: [{ min: { x: 0, y: 0, z: 0 }, max: { x: 1, y: 0.5, z: 1 } }] },
+} as const
 
-const cameraFrom = (pose: typeof START_POSE): MirroredCameraState =>
+const cameraFrom = (pose: typeof START_POSE, rollRadians = 0): MirroredCameraState =>
   ({
     position: { x: pose.x, y: pose.y, z: pose.z },
-    rotation: { x: pose.pitch, y: pose.yaw, z: 0, order: 'YXZ' },
+    rotation: { x: pose.pitch, y: pose.yaw, z: rollRadians, order: 'YXZ' },
     sourceCapturedAtSecs: 0,
   }) as unknown as MirroredCameraState
-
-const PREVIEW_CAMERA = cameraFrom(START_POSE)
 
 /**
  * A quad as the fixture stores it: mc-meshing's `Quad`, plus its resolved tile.
@@ -171,6 +187,132 @@ const skyBytes = (): readonly [number, number, number] => [
   SKY_CLEAR_COLOR & 0xff,
 ]
 
+type PresentationAttachmentPort = {
+  readonly attachSceneObject: (object: PresentationObject3D) => Effect.Effect<void>
+  readonly detachSceneObject: (object: PresentationObject3D) => Effect.Effect<void>
+  readonly attachCameraObject: (object: PresentationObject3D) => Effect.Effect<void>
+  readonly detachCameraObject: (object: PresentationObject3D) => Effect.Effect<void>
+}
+
+type PreviewPresentation = {
+  readonly enabled: boolean
+  readonly startPose: typeof START_POSE
+  readonly update: (pose: typeof START_POSE, elapsedSeconds: number) => Result.Result<number, unknown>
+  readonly dispose: () => void
+}
+
+const createPreviewPresentation = async (
+  renderer: PresentationAttachmentPort,
+): Promise<PreviewPresentation> => {
+  const variant = new URLSearchParams(window.location.search).get('presentation')
+  const enabled = variant === '1' || variant === 'sky' || variant === 'stars'
+  const interactionFeedback = variant === '1'
+  const skyView = variant === 'sky' || variant === 'stars'
+  const startTicks = variant === 'stars'
+    ? PRESENTATION_NIGHT_START
+    : variant === 'sky'
+      ? PRESENTATION_DAWN_START
+      : PRESENTATION_DAY_START
+  const startPose = !enabled
+    ? START_POSE
+    : skyView
+      ? {
+          ...START_POSE,
+          y: SKY_PREVIEW_CAMERA_HEIGHT,
+          pitch: variant === 'stars' ? STARS_PREVIEW_CAMERA_PITCH : 0,
+          yaw: variant === 'sky' ? -Math.PI / 2 : START_POSE.yaw,
+        }
+      : { ...START_POSE, pitch: PRESENTATION_CAMERA_PITCH, z: PRESENTATION_CAMERA_Z }
+  const sky = enabled
+    ? createSkyRenderer<
+        THREE.Texture,
+        THREE.BufferGeometry,
+        THREE.MeshBasicMaterial,
+        THREE.LineBasicMaterial,
+        THREE.PointsMaterial
+      >(THREE)
+    : undefined
+  const interaction = interactionFeedback
+    ? createInteractionRenderer<
+        THREE.Texture,
+        THREE.BufferGeometry,
+        THREE.MeshBasicMaterial,
+        THREE.LineBasicMaterial,
+        THREE.PointsMaterial
+      >(THREE)
+    : undefined
+
+  if (sky !== undefined) {
+    await Effect.runPromise(renderer.attachSceneObject(sky.sceneObject))
+  }
+  if (interaction !== undefined) {
+    await Effect.runPromise(renderer.attachSceneObject(interaction.sceneObject))
+    await Effect.runPromise(renderer.attachCameraObject(interaction.cameraObject))
+  }
+  if (enabled) {
+    document.body.setAttribute('data-render-presentation', 'ready')
+  }
+
+  const interactionFrame = (elapsedSeconds: number) => ({
+    ...(interactionFeedback ? { target: PRESENTATION_TARGET } : {}),
+    ...(interactionFeedback ? { heldItem: { kind: 'block' as const, tileIndex: PRESENTATION_BLOCK_TILE_INDEX } } : {}),
+    miningProgress: interactionFeedback ? 0.6 : 0,
+    action: interactionFeedback ? 'mine' : 'idle',
+    actionProgress: interactionFeedback ? (elapsedSeconds * 0.75) % 1 : 0,
+    movementIntensity: interactionFeedback ? 0.5 : 0,
+    gaitPhaseRadians: interactionFeedback ? elapsedSeconds * 5 : 0,
+    damageIntensity: interactionFeedback ? 0.25 : 0,
+    damageDirection: { x: 1, y: 0.2 },
+    reducedMotion: false,
+  })
+
+  const update = (
+    pose: typeof START_POSE,
+    elapsedSeconds: number,
+  ): Result.Result<number, unknown> => {
+    let rollRadians = 0
+    if (sky !== undefined) {
+      const skyResult = sky.update({
+        cameraPosition: { x: pose.x, y: pose.y, z: pose.z },
+        cameraPitchRadians: pose.pitch,
+        cameraYawRadians: pose.yaw,
+        dimension: 'overworld',
+        moonPhase: PRESENTATION_MOON_PHASE,
+        timeOfDayTicks: interactionFeedback
+          ? Math.floor((startTicks + elapsedSeconds * PRESENTATION_TICKS_PER_SECOND) % 24_000)
+          : startTicks,
+        simulationTick: Math.floor(elapsedSeconds * ANIMATION_TICKS_PER_SECOND),
+        partialTick: (elapsedSeconds * ANIMATION_TICKS_PER_SECOND) % 1,
+      })
+      if (Result.isFailure(skyResult)) {
+        return Result.fail(skyResult.failure)
+      }
+    }
+    if (interaction !== undefined) {
+      const interactionResult = interaction.update(interactionFrame(elapsedSeconds))
+      if (Result.isFailure(interactionResult)) {
+        return Result.fail(interactionResult.failure)
+      }
+      rollRadians = interactionResult.success.damage.cameraRollRadians
+    }
+    return Result.succeed(rollRadians)
+  }
+
+  const dispose = (): void => {
+    if (sky !== undefined) {
+      Effect.runSync(renderer.detachSceneObject(sky.sceneObject))
+      sky.dispose()
+    }
+    if (interaction !== undefined) {
+      Effect.runSync(renderer.detachSceneObject(interaction.sceneObject))
+      Effect.runSync(renderer.detachCameraObject(interaction.cameraObject))
+      interaction.dispose()
+    }
+  }
+
+  return { dispose, enabled, startPose, update }
+}
+
 const main = async (): Promise<void> => {
   const canvas = document.getElementById('preview-canvas')
   const report = document.getElementById('preview-report')
@@ -197,6 +339,8 @@ const main = async (): Promise<void> => {
         >(THREE, generateAtlas()).material,
     }),
   )
+
+  const presentation = await createPreviewPresentation(renderer)
 
   // REAL GENERATED TERRAIN, loaded as data. See this file's header on why it
   // arrives as JSON rather than as a call into mc-worldgen.
@@ -270,9 +414,17 @@ const main = async (): Promise<void> => {
 
   // The first load, around the start pose, before anything is measured.
   await Effect.runPromise(
-    syncWorld(renderer, streamingSource(START_POSE), fixtureMesher, { tile: fixtureTile }),
+    syncWorld(renderer, streamingSource(presentation.startPose), fixtureMesher, { tile: fixtureTile }),
   )
-  await Effect.runPromise(renderer.draw(PREVIEW_CAMERA))
+  const initialPresentation = presentation.update(presentation.startPose, 0)
+  if (Result.isFailure(initialPresentation)) {
+    document.body.setAttribute('data-render-presentation', 'failed')
+    throw new Error('render presentation preview received an invalid fixture frame')
+  }
+  await Effect.runPromise(renderer.draw(cameraFrom(presentation.startPose, initialPresentation.success)))
+  if (presentation.enabled) {
+    document.body.setAttribute('data-render-presentation', 'drawn')
+  }
 
   // `readPixels` in the SAME task as the draw. The drawing buffer is valid
   // until compositing, and `preserveDrawingBuffer` is false — so this must not
@@ -309,7 +461,7 @@ const main = async (): Promise<void> => {
       `${String(fixture.totalQuads)} quads`,
     `streaming radius ${String(STREAM_RADIUS_CHUNKS)}; loaded now: ${String(loaded.size)}`,
     `pixels drawn: ${String(drawn)} of ${String(VIEWPORT.width * VIEWPORT.height)}`,
-    `distinct tile colours: ${String(colours.size)}`,
+    `distinct ${presentation.enabled ? 'rendered' : 'tile'} colours: ${String(colours.size)}`,
   ].join('\n')
 
   document.body.setAttribute('data-render-preview', drawn > 0 ? 'drawn' : 'empty')
@@ -349,11 +501,12 @@ const main = async (): Promise<void> => {
     })
   })
 
-  const pose = { ...START_POSE }
+  const pose = { ...presentation.startPose }
   let previous = 0
   let frames = 0
   let streamed = 0
   let dropped = 0
+  let presentationStartMillis: number | undefined = undefined
 
   const step = (nowMillis: number): void => {
     const dt = previous === 0 ? 0.016 : Math.min(0.05, (nowMillis - previous) / 1000)
@@ -396,7 +549,15 @@ const main = async (): Promise<void> => {
     streamed += syncReport.meshed
     dropped += syncReport.removed
 
-    Effect.runSync(renderer.draw(cameraFrom(pose)))
+    presentationStartMillis ??= nowMillis
+    const presentationTimeSeconds = (nowMillis - presentationStartMillis) / 1000
+    const presentationResult = presentation.update(pose, presentationTimeSeconds)
+    if (Result.isFailure(presentationResult)) {
+      document.body.setAttribute('data-render-presentation', 'failed')
+      return
+    }
+
+    Effect.runSync(renderer.draw(cameraFrom(pose, presentationResult.success)))
 
     frames += 1
     document.body.setAttribute('data-preview-frames', String(frames))
@@ -419,6 +580,8 @@ const main = async (): Promise<void> => {
 
   document.body.setAttribute('data-preview-interactive', 'ready')
   window.requestAnimationFrame(step)
+
+  window.addEventListener('pagehide', presentation.dispose, { once: true })
 }
 
 main().catch((error: unknown) => {

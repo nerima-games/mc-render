@@ -32,10 +32,11 @@
 import * as THREE from 'three'
 import {
   makeChunkShaderMaterial,
-  makeProductionWorldRenderer,
+  makeProductionWorldRenderer as makeLegacyProductionWorldRenderer,
   makeWaterMaterial,
   makeWorldRenderer,
 } from '../../src/application/world-renderer'
+import { makeProductionWorldRenderer } from '../../src/application/world-renderer-production'
 import { chunkShaderSource } from '../../src/domain/chunk-shader'
 import type {
   ThreeBufferAttribute,
@@ -291,13 +292,31 @@ export const hostBuildsTheWaterMaterial = makeWaterMaterial<
   THREE.ShaderMaterial
 >(THREE, { width: 1280, height: 720 })
 
+const presentationSurface = {
+  ...THREE,
+  BufferGeometry: class extends THREE.BufferGeometry<THREE.NormalBufferAttributes> {},
+}
+
 export const hostBuildsAProductionRenderer = makeProductionWorldRenderer<
   HTMLCanvasElement,
   THREE.BufferGeometry,
   THREE.MeshBasicMaterial,
   THREE.InstancedBufferGeometry,
+  THREE.ShaderMaterial,
+  THREE.Texture,
+  THREE.BufferGeometry<THREE.NormalBufferAttributes>,
+  THREE.MeshBasicMaterial,
+  THREE.LineBasicMaterial,
+  THREE.PointsMaterial
+>(THREE, browserCanvas, { width: 1280, height: 720 }, new THREE.Texture(), {}, presentationSurface)
+
+export const hostBuildsALegacyProductionRenderer = makeLegacyProductionWorldRenderer<
+  HTMLCanvasElement,
+  THREE.BufferGeometry,
+  THREE.MeshBasicMaterial,
+  THREE.InstancedBufferGeometry,
   THREE.ShaderMaterial
->(THREE, browserCanvas, { width: 1280, height: 720 }, new THREE.Texture())
+>(THREE, browserCanvas, { width: 1280, height: 720 }, new THREE.Texture(), {})
 
 /**
  * THE INSTANCED PARTICLE PATH, against the real namespace.

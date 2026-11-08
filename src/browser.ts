@@ -1424,13 +1424,22 @@ const initializeBrowserWorld = ({
         return { buildState, callbacks, worldOptions }
       },
     })
+    const presentationSurface = {
+      ...THREE,
+      BufferGeometry: class extends THREE.BufferGeometry<THREE.NormalBufferAttributes> {},
+    }
     const initializedWorld = yield* makeProductionWorldRenderer<
       HTMLCanvasElement,
       THREE.BufferGeometry,
       THREE.MeshBasicMaterial,
       THREE.InstancedBufferGeometry,
-      THREE.ShaderMaterial
-    >(THREE, options.canvas, state.viewport, atlas.texture, setup.worldOptions)
+      THREE.ShaderMaterial,
+      THREE.Texture,
+      THREE.BufferGeometry<THREE.NormalBufferAttributes>,
+      THREE.MeshBasicMaterial,
+      THREE.LineBasicMaterial,
+      THREE.PointsMaterial
+    >(THREE, options.canvas, state.viewport, atlas.texture, setup.worldOptions, presentationSurface)
     setup.buildState.world = initializedWorld
     yield* initializedWorld.setPostProcessingChain(browserPostProcessingChain(state.quality))
     const surface = yield* Effect.fromResult(requireBrowserRuntimeValue(
@@ -1958,3 +1967,10 @@ export const makeBrowserWorldRuntime = (
     }
     return yield* createBrowserWorldRuntime(options, resources)
   })
+
+export * from './domain/sky-rendering.js'
+export * from './domain/interaction-visuals.js'
+export * from './application/render-presentation-assets.js'
+export * from './application/render-presentation-surface.js'
+export * from './application/sky-renderer.js'
+export * from './application/interaction-renderer.js'

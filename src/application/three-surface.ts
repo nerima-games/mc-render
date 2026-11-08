@@ -213,6 +213,19 @@ export type ThreeEuler = {
   set(xAxis: number, yAxis: number, zAxis: number, order: 'YXZ'): unknown
 }
 
+export type ThreeObjectEuler = {
+  set(xAxis: number, yAxis: number, zAxis: number, order: 'YXZ' | 'XYZ'): unknown
+}
+
+/** The scene-graph members used to mount presentation groups on a scene or camera. */
+export type ThreeObject3D = {
+  readonly position: ThreeVector3
+  readonly rotation: ThreeObjectEuler
+  visible: boolean
+  add(...objects: ReadonlyArray<ThreeObject3D>): unknown
+  remove(...objects: ReadonlyArray<ThreeObject3D>): unknown
+}
+
 /**
  * A mesh, as a SCENE takes one: one member, and it is on `Object3D`.
  *
@@ -230,9 +243,8 @@ export type ThreeEuler = {
  * (cheaper than Three.js per-object bounding-sphere checks)"). This repository
  * performs that manual cull before each draw. `visible` carries its result.
  */
-export type ThreeMesh = {
+export type ThreeMesh = ThreeObject3D & {
   frustumCulled: boolean
-  visible: boolean
 }
 
 /**
@@ -243,8 +255,8 @@ export type ThreeMesh = {
  * only the bivariant direction holds, and method syntax is what selects it.
  */
 export type ThreeScene = {
-  add(object: ThreeMesh): unknown
-  remove(object: ThreeMesh): unknown
+  add(object: ThreeObject3D): unknown
+  remove(object: ThreeObject3D): unknown
 }
 
 /**
@@ -259,6 +271,8 @@ export type ThreeScene = {
 export type ThreeCamera = {
   readonly position: ThreeVector3
   readonly rotation: ThreeEuler
+  add(object: ThreeObject3D): unknown
+  remove(object: ThreeObject3D): unknown
 }
 
 /** The camera members the mirror writes, plus the projection it invalidates. */
