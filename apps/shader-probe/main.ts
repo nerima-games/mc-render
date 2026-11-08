@@ -70,6 +70,7 @@ import {
 import type { MirroredCameraState } from '../../src/domain/camera-mirror.js'
 import { animationTimeSeconds } from '../../src/domain/animation-clock.js'
 import { ANIMATED_TEXTURE_FRAMES, tileIndexForBlockName } from '../../src/domain/block-texture-map.js'
+import { CHUNK_ANIMATION_KIND } from '../../src/domain/chunk-animation-kind.js'
 import { CHUNK_SHADER_ATTRIBUTES, CHUNK_SHADER_UNIFORMS } from '../../src/domain/chunk-shader.js'
 import {
   makeParticlePool,
@@ -101,8 +102,6 @@ const ANIMATION_PROBE_ALPHA_TEST_UNIFORM = 'uAlphaTest'
 const ANIMATION_PROBE_COLOR_CHANNELS = 3
 const ANIMATION_PROBE_UV_CHANNELS = 2
 const ANIMATION_PROBE_RGBA_CHANNELS = 4
-const FIRST_ANIMATION_FRAME_INDEX = 0
-const SECOND_ANIMATION_FRAME_INDEX = 1
 const ANIMATION_PROBE_READBACK_X = ANIMATION_PROBE_HALF_SIZE
 const ANIMATION_PROBE_READBACK_Y = ANIMATION_PROBE_HALF_SIZE
 const ANIMATION_TEXTURE_URL = new URL('../../src/assets/block-textures/atlas.png', import.meta.url).href
@@ -374,19 +373,11 @@ const findStaticSamplePoint = (image: ImageData, tileIndex: number): TextureSamp
   throw new Error(`static atlas tile ${String(tileIndex)} has no opaque pixels`)
 }
 
-const colorsForFrame = (points: ReadonlyArray<TextureSamplePoint>, frameIndex: number): ReadonlyArray<AnimationPixel> => {
-  const colors: Array<AnimationPixel> = []
-  for (const point of points) {
-    const color = point.frameColors[frameIndex]
-    if (color === undefined) {
-      throw new Error(`animation sample point has no color for frame ${String(frameIndex)}`)
-    }
-    colors.push(color)
-  }
-  return colors
-}
-
-const chunkProbeGeometry = (blockType: string, point: TextureSamplePoint): THREE.BufferGeometry => {
+const chunkProbeGeometry = (
+  blockType: string,
+  point: TextureSamplePoint,
+  staticTileIndex?: number,
+): THREE.BufferGeometry => {
   const blockId = blockIdForType(blockType)
   const quad: MeshQuad = {
     ao: 0,
@@ -399,7 +390,7 @@ const chunkProbeGeometry = (blockType: string, point: TextureSamplePoint): THREE
     width: ANIMATION_PROBE_QUAD_EXTENT,
     y: 0,
   }
-  const baseTile = Result.getOrThrow(tileIndexForBlockName(blockType, 'top'))
+  const baseTile = staticTileIndex ?? Result.getOrThrow(tileIndexForBlockName(blockType, 'top'))
   const buffers: ChunkGeometryBuffers = buildChunkGeometry(
     [quad],
     0,
@@ -407,6 +398,10 @@ const chunkProbeGeometry = (blockType: string, point: TextureSamplePoint): THREE
     () => ANIMATION_PROBE_UNOCCLUDED_COLOR,
     () => baseTile,
   )
+  if (staticTileIndex !== undefined) {
+    buffers.animationKinds.fill(CHUNK_ANIMATION_KIND.none)
+    buffers.tileIndices.fill(staticTileIndex)
+  }
   const uvs = new Float32Array(buffers.uvs.length)
   for (let offset = 0; offset < uvs.length; offset += ANIMATION_PROBE_UV_CHANNELS) {
     uvs[offset] = point.u
@@ -430,13 +425,12 @@ const makeAnimationSample = (
   scene: THREE.Scene,
   camera: THREE.Camera,
   uniforms: Readonly<Record<string, { value: unknown }>>,
-  renderBlock: (blockType: string, point: TextureSamplePoint) => void,
+  renderBlock: (blockType: string, point: TextureSamplePoint, staticTileIndex?: number) => void,
   blockType: string,
   points: ReadonlyArray<TextureSamplePoint>,
   simulationTick: number,
   partialTick: number,
   expectedTileIndex: number,
-  expected: ReadonlyArray<AnimationPixel>,
 ): AnimationPixelSample => {
   const time = Result.getOrThrow(animationTimeSeconds({
     partialTick,
@@ -448,8 +442,8 @@ const makeAnimationSample = (
     throw new Error('chunk material has no tick-derived time uniform')
   }
   timeUniform.value = time
-  const actual = points.map((point) => {
-    renderBlock(blockType, point)
+  const readPoint = (point: TextureSamplePoint, staticTileIndex?: number): AnimationPixel => {
+    renderBlock(blockType, point, staticTileIndex)
     renderer.render(scene, camera)
     const rgba = new Uint8Array(ANIMATION_PROBE_RGBA_CHANNELS)
     gl.readPixels(
@@ -462,7 +456,10 @@ const makeAnimationSample = (
       rgba,
     )
     return [rgba[0] ?? 0, rgba[1] ?? 0, rgba[2] ?? 0, rgba[3] ?? 0] as const
-  })
+  }
+  const actual = points.map((point) => readPoint(point))
+  // Read the expected tile through WebGL too; Canvas 2D can round translucent PNG RGB bytes.
+  const expected = points.map((point) => readPoint(point, expectedTileIndex))
   return {
     actual,
     expected,
@@ -529,9 +526,9 @@ const probeChunkAnimationPixels = async (): Promise<ReadonlyArray<AnimationPixel
 
   try {
     const errors = await captureErrors(async () => {
-      const renderBlock = (blockType: string, point: TextureSamplePoint): void => {
+      const renderBlock = (blockType: string, point: TextureSamplePoint, staticTileIndex?: number): void => {
         scene.clear()
-        const geometry = chunkProbeGeometry(blockType, point)
+        const geometry = chunkProbeGeometry(blockType, point, staticTileIndex)
         geometries.push(geometry)
         scene.add(new THREE.Mesh(geometry, material))
       }
@@ -541,7 +538,6 @@ const probeChunkAnimationPixels = async (): Promise<ReadonlyArray<AnimationPixel
         simulationTick: number,
         partialTick: number,
         expectedTileIndex: number,
-        expected: ReadonlyArray<AnimationPixel>,
       ): AnimationPixelSample =>
         makeAnimationSample(
           renderer,
@@ -555,7 +551,6 @@ const probeChunkAnimationPixels = async (): Promise<ReadonlyArray<AnimationPixel
           simulationTick,
           partialTick,
           expectedTileIndex,
-          expected,
         )
 
       for (const probe of ANIMATION_PROBE_CASES) {
@@ -564,13 +559,11 @@ const probeChunkAnimationPixels = async (): Promise<ReadonlyArray<AnimationPixel
         if (beforeTile === undefined || afterTile === undefined) {
           throw new Error(`${probe.blockType} animation has no boundary frame pair`)
         }
-        const beforeColors = colorsForFrame(points, FIRST_ANIMATION_FRAME_INDEX)
-        const afterColors = colorsForFrame(points, SECOND_ANIMATION_FRAME_INDEX)
         const beforeTick = probe.firstChangeTick - 1
         const afterTick = probe.firstChangeTick
         results.push({
-          after: sample(probe.blockType, points, afterTick, 0, afterTile, afterColors),
-          before: sample(probe.blockType, points, beforeTick, ANIMATION_PROBE_PARTIAL_TICK, beforeTile, beforeColors),
+          after: sample(probe.blockType, points, afterTick, 0, afterTile),
+          before: sample(probe.blockType, points, beforeTick, ANIMATION_PROBE_PARTIAL_TICK, beforeTile),
           boundaryTick: probe.firstChangeTick,
           blockType: probe.blockType,
           beforeTick,
@@ -579,17 +572,16 @@ const probeChunkAnimationPixels = async (): Promise<ReadonlyArray<AnimationPixel
           afterPartialTick: 0,
           repeatedTick: afterTick,
           repeatedPartialTick: 0,
-          repeated: sample(probe.blockType, points, afterTick, 0, afterTile, afterColors),
+          repeated: sample(probe.blockType, points, afterTick, 0, afterTile),
         })
       }
 
       const iceTile = Result.getOrThrow(tileIndexForBlockName('ice', 'top'))
       const icePoint = findStaticSamplePoint(atlasImage, iceTile)
       const icePoints = [icePoint]
-      const iceColors = colorsForFrame(icePoints, FIRST_ANIMATION_FRAME_INDEX)
       results.push({
-        after: sample('ice', icePoints, 20, 0, iceTile, iceColors),
-        before: sample('ice', icePoints, 0, 0, iceTile, iceColors),
+        after: sample('ice', icePoints, 20, 0, iceTile),
+        before: sample('ice', icePoints, 0, 0, iceTile),
         boundaryTick: 20,
         blockType: 'ice',
         beforeTick: 0,
@@ -598,7 +590,7 @@ const probeChunkAnimationPixels = async (): Promise<ReadonlyArray<AnimationPixel
         afterPartialTick: 0,
         repeatedTick: 20,
         repeatedPartialTick: 0,
-        repeated: sample('ice', icePoints, 20, 0, iceTile, iceColors),
+        repeated: sample('ice', icePoints, 20, 0, iceTile),
       })
     })
 
