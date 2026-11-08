@@ -204,7 +204,7 @@
     },
     "pressure_plate": {
       "palette": "machine-steel",
-      "pattern": "machine-panel",
+      "pattern": "pressure-plate",
       "alpha": "opaque"
     },
     "stone_slab": {
@@ -219,17 +219,17 @@
     },
     "lever": {
       "palette": "machine-steel",
-      "pattern": "machine-panel",
+      "pattern": "lever",
       "alpha": "cutout"
     },
     "rail": {
       "palette": "mechanical-iron",
-      "pattern": "machine-panel",
+      "pattern": "rail",
       "alpha": "cutout"
     },
     "powered_rail": {
       "palette": "mechanical-iron",
-      "pattern": "machine-panel",
+      "pattern": "powered-rail",
       "alpha": "cutout"
     },
     "granite": {
@@ -294,7 +294,7 @@
     },
     "observer": {
       "palette": "machine-steel",
-      "pattern": "machine-panel",
+      "pattern": "observer",
       "alpha": "opaque"
     },
     "dispenser": {
@@ -309,11 +309,11 @@
     },
     "dropper": {
       "palette": "machine-steel",
-      "pattern": "dispenser",
+      "pattern": "dropper",
       "alpha": "opaque",
       "faces": {
         "top": "stone-mottle",
-        "side": "dispenser",
+        "side": "dropper",
         "bottom": "machine-panel"
       }
     },

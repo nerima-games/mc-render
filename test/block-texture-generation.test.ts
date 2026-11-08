@@ -141,6 +141,12 @@ const tileHasVisiblePixel = (rgba: Uint8Array, tile: number): boolean => {
   return false
 }
 
+type RecipeAssignment = Readonly<{ palette: string; pattern: string }>
+type RecipeFile = Readonly<{ recipes: Readonly<Record<string, RecipeAssignment>> }>
+
+const RECIPE_GROUPS = ['stone', 'soil-grass', 'wood', 'ore', 'plants', 'liquids'] as const
+const MACHINE_TILE_RANGES: ReadonlyArray<readonly [number, number]> = [[91, 102], [226, 258]]
+
 describe('block texture generation', () => {
   it('produces identical atlas, manifest, and detail PNG bytes for the same recipe input', async () => {
     const first = artifacts()
@@ -159,10 +165,69 @@ describe('block texture generation', () => {
       'stone-mottle', 'soil-grain', 'grass-cover', 'grass-edge', 'plank-grain',
       'bark-grain', 'wood-rings', 'ore-vein', 'leaf-canopy', 'sand-grain',
       'gravel-pebble', 'glass-pane', 'wool-weave', 'machine-panel', 'furnace',
-      'crafting-table', 'chest', 'dispenser', 'furrow', 'redstone-wire',
+      'crafting-table', 'chest', 'dispenser', 'dropper', 'rail', 'powered-rail',
+      'pressure-plate', 'lever', 'observer', 'repeater', 'comparator', 'furrow', 'redstone-wire',
       'redstone-torch', 'portal-frame', 'portal-frame-filled', 'door',
       'door-open', 'cauldron', 'water-cauldron', 'tnt-wrap', 'brewing-stand',
     ]))
+  })
+
+  it('lists distinct palette and pattern assignments for machine tiles', async () => {
+    const recipeFiles = await Promise.all(RECIPE_GROUPS.map(async (group) => {
+      const source = await readFile(resolve(import.meta.dirname, `../scripts/texture-recipes/${group}.json`), 'utf8')
+      return JSON.parse(source) as RecipeFile
+    }))
+    const recipes = new Map<string, RecipeAssignment>()
+    for (const recipeFile of recipeFiles) {
+      for (const [blockName, recipe] of Object.entries(recipeFile.recipes)) {
+        recipes.set(blockName, recipe)
+      }
+    }
+
+    const manifest = artifacts().manifestData
+    const machineBlockNames = Object.entries(manifest.blockFaces)
+      .filter(([, faces]) => Object.values(faces).some((tile) =>
+        MACHINE_TILE_RANGES.some(([first, last]) => tile >= first && tile <= last),
+      ))
+      .map(([blockName]) => blockName)
+      .sort()
+    const assignments: Record<string, string> = {}
+    for (const blockName of machineBlockNames) {
+      const recipe = recipes.get(blockName)
+      expect(recipe, `Missing recipe assignment for ${blockName}`).toBeDefined()
+      if (recipe !== undefined) {
+        assignments[blockName] = `${recipe.palette}/${recipe.pattern}`
+      }
+    }
+
+    const blocksByAssignment = new Map<string, Array<string>>()
+    for (const [blockName, assignment] of Object.entries(assignments)) {
+      const assignedBlocks = blocksByAssignment.get(assignment) ?? []
+      assignedBlocks.push(blockName)
+      blocksByAssignment.set(assignment, assignedBlocks)
+    }
+    const duplicateAssignments = [...blocksByAssignment]
+      .filter(([, blockNames]) => blockNames.length > 1)
+      .map(([assignment, blockNames]) => ({ assignment, blockNames }))
+
+    expect(assignments).toStrictEqual({
+      cactus: 'cactus/stalk',
+      comparator: 'redstone-circuit/comparator',
+      dispenser: 'machine-steel/dispenser',
+      dropper: 'machine-steel/dropper',
+      hopper: 'mechanical-iron/machine-panel',
+      lever: 'machine-steel/lever',
+      observer: 'machine-steel/observer',
+      piston_head: 'machine-steel/machine-panel',
+      powered_rail: 'mechanical-iron/powered-rail',
+      pressure_plate: 'machine-steel/pressure-plate',
+      rail: 'mechanical-iron/rail',
+      redstone_lamp: 'lamp-unlit/machine-panel',
+      redstone_lamp_lit: 'lamp-lit/machine-panel',
+      repeater: 'redstone-circuit/repeater',
+      stone_button: 'cool-stone/stone-mottle',
+    })
+    expect(duplicateAssignments).toStrictEqual([])
   })
 
   it('covers every non-air kernel block with three non-empty faces and contiguous tiles', () => {

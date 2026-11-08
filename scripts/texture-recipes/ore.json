@@ -175,8 +175,8 @@
     "redstone_torch": {"palette": "redstone-circuit", "pattern": "redstone-torch", "alpha": "cutout"},
     "redstone_lamp": {"palette": "lamp-unlit", "pattern": "machine-panel", "alpha": "opaque"},
     "redstone_lamp_lit": {"palette": "lamp-lit", "pattern": "machine-panel", "alpha": "opaque"},
-    "comparator": {"palette": "redstone-circuit", "pattern": "machine-panel", "alpha": "cutout"},
-    "repeater": {"palette": "redstone-circuit", "pattern": "machine-panel", "alpha": "cutout"},
+    "comparator": {"palette": "redstone-circuit", "pattern": "comparator", "alpha": "cutout"},
+    "repeater": {"palette": "redstone-circuit", "pattern": "repeater", "alpha": "cutout"},
     "amethyst_block": {"palette": "amethyst", "pattern": "stone-mottle", "alpha": "opaque"},
     "amethyst_cluster": {"palette": "amethyst-cluster", "pattern": "ore-vein", "alpha": "cutout"}
   }

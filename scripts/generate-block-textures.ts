@@ -16,7 +16,8 @@ const PATTERNS = [
   'stone-mottle', 'soil-grain', 'grass-cover', 'plank-grain', 'bark-grain',
   'wood-rings', 'ore-vein', 'leaf-canopy', 'sand-grain', 'gravel-pebble',
   'glass-pane', 'wool-weave', 'machine-panel', 'furnace', 'crafting-table',
-  'chest', 'dispenser', 'furrow', 'redstone-wire', 'redstone-torch',
+  'chest', 'dispenser', 'dropper', 'rail', 'powered-rail', 'pressure-plate',
+  'lever', 'observer', 'repeater', 'comparator', 'furrow', 'redstone-wire', 'redstone-torch',
   'portal-frame', 'portal-frame-filled', 'door', 'door-open', 'cauldron',
   'water-cauldron', 'tnt-wrap', 'brewing-stand',
 ] as const
@@ -938,21 +939,170 @@ const renderChest: PatternRenderer = (context) => {
 
 const renderDispenser: PatternRenderer = (context) => {
   renderStoneMottle(context)
-  const { face, rect, line, set } = context
+  const { face, rect, line } = context
   if (face === 'side') {
     rect(1, 1, 14, 14, 1)
-    rect(3, 3, 10, 10, 2)
-    rect(4, 4, 8, 8, 0)
-    rect(6, 6, 4, 4, 3)
-    set(7, 7, 4)
-    line(2, 2, 13, 2, 4)
-    line(2, 13, 13, 13, 1)
+    rect(2, 2, 12, 12, 2)
+    rect(4, 4, 8, 8, 1)
+    rect(5, 5, 6, 6, 0)
+    rect(6, 6, 4, 4, 1)
+    rect(7, 7, 2, 2, 0)
+    line(5, 4, 10, 4, 4)
+    line(5, 11, 10, 11, 1)
   } else {
     rect(2, 2, 12, 12, 1)
-    line(4, 4, 11, 4, 3)
-    line(4, 11, 11, 11, 3)
+    rect(4, 4, 8, 8, 2)
     rect(6, 6, 4, 4, 0)
-    set(7, 7, 4)
+    line(6, 5, 9, 5, 4)
+    line(6, 10, 9, 10, 1)
+  }
+}
+
+const renderDropper: PatternRenderer = (context) => {
+  renderStoneMottle(context)
+  const { face, rect, line } = context
+  if (face === 'side') {
+    rect(1, 1, 14, 14, 1)
+    rect(2, 2, 12, 12, 2)
+    line(4, 3, 11, 3, 4)
+    line(4, 4, 6, 7, 1)
+    line(11, 4, 9, 7, 1)
+    line(6, 7, 9, 7, 3)
+    rect(6, 8, 4, 4, 0)
+    line(5, 12, 10, 12, 4)
+    line(5, 13, 10, 13, 1)
+  } else {
+    rect(2, 2, 12, 12, 1)
+    rect(4, 4, 8, 8, 2)
+    rect(5, 5, 6, 6, 0)
+    line(6, 5, 9, 5, 4)
+    line(6, 10, 9, 10, 1)
+  }
+}
+
+const renderRail: PatternRenderer = (context) => {
+  fillNoiseSurface(context, { shadow: 0.13, base: 0.61, light: 0.92 })
+  const { face, line, rect } = context
+  if (face === 'top') {
+    rect(2, 0, 2, 16, 1)
+    rect(3, 0, 1, 16, 4)
+    rect(12, 0, 2, 16, 1)
+    rect(12, 0, 1, 16, 3)
+    for (let y = 2; y < 16; y += 4) {
+      line(1, y, 14, y, 2)
+      line(1, y + 1, 14, y + 1, 1)
+    }
+  } else {
+    line(0, 4, 15, 4, 1)
+    line(0, 5, 15, 5, 4)
+    line(0, 11, 15, 11, 1)
+    line(0, 12, 15, 12, 4)
+    for (let x = 2; x < 16; x += 5) {
+      rect(x, 3, 1, 11, 2)
+    }
+  }
+}
+
+const renderPoweredRail: PatternRenderer = (context) => {
+  renderRail(context)
+  const { face, line, rect } = context
+  if (face === 'top') {
+    line(7, 0, 7, 15, 4)
+    line(8, 0, 8, 15, 3)
+    for (let y = 3; y < 16; y += 4) {
+      rect(5, y, 6, 1, 1)
+    }
+  } else {
+    line(0, 7, 15, 7, 4)
+    line(0, 8, 15, 8, 3)
+  }
+}
+
+const renderPressurePlate: PatternRenderer = (context) => {
+  fillNoiseSurface(context, { shadow: 0.14, base: 0.61, light: 0.92 })
+  const { face, rect, line } = context
+  if (face === 'top') {
+    rect(1, 5, 14, 6, 1)
+    rect(2, 5, 12, 4, 3)
+    line(2, 9, 13, 9, 4)
+    line(1, 11, 14, 11, 1)
+  } else {
+    rect(1, 6, 14, 4, 1)
+    line(2, 6, 13, 6, 4)
+    line(2, 9, 13, 9, 1)
+    rect(3, 4, 2, 2, 3)
+    rect(11, 4, 2, 2, 3)
+  }
+}
+
+const renderLever: PatternRenderer = (context) => {
+  fillNoiseSurface(context, { shadow: 0.16, base: 0.6, light: 0.9 })
+  const { face, rect, line, set } = context
+  rect(3, 10, 10, 4, 1)
+  rect(4, 9, 8, 3, 2)
+  line(5, 10, 10, 4, 1)
+  line(6, 10, 11, 4, 4)
+  rect(9, 2, 4, 4, 1)
+  rect(10, 2, 3, 3, 4)
+  set(face === 'top' ? 4 : 3, 13, 3)
+}
+
+const renderObserver: PatternRenderer = (context) => {
+  fillNoiseSurface(context, { shadow: 0.16, base: 0.59, light: 0.9 })
+  const { face, rect, line, set } = context
+  rect(1, 2, 14, 12, 1)
+  rect(2, 3, 12, 10, 2)
+  if (face === 'side') {
+    rect(2, 6, 12, 4, 0)
+    line(3, 5, 12, 5, 4)
+    line(3, 10, 12, 10, 1)
+    set(7, 7, 3)
+    set(8, 8, 3)
+  } else {
+    line(3, 5, 12, 5, 1)
+    line(3, 8, 12, 8, 3)
+    line(3, 11, 12, 11, 1)
+    rect(6, 6, 4, 4, 4)
+  }
+}
+
+const renderRepeater: PatternRenderer = (context) => {
+  fillNoiseSurface(context, { shadow: 0.2, base: 0.58, light: 0.88 })
+  const { face, rect, line, set } = context
+  rect(1, 3, 14, 10, 1)
+  rect(2, 4, 12, 8, 2)
+  if (face === 'top') {
+    line(3, 8, 12, 8, 1)
+    rect(4, 6, 2, 4, 4)
+    rect(10, 6, 2, 4, 3)
+    set(4, 5, 4)
+    set(11, 5, 3)
+  } else {
+    line(2, 6, 13, 6, 4)
+    line(2, 10, 13, 10, 1)
+    rect(5, 5, 2, 3, 3)
+    rect(9, 7, 2, 3, 4)
+  }
+}
+
+const renderComparator: PatternRenderer = (context) => {
+  fillNoiseSurface(context, { shadow: 0.2, base: 0.58, light: 0.88 })
+  const { face, rect, line, set } = context
+  rect(1, 3, 14, 10, 1)
+  rect(2, 4, 12, 8, 2)
+  if (face === 'top') {
+    line(3, 9, 12, 9, 1)
+    rect(4, 5, 2, 2, 4)
+    rect(7, 5, 2, 2, 3)
+    rect(10, 5, 2, 2, 4)
+    line(5, 8, 8, 10, 3)
+    line(10, 8, 8, 10, 3)
+  } else {
+    line(2, 6, 13, 6, 1)
+    line(2, 10, 13, 10, 1)
+    set(4, 8, 4)
+    set(8, 8, 3)
+    set(12, 8, 4)
   }
 }
 
@@ -1360,6 +1510,14 @@ const PATTERN_RENDERERS: Readonly<Record<PatternName, PatternRenderer>> = {
   'crafting-table': renderCraftingTable,
   chest: renderChest,
   dispenser: renderDispenser,
+  dropper: renderDropper,
+  rail: renderRail,
+  'powered-rail': renderPoweredRail,
+  'pressure-plate': renderPressurePlate,
+  lever: renderLever,
+  observer: renderObserver,
+  repeater: renderRepeater,
+  comparator: renderComparator,
   furrow: renderFurrow,
   'redstone-wire': renderRedstoneWire,
   'redstone-torch': renderRedstoneTorch,
