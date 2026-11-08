@@ -29,6 +29,18 @@ import { waterShaderSource } from '../domain/water-shader.js'
 /** Full daylight used when no environment plan has been supplied. */
 export const FULL_SUN_INTENSITY = 1
 const NO_POLICY_VIOLATIONS = 0
+const CHUNK_ALPHA_TEST_UNIFORM = 'uAlphaTest'
+const CHUNK_CUTOUT_ALPHA_TEST = 0.1
+const CHUNK_ALPHA_TEST_DISABLED = 0
+
+type ChunkMaterialVariant = 'opaque' | 'cutout' | 'transparent'
+
+const chunkAlphaTestFor = (variant: ChunkMaterialVariant): number => {
+  if (variant === 'cutout') {
+    return CHUNK_CUTOUT_ALPHA_TEST
+  }
+  return CHUNK_ALPHA_TEST_DISABLED
+}
 
 /** The material and stable uniform boxes shared by all chunk meshes. */
 export type ChunkShaderMaterial<TShaderMaterial extends ThreeMaterial> = {
@@ -164,7 +176,46 @@ export const applyChunkShaderEnvironment = (
   }
 }
 
-/** Build the textured, packed-light chunk material and its uniform boxes. */
+/** Build a chunk-layer shader material from its structural inputs. */
+export const makeChunkShaderMaterialVariant = <
+  TCanvas,
+  TGeometry extends ThreeBufferGeometry,
+  TMaterial extends ThreeMaterial,
+  TShaderMaterial extends ThreeMaterial,
+>(options: {
+  readonly atlasTexture: unknown
+  readonly sunIntensity?: number
+  readonly three: ThreeShaderSurface<TCanvas, TGeometry, TMaterial, TShaderMaterial>
+  readonly variant: ChunkMaterialVariant
+}): ChunkShaderMaterial<TShaderMaterial> => {
+  const { atlasTexture, three, variant } = options
+  const sunIntensity = options.sunIntensity ?? FULL_SUN_INTENSITY
+  const source = chunkShaderSource()
+  const defaultEnvironment = planRenderEnvironment(FULL_SUN_INTENSITY)
+  const alphaTest = chunkAlphaTestFor(variant)
+  const uniforms: Record<string, ThreeUniform> = {
+    [CHUNK_SHADER_UNIFORMS.atlas]: { value: atlasTexture },
+    [CHUNK_ALPHA_TEST_UNIFORM]: { value: alphaTest },
+    [CHUNK_SHADER_UNIFORMS.sunIntensity]: { value: sunIntensity },
+    [CHUNK_SHADER_UNIFORMS.fogColor]: { value: [...defaultEnvironment.fogColor] },
+    [CHUNK_SHADER_UNIFORMS.fogNear]: { value: defaultEnvironment.fogNear },
+    [CHUNK_SHADER_UNIFORMS.fogFar]: { value: defaultEnvironment.fogFar },
+  }
+  return {
+    material: new three.ShaderMaterial({
+      alphaTest,
+      depthWrite: variant !== 'transparent',
+      fragmentShader: source.fragmentShader,
+      transparent: variant === 'transparent',
+      uniforms,
+      vertexColors: true,
+      vertexShader: source.vertexShader,
+    }),
+    uniforms,
+  }
+}
+
+/** Build the opaque textured, packed-light material and its uniform boxes. */
 export const makeChunkShaderMaterial = <
   TCanvas,
   TGeometry extends ThreeBufferGeometry,
@@ -174,26 +225,12 @@ export const makeChunkShaderMaterial = <
   three: ThreeShaderSurface<TCanvas, TGeometry, TMaterial, TShaderMaterial>,
   atlasTexture: unknown,
   sunIntensity: number = FULL_SUN_INTENSITY,
-): ChunkShaderMaterial<TShaderMaterial> => {
-  const source = chunkShaderSource()
-  const defaultEnvironment = planRenderEnvironment(FULL_SUN_INTENSITY)
-  const uniforms: Record<string, ThreeUniform> = {
-    [CHUNK_SHADER_UNIFORMS.atlas]: { value: atlasTexture },
-    [CHUNK_SHADER_UNIFORMS.sunIntensity]: { value: sunIntensity },
-    [CHUNK_SHADER_UNIFORMS.fogColor]: { value: [...defaultEnvironment.fogColor] },
-    [CHUNK_SHADER_UNIFORMS.fogNear]: { value: defaultEnvironment.fogNear },
-    [CHUNK_SHADER_UNIFORMS.fogFar]: { value: defaultEnvironment.fogFar },
-  }
-  return {
-    material: new three.ShaderMaterial({
-      fragmentShader: source.fragmentShader,
-      uniforms,
-      vertexColors: true,
-      vertexShader: source.vertexShader,
-    }),
-    uniforms,
-  }
-}
+): ChunkShaderMaterial<TShaderMaterial> => makeChunkShaderMaterialVariant({
+  atlasTexture,
+  sunIntensity,
+  three,
+  variant: 'opaque',
+})
 
 /** The initial value for a refraction sample before a host fills its target. */
 export const REFRACTION_UNAVAILABLE = 0

@@ -18,6 +18,7 @@ import {
   applyChunkShaderEnvironment,
   assertRendererMaterialPolicies,
   makeChunkShaderMaterial,
+  makeChunkShaderMaterialVariant,
   makeWaterMaterial,
 } from './world-renderer-materials.js'
 import type {
@@ -68,7 +69,7 @@ export type ProductionWorldRenderer<TShaderMaterial extends ThreeMaterial> = Wor
 
 export type ProductionWorldRendererOptions = Omit<
   WorldRendererOptions<ThreeMaterial>,
-  'material' | 'applyMaterialEnvironment'
+  'material' | 'cutoutMaterial' | 'transparentMaterial' | 'waterMaterial' | 'applyMaterialEnvironment'
 > & {
   readonly particles?: ParticlePoolOptions
 }
@@ -99,7 +100,11 @@ export const makeProductionWorldRenderer = <
   let activeDimension = options.dimension ?? DEFAULT_DIMENSION
   let particleFrame: ParticleFrameSnapshot = { dimension: activeDimension, entities: [] }
   const buildRenderer = Effect.gen(function* buildProductionRenderer() {
-    const chunk = makeChunkShaderMaterial(three, atlasTexture)
+    const chunkMaterials = {
+      cutout: makeChunkShaderMaterialVariant({ atlasTexture, three, variant: 'cutout' }),
+      opaque: makeChunkShaderMaterial(three, atlasTexture),
+      transparent: makeChunkShaderMaterialVariant({ atlasTexture, three, variant: 'transparent' }),
+    }
     const water = makeWaterMaterial(three, viewport)
     const particleService = yield* ParticleService
     const particlePool = yield* ParticleServicePoolAccess
@@ -109,11 +114,16 @@ export const makeProductionWorldRenderer = <
     const renderer = yield* makeWorldRenderer(three, canvas, viewport, {
       ...rendererOptions,
       applyMaterialEnvironment: (environment) => {
-        applyChunkShaderEnvironment(chunk.uniforms, environment)
+        applyChunkShaderEnvironment(chunkMaterials.opaque.uniforms, environment)
+        applyChunkShaderEnvironment(chunkMaterials.cutout.uniforms, environment)
+        applyChunkShaderEnvironment(chunkMaterials.transparent.uniforms, environment)
         const sun = water.uniforms['uSunIntensity']
         if (sun) {sun.value = environment.sunIntensity}
       },
-      material: () => chunk.material,
+      cutoutMaterial: () => chunkMaterials.cutout.material,
+      material: () => chunkMaterials.opaque.material,
+      transparentMaterial: () => chunkMaterials.transparent.material,
+      waterMaterial: () => water.material,
     })
     yield* renderer.attachSceneObject(particles.mesh)
 
@@ -134,11 +144,10 @@ export const makeProductionWorldRenderer = <
           cameraPosition.value = [frame.cameraPosition.worldX, frame.cameraPosition.worldY, frame.cameraPosition.worldZ]
         }
       }).pipe(Effect.andThen(particles.sync)),
-      chunkMaterial: chunk.material,
+      chunkMaterial: chunkMaterials.opaque.material,
       dispose: renderer.detachSceneObject(particles.mesh).pipe(
         Effect.andThen(renderer.dispose),
         Effect.andThen(particles.dispose),
-        Effect.andThen(Effect.sync(() => water.material.dispose())),
       ),
       particlePool,
       particleService,

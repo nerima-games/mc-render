@@ -10,6 +10,7 @@ import {
   chunkCoord,
   propertyOfBlockId,
 } from '@nerima-games/mc-kernel'
+import { type BlockNameLookup, quadTileForLookup, tileIndexForBlockName } from '../domain/block-texture-map.js'
 import {
   CHUNK_HEIGHT,
   type ChunkStoreApi,
@@ -32,7 +33,7 @@ import {
   attachWorldRenderer,
 } from './world-sync.js'
 import { Effect, Option, Result } from 'effect'
-import { type GeometryQuad, type QuadColor } from '../domain/chunk-geometry.js'
+import { type GeometryQuad, type MeshQuad, type QuadColor } from '../domain/chunk-geometry.js'
 import {
   type LightSampler,
   NO_LIGHT,
@@ -40,10 +41,10 @@ import {
   lightSampleForGeometryQuad,
   packedLightColor,
 } from '../domain/voxel-lighting.js'
-import type { BlockNameLookup } from '../domain/block-texture-map.js'
 import type { BlockShapeKind } from '../domain/meshing-vocabulary.js'
 import type { WorldRenderer } from './world-renderer.js'
 import { meshBlockShapes } from '../domain/block-shapes.js'
+import { terrainTileKind } from '../domain/texture-atlas.js'
 
 /** The kernel registry is the single numeric-id to texture-name authority. */
 export const blockNameFromKernel: BlockNameLookup = (blockId) =>
@@ -97,6 +98,29 @@ const blockShapeFor = (blockId: BlockId): BlockShapeKind | undefined => {
     return 'slab'
   }
   return undefined
+}
+
+const withoutBlockShapes = (
+  quads: ReadonlyArray<MeshQuad>,
+  blockShapeKinds: ReadonlyMap<BlockId, BlockShapeKind>,
+): ReadonlyArray<MeshQuad> => quads.filter((quad) => !blockShapeKinds.has(quad.blockId))
+
+const isCutoutQuad = (quad: MeshQuad): boolean => {
+  const kind = terrainTileKind(tileIndexForBlockName(blockNameFromKernel(quad.blockId), quad.role))
+  return kind === 'cutout' || kind === 'leaves'
+}
+
+const splitTransparentSolids = (quads: ReadonlyArray<MeshQuad>) => {
+  const cutout: Array<MeshQuad> = []
+  const blended: Array<MeshQuad> = []
+  for (const quad of quads) {
+    if (isCutoutQuad(quad)) {
+      cutout.push(quad)
+    } else {
+      blended.push(quad)
+    }
+  }
+  return { blended, cutout }
 }
 
 /** Collect kernel block IDs whose geometry is not a full cube. */
@@ -270,6 +294,10 @@ const meshWorldgenChunk = (
   const meshingNeighbours = toMeshingNeighbours(worldgenNeighbours)
   return Result.map(meshChunk(chunkView, meshingNeighbours, config), (layers) => {
     const blockShapeKinds = config.blockShapeKinds ?? EMPTY_BLOCK_SHAPE_KINDS
+    const opaque = withoutBlockShapes(layers.opaque, blockShapeKinds)
+    const water = withoutBlockShapes(layers.water, blockShapeKinds)
+    const transparentSolid = withoutBlockShapes(layers.transparentSolid, blockShapeKinds)
+    const { blended, cutout } = splitTransparentSolids(transparentSolid)
     const quads = [...layers.opaque, ...layers.water, ...layers.transparentSolid].filter(
       (quad) => !blockShapeKinds.has(quad.blockId),
     )
@@ -278,6 +306,12 @@ const meshWorldgenChunk = (
       blockShapes,
       crossPlants: layers.crossPlants,
       fluids: layers.fluids,
+      renderLayers: {
+        cutout,
+        opaque,
+        transparentSolid: blended,
+        water,
+      },
     })
   })
 }
@@ -299,15 +333,17 @@ export const makeChunkStoreMesher = (
       return yield* Effect.fromResult(meshWorldgenChunk(worldgenChunk, worldgenNeighbours, config))
     })
 
-/** `options` with a light-sampling `colorForChunk` filled in, unless the caller already supplied one (or a flat `color`). */
+/** `options` with default atlas tiles and chunk lighting, unless the caller supplied overrides. */
 const withDefaultColorForChunk = (store: RendererChunkStore, options: SyncOptions): SyncOptions => {
+  const tile = options.tile ?? quadTileForLookup(blockNameFromKernel)
   if (options.colorForChunk !== undefined || options.color !== undefined) {
-    return options
+    return { ...options, tile }
   }
   return {
     ...options,
     colorForChunk: (chunk: { readonly cx: number; readonly cz: number }, quads: ReadonlyArray<GeometryQuad>) =>
       makeChunkStoreLightColor(store, chunk, quads),
+    tile,
   }
 }
 

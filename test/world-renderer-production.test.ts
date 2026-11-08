@@ -13,6 +13,7 @@ import { describe, expect, it } from '@effect/vitest'
 import { Effect, Result, Schema } from 'effect'
 import { ParticleRequestSchema } from '../src/application/particle-service'
 import { makeProductionWorldRenderer, type ProductionFrame } from '../src/application/world-renderer-production'
+import { chunkKeyOf } from '../src/application/world-sync'
 import {
   applyChunkShaderEnvironment,
   makeChunkShaderMaterial,
@@ -30,9 +31,22 @@ import {
   spawnBurst as spawnBurstResult,
 } from '../src/domain/particle-pool'
 import { planRenderEnvironment } from '../src/domain/render-environment'
+import { buildChunkGeometry, type MeshQuad } from '../src/domain/chunk-geometry'
 import { FAKE_CANVAS, makeFakeThree } from './support/fake-three'
+import { blockId, chunkCoord } from './support/kernel-brands'
 
 const VIEWPORT = { width: 1280, height: 720 }
+const quad = (): MeshQuad => ({
+  ao: 0,
+  blockId: blockId(1),
+  direction: 'yPos',
+  height: 1,
+  lx: 0,
+  lz: 0,
+  role: 'top',
+  width: 1,
+  y: 0,
+})
 const decodePosition = Schema.decodeUnknownSync(ParticleWorldCoordinateSchema)
 const decodeUv = Schema.decodeUnknownSync(ParticleUvCoordinateSchema)
 const decodeCount = Schema.decodeUnknownSync(ParticleBurstCountSchema)
@@ -150,16 +164,49 @@ describe('makeProductionWorldRenderer (the shipped composition)', () => {
       })
 
       expect(three.materials()).toHaveLength(0)
-      expect(three.shaderMaterials()).toHaveLength(3)
+      expect(three.shaderMaterials()).toHaveLength(5)
+      const shaderMaterials = three.shaderMaterials()
+      const cutoutMaterial = shaderMaterials.find(({ uniforms }) => uniforms['uAlphaTest']?.value === 0.1)
+      const transparentSolidMaterial = shaderMaterials.find(({ transparent, uniforms }) =>
+        transparent === true && uniforms['uAlphaTest']?.value === 0,
+      )
+      if (cutoutMaterial === undefined || transparentSolidMaterial === undefined) {
+        throw new Error('the production renderer must build cutout and blended chunk materials')
+      }
       expect(renderer.chunkMaterial.uniforms['uAtlas']?.value).toBe(atlas)
+      expect(cutoutMaterial.alphaTest).toBe(0.1)
+      expect(cutoutMaterial.uniforms['uAlphaTest']?.value).toBe(0.1)
+      expect(cutoutMaterial.transparent).toBe(false)
+      expect(transparentSolidMaterial.transparent).toBe(true)
+      expect(transparentSolidMaterial.depthWrite).toBe(false)
+      expect(transparentSolidMaterial.uniforms['uAlphaTest']?.value).toBe(0)
       expect(renderer.waterMaterial.transparent).toBe(true)
       expect(renderer.waterMaterial.depthWrite).toBe(false)
       expect(renderer.waterMaterial.forceSinglePass).toBe(true)
-      expect(three.shaderMaterials()[2]?.uniforms['uAtlas']?.value).toBe(atlas)
+      expect(three.shaderMaterials()[4]?.uniforms['uAtlas']?.value).toBe(atlas)
       expect(three.scene().members()).toContain(renderer.particles.mesh)
+
+      const fluidBuffers = buildChunkGeometry([quad()])
+      yield* renderer.setChunks([{
+        buffers: buildChunkGeometry([]),
+        key: chunkKeyOf(chunkCoord(0, 0)),
+        transparentSolidBuffers: fluidBuffers,
+        waterBuffers: fluidBuffers,
+      }])
+      const translucentMeshes = three.meshes().filter(({ material }) =>
+        material === transparentSolidMaterial || material === renderer.waterMaterial,
+      )
+      expect(translucentMeshes.map(({ material }) => material)).toStrictEqual([
+        transparentSolidMaterial,
+        renderer.waterMaterial,
+      ])
+      expect(translucentMeshes[0]?.renderOrder).toBe(translucentMeshes[1]?.renderOrder)
+      expect(translucentMeshes[0]?.renderOrder).toBe(0)
 
       yield* renderer.setEnvironment(planRenderEnvironment(0.25))
       expect(renderer.chunkMaterial.uniforms['uSunIntensity']?.value).toBeCloseTo(0.25)
+      expect(cutoutMaterial.uniforms['uSunIntensity']?.value).toBeCloseTo(0.25)
+      expect(transparentSolidMaterial.uniforms['uSunIntensity']?.value).toBeCloseTo(0.25)
       expect(renderer.waterUniforms['uSunIntensity']?.value).toBeCloseTo(0.25)
 
       spawnBurst(renderer.particlePool, 1, 2, 3, 0, 0, 1)

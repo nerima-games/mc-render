@@ -156,6 +156,8 @@ export const CHUNK_SHADER_UNIFORMS = {
   sunIntensity: 'uSunIntensity',
 } as const
 
+const CHUNK_ALPHA_TEST_UNIFORM = 'uAlphaTest'
+
 /**
  * The vertex stage: pass through the tile index, and compute the fixed per-face
  * brightness from the normal.
@@ -227,6 +229,7 @@ uniform float ${CHUNK_SHADER_UNIFORMS.sunIntensity};
 uniform vec3 ${CHUNK_SHADER_UNIFORMS.fogColor};
 uniform float ${CHUNK_SHADER_UNIFORMS.fogNear};
 uniform float ${CHUNK_SHADER_UNIFORMS.fogFar};
+uniform float ${CHUNK_ALPHA_TEST_UNIFORM};
 
 varying vec2 vUv;
 varying vec3 vColor;
@@ -263,6 +266,9 @@ void main() {
   );
 
   vec4 texel = texture2D(${CHUNK_SHADER_UNIFORMS.atlas}, mix(lo, hi, inTile));
+  if (texel.a < ${CHUNK_ALPHA_TEST_UNIFORM}) {
+    discard;
+  }
 
   // R = ambient occlusion, G = sky light, B = block light. Packed by
   // packedLightColor in domain/voxel-lighting.ts, already 0..1 because the
@@ -310,6 +316,6 @@ export type ChunkShaderSource = {
 export const chunkShaderSource = (): ChunkShaderSource => ({
   attributeNames: Object.values(CHUNK_SHADER_ATTRIBUTES),
   fragmentShader: chunkFragmentShader(),
-  uniformNames: Object.values(CHUNK_SHADER_UNIFORMS),
+  uniformNames: [...Object.values(CHUNK_SHADER_UNIFORMS), CHUNK_ALPHA_TEST_UNIFORM],
   vertexShader: chunkVertexShader(),
 })

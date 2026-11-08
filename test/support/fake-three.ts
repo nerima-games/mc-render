@@ -149,6 +149,7 @@ export type FakeInstancedGeometry = FakeGeometry & ThreeInstancedBufferGeometry
 export type FakeMesh = ThreeMesh & {
   readonly geometry: FakeGeometry
   readonly material: FakeMaterial | FakeShaderMaterial
+  readonly renderOrder: number
   readonly positions: () => ReadonlyArray<readonly [number, number, number]>
   readonly scales: () => ReadonlyArray<readonly [number, number, number]>
   readonly rotations: () => ReadonlyArray<readonly [number, number, number, 'YXZ']>
@@ -483,6 +484,7 @@ export const makeFakeThree = (): FakeThree => {
       const self: FakeMesh = {
         frustumCulled: true,
         visible: true,
+        renderOrder: 0,
         geometry,
         material,
         positions: () => positions,

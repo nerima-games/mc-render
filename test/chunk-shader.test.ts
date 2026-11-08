@@ -86,6 +86,21 @@ describe('the fragment source carries the CPU path`s coefficients', () => {
     }),
   )
 
+  it.effect('alpha-tests only fragments below the cutout threshold', () =>
+    Effect.sync(() => {
+      const source = chunkFragmentShader()
+      const sampleAt = source.indexOf('vec4 texel = texture2D')
+      const discardAt = source.indexOf('discard;')
+      const lightingAt = source.indexOf('float ao =')
+
+      expect(source).toContain('uniform float uAlphaTest;')
+      expect(source).toMatch(/if \(texel\.a < uAlphaTest\) \{\s*discard;\s*\}/)
+      expect(discardAt).toBeGreaterThan(sampleAt)
+      expect(discardAt).toBeLessThan(lightingAt)
+      expect(source).not.toContain('texel.a <= uAlphaTest')
+    }),
+  )
+
   it.effect('REGRESSION: decodes the channels in the order packedLightColor writes them', () =>
     Effect.sync(() => {
       // R = AO, G = sky, B = block. Transposing two of these produces a picture

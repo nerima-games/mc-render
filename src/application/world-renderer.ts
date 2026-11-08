@@ -187,6 +187,7 @@ const INDEX_ITEM_SIZE = 1
 
 /** No chunk updates: `setChunks` has nothing to do. */
 const EMPTY_UPDATE_COUNT = 0
+const EMPTY_INDEX_COUNT = 0
 
 /**
  * What the frame is cleared to.
@@ -249,6 +250,18 @@ export const NO_DRAW_TARGET: DrawPort = {
  * world lit at 0 would be a contradiction visible on the first frame.
  */
 export const FULL_SUN_INTENSITY = 1
+const CHUNK_ALPHA_TEST_UNIFORM = 'uAlphaTest'
+const CHUNK_CUTOUT_ALPHA_TEST = 0.1
+const CHUNK_ALPHA_TEST_DISABLED = 0
+
+type ChunkMaterialVariant = 'opaque' | 'cutout' | 'transparent'
+
+const chunkAlphaTestFor = (variant: ChunkMaterialVariant): number => {
+  if (variant === 'cutout') {
+    return CHUNK_CUTOUT_ALPHA_TEST
+  }
+  return CHUNK_ALPHA_TEST_DISABLED
+}
 
 /**
  * The material for the textured, packed-light path.
@@ -295,7 +308,7 @@ export const applyChunkShaderEnvironment = (
  * lighting constants — see that file's header on why the coefficients are
  * interpolated rather than typed. Nothing here restates a formula.
  */
-export const makeChunkShaderMaterial = <
+const makeChunkShaderMaterialVariant = <
   TCanvas,
   TGeometry extends ThreeBufferGeometry,
   TMaterial extends ThreeMaterial,
@@ -303,12 +316,15 @@ export const makeChunkShaderMaterial = <
 >(
   three: ThreeShaderSurface<TCanvas, TGeometry, TMaterial, TShaderMaterial>,
   atlasTexture: unknown,
-  sunIntensity: number = FULL_SUN_INTENSITY,
+  sunIntensity: number,
+  variant: ChunkMaterialVariant,
 ): ChunkShaderMaterial<TShaderMaterial> => {
   const source = chunkShaderSource()
   const defaultEnvironment = planRenderEnvironment(FULL_SUN_INTENSITY)
+  const alphaTest = chunkAlphaTestFor(variant)
   const uniforms: Record<string, ThreeUniform> = {
     [CHUNK_SHADER_UNIFORMS.atlas]: { value: atlasTexture },
+    [CHUNK_ALPHA_TEST_UNIFORM]: { value: alphaTest },
     [CHUNK_SHADER_UNIFORMS.sunIntensity]: { value: sunIntensity },
     [CHUNK_SHADER_UNIFORMS.fogColor]: { value: [...defaultEnvironment.fogColor] },
     [CHUNK_SHADER_UNIFORMS.fogNear]: { value: defaultEnvironment.fogNear },
@@ -316,7 +332,10 @@ export const makeChunkShaderMaterial = <
   }
   return {
     material: new three.ShaderMaterial({
+      alphaTest,
+      depthWrite: variant !== 'transparent',
       fragmentShader: source.fragmentShader,
+      transparent: variant === 'transparent',
       uniforms,
       // Required `true` by the parameter type, not defaulted here. See
       // `ThreeShaderMaterialParameters`: without it three does not define the
@@ -327,6 +346,18 @@ export const makeChunkShaderMaterial = <
     uniforms,
   }
 }
+
+export const makeChunkShaderMaterial = <
+  TCanvas,
+  TGeometry extends ThreeBufferGeometry,
+  TMaterial extends ThreeMaterial,
+  TShaderMaterial extends ThreeMaterial,
+>(
+  three: ThreeShaderSurface<TCanvas, TGeometry, TMaterial, TShaderMaterial>,
+  atlasTexture: unknown,
+  sunIntensity: number = FULL_SUN_INTENSITY,
+): ChunkShaderMaterial<TShaderMaterial> =>
+  makeChunkShaderMaterialVariant(three, atlasTexture, sunIntensity, 'opaque')
 
 /**
  * "Nothing has drawn into the refraction target yet."
@@ -419,12 +450,15 @@ export const makeWaterMaterial = <
 export type ChunkGeometryUpdate = {
   readonly key: ChunkKey
   readonly buffers: ChunkGeometryBuffers
+  readonly cutoutBuffers?: ChunkGeometryBuffers
+  readonly transparentSolidBuffers?: ChunkGeometryBuffers
+  readonly waterBuffers?: ChunkGeometryBuffers
 }
 
-/** A chunk's live scene mesh, its disposable geometry, and the bounds culling reads. */
+/** A chunk's live layer meshes, disposable geometries, and the bounds culling reads. */
 type ChunkEntry<TGeometry> = {
-  readonly mesh: ThreeMesh
-  readonly geometry: TGeometry
+  readonly meshes: ReadonlyArray<ThreeMesh>
+  readonly geometries: ReadonlyArray<TGeometry>
   readonly bounds: AxisAlignedBounds | undefined
 }
 
@@ -558,6 +592,12 @@ export type WorldRendererOptions<TMaterial extends ThreeMaterial = ThreeMaterial
    * geometry, and the geometry is the same on both paths.
    */
   readonly material?: MaterialFactory<TMaterial>
+  /** Material for alpha-tested atlas tiles. Defaults to `material`. */
+  readonly cutoutMaterial?: MaterialFactory<TMaterial>
+  /** Blended, distance-sorted glass and lava. Defaults to `material`. */
+  readonly transparentMaterial?: MaterialFactory<TMaterial>
+  /** Fluid surface material. Defaults to `material`. */
+  readonly waterMaterial?: MaterialFactory<TMaterial>
   readonly weather?: WeatherFrameOptions
   /** Optional host-owned compositor; absent in headless and preview renders. */
   readonly postProcessing?: PostProcessingRendererFactory
@@ -630,6 +670,30 @@ const isBoundsVisible = (
     return false
   }
   return aabbIntersectsPreparedPerspectiveFrustum(bounds, frustum)
+}
+
+const combineBounds = (
+  bounds: AxisAlignedBounds | undefined,
+  nextBounds: AxisAlignedBounds | undefined,
+): AxisAlignedBounds | undefined => {
+  if (bounds === undefined) {
+    return nextBounds
+  }
+  if (nextBounds === undefined) {
+    return bounds
+  }
+  return {
+    max: {
+      x: Math.max(bounds.max.x, nextBounds.max.x),
+      y: Math.max(bounds.max.y, nextBounds.max.y),
+      z: Math.max(bounds.max.z, nextBounds.max.z),
+    },
+    min: {
+      x: Math.min(bounds.min.x, nextBounds.min.x),
+      y: Math.min(bounds.min.y, nextBounds.min.y),
+      z: Math.min(bounds.min.z, nextBounds.min.z),
+    },
+  }
 }
 
 type TransformableThreeMesh = ThreeMesh & {
@@ -937,8 +1001,22 @@ export const makeWorldRenderer = <
   canvas: TCanvas,
   viewport: Viewport,
   options: WorldRendererOptions<TUsedMaterial> = {},
-): Effect.Effect<WorldRenderer> =>
-  Effect.gen(function* buildRenderer() {
+): Effect.Effect<WorldRenderer> => {
+  const createChunkMaterials = () => {
+    const opaque = options.material?.() ??
+      new three.MeshBasicMaterial({
+        vertexColors: true,
+        wireframe: options.wireframe ?? false,
+      })
+    return {
+      cutout: options.cutoutMaterial?.() ?? opaque,
+      opaque,
+      transparent: options.transparentMaterial?.() ?? opaque,
+      water: options.waterMaterial?.() ?? opaque,
+    }
+  }
+
+  return Effect.gen(function* buildRenderer() {
     /** The camera and weather settings resolved from `options`, before any GPU resource exists. */
     const resolveRenderSettings = (): {
       readonly fovDegrees: number
@@ -1008,7 +1086,7 @@ export const makeWorldRenderer = <
       createRendererSurface()
 
     /**
-     * ONE material for every chunk, which is a draw-call decision and not a
+     * ONE shared material per render layer across every chunk, which is a draw-call decision and not a
      * tidiness one. ts-minecraft
      * `packages/rendering/infrastructure/meshing/chunk-mesh-geometry.ts:38`
      * lists "Single shared MeshLambertMaterial (atlas texture) across ALL
@@ -1026,12 +1104,7 @@ export const makeWorldRenderer = <
      * and this material is shared but neither transparent nor a cutout. The
      * water material, when it exists, is the one that will need the audit.
      */
-    const material: TMaterial | TUsedMaterial =
-      options.material?.() ??
-      new three.MeshBasicMaterial({
-        vertexColors: true,
-        wireframe: options.wireframe ?? false,
-      })
+    const materials = createChunkMaterials()
 
     const [chunks, viewportAspect, entities, framesRendered, postProcessingChain] = yield* Effect.all([
       Ref.make(new Map<ChunkKey, ChunkEntry<TGeometry>>()),
@@ -1069,12 +1142,12 @@ export const makeWorldRenderer = <
       },
 
       applyChunkUpdate: (next: Map<ChunkKey, ChunkEntry<TGeometry>>, update: ChunkGeometryUpdate): void => {
-        const { key, buffers } = update
+        const { key } = update
         const previous = next.get(key)
         if (previous) {
           ops.releaseChunk(previous)
         }
-        next.set(key, ops.buildChunkEntry(buffers))
+        next.set(key, ops.buildChunkEntry(update))
       },
 
       applyEntityPartTransform: (
@@ -1125,14 +1198,36 @@ export const makeWorldRenderer = <
         )
       },
 
-      buildChunkEntry: (buffers: ChunkGeometryBuffers): ChunkEntry<TGeometry> => {
-        const geometry = ops.buildGeometry(buffers)
-        const mesh = new three.Mesh(geometry, material)
-        const bounds = boundsFromPositions(buffers.positions)
-        mesh.frustumCulled = false
-        mesh.visible = Boolean(bounds)
-        scene.add(mesh)
-        return { bounds, geometry, mesh }
+      buildChunkEntry: (update: ChunkGeometryUpdate): ChunkEntry<TGeometry> => {
+        // Three sorts water and blended solids back-to-front by each layer's projected bounding-sphere center.
+        const layers = [
+          { buffers: update.buffers, material: materials.opaque },
+          { buffers: update.cutoutBuffers, material: materials.cutout },
+          { buffers: update.transparentSolidBuffers, material: materials.transparent },
+          { buffers: update.waterBuffers, material: materials.water },
+        ]
+        const renderedLayers = layers.flatMap((layer) => {
+          const { buffers, material } = layer
+          if (buffers === undefined || buffers.indexCount === EMPTY_INDEX_COUNT) {
+            return []
+          }
+          const geometry = ops.buildGeometry(buffers)
+          const mesh = new three.Mesh(geometry, material)
+          const layerBounds = boundsFromPositions(buffers.positions)
+          mesh.frustumCulled = false
+          mesh.visible = Boolean(layerBounds)
+          scene.add(mesh)
+          return [{ bounds: layerBounds, geometry, mesh }]
+        })
+        const bounds = renderedLayers.reduce<AxisAlignedBounds | undefined>(
+          (current, layer) => combineBounds(current, layer.bounds),
+          undefined,
+        )
+        return {
+          bounds,
+          geometries: renderedLayers.map(({ geometry }) => geometry),
+          meshes: renderedLayers.map(({ mesh }) => mesh),
+        }
       },
 
       buildEntity: (entity: RenderEntity): EntityEntry => {
@@ -1199,7 +1294,14 @@ export const makeWorldRenderer = <
       disposeSharedMaterials: (): void => {
         entityAssets.entityMaterial?.dispose()
         entityAssets.entityMaterial = null
-        material.dispose()
+        for (const sharedMaterial of new Set([
+          materials.opaque,
+          materials.cutout,
+          materials.transparent,
+          materials.water,
+        ])) {
+          sharedMaterial.dispose()
+        }
         renderer.dispose()
       },
 
@@ -1222,8 +1324,12 @@ export const makeWorldRenderer = <
       },
 
       releaseChunk: (entry: ChunkEntry<TGeometry>): void => {
-        scene.remove(entry.mesh)
-        entry.geometry.dispose()
+        for (const mesh of entry.meshes) {
+          scene.remove(mesh)
+        }
+        for (const geometry of entry.geometries) {
+          geometry.dispose()
+        }
       },
 
       releaseEntity: (entry: EntityEntry): void => {
@@ -1273,7 +1379,10 @@ export const makeWorldRenderer = <
         frustum: ReturnType<typeof preparePerspectiveFrustum>,
       ): void => {
         for (const entry of currentChunks.values()) {
-          entry.mesh.visible = isBoundsVisible(entry.bounds, frustum)
+          const visible = isBoundsVisible(entry.bounds, frustum)
+          for (const mesh of entry.meshes) {
+            mesh.visible = visible
+          }
         }
       },
 
@@ -1393,6 +1502,7 @@ export const makeWorldRenderer = <
       weather,
     }
   })
+}
 
 export type ProductionFrame = {
   readonly elapsedSecs: number
@@ -1411,7 +1521,7 @@ export type ProductionWorldRenderer<TShaderMaterial extends ThreeMaterial> = Wor
 
 export type ProductionWorldRendererOptions = Omit<
   WorldRendererOptions<ThreeMaterial>,
-  'material' | 'applyMaterialEnvironment'
+  'material' | 'cutoutMaterial' | 'transparentMaterial' | 'waterMaterial' | 'applyMaterialEnvironment'
 > & {
   readonly particles?: ParticlePoolOptions
 }
@@ -1439,6 +1549,8 @@ export const makeProductionWorldRenderer = <
   Effect.gen(function* buildProductionRenderer() {
     const particlePool = yield* Effect.fromResult(makeParticlePool(options.particles))
     const chunk = makeChunkShaderMaterial(three, atlasTexture)
+    const cutout = makeChunkShaderMaterialVariant(three, atlasTexture, FULL_SUN_INTENSITY, 'cutout')
+    const transparentSolid = makeChunkShaderMaterialVariant(three, atlasTexture, FULL_SUN_INTENSITY, 'transparent')
     const water = makeWaterMaterial(three, viewport)
     const particles = yield* makeParticleSystem(three, particlePool, atlasTexture)
     const { particles: _particles, ...rendererOptions } = options
@@ -1446,10 +1558,15 @@ export const makeProductionWorldRenderer = <
       ...rendererOptions,
       applyMaterialEnvironment: (environment) => {
         applyChunkShaderEnvironment(chunk.uniforms, environment)
+        applyChunkShaderEnvironment(cutout.uniforms, environment)
+        applyChunkShaderEnvironment(transparentSolid.uniforms, environment)
         const sun = water.uniforms['uSunIntensity']
         if (sun) {sun.value = environment.sunIntensity}
       },
+      cutoutMaterial: () => cutout.material,
       material: () => chunk.material,
+      transparentMaterial: () => transparentSolid.material,
+      waterMaterial: () => water.material,
     })
     yield* renderer.attachSceneObject(particles.mesh)
 
@@ -1468,7 +1585,6 @@ export const makeProductionWorldRenderer = <
       dispose: renderer.detachSceneObject(particles.mesh).pipe(
         Effect.andThen(renderer.dispose),
         Effect.andThen(particles.dispose),
-        Effect.andThen(Effect.sync(() => water.material.dispose())),
       ),
       particlePool,
       particles,
