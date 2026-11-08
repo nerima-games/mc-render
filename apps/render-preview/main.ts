@@ -45,6 +45,11 @@ import {
 } from '../../src/application/browser-input-adapter.js'
 import { InputService } from '../../src/application/input-service.js'
 import { createInteractionRenderer } from '../../src/application/interaction-renderer.js'
+import {
+  FIRST_PERSON_ARM_TEXTURE_HEIGHT,
+  FIRST_PERSON_ARM_TEXTURE_WIDTH,
+  makeFirstPersonArmTextureData,
+} from '../../src/application/render-presentation-assets.js'
 import { createSkyRenderer } from '../../src/application/sky-renderer.js'
 import type { PresentationObject3D } from '../../src/application/render-presentation-surface.js'
 import { makeChunkShaderMaterial, makeWorldRenderer, SKY_CLEAR_COLOR } from '../../src/application/world-renderer.js'
@@ -180,6 +185,19 @@ const generateAtlas = (): THREE.Texture => {
   return texture
 }
 
+const createPresentationArmTexture = (): THREE.DataTexture => {
+  const texture = new THREE.DataTexture(
+    makeFirstPersonArmTextureData(),
+    FIRST_PERSON_ARM_TEXTURE_WIDTH,
+    FIRST_PERSON_ARM_TEXTURE_HEIGHT,
+  )
+  texture.magFilter = THREE.NearestFilter
+  texture.minFilter = THREE.NearestFilter
+  texture.generateMipmaps = false
+  texture.needsUpdate = true
+  return texture
+}
+
 /** `SKY_CLEAR_COLOR` as the three bytes `readPixels` returns. */
 const skyBytes = (): readonly [number, number, number] => [
   (SKY_CLEAR_COLOR >> 16) & 0xff,
@@ -203,6 +221,7 @@ type PreviewPresentation = {
 
 const createPreviewPresentation = async (
   renderer: PresentationAttachmentPort,
+  atlasTexture: THREE.Texture,
 ): Promise<PreviewPresentation> => {
   const variant = new URLSearchParams(window.location.search).get('presentation')
   const enabled = variant === '1' || variant === 'sky' || variant === 'stars'
@@ -233,21 +252,28 @@ const createPreviewPresentation = async (
       >(THREE)
     : undefined
   const interaction = interactionFeedback
-    ? createInteractionRenderer<
-        THREE.Texture,
-        THREE.BufferGeometry,
-        THREE.MeshBasicMaterial,
-        THREE.LineBasicMaterial,
-        THREE.PointsMaterial
-      >(THREE)
+    ? (() => {
+        const armTexture = createPresentationArmTexture()
+        return {
+          armTexture,
+          renderer: createInteractionRenderer<
+            THREE.Texture,
+            THREE.BufferGeometry,
+            THREE.MeshBasicMaterial,
+            THREE.LineBasicMaterial,
+            THREE.PointsMaterial
+          >(THREE, { arm: armTexture, heldItem: atlasTexture }),
+        }
+      })()
     : undefined
+  const interactionRenderer = interaction?.renderer
 
   if (sky !== undefined) {
     await Effect.runPromise(renderer.attachSceneObject(sky.sceneObject))
   }
-  if (interaction !== undefined) {
-    await Effect.runPromise(renderer.attachSceneObject(interaction.sceneObject))
-    await Effect.runPromise(renderer.attachCameraObject(interaction.cameraObject))
+  if (interactionRenderer !== undefined) {
+    await Effect.runPromise(renderer.attachSceneObject(interactionRenderer.sceneObject))
+    await Effect.runPromise(renderer.attachCameraObject(interactionRenderer.cameraObject))
   }
   if (enabled) {
     document.body.setAttribute('data-render-presentation', 'ready')
@@ -288,8 +314,8 @@ const createPreviewPresentation = async (
         return Result.fail(skyResult.failure)
       }
     }
-    if (interaction !== undefined) {
-      const interactionResult = interaction.update(interactionFrame(elapsedSeconds))
+    if (interactionRenderer !== undefined) {
+      const interactionResult = interactionRenderer.update(interactionFrame(elapsedSeconds))
       if (Result.isFailure(interactionResult)) {
         return Result.fail(interactionResult.failure)
       }
@@ -304,9 +330,10 @@ const createPreviewPresentation = async (
       sky.dispose()
     }
     if (interaction !== undefined) {
-      Effect.runSync(renderer.detachSceneObject(interaction.sceneObject))
-      Effect.runSync(renderer.detachCameraObject(interaction.cameraObject))
-      interaction.dispose()
+      Effect.runSync(renderer.detachSceneObject(interaction.renderer.sceneObject))
+      Effect.runSync(renderer.detachCameraObject(interaction.renderer.cameraObject))
+      interaction.renderer.dispose()
+      interaction.armTexture.dispose()
     }
   }
 
@@ -323,6 +350,7 @@ const main = async (): Promise<void> => {
   canvas.width = VIEWPORT.width
   canvas.height = VIEWPORT.height
 
+  const atlasTexture = generateAtlas()
   const renderer = await Effect.runPromise(
     makeWorldRenderer<
       HTMLCanvasElement,
@@ -336,11 +364,11 @@ const main = async (): Promise<void> => {
           THREE.BufferGeometry,
           THREE.MeshBasicMaterial,
           THREE.ShaderMaterial
-        >(THREE, generateAtlas()).material,
+        >(THREE, atlasTexture).material,
     }),
   )
 
-  const presentation = await createPreviewPresentation(renderer)
+  const presentation = await createPreviewPresentation(renderer, atlasTexture)
 
   // REAL GENERATED TERRAIN, loaded as data. See this file's header on why it
   // arrives as JSON rather than as a call into mc-worldgen.
