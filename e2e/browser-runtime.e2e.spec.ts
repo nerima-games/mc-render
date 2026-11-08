@@ -1,7 +1,7 @@
 import { type Page, expect, test } from '@playwright/test'
 import type { Effect } from 'effect'
 
-const WEB_ORIGIN = 'http://127.0.0.1:5182'
+const WEB_ORIGIN = process.env['WEB_ORIGIN'] ?? 'http://127.0.0.1:5182'
 const ZERO = 0
 const ONE = 1
 const TWO = 2

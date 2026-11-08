@@ -1,0 +1,830 @@
+{
+  "schemaVersion": 1,
+  "layout": {
+    "width": 1536,
+    "height": 1536,
+    "columns": 32,
+    "rows": 32,
+    "tilePixels": 16,
+    "gutterPixels": 16,
+    "cellPixels": 48,
+    "capacity": 1024,
+    "mipLevels": 11
+  },
+  "tileCount": 407,
+  "blockFaces": {
+    "air": {
+      "top": 0,
+      "side": 0,
+      "bottom": 0
+    },
+    "stone": {
+      "top": 1,
+      "side": 2,
+      "bottom": 3
+    },
+    "cobblestone": {
+      "top": 4,
+      "side": 5,
+      "bottom": 6
+    },
+    "dirt": {
+      "top": 7,
+      "side": 8,
+      "bottom": 9
+    },
+    "grass_block": {
+      "top": 10,
+      "side": 11,
+      "bottom": 12
+    },
+    "sand": {
+      "top": 13,
+      "side": 14,
+      "bottom": 15
+    },
+    "gravel": {
+      "top": 16,
+      "side": 17,
+      "bottom": 18
+    },
+    "water": {
+      "top": 19,
+      "side": 20,
+      "bottom": 21
+    },
+    "lava": {
+      "top": 22,
+      "side": 23,
+      "bottom": 24
+    },
+    "oak_log": {
+      "top": 25,
+      "side": 26,
+      "bottom": 27
+    },
+    "oak_planks": {
+      "top": 28,
+      "side": 29,
+      "bottom": 30
+    },
+    "oak_leaves": {
+      "top": 31,
+      "side": 32,
+      "bottom": 33
+    },
+    "glass": {
+      "top": 34,
+      "side": 35,
+      "bottom": 36
+    },
+    "torch": {
+      "top": 37,
+      "side": 38,
+      "bottom": 39
+    },
+    "glowstone": {
+      "top": 40,
+      "side": 41,
+      "bottom": 42
+    },
+    "bedrock": {
+      "top": 43,
+      "side": 44,
+      "bottom": 45
+    },
+    "piston": {
+      "top": 46,
+      "side": 47,
+      "bottom": 48
+    },
+    "snow": {
+      "top": 49,
+      "side": 50,
+      "bottom": 51
+    },
+    "ladder": {
+      "top": 52,
+      "side": 53,
+      "bottom": 54
+    },
+    "cobweb": {
+      "top": 55,
+      "side": 56,
+      "bottom": 57
+    },
+    "sapling": {
+      "top": 58,
+      "side": 59,
+      "bottom": 60
+    },
+    "dandelion": {
+      "top": 61,
+      "side": 62,
+      "bottom": 63
+    },
+    "poppy": {
+      "top": 64,
+      "side": 65,
+      "bottom": 66
+    },
+    "brown_mushroom": {
+      "top": 67,
+      "side": 68,
+      "bottom": 69
+    },
+    "red_mushroom": {
+      "top": 70,
+      "side": 71,
+      "bottom": 72
+    },
+    "tall_grass": {
+      "top": 73,
+      "side": 74,
+      "bottom": 75
+    },
+    "fern": {
+      "top": 76,
+      "side": 77,
+      "bottom": 78
+    },
+    "sugar_cane": {
+      "top": 79,
+      "side": 80,
+      "bottom": 81
+    },
+    "lily_pad": {
+      "top": 82,
+      "side": 83,
+      "bottom": 84
+    },
+    "kelp": {
+      "top": 85,
+      "side": 86,
+      "bottom": 87
+    },
+    "seagrass": {
+      "top": 88,
+      "side": 89,
+      "bottom": 90
+    },
+    "rail": {
+      "top": 91,
+      "side": 92,
+      "bottom": 93
+    },
+    "powered_rail": {
+      "top": 94,
+      "side": 95,
+      "bottom": 96
+    },
+    "cactus": {
+      "top": 97,
+      "side": 98,
+      "bottom": 99
+    },
+    "pressure_plate": {
+      "top": 100,
+      "side": 101,
+      "bottom": 102
+    },
+    "stone_slab": {
+      "top": 103,
+      "side": 104,
+      "bottom": 105
+    },
+    "granite": {
+      "top": 106,
+      "side": 107,
+      "bottom": 108
+    },
+    "diorite": {
+      "top": 109,
+      "side": 110,
+      "bottom": 111
+    },
+    "andesite": {
+      "top": 112,
+      "side": 113,
+      "bottom": 114
+    },
+    "deepslate": {
+      "top": 115,
+      "side": 116,
+      "bottom": 117
+    },
+    "obsidian": {
+      "top": 118,
+      "side": 119,
+      "bottom": 120
+    },
+    "smooth_basalt": {
+      "top": 121,
+      "side": 122,
+      "bottom": 123
+    },
+    "calcite": {
+      "top": 124,
+      "side": 125,
+      "bottom": 126
+    },
+    "amethyst_block": {
+      "top": 127,
+      "side": 128,
+      "bottom": 129
+    },
+    "amethyst_cluster": {
+      "top": 130,
+      "side": 131,
+      "bottom": 132
+    },
+    "sandstone": {
+      "top": 133,
+      "side": 134,
+      "bottom": 135
+    },
+    "prismarine": {
+      "top": 136,
+      "side": 137,
+      "bottom": 138
+    },
+    "soul_sand": {
+      "top": 139,
+      "side": 140,
+      "bottom": 141
+    },
+    "ice": {
+      "top": 142,
+      "side": 143,
+      "bottom": 144
+    },
+    "farmland": {
+      "top": 145,
+      "side": 146,
+      "bottom": 147
+    },
+    "coal_ore": {
+      "top": 148,
+      "side": 149,
+      "bottom": 150
+    },
+    "iron_ore": {
+      "top": 151,
+      "side": 152,
+      "bottom": 153
+    },
+    "gold_ore": {
+      "top": 154,
+      "side": 155,
+      "bottom": 156
+    },
+    "diamond_ore": {
+      "top": 157,
+      "side": 158,
+      "bottom": 159
+    },
+    "redstone_ore": {
+      "top": 160,
+      "side": 161,
+      "bottom": 162
+    },
+    "lapis_ore": {
+      "top": 163,
+      "side": 164,
+      "bottom": 165
+    },
+    "emerald_ore": {
+      "top": 166,
+      "side": 167,
+      "bottom": 168
+    },
+    "deepslate_coal_ore": {
+      "top": 169,
+      "side": 170,
+      "bottom": 171
+    },
+    "deepslate_iron_ore": {
+      "top": 172,
+      "side": 173,
+      "bottom": 174
+    },
+    "deepslate_gold_ore": {
+      "top": 175,
+      "side": 176,
+      "bottom": 177
+    },
+    "deepslate_diamond_ore": {
+      "top": 178,
+      "side": 179,
+      "bottom": 180
+    },
+    "deepslate_redstone_ore": {
+      "top": 181,
+      "side": 182,
+      "bottom": 183
+    },
+    "deepslate_lapis_ore": {
+      "top": 184,
+      "side": 185,
+      "bottom": 186
+    },
+    "deepslate_emerald_ore": {
+      "top": 187,
+      "side": 188,
+      "bottom": 189
+    },
+    "coal_block": {
+      "top": 190,
+      "side": 191,
+      "bottom": 192
+    },
+    "iron_block": {
+      "top": 193,
+      "side": 194,
+      "bottom": 195
+    },
+    "gold_block": {
+      "top": 196,
+      "side": 197,
+      "bottom": 198
+    },
+    "diamond_block": {
+      "top": 199,
+      "side": 200,
+      "bottom": 201
+    },
+    "redstone_block": {
+      "top": 202,
+      "side": 203,
+      "bottom": 204
+    },
+    "lapis_block": {
+      "top": 205,
+      "side": 206,
+      "bottom": 207
+    },
+    "emerald_block": {
+      "top": 208,
+      "side": 209,
+      "bottom": 210
+    },
+    "wheat_crop": {
+      "top": 211,
+      "side": 212,
+      "bottom": 213
+    },
+    "potato_crop": {
+      "top": 214,
+      "side": 215,
+      "bottom": 216
+    },
+    "nether_wart_crop": {
+      "top": 217,
+      "side": 218,
+      "bottom": 219
+    },
+    "redstone_wire": {
+      "top": 220,
+      "side": 221,
+      "bottom": 222
+    },
+    "redstone_torch": {
+      "top": 223,
+      "side": 224,
+      "bottom": 225
+    },
+    "lever": {
+      "top": 226,
+      "side": 227,
+      "bottom": 228
+    },
+    "stone_button": {
+      "top": 229,
+      "side": 230,
+      "bottom": 231
+    },
+    "repeater": {
+      "top": 232,
+      "side": 233,
+      "bottom": 234
+    },
+    "redstone_lamp": {
+      "top": 235,
+      "side": 236,
+      "bottom": 237
+    },
+    "redstone_lamp_lit": {
+      "top": 238,
+      "side": 239,
+      "bottom": 240
+    },
+    "observer": {
+      "top": 241,
+      "side": 242,
+      "bottom": 243
+    },
+    "comparator": {
+      "top": 244,
+      "side": 245,
+      "bottom": 246
+    },
+    "dispenser": {
+      "top": 247,
+      "side": 248,
+      "bottom": 249
+    },
+    "dropper": {
+      "top": 250,
+      "side": 251,
+      "bottom": 252
+    },
+    "hopper": {
+      "top": 253,
+      "side": 254,
+      "bottom": 255
+    },
+    "piston_head": {
+      "top": 256,
+      "side": 257,
+      "bottom": 258
+    },
+    "end_stone": {
+      "top": 259,
+      "side": 260,
+      "bottom": 261
+    },
+    "end_portal_frame": {
+      "top": 262,
+      "side": 263,
+      "bottom": 264
+    },
+    "end_portal_frame_filled": {
+      "top": 265,
+      "side": 266,
+      "bottom": 267
+    },
+    "end_portal": {
+      "top": 268,
+      "side": 269,
+      "bottom": 270
+    },
+    "chorus_flower": {
+      "top": 271,
+      "side": 272,
+      "bottom": 273
+    },
+    "chorus_plant": {
+      "top": 274,
+      "side": 275,
+      "bottom": 276
+    },
+    "dragon_egg": {
+      "top": 277,
+      "side": 278,
+      "bottom": 279
+    },
+    "end_crystal": {
+      "top": 280,
+      "side": 281,
+      "bottom": 282
+    },
+    "end_gateway": {
+      "top": 283,
+      "side": 284,
+      "bottom": 285
+    },
+    "end_rod": {
+      "top": 286,
+      "side": 287,
+      "bottom": 288
+    },
+    "end_stone_bricks": {
+      "top": 289,
+      "side": 290,
+      "bottom": 291
+    },
+    "ender_chest": {
+      "top": 292,
+      "side": 293,
+      "bottom": 294
+    },
+    "purpur_block": {
+      "top": 295,
+      "side": 296,
+      "bottom": 297
+    },
+    "purpur_pillar": {
+      "top": 298,
+      "side": 299,
+      "bottom": 300
+    },
+    "purpur_slab": {
+      "top": 301,
+      "side": 302,
+      "bottom": 303
+    },
+    "purpur_stairs": {
+      "top": 304,
+      "side": 305,
+      "bottom": 306
+    },
+    "shulker_box": {
+      "top": 307,
+      "side": 308,
+      "bottom": 309
+    },
+    "crafting_table": {
+      "top": 310,
+      "side": 311,
+      "bottom": 312
+    },
+    "furnace": {
+      "top": 313,
+      "side": 314,
+      "bottom": 315
+    },
+    "chest": {
+      "top": 316,
+      "side": 317,
+      "bottom": 318
+    },
+    "door": {
+      "top": 319,
+      "side": 320,
+      "bottom": 321
+    },
+    "door_open": {
+      "top": 322,
+      "side": 323,
+      "bottom": 324
+    },
+    "oak_stairs": {
+      "top": 325,
+      "side": 326,
+      "bottom": 327
+    },
+    "anvil": {
+      "top": 328,
+      "side": 329,
+      "bottom": 330
+    },
+    "cauldron": {
+      "top": 331,
+      "side": 332,
+      "bottom": 333
+    },
+    "water_cauldron": {
+      "top": 334,
+      "side": 335,
+      "bottom": 336
+    },
+    "bed": {
+      "top": 337,
+      "side": 338,
+      "bottom": 339
+    },
+    "enchanting_table": {
+      "top": 340,
+      "side": 341,
+      "bottom": 342
+    },
+    "brewing_stand": {
+      "top": 343,
+      "side": 344,
+      "bottom": 345
+    },
+    "tnt": {
+      "top": 346,
+      "side": 347,
+      "bottom": 348
+    },
+    "nether_brick": {
+      "top": 349,
+      "side": 350,
+      "bottom": 351
+    },
+    "netherrack": {
+      "top": 352,
+      "side": 353,
+      "bottom": 354
+    },
+    "nether_portal": {
+      "top": 355,
+      "side": 356,
+      "bottom": 357
+    },
+    "fire": {
+      "top": 358,
+      "side": 359,
+      "bottom": 360
+    },
+    "soul_soil": {
+      "top": 361,
+      "side": 362,
+      "bottom": 363
+    },
+    "wither_skeleton_skull": {
+      "top": 364,
+      "side": 365,
+      "bottom": 366
+    }
+  },
+  "blockAlphaModes": {
+    "air": "cutout",
+    "stone": "opaque",
+    "cobblestone": "opaque",
+    "dirt": "opaque",
+    "grass_block": "opaque",
+    "sand": "opaque",
+    "gravel": "opaque",
+    "water": "translucent",
+    "lava": "translucent",
+    "oak_log": "opaque",
+    "oak_planks": "opaque",
+    "oak_leaves": "cutout",
+    "glass": "translucent",
+    "torch": "cutout",
+    "glowstone": "opaque",
+    "bedrock": "opaque",
+    "piston": "opaque",
+    "snow": "opaque",
+    "ladder": "cutout",
+    "cobweb": "cutout",
+    "sapling": "cutout",
+    "dandelion": "cutout",
+    "poppy": "cutout",
+    "brown_mushroom": "cutout",
+    "red_mushroom": "cutout",
+    "tall_grass": "cutout",
+    "fern": "cutout",
+    "sugar_cane": "cutout",
+    "lily_pad": "cutout",
+    "kelp": "cutout",
+    "seagrass": "cutout",
+    "rail": "cutout",
+    "powered_rail": "cutout",
+    "cactus": "opaque",
+    "pressure_plate": "opaque",
+    "stone_slab": "opaque",
+    "granite": "opaque",
+    "diorite": "opaque",
+    "andesite": "opaque",
+    "deepslate": "opaque",
+    "obsidian": "opaque",
+    "smooth_basalt": "opaque",
+    "calcite": "opaque",
+    "amethyst_block": "opaque",
+    "amethyst_cluster": "cutout",
+    "sandstone": "opaque",
+    "prismarine": "opaque",
+    "soul_sand": "opaque",
+    "ice": "translucent",
+    "farmland": "opaque",
+    "coal_ore": "opaque",
+    "iron_ore": "opaque",
+    "gold_ore": "opaque",
+    "diamond_ore": "opaque",
+    "redstone_ore": "opaque",
+    "lapis_ore": "opaque",
+    "emerald_ore": "opaque",
+    "deepslate_coal_ore": "opaque",
+    "deepslate_iron_ore": "opaque",
+    "deepslate_gold_ore": "opaque",
+    "deepslate_diamond_ore": "opaque",
+    "deepslate_redstone_ore": "opaque",
+    "deepslate_lapis_ore": "opaque",
+    "deepslate_emerald_ore": "opaque",
+    "coal_block": "opaque",
+    "iron_block": "opaque",
+    "gold_block": "opaque",
+    "diamond_block": "opaque",
+    "redstone_block": "opaque",
+    "lapis_block": "opaque",
+    "emerald_block": "opaque",
+    "wheat_crop": "cutout",
+    "potato_crop": "cutout",
+    "nether_wart_crop": "cutout",
+    "redstone_wire": "cutout",
+    "redstone_torch": "cutout",
+    "lever": "cutout",
+    "stone_button": "opaque",
+    "repeater": "cutout",
+    "redstone_lamp": "opaque",
+    "redstone_lamp_lit": "opaque",
+    "observer": "opaque",
+    "comparator": "cutout",
+    "dispenser": "opaque",
+    "dropper": "opaque",
+    "hopper": "opaque",
+    "piston_head": "opaque",
+    "end_stone": "opaque",
+    "end_portal_frame": "opaque",
+    "end_portal_frame_filled": "opaque",
+    "end_portal": "translucent",
+    "chorus_flower": "cutout",
+    "chorus_plant": "opaque",
+    "dragon_egg": "opaque",
+    "end_crystal": "translucent",
+    "end_gateway": "translucent",
+    "end_rod": "cutout",
+    "end_stone_bricks": "opaque",
+    "ender_chest": "opaque",
+    "purpur_block": "opaque",
+    "purpur_pillar": "opaque",
+    "purpur_slab": "opaque",
+    "purpur_stairs": "opaque",
+    "shulker_box": "opaque",
+    "crafting_table": "opaque",
+    "furnace": "opaque",
+    "chest": "opaque",
+    "door": "opaque",
+    "door_open": "opaque",
+    "oak_stairs": "opaque",
+    "anvil": "opaque",
+    "cauldron": "opaque",
+    "water_cauldron": "opaque",
+    "bed": "opaque",
+    "enchanting_table": "opaque",
+    "brewing_stand": "cutout",
+    "tnt": "opaque",
+    "nether_brick": "opaque",
+    "netherrack": "opaque",
+    "nether_portal": "translucent",
+    "fire": "cutout",
+    "soul_soil": "opaque",
+    "wither_skeleton_skull": "opaque"
+  },
+  "variants": {
+    "wheat_crop": [
+      211,
+      367,
+      368,
+      369,
+      370,
+      371,
+      372,
+      373
+    ],
+    "potato_crop": [
+      214,
+      374,
+      375,
+      376,
+      377,
+      378,
+      379,
+      380
+    ],
+    "nether_wart_crop": [
+      217,
+      381,
+      382
+    ]
+  },
+  "animations": {
+    "water": {
+      "water": [
+        383,
+        384,
+        385,
+        386
+      ]
+    },
+    "lava": {
+      "lava": [
+        387,
+        388,
+        389,
+        390
+      ]
+    },
+    "fire": {
+      "fire": [
+        403,
+        404,
+        405,
+        406
+      ]
+    },
+    "portal": {
+      "end_portal": [
+        391,
+        392,
+        393,
+        394
+      ],
+      "end_gateway": [
+        395,
+        396,
+        397,
+        398
+      ],
+      "nether_portal": [
+        399,
+        400,
+        401,
+        402
+      ]
+    }
+  }
+}

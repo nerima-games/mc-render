@@ -1,7 +1,9 @@
 import {
   BLOCK_IDS,
+  BLOCK_TYPES,
   BlockAxis,
   type BlockId,
+  type BlockType,
   ChunkAxis,
   LightLevelCandidate,
   blockIdsWithOpacity,
@@ -10,7 +12,7 @@ import {
   chunkCoord,
   propertyOfBlockId,
 } from '@nerima-games/mc-kernel'
-import { type BlockNameLookup, quadTileForLookup, tileIndexForBlockName } from '../domain/block-texture-map.js'
+import { BLOCK_TEXTURE_ALPHA_MODES, type BlockNameLookup, quadTileForLookup } from '../domain/block-texture-map.js'
 import {
   CHUNK_HEIGHT,
   type ChunkStoreApi,
@@ -44,7 +46,6 @@ import {
 import type { BlockShapeKind } from '../domain/meshing-vocabulary.js'
 import type { WorldRenderer } from './world-renderer.js'
 import { meshBlockShapes } from '../domain/block-shapes.js'
-import { terrainTileKind } from '../domain/texture-atlas.js'
 
 /** The kernel registry is the single numeric-id to texture-name authority. */
 export const blockNameFromKernel: BlockNameLookup = (blockId) =>
@@ -105,9 +106,12 @@ const withoutBlockShapes = (
   blockShapeKinds: ReadonlyMap<BlockId, BlockShapeKind>,
 ): ReadonlyArray<MeshQuad> => quads.filter((quad) => !blockShapeKinds.has(quad.blockId))
 
+const blockTypeForQuad = (quad: MeshQuad): BlockType | undefined =>
+  BLOCK_TYPES.find((candidate) => candidate === blockNameFromKernel(quad.blockId))
+
 const isCutoutQuad = (quad: MeshQuad): boolean => {
-  const kind = terrainTileKind(tileIndexForBlockName(blockNameFromKernel(quad.blockId), quad.role))
-  return kind === 'cutout' || kind === 'leaves'
+  const blockType = blockTypeForQuad(quad)
+  return blockType !== undefined && BLOCK_TEXTURE_ALPHA_MODES[blockType] === 'cutout'
 }
 
 const splitTransparentSolids = (quads: ReadonlyArray<MeshQuad>) => {
@@ -335,7 +339,7 @@ export const makeChunkStoreMesher = (
 
 /** `options` with default atlas tiles and chunk lighting, unless the caller supplied overrides. */
 const withDefaultColorForChunk = (store: RendererChunkStore, options: SyncOptions): SyncOptions => {
-  const tile = options.tile ?? quadTileForLookup(blockNameFromKernel)
+  const tile = options.tile ?? ((quad) => Result.getOrThrow(quadTileForLookup(blockNameFromKernel)(quad)))
   if (options.colorForChunk !== undefined || options.color !== undefined) {
     return { ...options, tile }
   }

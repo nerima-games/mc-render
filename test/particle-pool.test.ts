@@ -56,7 +56,7 @@ import {
   type ParticleSpawnSpecEncoded,
   visibleParticleCount,
 } from '../src/domain/particle-pool'
-import { TILE_UV_SPAN, tileUvOrigin } from '../src/domain/texture-atlas'
+import { ATLAS_TILE_COUNT, TILE_UV_SPAN, tileUvOrigin } from '../src/domain/texture-atlas'
 
 const FAST_CHECK_OPTIONS = { numRuns: 100, seed: 0x5eed }
 const makeParticlePool = (...args: Parameters<typeof makeParticlePoolResult>) =>
@@ -449,7 +449,7 @@ describe('spawning', () => {
 
       FastCheck.assert(
         FastCheck.property(
-          FastCheck.constantFrom(-1, 256, 0.5, Number.NaN, Number.POSITIVE_INFINITY),
+          FastCheck.constantFrom(-1, ATLAS_TILE_COUNT, 0.5, Number.NaN, Number.POSITIVE_INFINITY),
           (tileIndex) => isDecodedParticleInputFailure(
             spawnBlockBurstResult(pool, 0, 0, 0, tileIndex, 1),
             'block-burst',
@@ -519,7 +519,7 @@ describe('spawning', () => {
   it.effect('spawnBlockBurst samples the tile the block uses', () =>
     Effect.sync(() => {
       const pool = makeParticlePool({ capacity: 8 })
-      const expected = tileUvOrigin(7)
+      const expected = Result.getOrThrow(tileUvOrigin(7))
       spawnBlockBurst(pool, 0, 0, 0, 7, 2)
 
       expect(readSlot(pool, 0)?.uvU).toBeCloseTo(expected.u, 6)

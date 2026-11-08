@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test'
 import { createHash } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 
-const WEB_ORIGIN = 'http://127.0.0.1:5182'
+const WEB_ORIGIN = process.env['WEB_ORIGIN'] ?? 'http://127.0.0.1:5182'
 const ZERO = 0
 const ONE = 1
 const TWO = 2
@@ -32,7 +32,7 @@ const SSIM_CONSTANTS = {
 
 // The image was captured at baseline commit 3b1e59d with this exact fixture and 640x360 canvas.
 const RENDER_FIXTURE_SHA256 = '761ba3fc0d699fdcde85fb2f763ee2d18f61d320ebe1ce10714bf13f8cbb1693'
-const RENDER_BASELINE_SHA256 = 'fa4d57837b9f7bc85c8ea2d21db33c0e5b7e5b4127501f943d99f5d2ed0510aa'
+const RENDER_BASELINE_SHA256 = '9c6d775c841c9ff9009999d3e7d46bb5ef478dd19205c42066953ed532fb00ae'
 
 type ImagePixels = Readonly<{
   data: ArrayLike<number>
@@ -197,7 +197,9 @@ test('render preview draws the fixed fixture with more than one atlas tile', asy
   const body = page.locator('body')
   await expect(body).toHaveAttribute('data-render-preview', 'drawn')
   await expect.poll(async () => Number(await body.getAttribute('data-pixels-drawn'))).toBeGreaterThan(ZERO)
-  await expect.poll(async () => Number(await body.getAttribute('data-tile-colours'))).toBeGreaterThan(ONE)
+  await expect
+    .poll(async () => Number(await body.getAttribute('data-resolved-tile-count')))
+    .toBeGreaterThan(ONE)
 })
 
 test('render preview stays above 0.95 SSIM against the pinned baseline', async ({ page }) => {

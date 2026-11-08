@@ -1,278 +1,363 @@
-/**
- * The block-to-tile assignment.
- *
- * The assertion that matters most is the FIRST one, and it is not about
- * textures: the table's key space must be mc-kernel's block vocabulary, because
- * the reference's table is keyed by an id space that disagrees with kernel's in
- * 117 of 120 rows. Everything else here is layout hygiene.
- */
+import { BLOCK_TYPES, type BlockType } from '@nerima-games/mc-kernel'
 import { describe, expect, it } from '@effect/vitest'
-import { Effect } from 'effect'
+import { Effect, Result, Schema } from 'effect'
 import * as FastCheck from 'fast-check'
 import {
-  MISSING_TILE,
-  TILE_BY_BLOCK_NAME,
+  ANIMATED_TEXTURE_FRAMES,
+  BLOCK_TEXTURE_ALPHA_MODES,
+  BLOCK_TEXTURE_VARIANTS,
+  BlockTextureManifestErrorSchema,
+  type BlockTextureManifestFailureReason,
+  decodeBlockTextureManifest,
+  quadTileForLookup,
   quadTileFromResolver,
   referencedTileIndices,
+  TILE_BY_BLOCK_NAME,
+  tileIndexForFaceAssignment,
   tileIndexForBlockName,
   tileIndexResolver,
 } from '../src/domain/block-texture-map'
-import { ATLAS_TILE_COUNT, isTileIndex } from '../src/domain/texture-atlas'
-import type {
-  CrossPlantQuad,
-  FaceDirection,
-  FaceRole,
-  MeshQuad,
-} from '../src/domain/chunk-geometry'
-import type { BlockId } from '@nerima-games/mc-kernel'
+import { ATLAS_TILE_COUNT, AtlasTileIndexSchema, isTileIndex } from '../src/domain/texture-atlas'
+import type { FaceRole, GeometryQuad } from '../src/domain/meshing-vocabulary'
 import { blockId } from './support/kernel-brands'
+import sourceManifest from '../src/assets/block-textures/manifest.json' with { type: 'json' }
 
-const ROLES: ReadonlyArray<FaceRole> = ['top', 'bottom', 'side']
+const FACE_ROLES: ReadonlyArray<FaceRole> = ['top', 'side', 'bottom']
 
-/**
- * mc-kernel's `BLOCK_TYPES`, in order. NOT a mirror — see
- * `domain/block-texture-map.ts` on why the union is injected rather than
- * carried — but the test needs the real order to prove the transposition, and a
- * test fixture that goes stale fails loudly rather than shipping.
- */
-const KERNEL_BLOCK_TYPES: ReadonlyArray<string> = [
-  'air', 'stone', 'cobblestone', 'dirt', 'grass_block', 'sand', 'gravel', 'water', 'lava',
-  'oak_log', 'oak_planks', 'oak_leaves', 'glass', 'torch', 'glowstone', 'bedrock', 'piston',
-  'snow', 'ladder', 'cobweb', 'sapling', 'dandelion', 'poppy', 'brown_mushroom', 'red_mushroom',
-  'tall_grass', 'fern', 'sugar_cane', 'lily_pad', 'kelp', 'seagrass', 'rail', 'powered_rail',
-  'cactus', 'pressure_plate', 'stone_slab', 'granite', 'diorite', 'andesite', 'deepslate',
-  'obsidian', 'smooth_basalt', 'calcite', 'amethyst_block', 'amethyst_cluster', 'sandstone',
-  'prismarine', 'soul_sand', 'ice', 'farmland', 'coal_ore', 'iron_ore', 'gold_ore', 'diamond_ore',
-  'redstone_ore', 'lapis_ore', 'emerald_ore', 'deepslate_coal_ore', 'deepslate_iron_ore',
-  'deepslate_gold_ore', 'deepslate_diamond_ore', 'deepslate_redstone_ore', 'deepslate_lapis_ore',
-  'deepslate_emerald_ore', 'coal_block', 'iron_block', 'gold_block', 'diamond_block',
-  'redstone_block', 'lapis_block', 'emerald_block', 'wheat_crop', 'potato_crop',
-  'nether_wart_crop', 'redstone_wire', 'redstone_torch', 'lever', 'stone_button', 'repeater',
-  'redstone_lamp', 'redstone_lamp_lit', 'observer', 'comparator', 'dispenser', 'hopper',
-  'piston_head', 'end_stone', 'end_portal_frame', 'end_portal_frame_filled', 'end_portal',
-  'chorus_flower', 'chorus_plant', 'dragon_egg', 'end_crystal', 'end_gateway', 'end_rod',
-  'end_stone_bricks', 'ender_chest', 'purpur_block', 'purpur_pillar', 'purpur_slab',
-  'purpur_stairs', 'shulker_box', 'crafting_table', 'furnace', 'chest', 'door', 'door_open',
-  'oak_stairs', 'anvil', 'cauldron', 'water_cauldron', 'bed', 'enchanting_table',
-  'brewing_stand', 'tnt', 'nether_brick', 'netherrack', 'nether_portal', 'fire',
-]
+const expectManifestFailure = (input: unknown, reason: BlockTextureManifestFailureReason): void => {
+  const result = decodeBlockTextureManifest(input)
+  expect(Result.isFailure(result)).toBe(true)
+  if (Result.isFailure(result)) {
+    expect(result.failure.reason).toBe(reason)
+  }
+}
 
-describe('the key space', () => {
-  it.effect('REGRESSION: the table is a BIJECTION with mc-kernel`s block vocabulary', () =>
+describe('block texture manifest mapping', () => {
+  it.effect('covers kernel BLOCK_TYPES and keeps base tiles in kernel face order', () =>
     Effect.sync(() => {
-      // THE ASSERTION THIS FILE EXISTS FOR. The reference's table is indexed by
-      // ITS block ids, and kernel's ordering disagrees from index 1 onward — an
-      // index-wise copy draws stone as dirt, dirt as bark, water as leaves and
-      // lava as glass, with a real texture on every face so it reads as an art
-      // problem rather than a transposition.
-      //
-      // Both directions, because each catches a different mistake: a missing
-      // name means some block renders as `MISSING_TILE`, and an extra name
-      // means a row was transcribed for a block that does not exist here and
-      // some other row is probably the one it displaced.
-      expect(Object.keys(TILE_BY_BLOCK_NAME).sort()).toStrictEqual([...KERNEL_BLOCK_TYPES].sort())
-      expect(Object.keys(TILE_BY_BLOCK_NAME).length).toBe(120)
-    }),
-  )
+      expect(Object.keys(TILE_BY_BLOCK_NAME).sort()).toStrictEqual([...BLOCK_TYPES].sort())
+      expect(Object.keys(TILE_BY_BLOCK_NAME)).toHaveLength(BLOCK_TYPES.length)
+      expect(TILE_BY_BLOCK_NAME.air).toStrictEqual({ bottom: 0, side: 0, top: 0 })
 
-  it.effect('gives every block a tile on every role, with no fallback reached', () =>
-    Effect.sync(() => {
-      // `MISSING_TILE` is unreachable for a real block. Asserting that here is
-      // what lets `tileIndexForBlockName`'s `?? MISSING_TILE` stay a total
-      // function without being a silent hiding place.
-      for (const name of KERNEL_BLOCK_TYPES) {
-        for (const role of ROLES) {
-          expect(typeof tileIndexForBlockName(name, role)).toBe('number')
-        }
+      let nextTile = 1
+      for (const blockName of BLOCK_TYPES.filter((candidate) => candidate !== 'air')) {
+        expect(TILE_BY_BLOCK_NAME[blockName]).toStrictEqual({
+          bottom: nextTile + 2,
+          side: nextTile + 1,
+          top: nextTile,
+        })
+        nextTile += 3
       }
+      expect(nextTile).toBe(1 + (BLOCK_TYPES.length - 1) * 3)
     }),
   )
 
-  it.effect('REGRESSION: the specific rows an index-wise copy would have got wrong', () =>
+  it.effect('covers every block alpha mode from the generated manifest', () =>
     Effect.sync(() => {
-      // Spelled out rather than left to the bijection, because the bijection
-      // would still hold if the whole table were rotated by one. These are the
-      // semantic anchors: each is a block whose reference id and kernel id
-      // differ, asserted against the tile its NAME should have.
-      expect(tileIndexForBlockName('stone', 'top')).toBe(1) // not 0 (dirt)
-      expect(tileIndexForBlockName('cobblestone', 'top')).toBe(12) // not 1 (stone)
-      expect(tileIndexForBlockName('dirt', 'top')).toBe(0) // not 2 (wood_side)
-      expect(tileIndexForBlockName('water', 'top')).toBe(7) // not 8 (leaves)
-      expect(tileIndexForBlockName('lava', 'top')).toBe(18) // not 9 (glass)
-      expect(tileIndexForBlockName('oak_log', 'side')).toBe(2) // bark, not 10 (snow)
-      expect(tileIndexForBlockName('gravel', 'top')).toBe(11) // not 7 (water)
-    }),
-  )
-})
-
-describe('the roles', () => {
-  it.effect('REGRESSION: grass and logs keep their distinct faces', () =>
-    Effect.sync(() => {
-      // The two blocks where a role mix-up is unmistakable in play: grass with
-      // dirt on top, a log with bark on its cut end. If the role keys were ever
-      // transposed, these are what would say so.
-      expect(TILE_BY_BLOCK_NAME['grass_block']).toStrictEqual({ top: 4, bottom: 0, side: 5 })
-      expect(TILE_BY_BLOCK_NAME['oak_log']).toStrictEqual({ top: 3, bottom: 3, side: 2 })
-      // Grass's bottom is dirt's tile — the same number dirt itself uses, which
-      // is the check that the bottom role is not merely "different".
-      expect(TILE_BY_BLOCK_NAME['grass_block']?.bottom).toBe(tileIndexForBlockName('dirt', 'top'))
+      expect(Object.keys(BLOCK_TEXTURE_ALPHA_MODES).sort()).toStrictEqual([...BLOCK_TYPES].sort())
+      expect(BLOCK_TEXTURE_ALPHA_MODES.air).toBe('cutout')
+      expect(BLOCK_TEXTURE_ALPHA_MODES.glass).toBe('translucent')
+      expect(BLOCK_TEXTURE_ALPHA_MODES.oak_leaves).toBe('cutout')
+      expect(BLOCK_TEXTURE_ALPHA_MODES.stone).toBe('opaque')
     }),
   )
 
-  it.effect('exactly twelve blocks have roles that differ', () =>
+  it.effect('returns each mapped face through a typed lookup result', () =>
     Effect.sync(() => {
-      // A count derived from the table rather than transcribed beside it —
-      // "two hand-written lists stating the same thing" is a defect shape with
-      // six recorded instances here, and a hard-coded 12 next to a 120-row
-      // table is precisely that. The NAMES are what the test pins.
-      const varied = Object.entries(TILE_BY_BLOCK_NAME)
-        .filter(([, tiles]) => new Set([tiles.top, tiles.bottom, tiles.side]).size > 1)
-        .map(([name]) => name)
-        .sort()
-
-      expect(varied).toStrictEqual([
-        'bed', 'dispenser', 'dragon_egg', 'end_gateway', 'farmland', 'grass_block',
-        'oak_log', 'oak_stairs', 'observer', 'purpur_block', 'redstone_lamp', 'redstone_lamp_lit',
-      ])
-    }),
-  )
-})
-
-describe('the anomalies carried over from the reference', () => {
-  it.effect('REGRESSION: ice shares lava`s tile, and that is transcribed not chosen', () =>
-    Effect.sync(() => {
-      // Tile 18 is "lava/fire" in the atlas legend. Ice is not lava. The
-      // reference has no ice tile and inventing an index here would put a number
-      // in the table that no PNG backs — see the file header. Pinned so it is a
-      // known quantity: the day an ice tile is drawn, this test is what points
-      // at the row to change.
-      expect(tileIndexForBlockName('ice', 'top')).toBe(tileIndexForBlockName('lava', 'top'))
-    }),
-  )
-
-  it.effect('REGRESSION: tall_grass and fern share stone`s tile', () =>
-    Effect.sync(() => {
-      expect(tileIndexForBlockName('tall_grass', 'top')).toBe(tileIndexForBlockName('stone', 'top'))
-      expect(tileIndexForBlockName('fern', 'top')).toBe(tileIndexForBlockName('stone', 'top'))
-    }),
-  )
-})
-
-describe('the indices themselves', () => {
-  it.effect('REGRESSION: every tile index is one the atlas layout can address', () =>
-    Effect.sync(() => {
-      // The join between this table and `./texture-atlas.ts`. An index past
-      // ATLAS_TILE_COUNT wraps under `normaliseTileIndex` and silently draws a
-      // different block's texture rather than failing.
-      for (const [name, tiles] of Object.entries(TILE_BY_BLOCK_NAME)) {
-        for (const role of ROLES) {
-          const index = tiles[role]
-          expect(isTileIndex(index), `${name}.${role} = ${index}`).toBe(true)
-          expect(index).toBeLessThan(ATLAS_TILE_COUNT)
-        }
-      }
-    }),
-  )
-
-  it.effect('names how many distinct tiles the PNG must contain', () =>
-    Effect.sync(() => {
-      // The question the person drawing the atlas needs answered, and one that
-      // cannot be read off a 120-row table by eye. Derived, so it cannot go
-      // stale against the table above it.
-      const tiles = referencedTileIndices()
-      expect(tiles.length).toBeGreaterThan(0)
-      expect(tiles).toStrictEqual([...tiles].sort((left, right) => left - right))
-      expect(new Set(tiles).size).toBe(tiles.length)
-      // Comfortably inside one 16x16 atlas, which is what makes the single
-      // shared material in `application/world-renderer.ts` possible at all.
-      expect(tiles[tiles.length - 1]).toBeLessThan(ATLAS_TILE_COUNT)
-    }),
-  )
-})
-
-describe('the injected name lookup', () => {
-  it.effect('resolves a block id through the host`s vocabulary', () =>
-    Effect.sync(() => {
-      // The seam. mc-kernel owns BLOCK_TYPES and this repository does not mirror
-      // it — a closed union must be carried whole or not carried, and 120
-      // literals to do one array index is the widest mirror in the workspace
-      // carrying the least information.
-      const resolve = tileIndexResolver((id) => KERNEL_BLOCK_TYPES[id] ?? '')
-
-      expect(resolve(blockId(1), 'top')).toBe(1) // stone
-      expect(resolve(blockId(4), 'top')).toBe(4) // grass_block, top
-      expect(resolve(blockId(4), 'bottom')).toBe(0) // grass_block, dirt underneath
-      expect(resolve(blockId(9), 'side')).toBe(2) // oak_log, bark
-    }),
-  )
-
-  it.effect('is total for ids outside the vocabulary', () =>
-    Effect.sync(() => {
-      // A caller bug, not a missing texture — but a renderer that threw would
-      // take down the frame for one bad cell.
-      const resolve = tileIndexResolver((id) => KERNEL_BLOCK_TYPES[id] ?? '')
+      FastCheck.assert(
+        FastCheck.property(
+          FastCheck.constantFrom(...BLOCK_TYPES),
+          FastCheck.constantFrom(...FACE_ROLES),
+          (blockName, role) => {
+            const lookup = tileIndexForBlockName(blockName, role)
+            expect(Result.isSuccess(lookup)).toBe(true)
+            if (Result.isSuccess(lookup)) {
+              expect(lookup.success).toBe(TILE_BY_BLOCK_NAME[blockName][role])
+              expect(isTileIndex(lookup.success)).toBe(true)
+            }
+          },
+        ),
+        { numRuns: 200, seed: 0 },
+      )
 
       FastCheck.assert(
-        FastCheck.property(FastCheck.integer({ min: 120, max: 65_535 }), (id) => {
-          expect(resolve(blockId(id), 'top')).toBe(MISSING_TILE)
+        FastCheck.property(FastCheck.integer({ max: ATLAS_TILE_COUNT - 1, min: 0 }), (tile) => {
+          const decoded = Schema.decodeUnknownResult(AtlasTileIndexSchema)(tile)
+          expect(Result.isSuccess(decoded)).toBe(true)
+          if (Result.isSuccess(decoded)) {
+            expect(isTileIndex(decoded.success)).toBe(true)
+          }
         }),
-        { seed: 0, numRuns: 100 },
+        { numRuns: 200, seed: 4 },
       )
-      expect(tileIndexForBlockName('not_a_block', 'side')).toBe(MISSING_TILE)
     }),
   )
 
-  it.effect('selects the tile role from renderable geometry', () =>
+  it.effect('fails unknown names rather than mapping them to transparent air', () =>
     Effect.sync(() => {
-      const resolve = (_blockId: BlockId, role: FaceRole): number => {
-        if (role === 'top') {
-          return 10
-        }
-        if (role === 'bottom') {
-          return 20
-        }
-        return 30
-      }
-      const tile = quadTileFromResolver(resolve)
-      // `tile()` never sees a raw `FluidQuad`: `buildFluidGeometry` converts one via
-      // `fluidProxyQuad` before calling `tile`, deriving `role` from `direction`
-      // ('yPos' -> 'top', else -> 'side'). Mirror that shape here rather than the
-      // pre-conversion one, since that is what a `QuadTile` actually receives.
-      const fluidProxy = (direction: FaceDirection): MeshQuad => {
-        let role: FaceRole = 'side'
-        if (direction === 'yPos') {
-          role = 'top'
-        }
-        return {
-          ao: 0,
-          blockId: blockId(3),
-          direction,
-          height: 1,
-          lx: 0,
-          lz: 0,
-          role,
-          width: 1,
-          y: 0,
-        }
-      }
-      const cross: CrossPlantQuad = {
-        blockId: blockId(3),
-        role: 'bottom',
-        vertices: [
-          [0, 0, 0],
-          [0, 1, 0],
-          [1, 1, 1],
-          [1, 0, 1],
-        ],
-        nx: 0,
-        ny: 0,
-        nz: 1,
-        ao: 0,
+      FastCheck.assert(
+        FastCheck.property(FastCheck.string().filter((name) => !BLOCK_TYPES.includes(name as BlockType)), (name) => {
+          expect(tileIndexForBlockName(name, 'top')).toStrictEqual(Result.fail({
+            _tag: 'BlockTextureLookupError',
+            blockName: name,
+            reason: 'unknown-block',
+            role: 'top',
+          }))
+        }),
+        { numRuns: 100, seed: 1 },
+      )
+    }),
+  )
+
+  it.effect('keeps crop variants and animation frames within the packed atlas', () =>
+    Effect.sync(() => {
+      expect(Object.keys(BLOCK_TEXTURE_VARIANTS).length).toBeGreaterThan(0)
+      for (const [crop, stages] of Object.entries(BLOCK_TEXTURE_VARIANTS)) {
+        expect(stages.length).toBeGreaterThan(1)
+        expect(stages[0]).toBe(TILE_BY_BLOCK_NAME[crop as BlockType].top)
+        expect(stages.every(isTileIndex)).toBe(true)
       }
 
-      expect(tile(cross)).toBe(20)
-      expect(tile(fluidProxy('yPos'))).toBe(10)
-      expect(tile(fluidProxy('xPos'))).toBe(30)
+      expect(Object.keys(ANIMATED_TEXTURE_FRAMES).sort()).toStrictEqual(['fire', 'lava', 'portal', 'water'])
+      for (const blocks of Object.values(ANIMATED_TEXTURE_FRAMES)) {
+        for (const frames of Object.values(blocks)) {
+          expect(frames.length).toBeGreaterThan(0)
+          expect(frames.every(isTileIndex)).toBe(true)
+        }
+      }
+      expect(ANIMATED_TEXTURE_FRAMES['portal']).toHaveProperty('end_portal')
+      expect(ANIMATED_TEXTURE_FRAMES['portal']).toHaveProperty('nether_portal')
+      expect(ANIMATED_TEXTURE_FRAMES['portal']).toHaveProperty('end_gateway')
+
+      const variantTiles = Object.values(BLOCK_TEXTURE_VARIANTS).flatMap((stages) => stages.slice(1))
+      const animationTiles = Object.values(ANIMATED_TEXTURE_FRAMES).flatMap((blocks) =>
+        Object.values(blocks).flat(),
+      )
+      expect(Math.min(...animationTiles)).toBeGreaterThan(Math.max(...variantTiles))
+      expect(new Set(animationTiles).size).toBe(animationTiles.length)
+    }),
+  )
+
+  it.effect('uses typed failures through the resolver and quad adapter', () =>
+    Effect.sync(() => {
+      const resolveStone = tileIndexResolver(() => 'stone')
+      const stone = resolveStone(blockId(1), 'top')
+      expect(Result.isSuccess(stone)).toBe(true)
+      if (Result.isSuccess(stone)) {
+        expect(stone.success).toBe(TILE_BY_BLOCK_NAME.stone.top)
+      }
+
+      const resolveUnknown = tileIndexResolver(() => 'missing_block')
+      const failure = resolveUnknown(blockId(1), 'side')
+      expect(Result.isFailure(failure)).toBe(true)
+      if (Result.isFailure(failure)) {
+        const quad = { blockId: blockId(1), role: 'side' } as unknown as GeometryQuad
+        expect(quadTileFromResolver(resolveUnknown)(quad)).toStrictEqual(Result.fail(failure.failure))
+      }
+
+      const quad = { blockId: blockId(1), role: 'top' } as unknown as GeometryQuad
+      expect(quadTileForLookup(() => 'stone')(quad)).toStrictEqual(Result.succeed(TILE_BY_BLOCK_NAME.stone.top))
+    }),
+  )
+
+  it.effect('decodes manifests into typed results and rejects invalid allocation contracts', () =>
+    Effect.sync(() => {
+      const valid = decodeBlockTextureManifest(sourceManifest)
+      expect(Result.isSuccess(valid)).toBe(true)
+      if (Result.isSuccess(valid)) {
+        expect(Object.keys(valid.success.blockFaces).sort()).toStrictEqual([...BLOCK_TYPES].sort())
+      }
+      expectManifestFailure(null, 'schema')
+      expectManifestFailure({ ...sourceManifest, schemaVersion: 2 }, 'schema')
+      const invalid = decodeBlockTextureManifest(null)
+      if (Result.isFailure(invalid)) {
+        expect(Schema.is(BlockTextureManifestErrorSchema)(invalid.failure)).toBe(true)
+      }
+
+      FastCheck.assert(
+        FastCheck.property(FastCheck.oneof(FastCheck.constant(null), FastCheck.string(), FastCheck.integer()), (input) => {
+          expect(Result.isFailure(decodeBlockTextureManifest(input))).toBe(true)
+        }),
+        { numRuns: 100, seed: 3 },
+      )
+      FastCheck.assert(
+        FastCheck.property(FastCheck.constantFrom(...BLOCK_TYPES), (blockName) => {
+          const decoded = decodeBlockTextureManifest(sourceManifest)
+          expect(Result.isSuccess(decoded)).toBe(true)
+          if (Result.isSuccess(decoded)) {
+            const faces = decoded.success.blockFaces[blockName]
+            expect(faces).toBeDefined()
+            if (faces !== undefined) {
+              expect([faces.top, faces.side, faces.bottom].every(isTileIndex)).toBe(true)
+              const stages = decoded.success.variants[blockName]
+              if (stages !== undefined) {
+                expect(stages[0]).toBe(faces.top)
+              }
+            }
+          }
+        }),
+        { numRuns: 200, seed: 5 },
+      )
+
+      const invalidLayout = {
+        ...sourceManifest,
+        layout: { ...sourceManifest.layout, width: 1024 },
+      }
+      expectManifestFailure(invalidLayout, 'layout')
+
+      const invalidFaces = {
+        ...sourceManifest,
+        blockFaces: {
+          ...sourceManifest.blockFaces,
+          stone: { ...sourceManifest.blockFaces.stone, top: ATLAS_TILE_COUNT },
+        },
+      }
+      expectManifestFailure(invalidFaces, 'schema')
+
+      const incompleteFaces = Object.fromEntries(
+        Object.entries(sourceManifest.blockFaces).filter(([blockName]) => blockName !== 'stone'),
+      )
+      expectManifestFailure({ ...sourceManifest, blockFaces: incompleteFaces }, 'block-faces')
+
+      const incompleteAlphaModes = Object.fromEntries(
+        Object.entries(sourceManifest.blockAlphaModes).filter(([blockName]) => blockName !== 'stone'),
+      )
+      expectManifestFailure({ ...sourceManifest, blockAlphaModes: incompleteAlphaModes }, 'block-alpha-modes')
+
+      const invalidAir = {
+        ...sourceManifest,
+        blockFaces: {
+          ...sourceManifest.blockFaces,
+          air: { ...sourceManifest.blockFaces.air, bottom: 1 },
+        },
+      }
+      expectManifestFailure(invalidAir, 'air-face')
+
+      const invalidBaseOrder = {
+        ...sourceManifest,
+        blockFaces: {
+          ...sourceManifest.blockFaces,
+          stone: { ...sourceManifest.blockFaces.stone, side: sourceManifest.blockFaces.stone.side + 1 },
+        },
+      }
+      expectManifestFailure(invalidBaseOrder, 'base-face-order')
+
+      const invalidVariantName = {
+        ...sourceManifest,
+        variants: { ...sourceManifest.variants, unknown_crop: [1] },
+      }
+      expectManifestFailure(invalidVariantName, 'variant-block')
+
+      const invalidVariantList = {
+        ...sourceManifest,
+        variants: { ...sourceManifest.variants, wheat_crop: [ATLAS_TILE_COUNT] },
+      }
+      expectManifestFailure(invalidVariantList, 'schema')
+
+      const invalidVariantAlias = {
+        ...sourceManifest,
+        variants: { ...sourceManifest.variants, wheat_crop: [sourceManifest.blockFaces.stone.top] },
+      }
+      expectManifestFailure(invalidVariantAlias, 'variant-alias')
+
+      const invalidVariantOrder = {
+        ...sourceManifest,
+        variants: {
+          ...sourceManifest.variants,
+          wheat_crop: [sourceManifest.blockFaces.wheat_crop.top, ATLAS_TILE_COUNT - 1],
+        },
+      }
+      expectManifestFailure(invalidVariantOrder, 'variant-order')
+
+      const emptyVariant = {
+        ...sourceManifest,
+        variants: { ...sourceManifest.variants, wheat_crop: [] },
+      }
+      expectManifestFailure(emptyVariant, 'variant-tiles')
+
+      const invalidAnimationName = {
+        ...sourceManifest,
+        animations: {
+          ...sourceManifest.animations,
+          fire: { ...sourceManifest.animations.fire, unknown_block: [400] },
+        },
+      }
+      expectManifestFailure(invalidAnimationName, 'animation-block')
+
+      const invalidAnimationGroup = {
+        ...sourceManifest,
+        animations: { ...sourceManifest.animations, fire: undefined },
+      }
+      expectManifestFailure(invalidAnimationGroup, 'animation-group')
+
+      const missingAnimationBlock = {
+        ...sourceManifest,
+        animations: { ...sourceManifest.animations, fire: {} },
+      }
+      expectManifestFailure(missingAnimationBlock, 'animation-block')
+
+      const missingAnimationGroup = {
+        ...sourceManifest,
+        animations: Object.fromEntries(
+          Object.entries(sourceManifest.animations).filter(([group]) => group !== 'fire'),
+        ),
+      }
+      expectManifestFailure(missingAnimationGroup, 'animation-group')
+
+      const emptyAnimation = {
+        ...sourceManifest,
+        animations: { ...sourceManifest.animations, fire: { fire: [] } },
+      }
+      expectManifestFailure(emptyAnimation, 'animation-tiles')
+
+      const extraAnimationGroup = {
+        ...sourceManifest,
+        animations: { ...sourceManifest.animations, extra: {} },
+      }
+      expectManifestFailure(extraAnimationGroup, 'animation-group')
+
+      const duplicateAnimationTile = {
+        ...sourceManifest,
+        animations: {
+          ...sourceManifest.animations,
+          water: { water: sourceManifest.animations.water.water.map(() => sourceManifest.animations.water.water[0]) },
+        },
+      }
+      expectManifestFailure(duplicateAnimationTile, 'animation-coverage')
+
+      expectManifestFailure({ ...sourceManifest, tileCount: ATLAS_TILE_COUNT + 1 }, 'tile-count')
+
+      expect(tileIndexForFaceAssignment('stone', 'side', {
+        bottom: TILE_BY_BLOCK_NAME.stone.bottom,
+        side: ATLAS_TILE_COUNT,
+        top: TILE_BY_BLOCK_NAME.stone.top,
+      })).toStrictEqual(Result.fail({
+        _tag: 'BlockTextureLookupError',
+        blockName: 'stone',
+        reason: 'invalid-tile-index',
+        role: 'side',
+      }))
+      expect(tileIndexForFaceAssignment('stone', 'top', TILE_BY_BLOCK_NAME.stone)).toStrictEqual(
+        Result.succeed(TILE_BY_BLOCK_NAME.stone.top),
+      )
+      expect(tileIndexForFaceAssignment('missing_block', 'top', TILE_BY_BLOCK_NAME.stone)).toStrictEqual(
+        Result.fail({
+          _tag: 'BlockTextureLookupError',
+          blockName: 'missing_block',
+          reason: 'unknown-block',
+          role: 'top',
+        }),
+      )
+    }),
+  )
+
+  it.effect('references only valid atlas cells and returns sorted unique indices', () =>
+    Effect.sync(() => {
+      const indices = referencedTileIndices()
+      expect(indices).toStrictEqual([...indices].sort((left, right) => left - right))
+      expect(new Set(indices).size).toBe(indices.length)
+      expect(indices.length).toBeGreaterThan(0)
+      expect(indices.every((tile) => isTileIndex(tile) && tile < ATLAS_TILE_COUNT)).toBe(true)
     }),
   )
 })

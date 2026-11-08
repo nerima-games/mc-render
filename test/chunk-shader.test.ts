@@ -15,7 +15,7 @@
  * graphics settings, which nobody reports.
  */
 import { describe, expect, it } from '@effect/vitest'
-import { Effect } from 'effect'
+import { Effect, Result } from 'effect'
 import * as FastCheck from 'fast-check'
 import {
   CHUNK_SHADER_ATTRIBUTES,
@@ -26,6 +26,7 @@ import {
   glslFloat,
 } from '../src/domain/chunk-shader'
 import { CHUNK_ANIMATION_KIND } from '../src/domain/chunk-animation-kind'
+import { ANIMATED_TEXTURE_FRAMES } from '../src/domain/block-texture-map'
 import {
   AO_SHADE_FLOOR,
   AO_SHADE_RANGE,
@@ -33,7 +34,15 @@ import {
   LIGHT_SHADE_FLOOR,
   LIGHT_SHADE_RANGE,
 } from '../src/domain/voxel-lighting'
-import { ATLAS_COLUMNS, HALF_TEXEL_UV, TILE_UV_SPAN, uvPatchStaysInsideTile } from '../src/domain/texture-atlas'
+import {
+  ATLAS_COLUMNS,
+  ATLAS_PIXELS,
+  HALF_TEXEL_UV,
+  TILE_CELL_PIXELS,
+  TILE_GUTTER_PIXELS,
+  TILE_UV_SPAN,
+  uvPatchStaysInsideTile,
+} from '../src/domain/texture-atlas'
 
 describe('glslFloat', () => {
   it.effect('REGRESSION: always emits a decimal point, because GLSL `1` is an int', () =>
@@ -87,7 +96,7 @@ describe('the fragment source carries the CPU path`s coefficients', () => {
     }),
   )
 
-  it.effect('uses elapsed time to scroll block-selected animated materials inside their atlas bounds', () =>
+  it.effect('selects manifest frame tiles from the block animation kind and uniform clock', () =>
     Effect.sync(() => {
       const source = chunkFragmentShader()
 
@@ -98,11 +107,24 @@ describe('the fragment source carries the CPU path`s coefficients', () => {
         CHUNK_ANIMATION_KIND.fire,
         CHUNK_ANIMATION_KIND.netherPortal,
         CHUNK_ANIMATION_KIND.endPortal,
+        CHUNK_ANIMATION_KIND.endGateway,
       ]) {
         expect(source).toContain(`animationKind == ${glslFloat(kind)}`)
       }
-      expect(source).not.toMatch(/if\s*\(\s*tile\s*==/)
-      expect(source).toContain('inTile = fract(inTile + animationOffset)')
+      const frameTiles = [
+        ...ANIMATED_TEXTURE_FRAMES.water.water,
+        ...ANIMATED_TEXTURE_FRAMES.lava.lava,
+        ...ANIMATED_TEXTURE_FRAMES.fire.fire,
+        ...ANIMATED_TEXTURE_FRAMES.portal.nether_portal,
+        ...ANIMATED_TEXTURE_FRAMES.portal.end_portal,
+        ...ANIMATED_TEXTURE_FRAMES.portal.end_gateway,
+      ]
+      for (const frameTile of frameTiles) {
+        expect(source).toContain(`return ${glslFloat(frameTile)};`)
+      }
+      expect(source).toContain('mod(floor(time *')
+      expect(source).toContain('floor(vAnimationKind + 0.5),\n    uTime')
+      expect(source).not.toContain('animationOffset')
       expect(source).toContain('mix(lo, hi, inTile)')
     }),
   )
@@ -158,28 +180,23 @@ describe('the atlas resolution', () => {
     Effect.sync(() => {
       // chunk-geometry.ts emits UVs in BLOCK units so a merged 16x1 quad has u
       // running 0..16. Without fract() the sampler walks off the tile and the
-      // whole 512x512 atlas tiles sixteen times across one face.
+      // full atlas tiles sixteen times across one face.
       const source = chunkFragmentShader()
       expect(source).toContain('fract(vUv)')
       expect(source).toContain('mix(lo, hi, inTile)')
     }),
   )
 
-  it.effect('REGRESSION: insets BOTH bounds by half a texel, unlike the reference', () =>
+  it.effect('samples the inset 16px image inside its 48px cell', () =>
     Effect.sync(() => {
-      // domain/texture-atlas.ts's header derives the reference's mistake: it
-      // insets the near edge and pairs it with a full-pitch span, so the far
-      // edge lands half a texel inside the neighbouring tile. The predicate that
-      // tells the two apart already exists, so this test uses it rather than
-      // re-deriving the arithmetic.
-      expect(uvPatchStaysInsideTile(TILE_UV_SPAN)).toBe(true)
-      expect(uvPatchStaysInsideTile(1 / ATLAS_COLUMNS)).toBe(false)
+      expect(Result.getOrThrow(uvPatchStaysInsideTile(TILE_UV_SPAN))).toBe(true)
+      expect(Result.getOrThrow(uvPatchStaysInsideTile(1 / ATLAS_COLUMNS))).toBe(false)
 
       const source = chunkFragmentShader()
-      // `lo` adds the inset and `hi` subtracts it — four occurrences, two per
-      // component. A source that insets only `lo` has two.
-      expect(source.match(/\+ HALF_TEXEL/g)?.length).toBe(2)
-      expect(source.match(/- HALF_TEXEL/g)?.length).toBe(2)
+      expect(source).toContain(`const float CELL_UV_PITCH = ${glslFloat(TILE_CELL_PIXELS / ATLAS_PIXELS)};`)
+      expect(source).toContain(`const float TILE_GUTTER_UV = ${glslFloat(TILE_GUTTER_PIXELS / ATLAS_PIXELS)};`)
+      expect(source).toContain('vec2 lo = cellOrigin + vec2(TILE_GUTTER_UV + HALF_TEXEL);')
+      expect(source).toContain('vec2 hi = lo + vec2(TILE_UV_SPAN);')
     }),
   )
 
@@ -189,8 +206,7 @@ describe('the atlas resolution', () => {
       // grass — the worst combination, because it survives whatever you happened
       // to test with.
       const source = chunkFragmentShader()
-      expect(source).toContain('1.0 - (row + 1.0) / ATLAS_COLUMNS + HALF_TEXEL')
-      expect(source).toContain('1.0 - row / ATLAS_COLUMNS - HALF_TEXEL')
+      expect(source).toContain('1.0 - (row + 1.0) * CELL_UV_PITCH')
     }),
   )
 

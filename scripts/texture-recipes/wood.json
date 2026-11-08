@@ -1,0 +1,110 @@
+{
+  "group": "wood",
+  "palettes": {
+    "honeywood": {
+      "shade": "#302832",
+      "shadow": "#61434A",
+      "base": "#A67054",
+      "light": "#D09A62",
+      "accent": "#F1D18C"
+    },
+    "workshop": {
+      "shade": "#26303B",
+      "shadow": "#51474A",
+      "base": "#8F644D",
+      "light": "#C49769",
+      "accent": "#79AA9E"
+    },
+    "linen-and-oak": {
+      "shade": "#332B3A",
+      "shadow": "#63505B",
+      "base": "#946652",
+      "light": "#D0A775",
+      "accent": "#E77E83"
+    },
+    "sealed-crate": {
+      "shade": "#322832",
+      "shadow": "#64424A",
+      "base": "#A75E4D",
+      "light": "#DA8D58",
+      "accent": "#F1CD75"
+    }
+  },
+  "recipes": {
+    "oak_log": {
+      "palette": "honeywood",
+      "pattern": "bark-grain",
+      "alpha": "opaque",
+      "faces": {
+        "top": "wood-rings",
+        "side": "bark-grain",
+        "bottom": "wood-rings"
+      }
+    },
+    "oak_planks": {
+      "palette": "honeywood",
+      "pattern": "plank-grain",
+      "alpha": "opaque"
+    },
+    "ladder": {
+      "palette": "honeywood",
+      "pattern": "plank-grain",
+      "alpha": "cutout"
+    },
+    "crafting_table": {
+      "palette": "workshop",
+      "pattern": "crafting-table",
+      "alpha": "opaque",
+      "faces": {
+        "top": "crafting-table",
+        "side": "plank-grain",
+        "bottom": "plank-grain"
+      }
+    },
+    "chest": {
+      "palette": "honeywood",
+      "pattern": "plank-grain",
+      "alpha": "opaque",
+      "faces": {
+        "top": "plank-grain",
+        "side": "chest",
+        "bottom": "plank-grain"
+      }
+    },
+    "door": {
+      "palette": "honeywood",
+      "pattern": "door",
+      "alpha": "opaque"
+    },
+    "door_open": {
+      "palette": "honeywood",
+      "pattern": "door-open",
+      "alpha": "opaque"
+    },
+    "oak_stairs": {
+      "palette": "honeywood",
+      "pattern": "plank-grain",
+      "alpha": "opaque"
+    },
+    "bed": {
+      "palette": "linen-and-oak",
+      "pattern": "wool-weave",
+      "alpha": "opaque",
+      "faces": {
+        "top": "wool-weave",
+        "side": "wool-weave",
+        "bottom": "plank-grain"
+      }
+    },
+    "tnt": {
+      "palette": "sealed-crate",
+      "pattern": "tnt-wrap",
+      "alpha": "opaque",
+      "faces": {
+        "top": "tnt-wrap",
+        "side": "tnt-wrap",
+        "bottom": "tnt-wrap"
+      }
+    }
+  }
+}

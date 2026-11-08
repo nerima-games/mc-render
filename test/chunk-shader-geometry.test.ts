@@ -28,7 +28,7 @@
  * failure docs' §6.2 records six instances of.
  */
 import { describe, expect, it } from '@effect/vitest'
-import { Effect } from 'effect'
+import { Effect, Result } from 'effect'
 import { chunkKeyOf } from '@nerima-games/mc-kernel'
 import {
   ANIMATION_KIND_COMPONENTS,
@@ -37,8 +37,9 @@ import {
   VERTICES_PER_QUAD,
   type MeshQuad,
 } from '../src/domain/chunk-geometry'
+import type { GeometryQuad } from '../src/domain/meshing-vocabulary'
 import { chunkShaderSource, CHUNK_SHADER_UNIFORMS } from '../src/domain/chunk-shader'
-import { MISSING_TILE, quadTileForLookup, tileIndexForBlockName } from '../src/domain/block-texture-map'
+import { TILE_BY_BLOCK_NAME, quadTileForLookup, tileIndexForBlockName } from '../src/domain/block-texture-map'
 import {
   FULL_SUN_INTENSITY,
   applyChunkShaderEnvironment,
@@ -138,13 +139,13 @@ describe('the tile a quad draws', () => {
       // alone gets a plausible world with flat grass, which is why
       // `quadTileFromResolver` names both fields in one place. grass_block is
       // the block that proves it: three roles, three different tiles.
-      const grassTop = tileIndexForBlockName('grass_block', 'top')
-      const grassSide = tileIndexForBlockName('grass_block', 'side')
-      const grassBottom = tileIndexForBlockName('grass_block', 'bottom')
+      const grassTop = Result.getOrThrow(tileIndexForBlockName('grass_block', 'top'))
+      const grassSide = Result.getOrThrow(tileIndexForBlockName('grass_block', 'side'))
+      const grassBottom = Result.getOrThrow(tileIndexForBlockName('grass_block', 'bottom'))
 
       expect(new Set([grassTop, grassSide, grassBottom]).size).toBe(3)
 
-      const tile = quadTileForLookup(() => 'grass_block')
+      const tile = (meshQuad: GeometryQuad): number => TILE_BY_BLOCK_NAME.grass_block[meshQuad.role]
       const buffers = buildChunkGeometry(
         [quad({ role: 'top' }), quad({ role: 'side', lx: 1 })],
         0,
@@ -158,7 +159,7 @@ describe('the tile a quad draws', () => {
     }),
   )
 
-  it.effect('the default is the untextured tile, and an unknown block is the missing one', () =>
+  it.effect('the default is untextured, and unknown blocks fail at the lookup boundary', () =>
     Effect.sync(() => {
       // Same number, two different claims — see `UNTEXTURED_TILE`'s header.
       // Asserted together so that a future change to either is forced to decide
@@ -166,8 +167,23 @@ describe('the tile a quad draws', () => {
       const untextured = buildChunkGeometry([quad()])
       expect([...untextured.tileIndices]).toStrictEqual([0, 0, 0, 0])
 
-      const unknown = buildChunkGeometry([quad()], 0, 0, undefined, quadTileForLookup(() => 'no_such_block'))
-      expect([...unknown.tileIndices]).toStrictEqual([MISSING_TILE, MISSING_TILE, MISSING_TILE, MISSING_TILE])
+      const unknown = tileIndexForBlockName('no_such_block', 'side')
+      expect(Result.isFailure(unknown)).toBe(true)
+      if (Result.isFailure(unknown)) {
+        expect(unknown.failure).toMatchObject({
+          _tag: 'BlockTextureLookupError',
+          blockName: 'no_such_block',
+          reason: 'unknown-block',
+        })
+      }
+      expect(quadTileForLookup(() => 'no_such_block')(quad())).toStrictEqual(
+        Result.fail({
+          _tag: 'BlockTextureLookupError',
+          blockName: 'no_such_block',
+          reason: 'unknown-block',
+          role: 'top',
+        }),
+      )
     }),
   )
 })

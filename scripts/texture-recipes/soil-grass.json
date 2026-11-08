@@ -1,0 +1,87 @@
+{
+  "group": "soil-grass",
+  "palettes": {
+    "loam": {
+      "shade": "#3F2E27",
+      "shadow": "#694738",
+      "base": "#95684A",
+      "light": "#BB8656",
+      "accent": "#D9B06F"
+    },
+    "grass-dirt": {
+      "shade": "#483528",
+      "shadow": "#755036",
+      "base": "#497C4A",
+      "light": "#79A951",
+      "accent": "#C29A5C"
+    },
+    "sand": {
+      "shade": "#6B4F30",
+      "shadow": "#A47B46",
+      "base": "#D0AF66",
+      "light": "#EAD58A",
+      "accent": "#FBEDB5"
+    },
+    "soul-ground": {
+      "shade": "#2B293B",
+      "shadow": "#4C4555",
+      "base": "#736B70",
+      "light": "#A39A84",
+      "accent": "#8BD0C6"
+    },
+    "farmland": {
+      "shade": "#3E3028",
+      "shadow": "#654633",
+      "base": "#8B6040",
+      "light": "#AA794B",
+      "accent": "#D0A16A"
+    }
+  },
+  "recipes": {
+    "dirt": {
+      "palette": "loam",
+      "pattern": "soil-grain",
+      "alpha": "opaque"
+    },
+    "grass_block": {
+      "palette": "grass-dirt",
+      "pattern": "grass-edge",
+      "faces": {
+        "top": "grass-cover",
+        "side": "grass-edge",
+        "bottom": "soil-grain"
+      },
+      "alpha": "opaque"
+    },
+    "sand": {
+      "palette": "sand",
+      "pattern": "sand-grain",
+      "alpha": "opaque"
+    },
+    "soul_sand": {
+      "palette": "soul-ground",
+      "pattern": "soil-grain",
+      "faces": {
+        "top": "soil-grain",
+        "side": "soil-grain",
+        "bottom": "soil-grain"
+      },
+      "alpha": "opaque"
+    },
+    "farmland": {
+      "palette": "farmland",
+      "pattern": "furrow",
+      "faces": {
+        "top": "furrow",
+        "side": "soil-grain",
+        "bottom": "soil-grain"
+      },
+      "alpha": "opaque"
+    },
+    "soul_soil": {
+      "palette": "soul-ground",
+      "pattern": "soil-grain",
+      "alpha": "opaque"
+    }
+  }
+}

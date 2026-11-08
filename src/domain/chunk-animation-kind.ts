@@ -1,8 +1,10 @@
 import { BLOCK_IDS, type BlockId, blockTypeOfId } from '@nerima-games/mc-kernel'
+import type { FaceRole } from './meshing-vocabulary.js'
 import { Result } from 'effect'
 
 /** Stable per-vertex tags for the chunk shader's animated materials. */
 export const CHUNK_ANIMATION_KIND = {
+  endGateway: 6,
   endPortal: 5,
   fire: 3,
   lava: 2,
@@ -13,7 +15,8 @@ export const CHUNK_ANIMATION_KIND = {
 
 export type ChunkAnimationKind = (typeof CHUNK_ANIMATION_KIND)[keyof typeof CHUNK_ANIMATION_KIND]
 
-const ANIMATION_KIND_BY_BLOCK_TYPE: Readonly<Record<string, ChunkAnimationKind | undefined>> = {
+export const CHUNK_ANIMATION_KIND_BY_BLOCK_TYPE: Readonly<Record<string, ChunkAnimationKind | undefined>> = Object.freeze({
+  end_gateway: CHUNK_ANIMATION_KIND.endGateway,
   end_portal: CHUNK_ANIMATION_KIND.endPortal,
   fire: CHUNK_ANIMATION_KIND.fire,
   lava: CHUNK_ANIMATION_KIND.lava,
@@ -21,12 +24,12 @@ const ANIMATION_KIND_BY_BLOCK_TYPE: Readonly<Record<string, ChunkAnimationKind |
   nether_portal: CHUNK_ANIMATION_KIND.netherPortal,
   water: CHUNK_ANIMATION_KIND.water,
   water_cauldron: CHUNK_ANIMATION_KIND.water,
-}
+})
 
 const ANIMATION_KIND_BY_BLOCK_ID = new Map<BlockId, ChunkAnimationKind>(
   BLOCK_IDS.flatMap((blockId) => {
     const blockType = Result.getOrThrow(blockTypeOfId(blockId)) ?? 'unknown'
-    const animationKind = ANIMATION_KIND_BY_BLOCK_TYPE[blockType]
+    const animationKind = CHUNK_ANIMATION_KIND_BY_BLOCK_TYPE[blockType]
     if (animationKind === undefined) {
       return []
     }
@@ -34,6 +37,17 @@ const ANIMATION_KIND_BY_BLOCK_ID = new Map<BlockId, ChunkAnimationKind>(
   }),
 )
 
-/** Resolve motion from block identity so atlas reassignment cannot animate unrelated blocks. */
-export const chunkAnimationKindForBlockId = (blockId: BlockId): ChunkAnimationKind =>
-  ANIMATION_KIND_BY_BLOCK_ID.get(blockId) ?? CHUNK_ANIMATION_KIND.none
+const CAULDRON_BLOCK_IDS = new Set<BlockId>(
+  BLOCK_IDS.filter((blockId) => {
+    const blockType: string | undefined = Result.getOrThrow(blockTypeOfId(blockId))
+    return blockType === 'water_cauldron' || blockType === 'lava_cauldron'
+  }),
+)
+
+/** Resolve motion from block identity and face role so atlas reassignment cannot animate unrelated surfaces. */
+export const chunkAnimationKindForBlockId = (blockId: BlockId, role?: FaceRole): ChunkAnimationKind => {
+  if (role !== undefined && CAULDRON_BLOCK_IDS.has(blockId) && role !== 'top') {
+    return CHUNK_ANIMATION_KIND.none
+  }
+  return ANIMATION_KIND_BY_BLOCK_ID.get(blockId) ?? CHUNK_ANIMATION_KIND.none
+}

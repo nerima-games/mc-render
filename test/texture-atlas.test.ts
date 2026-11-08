@@ -1,309 +1,202 @@
-/**
- * Tests for the atlas layout arithmetic.
- *
- * The load-bearing ones are the last two describes: the half-texel derivation
- * (the reference's particle quad overshoots its tile) and the V-flip round trip
- * (a mapping that is a bijection either way round, so only the inverse catches
- * it being the wrong way round).
- */
 import { describe, expect, it } from '@effect/vitest'
-import { Effect } from 'effect'
-import { referencedTileIndices, TILE_BY_BLOCK_NAME } from '../src/domain/block-texture-map'
+import { Effect, Result, Schema } from 'effect'
+import * as FastCheck from 'fast-check'
 import {
   ATLAS_COLUMNS,
+  ATLAS_MIP_LEVEL_COUNT,
   ATLAS_PIXELS,
+  ATLAS_ROWS,
   ATLAS_TILE_COUNT,
-  atlasLayoutViolations,
-  atlasLayoutViolationsFor,
+  AtlasTileIndexSchema,
+  atlasMipLevelDimensions,
   generateTerrainAtlas,
   HALF_TEXEL_UV,
   isTileIndex,
-  normaliseTileIndex,
+  mipLevelDimensions,
+  sourcePixelForCellCoordinate,
+  TILE_CELL_PIXELS,
+  TILE_GUTTER_PIXELS,
   TILE_PIXELS,
   TILE_UV_PITCH,
   TILE_UV_SPAN,
+  tileCellOriginPixels,
   tileColumn,
+  tileImageOriginPixels,
   tileIndexForUvOrigin,
   tileRow,
   tileUvBounds,
   tileUvOrigin,
-  terrainTileKind,
   uvPatchStaysInsideTile,
 } from '../src/domain/texture-atlas'
 
-const tileBytes = (data: Uint8ClampedArray, tile: number): ReadonlyArray<number> => {
-  const bytes: Array<number> = []
-  const originX = tileColumn(tile) * TILE_PIXELS
-  const originY = tileRow(tile) * TILE_PIXELS
-  for (let y = 0; y < TILE_PIXELS; y += 1) {
-    const start = ((originY + y) * ATLAS_PIXELS + originX) * 4
-    bytes.push(...data.slice(start, start + TILE_PIXELS * 4))
-  }
-  return bytes
-}
-
-const tileAlphas = (data: Uint8ClampedArray, tile: number): ReadonlySet<number> =>
-  new Set(tileBytes(data, tile).filter((_, index) => index % 4 === 3))
-
-describe('generated terrain atlas', () => {
-  /**
-   * Generates the full 512x512 atlas twice, deliberately (this is the one test
-   * proving `generateTerrainAtlas` doesn't share backing storage across
-   * calls), so it's the single heaviest test in this file. It fits well inside
-   * the suite's default 10s `testTimeout` (vitest.config.ts) uninstrumented,
-   * but V8's per-branch coverage counters (`pnpm test:coverage`) add enough
-   * overhead to a tight pixel-generation loop to cross that margin -- an
-   * instrumentation-overhead flake, not a regression (confirmed empirically,
-   * fix/ci-green-10, 2026-08-09: this test alone takes ~6-9s without
-   * coverage and consistently 11-14s with it, with zero change to
-   * `generateTerrainAtlas` itself on this branch). A longer timeout on just
-   * this test, rather than raising `testTimeout` for the whole suite.
-   */
-  it.effect(
-    'has exact RGBA dimensions and is deterministic without sharing storage',
-    () =>
-      Effect.sync(() => {
-        const first = generateTerrainAtlas()
-        const second = generateTerrainAtlas()
-        expect(first.width).toBe(512)
-        expect(first.height).toBe(512)
-        expect(first.data).toHaveLength(512 * 512 * 4)
-        expect(first.data).toStrictEqual(second.data)
-        expect(first.data).not.toBe(second.data)
-      }),
-    20000,
-  )
-
-  it.effect('gives every mapped tile distinct, non-empty pixels', () =>
+describe('atlas dimensions', () => {
+  it.effect('matches the packed atlas and sampling contract', () =>
     Effect.sync(() => {
-      const atlas = generateTerrainAtlas()
-      const signatures = referencedTileIndices().map((tile) => tileBytes(atlas.data, tile).join(','))
-      expect(new Set(signatures).size).toBe(signatures.length)
-      expect(signatures.every((signature) => /[1-9]/.test(signature))).toBe(true)
+      expect(ATLAS_PIXELS).toBe(1536)
+      expect(ATLAS_COLUMNS).toBe(32)
+      expect(ATLAS_ROWS).toBe(32)
+      expect(TILE_PIXELS).toBe(16)
+      expect(TILE_GUTTER_PIXELS).toBe(16)
+      expect(TILE_CELL_PIXELS).toBe(48)
+      expect(ATLAS_TILE_COUNT).toBe(1024)
+      expect(ATLAS_MIP_LEVEL_COUNT).toBe(11)
+      expect(HALF_TEXEL_UV).toBe(0.5 / 1536)
+      expect(TILE_UV_PITCH).toBe(48 / 1536)
+      expect(TILE_UV_SPAN).toBe(15 / 1536)
     }),
   )
 
-  it.effect('covers every face role in all 120 block mappings', () =>
+  it.effect('lists every WebGL mip level through 1x1', () =>
     Effect.sync(() => {
-      const atlas = generateTerrainAtlas()
-      expect(Object.keys(TILE_BY_BLOCK_NAME)).toHaveLength(120)
-      for (const [name, assignment] of Object.entries(TILE_BY_BLOCK_NAME)) {
-        for (const role of ['top', 'bottom', 'side'] as const) {
-          const tile = assignment[role]
-          expect(tileBytes(atlas.data, tile).some((byte) => byte !== 0), `${name}.${role}`).toBe(true)
-        }
-      }
-    }),
-  )
-
-  it.effect('distinguishes water, lava, leaves, glass and cutout alpha treatments', () =>
-    Effect.sync(() => {
-      const atlas = generateTerrainAtlas()
-      expect(terrainTileKind(7)).toBe('water')
-      expect(terrainTileKind(18)).toBe('lava')
-      expect(terrainTileKind(8)).toBe('leaves')
-      expect(terrainTileKind(9)).toBe('glass')
-      expect(terrainTileKind(107)).toBe('cutout')
-      expect(tileAlphas(atlas.data, 7)).toStrictEqual(new Set([176]))
-      expect(tileAlphas(atlas.data, 18)).toStrictEqual(new Set([255]))
-      expect(tileAlphas(atlas.data, 8)).toStrictEqual(new Set([0, 255]))
-      expect(tileAlphas(atlas.data, 9)).toStrictEqual(new Set([48, 144]))
-      expect(tileAlphas(atlas.data, 107)).toStrictEqual(new Set([0, 255]))
-    }),
-  )
-})
-
-describe('the atlas layout constants', () => {
-  it.effect('are the reference values, asserted as literals', () =>
-    Effect.sync(() => {
-      // docs/testing.md §5.4: constants are pinned as literals, not recomputed
-      // by the arithmetic that is supposed to be under test.
-      expect(ATLAS_COLUMNS).toBe(16)
-      expect(ATLAS_PIXELS).toBe(512)
-      expect(TILE_PIXELS).toBe(32)
-      expect(ATLAS_TILE_COUNT).toBe(256)
-      expect(HALF_TEXEL_UV).toBe(0.5 / 512)
-      expect(TILE_UV_PITCH).toBe(1 / 16)
-    }),
-  )
-
-  it.effect('are internally consistent', () =>
-    Effect.sync(() => {
-      expect(atlasLayoutViolations()).toStrictEqual([])
-    }),
-  )
-
-  it.effect('reports each invalid atlas derivation', () =>
-    Effect.sync(() => {
-      const violations = atlasLayoutViolationsFor({
-        atlasPixels: 10,
-        atlasColumns: 3,
-        tilePixels: 10 / 3,
-        halfTexelUv: 0.2,
-        tileUvPitch: 0.1,
-        tileUvSpan: 0,
+      expect(Result.getOrThrow(atlasMipLevelDimensions())).toStrictEqual([
+        { height: 1536, level: 0, width: 1536 },
+        { height: 768, level: 1, width: 768 },
+        { height: 384, level: 2, width: 384 },
+        { height: 192, level: 3, width: 192 },
+        { height: 96, level: 4, width: 96 },
+        { height: 48, level: 5, width: 48 },
+        { height: 24, level: 6, width: 24 },
+        { height: 12, level: 7, width: 12 },
+        { height: 6, level: 8, width: 6 },
+        { height: 3, level: 9, width: 3 },
+        { height: 1, level: 10, width: 1 },
+      ])
+      expect(Result.getOrThrow(mipLevelDimensions(ATLAS_MIP_LEVEL_COUNT - 1))).toStrictEqual({
+        height: 1,
+        level: 10,
+        width: 1,
       })
-
-      expect(violations).toHaveLength(3)
     }),
   )
 })
 
-describe('tile index handling', () => {
-  it.effect('accepts exactly the 256 tiles the atlas has', () =>
+describe('tile coordinates', () => {
+  it.effect('maps valid tile indices to their cell positions and inner image bounds', () =>
     Effect.sync(() => {
-      expect(isTileIndex(0)).toBe(true)
-      expect(isTileIndex(255)).toBe(true)
-      expect(isTileIndex(256)).toBe(false)
-      expect(isTileIndex(-1)).toBe(false)
-      expect(isTileIndex(1.5)).toBe(false)
-      expect(isTileIndex(Number.NaN)).toBe(false)
-      expect(isTileIndex(Number.POSITIVE_INFINITY)).toBe(false)
+      FastCheck.assert(
+        FastCheck.property(FastCheck.integer({ max: ATLAS_TILE_COUNT - 1, min: 0 }), (tile) => {
+          const column = Result.getOrThrow(tileColumn(tile))
+          const row = Result.getOrThrow(tileRow(tile))
+          const cell = Result.getOrThrow(tileCellOriginPixels(tile))
+          const image = Result.getOrThrow(tileImageOriginPixels(tile))
+          const bounds = Result.getOrThrow(tileUvBounds(tile))
+
+          expect(isTileIndex(tile)).toBe(true)
+          const decodedTile = Schema.decodeUnknownResult(AtlasTileIndexSchema)(tile)
+          expect(Result.isSuccess(decodedTile)).toBe(true)
+          expect(column).toBe(tile % ATLAS_COLUMNS)
+          expect(row).toBe(Math.floor(tile / ATLAS_COLUMNS))
+          expect(cell).toStrictEqual({ x: column * TILE_CELL_PIXELS, y: row * TILE_CELL_PIXELS })
+          expect(image).toStrictEqual({ x: cell.x + TILE_GUTTER_PIXELS, y: cell.y + TILE_GUTTER_PIXELS })
+          expect(bounds.u0).toBeGreaterThanOrEqual(0)
+          expect(bounds.v0).toBeGreaterThanOrEqual(0)
+          expect(bounds.u1).toBeLessThanOrEqual(1)
+          expect(bounds.v1).toBeLessThanOrEqual(1)
+          expect(bounds.u1 - bounds.u0).toBeCloseTo(TILE_UV_SPAN, 12)
+          expect(bounds.v1 - bounds.v0).toBeCloseTo(TILE_UV_SPAN, 12)
+        }),
+        { numRuns: 500, seed: 0 },
+      )
     }),
   )
 
-  it.effect('folds everything unknown onto tile 0, NOT onto an arbitrary real tile', () =>
+  it.effect('round-trips every valid inset origin to its tile index', () =>
     Effect.sync(() => {
-      // The header's argument: a modulo fold would map 300 to tile 44, a real
-      // texture, so a wrong block id would render as a plausible wrong block.
-      expect(normaliseTileIndex(300)).toBe(0)
-      expect(normaliseTileIndex(300)).not.toBe(300 % ATLAS_TILE_COUNT)
-      expect(normaliseTileIndex(-7)).toBe(0)
-      expect(normaliseTileIndex(Number.NaN)).toBe(0)
+      FastCheck.assert(
+        FastCheck.property(FastCheck.integer({ max: ATLAS_TILE_COUNT - 1, min: 0 }), (tile) => {
+          const origin = Result.getOrThrow(tileUvOrigin(tile))
+          expect(Result.getOrThrow(tileIndexForUvOrigin(origin))).toBe(tile)
+        }),
+        { numRuns: 500, seed: 1 },
+      )
     }),
   )
 
-  it.effect('places tiles left-to-right then top-to-bottom', () =>
+  it.effect('returns typed failures for invalid tile and mip indices', () =>
     Effect.sync(() => {
-      expect(tileColumn(0)).toBe(0)
-      expect(tileRow(0)).toBe(0)
-      expect(tileColumn(15)).toBe(15)
-      expect(tileRow(15)).toBe(0)
-      expect(tileColumn(16)).toBe(0)
-      expect(tileRow(16)).toBe(1)
-      expect(tileColumn(255)).toBe(15)
-      expect(tileRow(255)).toBe(15)
+      FastCheck.assert(
+        FastCheck.property(
+          FastCheck.constantFrom(-1, ATLAS_TILE_COUNT, 1.5, Number.NaN, Number.POSITIVE_INFINITY),
+          (tile) => {
+            expect(isTileIndex(tile)).toBe(false)
+            expect(Result.isFailure(tileColumn(tile))).toBe(true)
+            expect(Result.isFailure(tileRow(tile))).toBe(true)
+            expect(Result.isFailure(tileUvBounds(tile))).toBe(true)
+          },
+        ),
+        { numRuns: 100, seed: 2 },
+      )
+      expect(Result.isFailure(mipLevelDimensions(-1))).toBe(true)
+      expect(Result.isFailure(mipLevelDimensions(ATLAS_MIP_LEVEL_COUNT))).toBe(true)
+      expect(Result.isFailure(mipLevelDimensions(0.5))).toBe(true)
+      expect(Result.isFailure(mipLevelDimensions(Number.NaN))).toBe(true)
+      expect(Result.isFailure(mipLevelDimensions(null))).toBe(true)
+      expect(Result.isFailure(tileColumn(null))).toBe(true)
+      expect(Result.isFailure(tileCellOriginPixels('not-a-tile'))).toBe(true)
+      expect(Result.isFailure(tileUvOrigin(ATLAS_TILE_COUNT))).toBe(true)
+    }),
+  )
+
+  it.effect('reports invalid UV origins and spans instead of returning sentinels', () =>
+    Effect.sync(() => {
+      expect(Result.isFailure(tileIndexForUvOrigin({ u: Number.NaN, v: 0.5 }))).toBe(true)
+      expect(Result.isFailure(tileIndexForUvOrigin({ u: 1.1, v: 0.5 }))).toBe(true)
+      expect(Result.isFailure(tileIndexForUvOrigin({ u: 'bad', v: 0.5 }))).toBe(true)
+      expect(Result.isFailure(tileIndexForUvOrigin({
+        u: TILE_UV_PITCH * ATLAS_COLUMNS,
+        v: TILE_UV_PITCH * ATLAS_COLUMNS,
+      }))).toBe(true)
+      expect(Result.isFailure(tileIndexForUvOrigin({ u: 0.5, v: 0.5 }))).toBe(true)
+      expect(Result.isFailure(tileIndexForUvOrigin(null))).toBe(true)
+      expect(Result.isFailure(uvPatchStaysInsideTile(Number.NaN))).toBe(true)
+      expect(Result.isFailure(uvPatchStaysInsideTile('not-a-span'))).toBe(true)
+      expect(Result.isFailure(uvPatchStaysInsideTile(-Number.EPSILON))).toBe(true)
+      expect(Result.getOrThrow(uvPatchStaysInsideTile(TILE_UV_SPAN))).toBe(true)
+      expect(Result.getOrThrow(uvPatchStaysInsideTile(TILE_UV_PITCH))).toBe(false)
     }),
   )
 })
 
-describe('tile UV rectangles', () => {
-  it.effect('every one of the 256 tiles is inside [0,1] and non-degenerate', () =>
+describe('edge extrusion', () => {
+  it.effect('clamps all 48 cell coordinates onto the 16px source edge', () =>
     Effect.sync(() => {
-      // docs/testing.md §5.3: 256 is exhaustible, so it is exhausted.
-      for (let tile = 0; tile < ATLAS_TILE_COUNT; tile += 1) {
-        const bounds = tileUvBounds(tile)
-        expect(bounds.u0, `tile ${String(tile)} u0`).toBeGreaterThanOrEqual(0)
-        expect(bounds.v0, `tile ${String(tile)} v0`).toBeGreaterThanOrEqual(0)
-        expect(bounds.u1, `tile ${String(tile)} u1`).toBeLessThanOrEqual(1)
-        expect(bounds.v1, `tile ${String(tile)} v1`).toBeLessThanOrEqual(1)
-        expect(bounds.u1, `tile ${String(tile)} width`).toBeGreaterThan(bounds.u0)
-        expect(bounds.v1, `tile ${String(tile)} height`).toBeGreaterThan(bounds.v0)
+      expect(
+        [0, 15, 16, 17, 31, 32, 47].map((cellPixel) =>
+          Result.getOrThrow(sourcePixelForCellCoordinate(cellPixel)),
+        ),
+      ).toStrictEqual([0, 0, 0, 1, 15, 15, 15])
+      expect(Result.isFailure(sourcePixelForCellCoordinate(-1))).toBe(true)
+      expect(Result.isFailure(sourcePixelForCellCoordinate(TILE_CELL_PIXELS))).toBe(true)
+      expect(Result.isFailure(sourcePixelForCellCoordinate(2.5))).toBe(true)
+      expect(Result.isFailure(sourcePixelForCellCoordinate(Number.NaN))).toBe(true)
+      expect(Result.isFailure(sourcePixelForCellCoordinate(null))).toBe(true)
+    }),
+  )
+
+  it.effect('keeps tile zero transparent and repeats edge pixels around a diagnostic tile', () =>
+    Effect.sync(() => {
+      const atlas = Result.getOrThrow(generateTerrainAtlas())
+      const pixel = (x: number, y: number): ReadonlyArray<number> => {
+        const offset = (y * atlas.width + x) * 4
+        return [...atlas.data.slice(offset, offset + 4)]
       }
-    }),
-  )
-
-  it.effect('no two tiles overlap: every rectangle is inset inside its own cell', () =>
-    Effect.sync(() => {
-      for (let tile = 0; tile < ATLAS_TILE_COUNT; tile += 1) {
-        const bounds = tileUvBounds(tile)
-        const column = tileColumn(tile)
-        // Strictly inside the cell the tile owns, on both sides.
-        expect(bounds.u0).toBeGreaterThan(column / ATLAS_COLUMNS)
-        expect(bounds.u1).toBeLessThan((column + 1) / ATLAS_COLUMNS)
+      const tileZeroBytes: Array<number> = []
+      for (let y = 0; y < TILE_CELL_PIXELS; y += 1) {
+        const offset = y * atlas.width * 4
+        tileZeroBytes.push(...atlas.data.slice(offset, offset + TILE_CELL_PIXELS * 4))
       }
-    }),
-  )
+      expect(atlas).toMatchObject({ height: 1536, width: 1536 })
+      expect(tileZeroBytes.every((byte) => byte === 0)).toBe(true)
 
-  it.effect('V is flipped: tile 0 is the TOP row of the image and the TOP of UV space', () =>
-    Effect.sync(() => {
-      const first = tileUvBounds(0)
-      const last = tileUvBounds(240) // row 15, column 0 — the bottom-left of the image
-      // Row 0 sits at the high end of V, because GL counts V upward and image
-      // rows count downward. Getting this backwards is the classic atlas bug.
-      expect(first.v1).toBeGreaterThan(last.v1)
-      expect(first.v1).toBeCloseTo(1 - HALF_TEXEL_UV, 10)
-      expect(last.v0).toBeCloseTo(HALF_TEXEL_UV, 10)
-    }),
-  )
-})
-
-// ---------------------------------------------------------------------------
-// LOAD-BEARING. The reference's particle quad spans TILE_UV_PITCH from an INSET
-// origin, so its far edge lands half a texel inside the neighbouring tile. This
-// is the derivation in domain/texture-atlas.ts's header, pinned.
-// ---------------------------------------------------------------------------
-describe("the half-texel inset, and the span the reference's particle quad uses", () => {
-  it.effect('TILE_UV_SPAN is the pitch less BOTH insets, not less one', () =>
-    Effect.sync(() => {
-      expect(TILE_UV_SPAN).toBe(TILE_UV_PITCH - 2 * HALF_TEXEL_UV)
-      expect(TILE_UV_SPAN).toBeLessThan(TILE_UV_PITCH)
-    }),
-  )
-
-  it.effect('REGRESSION: a quad spanning TILE_UV_PITCH from an inset origin leaves its tile', () =>
-    Effect.sync(() => {
-      // particle-system-factory.ts:17 `TILE_FRACTION = 1/16` used as the quad's
-      // UV width, added to the inset origin from getTileUVs.
-      expect(uvPatchStaysInsideTile(TILE_UV_PITCH)).toBe(false)
-      expect(uvPatchStaysInsideTile(TILE_UV_SPAN)).toBe(true)
-    }),
-  )
-
-  it.effect('and the overshoot is exactly one texel, on the far edge', () =>
-    Effect.sync(() => {
-      const tile = 7 // water, in the reference's atlas
-      const origin = tileUvOrigin(tile)
-      const bounds = tileUvBounds(tile)
-
-      const referenceFarEdge = origin.u + TILE_UV_PITCH
-      const correctFarEdge = origin.u + TILE_UV_SPAN
-
-      expect(correctFarEdge).toBeCloseTo(bounds.u1, 12)
-      // One whole texel past where the inset rectangle ends.
-      expect(referenceFarEdge - bounds.u1).toBeCloseTo(2 * HALF_TEXEL_UV, 12)
-      // And half a texel past the tile boundary itself.
-      expect(referenceFarEdge - (tileColumn(tile) + 1) / ATLAS_COLUMNS).toBeCloseTo(HALF_TEXEL_UV, 12)
-    }),
-  )
-
-  it.effect('rejects a span that is negative or not a number', () =>
-    Effect.sync(() => {
-      expect(uvPatchStaysInsideTile(-0.001)).toBe(false)
-      expect(uvPatchStaysInsideTile(Number.NaN)).toBe(false)
-      expect(uvPatchStaysInsideTile(0)).toBe(true)
-    }),
-  )
-})
-
-// ---------------------------------------------------------------------------
-// LOAD-BEARING. tileUvOrigin is a bijection whichever way the V flip is written,
-// so only inverting it can catch the flip being wrong.
-// ---------------------------------------------------------------------------
-describe('the UV origin round trip', () => {
-  it.effect('every one of the 256 tiles survives origin -> index', () =>
-    Effect.sync(() => {
-      for (let tile = 0; tile < ATLAS_TILE_COUNT; tile += 1) {
-        expect(tileIndexForUvOrigin(tileUvOrigin(tile)), `tile ${String(tile)}`).toBe(tile)
-      }
-    }),
-  )
-
-  it.effect('and the round trip DISTINGUISHES rows, which is what a wrong flip would not', () =>
-    Effect.sync(() => {
-      // If the V flip were written `row/16` instead of `1 - (row+1)/16`, this
-      // pair would swap: row 0 and row 15 are the two the flip exchanges.
-      expect(tileIndexForUvOrigin(tileUvOrigin(0))).toBe(0)
-      expect(tileIndexForUvOrigin(tileUvOrigin(240))).toBe(240)
-      expect(tileUvOrigin(0).v).not.toBe(tileUvOrigin(240).v)
-    }),
-  )
-
-  it.effect('rejects an origin that is outside the atlas', () =>
-    Effect.sync(() => {
-      expect(tileIndexForUvOrigin({ u: 1.5, v: 0.5 })).toBe(-1)
-      expect(tileIndexForUvOrigin({ u: -0.5, v: 0.5 })).toBe(-1)
-      expect(tileIndexForUvOrigin({ u: 0.5, v: Number.NaN })).toBe(-1)
+      const tileOne = Result.getOrThrow(tileCellOriginPixels(1))
+      const imageOne = Result.getOrThrow(tileImageOriginPixels(1))
+      expect(pixel(tileOne.x, tileOne.y)).toStrictEqual(pixel(imageOne.x, imageOne.y))
+      expect(pixel(tileOne.x + TILE_CELL_PIXELS - 1, tileOne.y)).toStrictEqual(
+        pixel(imageOne.x + TILE_PIXELS - 1, imageOne.y),
+      )
+      expect(pixel(tileOne.x, tileOne.y + TILE_CELL_PIXELS - 1)).toStrictEqual(
+        pixel(imageOne.x, imageOne.y + TILE_PIXELS - 1),
+      )
     }),
   )
 })

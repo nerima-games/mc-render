@@ -110,7 +110,7 @@ import {
   type ProductionWorldRendererOptions,
   makeProductionWorldRenderer,
 } from './application/world-renderer-production.js'
-import { type RgbaAtlas, generateTerrainAtlas } from './domain/texture-atlas.js'
+import { ATLAS_PIXELS, type RgbaAtlas } from './domain/texture-atlas.js'
 import { BokehPass } from 'three/addons/postprocessing/BokehPass.js'
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js'
 import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js'
@@ -125,6 +125,8 @@ import type { Viewport } from './domain/render-environment.js'
 import { createAdaptiveQualityState } from './domain/adaptive-quality.js'
 import { createSsimAdaptiveQualityState } from './domain/ssim-adaptive-quality.js'
 import { measureWaterVisibility } from './browser-water-visibility.js'
+
+export const DEFAULT_BLOCK_TEXTURE_ATLAS_URL: string = new URL('./assets/block-textures/atlas.png', import.meta.url).href
 
 const requireRenderer = (value: unknown): THREE.WebGLRenderer => {
   if (value instanceof THREE.WebGLRenderer) {
@@ -412,12 +414,31 @@ const measureViewport = (canvas: HTMLCanvasElement): Result.Result<Viewport, Bro
 
 const configureAtlasTexture = (texture: THREE.Texture): void => {
   texture.colorSpace = THREE.SRGBColorSpace
-  texture.flipY = false
+  texture.flipY = true
   texture.magFilter = THREE.NearestFilter
-  texture.minFilter = THREE.NearestFilter
+  texture.minFilter = THREE.NearestMipmapLinearFilter
   texture.wrapS = THREE.ClampToEdgeWrapping
   texture.wrapT = THREE.ClampToEdgeWrapping
-  texture.generateMipmaps = false
+  texture.generateMipmaps = true
+}
+
+const byteLengthOfRgbaAtlasData = (data: Uint8ClampedArray): number | undefined => {
+  if (data instanceof Uint8ClampedArray) {
+    return data.length
+  }
+  return undefined
+}
+
+const validateRgbaAtlas = (atlas: RgbaAtlas): Result.Result<void, BrowserRuntimeError> => {
+  const expectedBytes = ATLAS_PIXELS * ATLAS_PIXELS * RGBA_COMPONENT_COUNT
+  const actualBytes = byteLengthOfRgbaAtlasData(atlas.data)
+  if (atlas.width !== ATLAS_PIXELS || atlas.height !== ATLAS_PIXELS || actualBytes !== expectedBytes) {
+    return Result.fail(browserRuntimeError('initialization', 'invalid-input', {
+      actual: { byteLength: actualBytes, height: atlas.height, width: atlas.width },
+      expected: { byteLength: expectedBytes, height: ATLAS_PIXELS, width: ATLAS_PIXELS },
+    }))
+  }
+  return Result.succeed(undefined)
 }
 
 const makeAtlasTexture = (atlas: RgbaAtlas): THREE.DataTexture => {
@@ -436,13 +457,14 @@ const makeAtlasTexture = (atlas: RgbaAtlas): THREE.DataTexture => {
 const resolveAtlas = (
   source: BrowserWorldRuntimeOptions['atlas'],
 ): Effect.Effect<AtlasResource, BrowserRuntimeError> => {
-  if (source instanceof THREE.Texture) {
-    return Effect.succeed({ owned: false, texture: source })
+  const resolvedSource = source ?? DEFAULT_BLOCK_TEXTURE_ATLAS_URL
+  if (resolvedSource instanceof THREE.Texture) {
+    return Effect.succeed({ owned: false, texture: resolvedSource })
   }
-  if (typeof source === 'string') {
+  if (typeof resolvedSource === 'string') {
     return Effect.tryPromise({
       catch: (cause) => browserRuntimeError('initialization', 'operation-failed', cause),
-      try: () => new THREE.TextureLoader().loadAsync(source),
+      try: () => new THREE.TextureLoader().loadAsync(resolvedSource),
     }).pipe(
       Effect.map((texture) => {
         configureAtlasTexture(texture)
@@ -450,11 +472,15 @@ const resolveAtlas = (
       }),
     )
   }
+  const validation = validateRgbaAtlas(resolvedSource)
+  if (Result.isFailure(validation)) {
+    return Effect.fail(validation.failure)
+  }
   return Effect.try({
     catch: (cause) => browserRuntimeError('initialization', 'operation-failed', cause),
     try: () => ({
       owned: true,
-      texture: makeAtlasTexture(source ?? generateTerrainAtlas()),
+      texture: makeAtlasTexture(resolvedSource),
     }),
   })
 }
