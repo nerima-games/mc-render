@@ -600,6 +600,7 @@ describe('chunk geometry in the scene', () => {
         'fluidDirection',
         'fluidFalling',
         'tileIndex',
+        'animationKind',
       ])
       expect(geometry?.attributes.get('position')).toStrictEqual({
         array: buffers.positions,
@@ -621,6 +622,11 @@ describe('chunk geometry in the scene', () => {
       // would resolve wrong.
       expect(geometry?.attributes.get('tileIndex')).toStrictEqual({
         array: buffers.tileIndices,
+        itemSize: 1,
+        normalized: false,
+      })
+      expect(geometry?.attributes.get('animationKind')).toStrictEqual({
+        array: buffers.animationKinds,
         itemSize: 1,
         normalized: false,
       })

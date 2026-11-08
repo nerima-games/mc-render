@@ -104,11 +104,12 @@
  * `TILE_UV_PITCH`, and a test checks the emitted arithmetic against
  * `uvPatchStaysInsideTile`.
  *
- * The tile index is a per-vertex `float` attribute rather than a uniform,
- * because one draw call covers a whole chunk and the blocks in it are not all
- * the same. `floor(v + 0.5)` on the varying side undoes the interpolation:
- * every vertex of a quad carries the same index, so the interpolated value is
- * that index up to float error, and rounding recovers it exactly.
+ * The tile index and animation kind are per-vertex `float` attributes rather
+ * than uniforms, because one draw call covers a whole layer and its blocks are
+ * not all the same. Animation kind comes from block identity in geometry, not
+ * from the atlas assignment, which may share or reassign tiles independently.
+ * `floor(v + 0.5)` on the varying side undoes interpolation because every vertex
+ * of a quad carries the same value.
  */
 import {
   AO_SHADE_FLOOR,
@@ -118,7 +119,7 @@ import {
   LIGHT_SHADE_RANGE,
 } from './voxel-lighting.js'
 import { ATLAS_COLUMNS, HALF_TEXEL_UV } from './texture-atlas.js'
-import { tileIndexForBlockName } from './block-texture-map.js'
+import { CHUNK_ANIMATION_KIND } from './chunk-animation-kind.js'
 
 /**
  * Render a number as a GLSL float literal.
@@ -139,13 +140,6 @@ const GLSL_FLOAT_DECIMAL_PLACES = 6
 
 export const glslFloat = (value: number): string => value.toFixed(GLSL_FLOAT_DECIMAL_PLACES)
 
-const WATER_TILE_INDEX = tileIndexForBlockName('water', 'top')
-const WATER_CAULDRON_TILE_INDEX = tileIndexForBlockName('water_cauldron', 'top')
-const LAVA_TILE_INDEX = tileIndexForBlockName('lava', 'top')
-const FIRE_TILE_INDEX = tileIndexForBlockName('fire', 'top')
-const NETHER_PORTAL_TILE_INDEX = tileIndexForBlockName('nether_portal', 'top')
-const END_PORTAL_TILE_INDEX = tileIndexForBlockName('end_portal', 'top')
-
 const WATER_UV_CYCLES_PER_SECOND = 0.045
 const LAVA_UV_CYCLES_PER_SECOND = 0.025
 const FIRE_U_UV_CYCLES_PER_SECOND = 0.08
@@ -155,6 +149,8 @@ const END_PORTAL_UV_CYCLES_PER_SECOND = 0.027
 
 /** Attribute names the geometry must supply. */
 export const CHUNK_SHADER_ATTRIBUTES = {
+  /** `float`, per vertex. The animated material kind derived from block identity. */
+  animationKind: 'animationKind',
   /** `float`, per vertex. Which atlas tile this face draws. */
   tileIndex: 'tileIndex',
 } as const
@@ -176,8 +172,8 @@ export const CHUNK_SHADER_UNIFORMS = {
 const CHUNK_ALPHA_TEST_UNIFORM = 'uAlphaTest'
 
 /**
- * The vertex stage: pass through the tile index, and compute the fixed per-face
- * brightness from the normal.
+ * The vertex stage: pass through material attributes and compute fixed
+ * per-face brightness from the normal.
  *
  * THE FACE TERM IS DERIVED FROM THE NORMAL HERE AND FROM `FaceDirection` IN
  * `./voxel-lighting.ts`, and that is a genuine divergence in method rather than
@@ -195,10 +191,12 @@ const CHUNK_ALPHA_TEST_UNIFORM = 'uAlphaTest'
  */
 export const chunkVertexShader = (): string => `
 attribute float ${CHUNK_SHADER_ATTRIBUTES.tileIndex};
+attribute float ${CHUNK_SHADER_ATTRIBUTES.animationKind};
 
 varying vec2 vUv;
 varying vec3 vColor;
 varying float vTileIndex;
+varying float vAnimationKind;
 varying float vFaceBrightness;
 varying float vFogDepth;
 
@@ -206,6 +204,7 @@ void main() {
   vUv = uv;
   vColor = color;
   vTileIndex = ${CHUNK_SHADER_ATTRIBUTES.tileIndex};
+  vAnimationKind = ${CHUNK_SHADER_ATTRIBUTES.animationKind};
 
   // Vanilla Minecraft's fixed per-face brightness. Values from FACE_BRIGHTNESS
   // in domain/voxel-lighting.ts; only the dispatch is normal-based here.
@@ -259,6 +258,7 @@ uniform float ${CHUNK_ALPHA_TEST_UNIFORM};
 varying vec2 vUv;
 varying vec3 vColor;
 varying float vTileIndex;
+varying float vAnimationKind;
 varying float vFaceBrightness;
 varying float vFogDepth;
 
@@ -272,6 +272,7 @@ vec4 shadeChunkSurface() {
   // Undo the interpolation: every vertex of a quad carries the same index, so
   // the varying is that index up to float error.
   float tile = floor(vTileIndex + 0.5);
+  float animationKind = floor(vAnimationKind + 0.5);
   float column = mod(tile, ATLAS_COLUMNS);
   float row = floor(tile / ATLAS_COLUMNS);
 
@@ -279,18 +280,17 @@ vec4 shadeChunkSurface() {
   // fract() is what makes that work; see this file's header.
   vec2 inTile = fract(vUv);
   vec2 animationOffset = vec2(0.0);
-  if (tile == ${glslFloat(WATER_TILE_INDEX)} || tile == ${glslFloat(WATER_CAULDRON_TILE_INDEX)}) {
+  if (animationKind == ${glslFloat(CHUNK_ANIMATION_KIND.water)}) {
     animationOffset.y = fract(${CHUNK_SHADER_UNIFORMS.time} * ${glslFloat(WATER_UV_CYCLES_PER_SECOND)});
-  } else if (tile == ${glslFloat(LAVA_TILE_INDEX)}) {
-    // Tile 18 is shared by lava and ice in the current block map; both inherit this offset.
+  } else if (animationKind == ${glslFloat(CHUNK_ANIMATION_KIND.lava)}) {
     animationOffset.y = fract(${CHUNK_SHADER_UNIFORMS.time} * ${glslFloat(LAVA_UV_CYCLES_PER_SECOND)});
-  } else if (tile == ${glslFloat(FIRE_TILE_INDEX)}) {
+  } else if (animationKind == ${glslFloat(CHUNK_ANIMATION_KIND.fire)}) {
     animationOffset.x = fract(${CHUNK_SHADER_UNIFORMS.time} * ${glslFloat(FIRE_U_UV_CYCLES_PER_SECOND)});
     animationOffset.y = fract(${CHUNK_SHADER_UNIFORMS.time} * ${glslFloat(FIRE_V_UV_CYCLES_PER_SECOND)});
-  } else if (tile == ${glslFloat(NETHER_PORTAL_TILE_INDEX)}) {
+  } else if (animationKind == ${glslFloat(CHUNK_ANIMATION_KIND.netherPortal)}) {
     animationOffset.x = fract(${CHUNK_SHADER_UNIFORMS.time} * ${glslFloat(NETHER_PORTAL_UV_CYCLES_PER_SECOND)});
     animationOffset.y = fract(-${CHUNK_SHADER_UNIFORMS.time} * ${glslFloat(NETHER_PORTAL_UV_CYCLES_PER_SECOND)});
-  } else if (tile == ${glslFloat(END_PORTAL_TILE_INDEX)}) {
+  } else if (animationKind == ${glslFloat(CHUNK_ANIMATION_KIND.endPortal)}) {
     animationOffset.x = fract(-${CHUNK_SHADER_UNIFORMS.time} * ${glslFloat(END_PORTAL_UV_CYCLES_PER_SECOND)});
     animationOffset.y = fract(${CHUNK_SHADER_UNIFORMS.time} * ${glslFloat(END_PORTAL_UV_CYCLES_PER_SECOND)});
   }

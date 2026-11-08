@@ -25,7 +25,7 @@ import {
   chunkVertexShader,
   glslFloat,
 } from '../src/domain/chunk-shader'
-import { tileIndexForBlockName } from '../src/domain/block-texture-map'
+import { CHUNK_ANIMATION_KIND } from '../src/domain/chunk-animation-kind'
 import {
   AO_SHADE_FLOOR,
   AO_SHADE_RANGE,
@@ -87,20 +87,23 @@ describe('the fragment source carries the CPU path`s coefficients', () => {
     }),
   )
 
-  it.effect('uses elapsed time to scroll mapped animated tiles inside their atlas bounds', () =>
+  it.effect('uses elapsed time to scroll block-selected animated materials inside their atlas bounds', () =>
     Effect.sync(() => {
       const source = chunkFragmentShader()
-      const tileIndex = (name: string): string => glslFloat(tileIndexForBlockName(name, 'top'))
 
       expect(source).toContain('uniform float uTime;')
-      expect(source).toContain(`tile == ${tileIndex('water')} || tile == ${tileIndex('water_cauldron')}`)
-      expect(source).toContain(`tile == ${tileIndex('lava')}`)
-      expect(source).toContain(`tile == ${tileIndex('fire')}`)
-      expect(source).toContain(`tile == ${tileIndex('nether_portal')}`)
-      expect(source).toContain(`tile == ${tileIndex('end_portal')}`)
+      for (const kind of [
+        CHUNK_ANIMATION_KIND.water,
+        CHUNK_ANIMATION_KIND.lava,
+        CHUNK_ANIMATION_KIND.fire,
+        CHUNK_ANIMATION_KIND.netherPortal,
+        CHUNK_ANIMATION_KIND.endPortal,
+      ]) {
+        expect(source).toContain(`animationKind == ${glslFloat(kind)}`)
+      }
+      expect(source).not.toMatch(/if\s*\(\s*tile\s*==/)
       expect(source).toContain('inTile = fract(inTile + animationOffset)')
       expect(source).toContain('mix(lo, hi, inTile)')
-      expect(tileIndexForBlockName('ice', 'top')).toBe(tileIndexForBlockName('lava', 'top'))
     }),
   )
 
@@ -235,6 +238,8 @@ describe('the vertex source', () => {
       const source = chunkVertexShader()
       expect(source).toContain(`attribute float ${CHUNK_SHADER_ATTRIBUTES.tileIndex}`)
       expect(source).toContain(`vTileIndex = ${CHUNK_SHADER_ATTRIBUTES.tileIndex}`)
+      expect(source).toContain(`attribute float ${CHUNK_SHADER_ATTRIBUTES.animationKind}`)
+      expect(source).toContain(`vAnimationKind = ${CHUNK_SHADER_ATTRIBUTES.animationKind}`)
     }),
   )
 })

@@ -46,6 +46,17 @@
  * branch.
  */
 import {
+  ANIMATION_KIND_COMPONENTS,
+  COLOR_COMPONENTS,
+  type ChunkGeometryBuffers,
+  FLUID_DIRECTION_COMPONENTS,
+  FLUID_FALLING_COMPONENTS,
+  NORMAL_COMPONENTS,
+  POSITION_COMPONENTS,
+  TILE_INDEX_COMPONENTS,
+  UV_COMPONENTS,
+} from '../domain/chunk-geometry.js'
+import {
   type AxisAlignedBounds,
   aabbIntersectsPreparedPerspectiveFrustum,
   boundsFromPositions,
@@ -57,6 +68,7 @@ import {
   chunkShaderSource,
 } from '../domain/chunk-shader.js'
 import {
+  ANIMATION_KIND_COMPONENTS,
   COLOR_COMPONENTS,
   type ChunkGeometryBuffers,
   FLUID_DIRECTION_COMPONENTS,
@@ -67,7 +79,6 @@ import {
   UV_COMPONENTS,
   combineChunkGeometry,
 } from '../domain/chunk-geometry.js'
-import {
   DAY_SKY_COLOR,
   type RenderEnvironmentPlan,
   planRenderEnvironment,
@@ -1492,6 +1503,10 @@ export const makeWorldRenderer = <
         geometry.setAttribute(
           CHUNK_SHADER_ATTRIBUTES.tileIndex,
           new three.BufferAttribute(buffers.tileIndices, TILE_INDEX_COMPONENTS, false),
+        )
+        geometry.setAttribute(
+          CHUNK_SHADER_ATTRIBUTES.animationKind,
+          new three.BufferAttribute(buffers.animationKinds, ANIMATION_KIND_COMPONENTS, false),
         )
       },
 
