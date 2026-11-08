@@ -340,6 +340,7 @@ describe('sky renderer', () => {
         expect(farClouds.position.z).toBeCloseTo(wrap(-input.cameraPosition.z), 8)
         expect(nearClouds.visible).toBe(input.dimension === 'overworld')
         expect(farClouds.visible).toBe(input.dimension === 'overworld')
+        return true
       }))
     } finally {
       renderer.dispose()

@@ -243,10 +243,8 @@ const expectedCuboidSelectionVertices = (
     z: position.z + ((index & 4) === 0 ? bounds.z.min : bounds.z.max),
   }))
   const vertices: Array<string> = []
-  for (let first = 0; first < corners.length; first += 1) {
-    for (let second = first + 1; second < corners.length; second += 1) {
-      const start = corners[first]
-      const end = corners[second]
+  for (const [firstIndex, start] of corners.entries()) {
+    for (const end of corners.slice(firstIndex + 1)) {
       const changedAxes = Number(start.x !== end.x) + Number(start.y !== end.y) + Number(start.z !== end.z)
       if (changedAxes !== 1) {
         continue
@@ -669,6 +667,7 @@ describe('interaction renderer', () => {
           expect(indicator.position.x).toBeCloseTo((input.damageDirection.x / magnitude) * 0.76, 10)
           expect(indicator.position.y).toBeCloseTo((input.damageDirection.y / magnitude) * 0.55, 10)
           expect(indicator.rotation.z).toBeCloseTo(angle - Math.PI / 2, 10)
+          return true
         }))
       } finally {
         renderer.dispose()

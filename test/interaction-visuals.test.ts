@@ -75,10 +75,8 @@ const expectedCuboidEdges = (
     z: position.z + ((index & 4) === 0 ? bounds.z.min : bounds.z.max),
   }))
   const edges: Array<string> = []
-  for (let first = 0; first < corners.length; first += 1) {
-    for (let second = first + 1; second < corners.length; second += 1) {
-      const start = corners[first]
-      const end = corners[second]
+  for (const [firstIndex, start] of corners.entries()) {
+    for (const end of corners.slice(firstIndex + 1)) {
       const changedAxes = Number(start.x !== end.x) + Number(start.y !== end.y) + Number(start.z !== end.z)
       if (changedAxes === 1) {
         edges.push([pointKey(start), pointKey(end)].sort().join('|'))
