@@ -856,18 +856,16 @@ const updateHeldItemFaceGeometry = <
     side: tileUvBounds(faceTileIndices.side),
     top: tileUvBounds(faceTileIndices.top),
   })
-  if (Result.isFailure(faceBounds)) {
-    return Result.fail(faceBounds.failure)
-  }
-  input.heldItem.geometry.setAttribute('position', new input.surface.BufferAttribute(
-    cubePositions(ITEM_WIDTH, ITEM_HEIGHT, ITEM_DEPTH),
-    makePresentationItemSize(THREE),
-  ))
-  input.heldItem.geometry.setAttribute('uv', new input.surface.BufferAttribute(
-    heldItemCubeUvs(faceBounds.success),
-    makePresentationItemSize(TWO),
-  ))
-  return Result.succeed(undefined)
+  return Result.map(faceBounds, (bounds) => {
+    input.heldItem.geometry.setAttribute('position', new input.surface.BufferAttribute(
+      cubePositions(ITEM_WIDTH, ITEM_HEIGHT, ITEM_DEPTH),
+      makePresentationItemSize(THREE),
+    ))
+    input.heldItem.geometry.setAttribute('uv', new input.surface.BufferAttribute(
+      heldItemCubeUvs(bounds),
+      makePresentationItemSize(TWO),
+    ))
+  })
 }
 
 const updateBlockHeldItem = <
@@ -876,21 +874,15 @@ const updateBlockHeldItem = <
   TBasicMaterial extends BasicMaterial<TTexture>,
   TLineMaterial extends LineMaterial,
   TPointsMaterial extends PresentationMaterial,
->(input: HeldItemUpdateContext<TTexture, TGeometry, TBasicMaterial, TLineMaterial, TPointsMaterial> & Readonly<{ faceTileIndices: HeldItemAtlasFaceTileIndices }>): Result.Result<void, AtlasCoordinateError> => {
-  const geometry = updateHeldItemFaceGeometry(input, input.faceTileIndices)
-  if (Result.isFailure(geometry)) {
-    return Result.fail(geometry.failure)
-  }
-  input.heldItem.material.map = input.atlas ?? null
-  if (input.atlas === undefined) {
-    input.heldItem.material.color.set(makePresentationColor(ITEM_COLOR))
-  } else {
-    input.heldItem.material.color.set(makePresentationColor(ITEM_TEXTURE_COLOR))
-  }
-  input.heldItem.object.visible = true
-  return Result.succeed(undefined)
-}
-
+>(input: HeldItemUpdateContext<TTexture, TGeometry, TBasicMaterial, TLineMaterial, TPointsMaterial> & Readonly<{ faceTileIndices: HeldItemAtlasFaceTileIndices }>): Result.Result<void, AtlasCoordinateError> => Result.map(updateHeldItemFaceGeometry(input, input.faceTileIndices), () => {
+    input.heldItem.material.map = input.atlas ?? null
+    if (input.atlas === undefined) {
+      input.heldItem.material.color.set(makePresentationColor(ITEM_COLOR))
+    } else {
+      input.heldItem.material.color.set(makePresentationColor(ITEM_TEXTURE_COLOR))
+    }
+    input.heldItem.object.visible = true
+  })
 const updateTemporaryHeldItem = <
   TTexture extends RenderPresentationTexture,
   TGeometry extends Geometry,
@@ -1187,20 +1179,16 @@ const applyInteractionFrame = <
     hand: HandOverlay<TGeometry, TBasicMaterial>
     damageOverlays: DamageOverlay<TGeometry, TBasicMaterial>
   }>,
-): Result.Result<InteractionFrameResult, InteractionRendererError> => {
-  const heldItem = input.hand.setHeldItem(input.frame.frame.heldItem)
-  if (Result.isFailure(heldItem)) {
-    return Result.fail(heldItem.failure)
-  }
-  updateFrameTarget(input.world, input.frame.selection)
-  input.world.updateCracks(input.frame.result.crackStage)
-  applyFirstPersonPose(input.hand, input.frame.result.handPose)
-  applyDamageFeedback(input.damageOverlays, {
-    direction: input.frame.frame.damageDirection,
-    intensity: input.frame.frame.damageIntensity,
-  }, input.frame.result.damage)
-  return Result.succeed(input.frame.result)
-}
+): Result.Result<InteractionFrameResult, InteractionRendererError> => Result.map(input.hand.setHeldItem(input.frame.frame.heldItem), () => {
+    updateFrameTarget(input.world, input.frame.selection)
+    input.world.updateCracks(input.frame.result.crackStage)
+    applyFirstPersonPose(input.hand, input.frame.result.handPose)
+    applyDamageFeedback(input.damageOverlays, {
+      direction: input.frame.frame.damageDirection,
+      intensity: input.frame.frame.damageIntensity,
+    }, input.frame.result.damage)
+    return input.frame.result
+  })
 
 export const createInteractionRenderer = <
   TTexture extends RenderPresentationTexture,
