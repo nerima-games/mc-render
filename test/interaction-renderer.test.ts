@@ -229,6 +229,40 @@ const expectValidResult = (value: Result.Result<unknown, unknown>): void => {
   expect(Result.isSuccess(decoded)).toBe(true)
 }
 
+const unitBoundsArbitrary = FastCheck.integer({ max: 9, min: 0 }).chain((min) =>
+  FastCheck.integer({ max: 10 - min, min: 1 }).map((size) => ({ max: (min + size) / 10, min: min / 10 })),
+)
+
+const expectedCuboidSelectionVertices = (
+  bounds: Readonly<{ x: Readonly<{ min: number; max: number }>; y: Readonly<{ min: number; max: number }>; z: Readonly<{ min: number; max: number }> }>,
+  position: Readonly<{ x: number; y: number; z: number }>,
+): ReadonlyArray<string> => {
+  const corners = Array.from({ length: 8 }, (_unused, index) => ({
+    x: position.x + ((index & 1) === 0 ? bounds.x.min : bounds.x.max),
+    y: position.y + ((index & 2) === 0 ? bounds.y.min : bounds.y.max),
+    z: position.z + ((index & 4) === 0 ? bounds.z.min : bounds.z.max),
+  }))
+  const vertices: Array<string> = []
+  for (let first = 0; first < corners.length; first += 1) {
+    for (let second = first + 1; second < corners.length; second += 1) {
+      const start = corners[first]
+      const end = corners[second]
+      const changedAxes = Number(start.x !== end.x) + Number(start.y !== end.y) + Number(start.z !== end.z)
+      if (changedAxes !== 1) {
+        continue
+      }
+      for (const point of [start, end]) {
+        vertices.push([
+          point.x + (Math.sign(point.x - position.x - 0.5) || 1) * 0.002,
+          point.y + (Math.sign(point.y - position.y - 0.5) || 1) * 0.002,
+          point.z + (Math.sign(point.z - position.z - 0.5) || 1) * 0.002,
+        ].map((coordinate) => coordinate.toFixed(3)).join(','))
+      }
+    }
+  }
+  return vertices.sort()
+}
+
 describe('interaction renderer', () => {
   it.effect('renders shape-aligned selection and cracks, animates the hand, and disposes its meshes', () =>
     Effect.sync(() => {
@@ -502,6 +536,143 @@ describe('interaction renderer', () => {
       expect(scene.children).toHaveLength(0)
       expect(camera.children).toHaveLength(0)
       expectValidResult(afterDispose)
+    }),
+  )
+
+  it.effect('draws generated interaction frames using independently calculated visual values', () =>
+    Effect.sync(() => {
+      const bounds = FastCheck.record({ x: unitBoundsArbitrary, y: unitBoundsArbitrary, z: unitBoundsArbitrary })
+      const target = FastCheck.record({
+        bounds,
+        position: FastCheck.record({
+          x: FastCheck.integer({ max: 20, min: -20 }),
+          y: FastCheck.integer({ max: 20, min: -20 }),
+          z: FastCheck.integer({ max: 20, min: -20 }),
+        }),
+      }).map(({ bounds: box, position }) => ({
+        position,
+        shape: { boxes: [{
+          min: { x: box.x.min, y: box.y.min, z: box.z.min },
+          max: { x: box.x.max, y: box.y.max, z: box.z.max },
+        }] },
+      }))
+      const direction = FastCheck.tuple(
+        FastCheck.integer({ max: 20, min: -20 }),
+        FastCheck.integer({ max: 20, min: -20 }),
+      ).filter(([x, y]) => x !== 0 || y !== 0).map(([x, y]) => ({ x, y }))
+      const unit = FastCheck.integer({ max: 100, min: 0 }).map((value) => value / 100)
+      const generatedFrame = FastCheck.record({
+        action: FastCheck.constantFrom('idle', 'attack', 'mine', 'place'),
+        actionProgress: unit,
+        damageDirection: direction,
+        damageIntensity: unit,
+        gaitPhaseRadians: FastCheck.integer({ max: 628, min: -628 }).map((value) => value / 100),
+        miningProgress: unit,
+        movementIntensity: unit,
+        reducedMotion: FastCheck.boolean(),
+        target,
+      })
+      const renderer = createInteractionRenderer(new FakeSurface())
+
+      try {
+        FastCheck.assert(FastCheck.property(generatedFrame, (input) => {
+          const result = renderer.update(input)
+          expect(Result.isSuccess(result)).toBe(true)
+          if (Result.isFailure(result)) {
+            return false
+          }
+
+          const stage = input.miningProgress === 0 ? 0 : Math.ceil(input.miningProgress * 10)
+          const expectedCrackOpacity = stage === 0 ? 0 : 0.16 + (stage / 10) * 0.64
+          expect(result.success.crackStage).toStrictEqual({ stage, opacity: expectedCrackOpacity })
+
+          const profile = {
+            attack: { drop: 0.12, forward: 0.12, swing: 0.85, twist: 0.15 },
+            idle: { drop: 0, forward: 0, swing: 0, twist: 0 },
+            mine: { drop: 0.18, forward: 0.07, swing: 1.1, twist: 0 },
+            place: { drop: 0.025, forward: 0.11, swing: 0.28, twist: -0.08 },
+          }[input.action]
+          const movement = input.reducedMotion ? 0 : input.movementIntensity
+          const gaitX = Math.cos(input.gaitPhaseRadians) * movement
+          const gaitY = Math.sin(input.gaitPhaseRadians * 2) * movement
+          const actionSwing = Math.sin(input.actionProgress * Math.PI) * (input.reducedMotion ? 0.5 : 1)
+          const expectedPose = {
+            offset: {
+              x: 0.42 + gaitX * 0.018,
+              y: -0.38 + gaitY * 0.035 - actionSwing * profile.drop,
+              z: -0.72 - actionSwing * profile.forward,
+            },
+            rotation: {
+              x: actionSwing * profile.swing,
+              y: gaitX * 0.025,
+              z: gaitX * 0.025 + actionSwing * profile.twist,
+            },
+          }
+          expect(result.success.handPose.offset.x).toBeCloseTo(expectedPose.offset.x, 10)
+          expect(result.success.handPose.offset.y).toBeCloseTo(expectedPose.offset.y, 10)
+          expect(result.success.handPose.offset.z).toBeCloseTo(expectedPose.offset.z, 10)
+          expect(result.success.handPose.rotation.x).toBeCloseTo(expectedPose.rotation.x, 10)
+          expect(result.success.handPose.rotation.y).toBeCloseTo(expectedPose.rotation.y, 10)
+          expect(result.success.handPose.rotation.z).toBeCloseTo(expectedPose.rotation.z, 10)
+
+          const magnitude = Math.hypot(input.damageDirection.x, input.damageDirection.y)
+          const normalizedX = input.damageDirection.x / magnitude
+          const angle = Math.atan2(input.damageDirection.y, input.damageDirection.x)
+          const expectedRollMagnitude = normalizedX * 0.14 * input.damageIntensity * (input.reducedMotion ? 0.25 : 1)
+          const expectedDamage = {
+            cameraRollRadians: expectedRollMagnitude === 0 ? 0 : -expectedRollMagnitude,
+            directionAngleRadians: angle,
+            flashOpacity: 0.48 * input.damageIntensity,
+          }
+          expect(result.success.damage.cameraRollRadians).toBeCloseTo(expectedDamage.cameraRollRadians, 10)
+          expect(result.success.damage.directionAngleRadians).toBeCloseTo(expectedDamage.directionAngleRadians, 10)
+          expect(result.success.damage.flashOpacity).toBeCloseTo(expectedDamage.flashOpacity, 10)
+
+          const worldMeshes = fakeMeshes(renderer.sceneObject)
+          expect(worldMeshes).toHaveLength(stage === 0 ? 1 : 2)
+          const selectionAttribute = fakeMesh(worldMeshes[0]).geometry.attributes.get('position')
+          expect(selectionAttribute?.count).toBe(24)
+          if (selectionAttribute === undefined) {
+            return false
+          }
+          const actualSelectionVertices = Array.from({ length: selectionAttribute.count }, (_unused, index) => {
+            const offset = index * selectionAttribute.itemSize
+            return [
+              selectionAttribute.array[offset]?.toFixed(3),
+              selectionAttribute.array[offset + 1]?.toFixed(3),
+              selectionAttribute.array[offset + 2]?.toFixed(3),
+            ].join(',')
+          }).sort()
+          const box = input.target.shape.boxes[0]!
+          expect(actualSelectionVertices).toStrictEqual(expectedCuboidSelectionVertices({
+            x: { min: box.min.x, max: box.max.x },
+            y: { min: box.min.y, max: box.max.y },
+            z: { min: box.min.z, max: box.max.z },
+          }, input.target.position))
+          if (stage > 0) {
+            expect(fakeMesh(worldMeshes[1]).geometry.attributes.get('position')?.count).toBe(stage * 12)
+          }
+
+          const [hand, flashObject, directionObject] = cameraChildren(renderer)
+          expect(hand?.position.x).toBeCloseTo(expectedPose.offset.x, 10)
+          expect(hand?.position.y).toBeCloseTo(expectedPose.offset.y, 10)
+          expect(hand?.position.z).toBeCloseTo(expectedPose.offset.z, 10)
+          expect(hand?.rotation.x).toBeCloseTo(expectedPose.rotation.x, 10)
+          expect(hand?.rotation.y).toBeCloseTo(expectedPose.rotation.y, 10)
+          expect(hand?.rotation.z).toBeCloseTo(expectedPose.rotation.z, 10)
+          const flash = fakeMesh(flashObject)
+          const indicator = fakeMesh(directionObject)
+          expect(flash.visible).toBe(input.damageIntensity > 0)
+          expect(flash.material.opacity).toBeCloseTo(expectedDamage.flashOpacity, 10)
+          expect(indicator.visible).toBe(input.damageIntensity > 0)
+          expect(indicator.material.opacity).toBeCloseTo(input.damageIntensity, 10)
+          expect(indicator.position.x).toBeCloseTo((input.damageDirection.x / magnitude) * 0.76, 10)
+          expect(indicator.position.y).toBeCloseTo((input.damageDirection.y / magnitude) * 0.55, 10)
+          expect(indicator.rotation.z).toBeCloseTo(angle - Math.PI / 2, 10)
+        }))
+      } finally {
+        renderer.dispose()
+      }
     }),
   )
 

@@ -292,6 +292,60 @@ describe('sky renderer', () => {
     expect(renderer.update(frame())).toMatchObject({ _tag: 'Failure', failure: { reason: 'disposed' } })
   })
 
+  it('applies independently calculated cloud offsets for generated simulation ticks', () => {
+    const renderer = createSkyRenderer(fakeSurface)
+    const validFrame = FastCheck.record({
+      cameraPitchRadians: FastCheck.integer({ max: 314, min: -314 }).map((value) => value / 100),
+      cameraPosition: FastCheck.record({
+        x: FastCheck.integer({ max: 500, min: -500 }),
+        y: FastCheck.integer({ max: 500, min: -500 }),
+        z: FastCheck.integer({ max: 500, min: -500 }),
+      }),
+      cameraYawRadians: FastCheck.integer({ max: 628, min: -628 }).map((value) => value / 100),
+      dimension: FastCheck.constantFrom('overworld', 'nether', 'end'),
+      moonPhase: FastCheck.integer({ max: 7, min: 0 }),
+      partialTick: FastCheck.integer({ max: 999, min: 0 }).map((value) => value / 1000),
+      simulationTick: FastCheck.integer({ max: 1_000_000, min: 0 }),
+      timeOfDayTicks: FastCheck.integer({ max: SKY_DAY_LENGTH_TICKS - 1, min: 0 }),
+    })
+    const wrap = (offset: number): number => ((offset % 240) + 240) % 240
+
+    try {
+      FastCheck.assert(FastCheck.property(validFrame, (input) => {
+        const updated = renderer.update(input)
+        expect(Result.isSuccess(updated)).toBe(true)
+        if (Result.isFailure(updated)) {
+          return false
+        }
+
+        const scene = renderer.sceneObject
+        expect(scene instanceof FakeObject).toBe(true)
+        if (!(scene instanceof FakeObject)) {
+          return false
+        }
+        const nearClouds = scene.children[5]
+        const farClouds = scene.children[6]
+        expect(nearClouds instanceof FakeObject).toBe(true)
+        expect(farClouds instanceof FakeObject).toBe(true)
+        if (!(nearClouds instanceof FakeObject) || !(farClouds instanceof FakeObject)) {
+          return false
+        }
+        const animationSeconds = (input.simulationTick + input.partialTick) / 20
+        expect(scene.position).toMatchObject(input.cameraPosition)
+        expect(nearClouds.position.x).toBeCloseTo(wrap(-0.78 * animationSeconds - input.cameraPosition.x), 8)
+        expect(nearClouds.position.y).toBeCloseTo(192.33 - input.cameraPosition.y, 8)
+        expect(nearClouds.position.z).toBeCloseTo(wrap(-input.cameraPosition.z), 8)
+        expect(farClouds.position.x).toBeCloseTo(wrap(-0.43 * animationSeconds - input.cameraPosition.x), 8)
+        expect(farClouds.position.y).toBeCloseTo(196.33 - input.cameraPosition.y, 8)
+        expect(farClouds.position.z).toBeCloseTo(wrap(-input.cameraPosition.z), 8)
+        expect(nearClouds.visible).toBe(input.dimension === 'overworld')
+        expect(farClouds.visible).toBe(input.dimension === 'overworld')
+      }))
+    } finally {
+      renderer.dispose()
+    }
+  })
+
   it('returns schema-decodable results for arbitrary update inputs without throwing', () => {
     const renderer = createSkyRenderer(fakeSurface)
     FastCheck.assert(

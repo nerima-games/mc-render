@@ -58,6 +58,36 @@ const expectSuccess = <A, E>(result: Result.Result<A, E>): A => {
   return result.success
 }
 
+const unitBoundsArbitrary = FastCheck.integer({ max: 9, min: 0 }).chain((min) =>
+  FastCheck.integer({ max: 10 - min, min: 1 }).map((size) => ({ max: (min + size) / 10, min: min / 10 })),
+)
+
+const pointKey = (point: Readonly<{ x: number; y: number; z: number }>): string =>
+  `${point.x.toFixed(1)},${point.y.toFixed(1)},${point.z.toFixed(1)}`
+
+const expectedCuboidEdges = (
+  bounds: Readonly<{ x: Readonly<{ min: number; max: number }>; y: Readonly<{ min: number; max: number }>; z: Readonly<{ min: number; max: number }> }>,
+  position: Readonly<{ x: number; y: number; z: number }>,
+): ReadonlyArray<string> => {
+  const corners = Array.from({ length: 8 }, (_unused, index) => ({
+    x: position.x + ((index & 1) === 0 ? bounds.x.min : bounds.x.max),
+    y: position.y + ((index & 2) === 0 ? bounds.y.min : bounds.y.max),
+    z: position.z + ((index & 4) === 0 ? bounds.z.min : bounds.z.max),
+  }))
+  const edges: Array<string> = []
+  for (let first = 0; first < corners.length; first += 1) {
+    for (let second = first + 1; second < corners.length; second += 1) {
+      const start = corners[first]
+      const end = corners[second]
+      const changedAxes = Number(start.x !== end.x) + Number(start.y !== end.y) + Number(start.z !== end.z)
+      if (changedAxes === 1) {
+        edges.push([pointKey(start), pointKey(end)].sort().join('|'))
+      }
+    }
+  }
+  return edges.sort()
+}
+
 describe('interaction visual planning', () => {
   it.effect('makes selection outlines follow full, half, and composite stair shapes', () =>
     Effect.sync(() => {
@@ -156,6 +186,97 @@ describe('interaction visual planning', () => {
       expect(planDamageFeedback({ intensity: 1.1, attackDirection: { x: 1, y: 0 }, reducedMotion: false })._tag).toBe(
         'Failure',
       )
+    }),
+  )
+
+  it.effect('matches independent expected values for generated selection, crack, hand, and damage plans', () =>
+    Effect.sync(() => {
+      const selectionInput = FastCheck.record({
+        bounds: FastCheck.record({ x: unitBoundsArbitrary, y: unitBoundsArbitrary, z: unitBoundsArbitrary }),
+        position: FastCheck.record({
+          x: FastCheck.integer({ max: 20, min: -20 }),
+          y: FastCheck.integer({ max: 20, min: -20 }),
+          z: FastCheck.integer({ max: 20, min: -20 }),
+        }),
+      })
+      FastCheck.assert(FastCheck.property(selectionInput, ({ bounds, position }) => {
+        const actual = expectSuccess(planSelectionOutline({
+          boxes: [{ min: { x: bounds.x.min, y: bounds.y.min, z: bounds.z.min }, max: { x: bounds.x.max, y: bounds.y.max, z: bounds.z.max } }],
+        }, position))
+        const actualEdges = actual.segments.map(({ start, end }) => [pointKey(start), pointKey(end)].sort().join('|')).sort()
+        expect(actualEdges).toStrictEqual(expectedCuboidEdges(bounds, position))
+      }))
+
+      const progress = FastCheck.integer({ max: 1000, min: 0 }).map((value) => value / 1000)
+      FastCheck.assert(FastCheck.property(progress, (miningProgress) => {
+        const actual = expectSuccess(planCrackStage(miningProgress))
+        const stage = miningProgress === 0 ? 0 : Math.ceil(miningProgress * 10)
+        const opacity = stage === 0 ? 0 : 0.16 + (stage / 10) * 0.64
+        expect(actual).toStrictEqual({ stage, opacity })
+      }))
+
+      const motionInput = FastCheck.record({
+        action: FastCheck.constantFrom('idle', 'attack', 'mine', 'place'),
+        actionProgress: FastCheck.integer({ max: 100, min: 0 }).map((value) => value / 100),
+        gaitPhaseRadians: FastCheck.integer({ max: 628, min: -628 }).map((value) => value / 100),
+        movementIntensity: FastCheck.integer({ max: 100, min: 0 }).map((value) => value / 100),
+        reducedMotion: FastCheck.boolean(),
+      })
+      FastCheck.assert(FastCheck.property(motionInput, (input) => {
+        const actual = expectSuccess(planFirstPersonPose(input))
+        const actionProfile = {
+          attack: { drop: 0.12, forward: 0.12, swing: 0.85, twist: 0.15 },
+          idle: { drop: 0, forward: 0, swing: 0, twist: 0 },
+          mine: { drop: 0.18, forward: 0.07, swing: 1.1, twist: 0 },
+          place: { drop: 0.025, forward: 0.11, swing: 0.28, twist: -0.08 },
+        }[input.action]
+        const movement = input.reducedMotion ? 0 : input.movementIntensity
+        const gaitX = Math.cos(input.gaitPhaseRadians) * movement
+        const gaitY = Math.sin(input.gaitPhaseRadians * 2) * movement
+        const actionSwing = Math.sin(input.actionProgress * Math.PI) * (input.reducedMotion ? 0.5 : 1)
+        const expected = {
+          offset: {
+            x: 0.42 + gaitX * 0.018,
+            y: -0.38 + gaitY * 0.035 - actionSwing * actionProfile.drop,
+            z: -0.72 - actionSwing * actionProfile.forward,
+          },
+          rotation: {
+            x: actionSwing * actionProfile.swing,
+            y: gaitX * 0.025,
+            z: gaitX * 0.025 + actionSwing * actionProfile.twist,
+          },
+        }
+        expect(actual.offset.x).toBeCloseTo(expected.offset.x, 10)
+        expect(actual.offset.y).toBeCloseTo(expected.offset.y, 10)
+        expect(actual.offset.z).toBeCloseTo(expected.offset.z, 10)
+        expect(actual.rotation.x).toBeCloseTo(expected.rotation.x, 10)
+        expect(actual.rotation.y).toBeCloseTo(expected.rotation.y, 10)
+        expect(actual.rotation.z).toBeCloseTo(expected.rotation.z, 10)
+      }))
+
+      const direction = FastCheck.tuple(
+        FastCheck.integer({ max: 20, min: -20 }),
+        FastCheck.integer({ max: 20, min: -20 }),
+      ).filter(([x, y]) => x !== 0 || y !== 0).map(([x, y]) => ({ x, y }))
+      const damageInput = FastCheck.record({
+        attackDirection: direction,
+        intensity: FastCheck.integer({ max: 100, min: 0 }).map((value) => value / 100),
+        reducedMotion: FastCheck.boolean(),
+      })
+      FastCheck.assert(FastCheck.property(damageInput, (input) => {
+        const actual = expectSuccess(planDamageFeedback(input))
+        const magnitude = Math.hypot(input.attackDirection.x, input.attackDirection.y)
+        const normalizedX = input.attackDirection.x / magnitude
+        const expectedRollMagnitude = normalizedX * 0.14 * input.intensity * (input.reducedMotion ? 0.25 : 1)
+        const expected = {
+          cameraRollRadians: expectedRollMagnitude === 0 ? 0 : -expectedRollMagnitude,
+          directionAngleRadians: Math.atan2(input.attackDirection.y, input.attackDirection.x),
+          flashOpacity: 0.48 * input.intensity,
+        }
+        expect(actual.cameraRollRadians).toBeCloseTo(expected.cameraRollRadians, 10)
+        expect(actual.directionAngleRadians).toBeCloseTo(expected.directionAngleRadians, 10)
+        expect(actual.flashOpacity).toBeCloseTo(expected.flashOpacity, 10)
+      }))
     }),
   )
 
