@@ -89,6 +89,7 @@ import {
 import { type ParticleSystem, makeParticleSystem } from './particle-system.js'
 import type {
   ThreeBufferGeometry,
+  ThreeDynamicBufferAttribute,
   ThreeCamera,
   ThreeEuler,
   ThreeInstancedBufferGeometry,
@@ -184,6 +185,17 @@ const INITIAL_FRAMES_RENDERED = 0
 
 /** `BufferAttribute`'s item size for an index buffer: one index per slot. */
 const INDEX_ITEM_SIZE = 1
+const INDICES_PER_TRANSPARENT_FACE = 6
+const TRANSPARENT_FACE_VERTEX_COUNT = 4
+const FIRST_FACE_INDEX = 0
+const SECOND_FACE_INDEX = 1
+const THIRD_FACE_INDEX = 2
+const FOURTH_FACE_INDEX = 5
+const POSITION_X_COMPONENT = 0
+const POSITION_Y_COMPONENT = 1
+const POSITION_Z_COMPONENT = 2
+const DEPTH_TIE = 0
+const INDEX_STEP = 1
 
 /** No chunk updates: `setChunks` has nothing to do. */
 const EMPTY_UPDATE_COUNT = 0
@@ -460,6 +472,237 @@ type ChunkEntry<TGeometry> = {
   readonly meshes: ReadonlyArray<ThreeMesh>
   readonly geometries: ReadonlyArray<TGeometry>
   readonly bounds: AxisAlignedBounds | undefined
+  readonly transparentMesh: ThreeMesh | undefined
+  readonly transparentSort: TransparentSortState | undefined
+}
+
+type TransparentSortCamera = {
+  readonly pitch: number
+  readonly yaw: number
+}
+
+type TransparentCameraForward = { readonly x: number; readonly y: number; readonly z: number }
+type TransparentFaceVertices = { readonly first: number; readonly fourth: number; readonly second: number; readonly third: number }
+type TransparentFaceCenter = { readonly x: number; readonly y: number; readonly z: number }
+
+type TransparentSortState = {
+  readonly positionsView: DataView
+  readonly sourceIndicesView: DataView
+  readonly sortedIndices: Uint32Array
+  readonly sortedIndicesView: DataView
+  readonly faceDepths: Float32Array
+  readonly faceDepthsView: DataView
+  readonly faceOrder: Uint32Array
+  readonly faceOrderView: DataView
+  readonly indexAttribute: ThreeDynamicBufferAttribute
+  lastCamera: TransparentSortCamera | undefined
+}
+
+type ChunkLayerDefinition<TMaterial> = {
+  readonly buffers: ChunkGeometryBuffers | undefined
+  readonly material: TMaterial
+  readonly sortTransparent: boolean
+}
+
+type RenderedChunkLayer<TGeometry> = {
+  readonly bounds: AxisAlignedBounds | undefined
+  readonly geometry: TGeometry
+  readonly mesh: ThreeMesh
+  readonly transparentSort: TransparentSortState | undefined
+}
+
+const createTransparentSortState = (
+  buffers: ChunkGeometryBuffers,
+  shouldSort: boolean,
+  createIndexAttribute: (indices: Uint32Array) => ThreeDynamicBufferAttribute,
+): TransparentSortState | undefined => {
+  if (!shouldSort) {
+    return undefined
+  }
+  const sortedIndices = new Uint32Array(buffers.indices)
+  const faceCount = buffers.indexCount / INDICES_PER_TRANSPARENT_FACE
+  const faceDepths = new Float32Array(faceCount)
+  const faceOrder = new Uint32Array(faceCount)
+  return {
+    faceDepths,
+    faceDepthsView: new DataView(faceDepths.buffer, faceDepths.byteOffset, faceDepths.byteLength),
+    faceOrder,
+    faceOrderView: new DataView(faceOrder.buffer, faceOrder.byteOffset, faceOrder.byteLength),
+    indexAttribute: createIndexAttribute(sortedIndices),
+    lastCamera: undefined,
+    positionsView: new DataView(
+      buffers.positions.buffer,
+      buffers.positions.byteOffset,
+      buffers.positions.byteLength,
+    ),
+    sortedIndices,
+    sortedIndicesView: new DataView(
+      sortedIndices.buffer,
+      sortedIndices.byteOffset,
+      sortedIndices.byteLength,
+    ),
+    sourceIndicesView: new DataView(
+      buffers.indices.buffer,
+      buffers.indices.byteOffset,
+      buffers.indices.byteLength,
+    ),
+  }
+}
+
+const addChunkMesh = <TGeometry extends ThreeBufferGeometry, TMaterial extends ThreeMaterial>(
+  geometry: TGeometry,
+  material: TMaterial,
+  positions: Float32Array,
+  createMesh: (geometry: TGeometry, material: TMaterial) => ThreeMesh,
+  scene: ThreeScene,
+): { readonly bounds: AxisAlignedBounds | undefined; readonly mesh: ThreeMesh } => {
+  const mesh = createMesh(geometry, material)
+  const bounds = boundsFromPositions(positions)
+  mesh.frustumCulled = false
+  mesh.visible = Boolean(bounds)
+  scene.add(mesh)
+  return { bounds, mesh }
+}
+
+const sortStateForBounds = (
+  state: TransparentSortState | undefined,
+  bounds: AxisAlignedBounds | undefined,
+): TransparentSortState | undefined => {
+  if (bounds === undefined) {
+    return undefined
+  }
+  return state
+}
+
+const averageFaceCoordinate = (
+  positions: DataView,
+  vertices: TransparentFaceVertices,
+  component: number,
+): number => {
+  const firstOffset = vertices.first * POSITION_COMPONENTS + component
+  const secondOffset = vertices.second * POSITION_COMPONENTS + component
+  const thirdOffset = vertices.third * POSITION_COMPONENTS + component
+  const fourthOffset = vertices.fourth * POSITION_COMPONENTS + component
+  return (
+    positions.getFloat32(firstOffset * Float32Array.BYTES_PER_ELEMENT, true) +
+    positions.getFloat32(secondOffset * Float32Array.BYTES_PER_ELEMENT, true) +
+    positions.getFloat32(thirdOffset * Float32Array.BYTES_PER_ELEMENT, true) +
+    positions.getFloat32(fourthOffset * Float32Array.BYTES_PER_ELEMENT, true)
+  ) / TRANSPARENT_FACE_VERTEX_COUNT
+}
+
+const verticesOfTransparentFace = (state: TransparentSortState, face: number): TransparentFaceVertices => {
+  const indexOffset = face * INDICES_PER_TRANSPARENT_FACE
+  const byteOffset = indexOffset * Uint32Array.BYTES_PER_ELEMENT
+  return {
+    first: state.sourceIndicesView.getUint32(byteOffset + FIRST_FACE_INDEX * Uint32Array.BYTES_PER_ELEMENT, true),
+    fourth: state.sourceIndicesView.getUint32(byteOffset + FOURTH_FACE_INDEX * Uint32Array.BYTES_PER_ELEMENT, true),
+    second: state.sourceIndicesView.getUint32(byteOffset + SECOND_FACE_INDEX * Uint32Array.BYTES_PER_ELEMENT, true),
+    third: state.sourceIndicesView.getUint32(byteOffset + THIRD_FACE_INDEX * Uint32Array.BYTES_PER_ELEMENT, true),
+  }
+}
+
+const transparentFaceCenter = (state: TransparentSortState, face: number): TransparentFaceCenter => {
+  const vertices = verticesOfTransparentFace(state, face)
+  return {
+    x: averageFaceCoordinate(state.positionsView, vertices, POSITION_X_COMPONENT),
+    y: averageFaceCoordinate(state.positionsView, vertices, POSITION_Y_COMPONENT),
+    z: averageFaceCoordinate(state.positionsView, vertices, POSITION_Z_COMPONENT),
+  }
+}
+
+const transparentCameraForward = (camera: TransparentSortCamera): TransparentCameraForward => {
+  const cosPitch = Math.cos(camera.pitch)
+  return {
+    x: -Math.sin(camera.yaw) * cosPitch,
+    y: Math.sin(camera.pitch),
+    z: -Math.cos(camera.yaw) * cosPitch,
+  }
+}
+
+const transparentFaceDepth = (
+  center: TransparentFaceCenter,
+  forward: TransparentCameraForward,
+): number =>
+  center.x * forward.x + center.y * forward.y + center.z * forward.z
+
+const captureTransparentSortCamera = (camera: MirroredCameraState): TransparentSortCamera => ({
+  pitch: camera.rotation.x,
+  yaw: camera.rotation.y,
+})
+
+const sameTransparentSortCamera = (
+  previous: TransparentSortCamera | undefined,
+  current: MirroredCameraState,
+): boolean => previous !== undefined &&
+  previous.pitch === current.rotation.x &&
+  previous.yaw === current.rotation.y
+
+const writeTransparentFaceDepths = (
+  state: TransparentSortState,
+  forward: TransparentCameraForward,
+): void => {
+  for (let face = 0; face < state.faceOrder.length; face += INDEX_STEP) {
+    state.faceDepths[face] = transparentFaceDepth(transparentFaceCenter(state, face), forward)
+    state.faceOrder[face] = face
+  }
+}
+
+const compareTransparentFaces = (state: TransparentSortState, leftFace: number, rightFace: number): number => {
+  const rightDepth = state.faceDepthsView.getFloat32(rightFace * Float32Array.BYTES_PER_ELEMENT, true)
+  const leftDepth = state.faceDepthsView.getFloat32(leftFace * Float32Array.BYTES_PER_ELEMENT, true)
+  const depthDifference = rightDepth - leftDepth
+  if (depthDifference === DEPTH_TIE) {
+    return leftFace - rightFace
+  }
+  return depthDifference
+}
+
+const copyTransparentIndex = (
+  state: TransparentSortState,
+  sourceOffset: number,
+  sortedOffset: number,
+  triangleIndex: number,
+): boolean => {
+  const sourceSlot = (sourceOffset + triangleIndex) * Uint32Array.BYTES_PER_ELEMENT
+  const sortedSlot = (sortedOffset + triangleIndex) * Uint32Array.BYTES_PER_ELEMENT
+  const sourceIndex = state.sourceIndicesView.getUint32(sourceSlot, true)
+  const orderChanged = state.sortedIndicesView.getUint32(sortedSlot, true) !== sourceIndex
+  state.sortedIndices[sortedOffset + triangleIndex] = sourceIndex
+  return orderChanged
+}
+
+const copyTransparentFaceIndices = (state: TransparentSortState, sortedFace: number): boolean => {
+  const faceOrderOffset = sortedFace * Uint32Array.BYTES_PER_ELEMENT
+  const sourceFace = state.faceOrderView.getUint32(faceOrderOffset, true)
+  const sourceOffset = sourceFace * INDICES_PER_TRANSPARENT_FACE
+  const sortedOffset = sortedFace * INDICES_PER_TRANSPARENT_FACE
+  let orderChanged = false
+  for (let triangleIndex = 0; triangleIndex < INDICES_PER_TRANSPARENT_FACE; triangleIndex += INDEX_STEP) {
+    orderChanged = copyTransparentIndex(state, sourceOffset, sortedOffset, triangleIndex) || orderChanged
+  }
+  return orderChanged
+}
+
+const writeSortedTransparentIndices = (state: TransparentSortState): void => {
+  let orderChanged = false
+  for (let sortedFace = 0; sortedFace < state.faceOrder.length; sortedFace += INDEX_STEP) {
+    orderChanged = copyTransparentFaceIndices(state, sortedFace) || orderChanged
+  }
+  if (orderChanged) {
+    state.indexAttribute.needsUpdate = true
+  }
+}
+
+const updateTransparentIndexOrder = (state: TransparentSortState, mirrored: MirroredCameraState): void => {
+  if (sameTransparentSortCamera(state.lastCamera, mirrored)) {
+    return
+  }
+  const camera = captureTransparentSortCamera(mirrored)
+  state.lastCamera = camera
+  writeTransparentFaceDepths(state, transparentCameraForward(camera))
+  state.faceOrder.sort((leftFace, rightFace) => compareTransparentFaces(state, leftFace, rightFace))
+  writeSortedTransparentIndices(state)
 }
 
 /** Coarse render policy without importing simulation entity classes. */
@@ -1199,26 +1442,21 @@ export const makeWorldRenderer = <
       },
 
       buildChunkEntry: (update: ChunkGeometryUpdate): ChunkEntry<TGeometry> => {
-        // Three sorts water and blended solids back-to-front by each layer's projected bounding-sphere center.
-        const layers = [
-          { buffers: update.buffers, material: materials.opaque },
-          { buffers: update.cutoutBuffers, material: materials.cutout },
-          { buffers: update.transparentSolidBuffers, material: materials.transparent },
-          { buffers: update.waterBuffers, material: materials.water },
+        // Three sorts layers back-to-front by each mesh's projected bounding-sphere center.
+        const layers: ReadonlyArray<ChunkLayerDefinition<TMaterial | TUsedMaterial>> = [
+          { buffers: update.buffers, material: materials.opaque, sortTransparent: false },
+          { buffers: update.cutoutBuffers, material: materials.cutout, sortTransparent: false },
+          { buffers: update.transparentSolidBuffers, material: materials.transparent, sortTransparent: true },
+          { buffers: update.waterBuffers, material: materials.water, sortTransparent: false },
         ]
         const renderedLayers = layers.flatMap((layer) => {
-          const { buffers, material } = layer
-          if (buffers === undefined || buffers.indexCount === EMPTY_INDEX_COUNT) {
+          const rendered = ops.buildChunkLayer(layer)
+          if (rendered === undefined) {
             return []
           }
-          const geometry = ops.buildGeometry(buffers)
-          const mesh = new three.Mesh(geometry, material)
-          const layerBounds = boundsFromPositions(buffers.positions)
-          mesh.frustumCulled = false
-          mesh.visible = Boolean(layerBounds)
-          scene.add(mesh)
-          return [{ bounds: layerBounds, geometry, mesh }]
+          return [rendered]
         })
+        const transparentLayer = renderedLayers.find((layer) => layer.transparentSort !== undefined)
         const bounds = renderedLayers.reduce<AxisAlignedBounds | undefined>(
           (current, layer) => combineBounds(current, layer.bounds),
           undefined,
@@ -1227,7 +1465,32 @@ export const makeWorldRenderer = <
           bounds,
           geometries: renderedLayers.map(({ geometry }) => geometry),
           meshes: renderedLayers.map(({ mesh }) => mesh),
+          transparentMesh: transparentLayer?.mesh,
+          transparentSort: transparentLayer?.transparentSort,
         }
+      },
+
+      buildChunkLayer: (
+        layer: ChunkLayerDefinition<TMaterial | TUsedMaterial>,
+      ): RenderedChunkLayer<TGeometry> | undefined => {
+        const { buffers, material, sortTransparent } = layer
+        if (buffers === undefined || buffers.indexCount === EMPTY_INDEX_COUNT) {
+          return undefined
+        }
+        const sortState = createTransparentSortState(
+          buffers,
+          sortTransparent,
+          (indices) => new three.BufferAttribute(indices, INDEX_ITEM_SIZE, false),
+        )
+        const geometry = ops.buildGeometry(buffers, sortState?.indexAttribute)
+        const { bounds, mesh } = addChunkMesh(
+          geometry,
+          material,
+          buffers.positions,
+          (layerGeometry, layerMaterial) => new three.Mesh(layerGeometry, layerMaterial),
+          scene,
+        )
+        return { bounds, geometry, mesh, transparentSort: sortStateForBounds(sortState, bounds) }
       },
 
       buildEntity: (entity: RenderEntity): EntityEntry => {
@@ -1266,10 +1529,13 @@ export const makeWorldRenderer = <
         return geometry
       },
 
-      buildGeometry: (buffers: ChunkGeometryBuffers): TGeometry => {
+      buildGeometry: (
+        buffers: ChunkGeometryBuffers,
+        indexAttribute?: ThreeDynamicBufferAttribute,
+      ): TGeometry => {
         const geometry = new three.BufferGeometry()
         ops.attachChunkGeometryAttributes(geometry, buffers)
-        geometry.setIndex(new three.BufferAttribute(buffers.indices, INDEX_ITEM_SIZE, false))
+        geometry.setIndex(indexAttribute ?? new three.BufferAttribute(buffers.indices, INDEX_ITEM_SIZE, false))
         /* Before the first render, not lazily. See `ThreeBufferGeometry`: three
            computes this on demand and warns on an empty position attribute, and
            an empty chunk is the normal case at the edge of the loaded world. */
@@ -1399,6 +1665,17 @@ export const makeWorldRenderer = <
         }
         return { ...entry, entity }
       },
+
+      updateTransparentSort: (
+        currentChunks: ReadonlyMap<ChunkKey, ChunkEntry<TGeometry>>,
+        mirrored: MirroredCameraState,
+      ): void => {
+        for (const entry of currentChunks.values()) {
+          if (entry.transparentMesh?.visible && entry.transparentSort !== undefined) {
+            updateTransparentIndexOrder(entry.transparentSort, mirrored)
+          }
+        }
+      },
     }
 
     const weather = yield* makeWeatherRenderer(
@@ -1451,6 +1728,7 @@ export const makeWorldRenderer = <
             verticalFovDegrees: fovDegrees,
           })
           ops.updateChunkVisibility(currentChunks, frustum)
+          ops.updateTransparentSort(currentChunks, mirrored)
           const chain = yield* Ref.get(postProcessingChain)
           ops.renderFrame(chain)
           yield* Ref.update(framesRendered, (drawn) => drawn + FRAME_STEP)

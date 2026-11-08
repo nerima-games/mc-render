@@ -17,8 +17,21 @@ import { describe, expect, it } from '@effect/vitest'
 import { Effect, Result, Schema } from 'effect'
 import * as FastCheck from 'fast-check'
 import { mirroredCameraState } from '../src/domain/camera-mirror'
-import { buildChunkGeometry, type MeshQuad } from '../src/domain/chunk-geometry'
-import { chunkKeyOf, MonotonicTimeSecs, type CameraPoseSnapshot } from '@nerima-games/mc-kernel'
+import {
+  buildChunkGeometry,
+  buildFluidGeometry,
+  combineChunkGeometry,
+  type FluidQuad,
+  type MeshQuad,
+} from '../src/domain/chunk-geometry'
+import {
+  BLOCK_IDS,
+  blockTypeOfId,
+  chunkKeyOf,
+  MonotonicTimeSecs,
+  type BlockId,
+  type CameraPoseSnapshot,
+} from '@nerima-games/mc-kernel'
 import {
   applyChunkShaderEnvironment,
   CAMERA_FAR_PLANE,
@@ -80,6 +93,14 @@ const isParticlePoolInputFailure = (
   })(error)
   return Result.isSuccess(decoded) && decoded.success.operation === operation &&
     decoded.success.reason === reason
+}
+
+const blockIdForType = (blockType: string): BlockId => {
+  const match = BLOCK_IDS.find((candidate) => Result.getOrThrow(blockTypeOfId(candidate)) === blockType)
+  if (match === undefined) {
+    throw new Error(`block type not found: ${blockType}`)
+  }
+  return match
 }
 
 const quad = (overrides: Partial<MeshQuad> = {}): MeshQuad => ({
@@ -301,6 +322,44 @@ describe('acquiring the renderer', () => {
       expect(three.meshes()[2]?.renderOrder).toBe(three.meshes()[3]?.renderOrder)
       expect(three.meshes()[2]?.renderOrder).toBe(0)
       expect(three.geometries().every((geometry) => geometry.boundingSphereComputations() === 1)).toBe(true)
+
+      yield* renderer.dispose
+    }),
+  )
+
+  it.effect('sorts glass and lava faces back-to-front from either camera side', () =>
+    Effect.gen(function* () {
+      const three = makeFakeThree()
+      const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT)
+      const glassBuffers = buildChunkGeometry([
+        quad({ blockId: blockIdForType('glass'), direction: 'zPos', lz: -1 }),
+      ])
+      const lavaFace: FluidQuad = {
+        ao: 0,
+        blockId: blockIdForType('lava'),
+        direction: 'zPos',
+        vertices: [[1, 0, 2], [1, 1, 2], [0, 1, 2], [0, 0, 2]],
+      }
+      const transparentBuffers = combineChunkGeometry(glassBuffers, buildFluidGeometry([lavaFace]))
+
+      yield* renderer.setChunks([{
+        buffers: buildChunkGeometry([]),
+        key: chunkKeyOf(chunkCoord(0, 0)),
+        transparentSolidBuffers: transparentBuffers,
+      }])
+
+      const [transparentGeometry] = three.geometries()
+      const indexAttribute = transparentGeometry?.index()
+      const readIndices = (): ReadonlyArray<number> => Array.from(transparentGeometry?.index()?.array ?? [])
+
+      yield* renderer.draw(mirroredCameraState(poseAt(0, 0, 4, 0, 0)))
+      expect(readIndices()).toStrictEqual([0, 1, 2, 0, 2, 3, 4, 5, 6, 4, 6, 7])
+      expect(indexAttribute?.needsUpdate).toBeUndefined()
+
+      yield* renderer.draw(mirroredCameraState(poseAt(0, 0, -4, Math.PI, 0)))
+      expect(readIndices()).toStrictEqual([4, 5, 6, 4, 6, 7, 0, 1, 2, 0, 2, 3])
+      expect(indexAttribute?.needsUpdate).toBe(true)
+      expect(transparentGeometry?.index()).toBe(indexAttribute)
 
       yield* renderer.dispose
     }),

@@ -60,8 +60,8 @@
  * fails inside itself reports the failure at the wrong stack frame.
  */
 import type {
-  ThreeBufferAttribute,
   ThreeBufferGeometry,
+  ThreeDynamicBufferAttribute,
   ThreeMaterial,
   ThreeMesh,
   ThreePerspectiveCamera,
@@ -366,7 +366,7 @@ export const makeFakeThree = (): FakeThree => {
     array: Float32Array | Uint8Array | Uint32Array,
     itemSize: number,
     normalized: boolean,
-  ) => ThreeBufferAttribute
+  ) => ThreeDynamicBufferAttribute
 
   const MeshBasicMaterial = class {
     constructor(parameters: { readonly vertexColors: boolean; readonly wireframe: boolean }) {
