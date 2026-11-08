@@ -221,6 +221,12 @@ describe('makeProductionWorldRenderer (the shipped composition)', () => {
       expect(renderer.waterUniforms['uResolution']?.value).toStrictEqual([640, 360])
       expect(transparentSolidMaterial.uniforms['uResolution']?.value).toStrictEqual([640, 360])
 
+      delete renderer.waterUniforms['uResolution']
+      delete transparentSolidMaterial.uniforms['uResolution']
+      yield* renderer.resize(320, 180)
+      expect(renderer.waterUniforms['uResolution']).toBeUndefined()
+      expect(transparentSolidMaterial.uniforms['uResolution']).toBeUndefined()
+
       yield* renderer.dispose
       expect(three.scene().members()).toStrictEqual([])
       expect(three.shaderMaterials().every((material) => material.disposed())).toBe(true)

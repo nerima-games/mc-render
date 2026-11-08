@@ -35,6 +35,24 @@ const CHUNK_CUTOUT_ALPHA_TEST = 0.1
 const CHUNK_ALPHA_TEST_DISABLED = 0
 
 type ChunkMaterialVariant = 'opaque' | 'cutout' | 'transparent'
+type WaterFrameTimeSecs = number
+type WaterFrameCameraPosition = Readonly<{ worldX: number; worldY: number; worldZ: number }>
+type WaterFrameUniforms = {
+  readonly uTime?: ThreeUniform
+  readonly uCameraPosition?: ThreeUniform
+}
+
+type TranslucentChunkMaterialOptions<
+  TCanvas,
+  TGeometry extends ThreeBufferGeometry,
+  TMaterial extends ThreeMaterial,
+  TShaderMaterial extends ThreeMaterial,
+> = {
+  readonly atlasTexture: unknown
+  readonly three: ThreeShaderSurface<TCanvas, TGeometry, TMaterial, TShaderMaterial>
+  readonly viewport: Viewport
+  readonly sunIntensity?: number
+}
 
 const chunkAlphaTestFor = (variant: ChunkMaterialVariant): number => {
   if (variant === 'cutout') {
@@ -178,12 +196,12 @@ export const applyChunkShaderEnvironment = (
 }
 
 export const applyWaterFrameUniforms = (
-  uniforms: Record<string, ThreeUniform>,
-  timeSecs: number,
-  cameraPosition: Readonly<{ worldX: number; worldY: number; worldZ: number }>,
+  uniforms: WaterFrameUniforms,
+  timeSecs: WaterFrameTimeSecs,
+  cameraPosition: WaterFrameCameraPosition,
 ): void => {
-  const time = uniforms['uTime']
-  const camera = uniforms['uCameraPosition']
+  const time = uniforms.uTime
+  const camera = uniforms.uCameraPosition
   if (time) {time.value = timeSecs}
   if (camera) {camera.value = [cameraPosition.worldX, cameraPosition.worldY, cameraPosition.worldZ]}
 }
@@ -309,12 +327,7 @@ export const makeTranslucentChunkMaterial = <
   TGeometry extends ThreeBufferGeometry,
   TMaterial extends ThreeMaterial,
   TShaderMaterial extends ThreeMaterial,
->(options: {
-  readonly atlasTexture: unknown
-  readonly three: ThreeShaderSurface<TCanvas, TGeometry, TMaterial, TShaderMaterial>
-  readonly viewport: Viewport
-  readonly sunIntensity?: number
-}): ChunkShaderMaterial<TShaderMaterial> => {
+>(options: TranslucentChunkMaterialOptions<TCanvas, TGeometry, TMaterial, TShaderMaterial>): ChunkShaderMaterial<TShaderMaterial> => {
   const { atlasTexture, three, viewport } = options
   const sunIntensity = options.sunIntensity ?? FULL_SUN_INTENSITY
   const source = translucentChunkShaderSource()

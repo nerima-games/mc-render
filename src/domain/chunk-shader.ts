@@ -223,7 +223,9 @@ void main() {
  * `MAX_SHADE_BYTE` has no counterpart in the shader — which is correct rather
  * than an omission.
  */
-export const chunkFragmentDeclarations = (includeSunIntensity = true): string => {
+type ChunkShaderText = string
+
+export const chunkFragmentDeclarations = (includeSunIntensity = true): ChunkShaderText => {
   let sunIntensityDeclaration = ''
   if (includeSunIntensity) {
     sunIntensityDeclaration = `uniform float ${CHUNK_SHADER_UNIFORMS.sunIntensity};`
@@ -247,7 +249,7 @@ const float HALF_TEXEL = ${glslFloat(HALF_TEXEL_UV)};
 `
 }
 
-export const chunkFragmentShadeFunction = (): string => `
+export const chunkFragmentShadeFunction = (): ChunkShaderText => `
 vec4 shadeChunkSurface() {
   // Undo the interpolation: every vertex of a quad carries the same index, so
   // the varying is that index up to float error.

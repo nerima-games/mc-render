@@ -399,7 +399,7 @@ describe('acquiring the renderer', () => {
     }),
   )
 
-  it.effect('keeps bounds from a valid layer when a later layer has no positions', () =>
+  it.effect('keeps valid chunk bounds when a later layer has non-finite positions', () =>
     Effect.gen(function* () {
       const three = makeFakeThree()
       const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, { width: 100, height: 100 })
@@ -408,7 +408,10 @@ describe('acquiring the renderer', () => {
       yield* renderer.setChunks([{
         buffers: opaque,
         key: chunkKeyOf(chunkCoord(0, 0)),
-        transparentSolidBuffers: { ...opaque, positions: new Float32Array() },
+        transparentSolidBuffers: {
+          ...opaque,
+          positions: Float32Array.from(opaque.positions, () => Number.NaN),
+        },
       }])
       yield* renderer.draw(mirroredCameraState(poseAt(0, 0, 0, 0, 0)))
 

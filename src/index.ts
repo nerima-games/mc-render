@@ -89,10 +89,24 @@ export * from './domain/wither-visual.js'
 // Readings. Its header names the noun still missing before the reference's
 // R = AO / G = sky / B = block packing can be used: a `ShaderMaterial` in
 // `application/three-surface.ts` to decode it.
-export * from './domain/chunk-shader.js'
+export {
+  CHUNK_SHADER_ATTRIBUTES,
+  CHUNK_SHADER_UNIFORMS,
+  type ChunkShaderSource,
+  chunkFragmentShader,
+  chunkShaderSource,
+  chunkVertexShader,
+  glslFloat,
+} from './domain/chunk-shader.js'
 export * from './domain/voxel-lighting.js'
 export * from './domain/water-refraction.js'
-export * from './domain/water-shader.js'
+export {
+  type WaterShaderSource,
+  glslVec4,
+  waterFragmentShader,
+  waterShaderSource,
+  waterVertexShader,
+} from './domain/water-shader.js'
 export * from './domain/water-surface.js'
 
 // --- Application: Effect services ------------------------------------------

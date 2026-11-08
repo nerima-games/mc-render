@@ -1,6 +1,7 @@
 import {
   CHUNK_SHADER_ATTRIBUTES,
   CHUNK_SHADER_UNIFORMS,
+  type ChunkShaderSource,
   chunkFragmentDeclarations,
   chunkFragmentShadeFunction,
   glslFloat,
@@ -17,15 +18,8 @@ const WATER_SURFACE_ATTRIBUTE = 'waterSurface'
 const FLUID_DIRECTION_ATTRIBUTE = 'fluidDirection'
 const FLUID_FALLING_ATTRIBUTE = 'fluidFalling'
 
-export type TranslucentChunkShaderSource = {
-  readonly attributeNames: ReadonlyArray<string>
-  readonly fragmentShader: string
-  readonly uniformNames: ReadonlyArray<string>
-  readonly vertexShader: string
-}
-
 /** Build both transparent surface paths into one draw-call shader. */
-export const translucentChunkShaderSource = (): TranslucentChunkShaderSource => {
+export const translucentChunkShaderSource = (): ChunkShaderSource => {
   const vertexShader = `
 attribute float ${CHUNK_SHADER_ATTRIBUTES.tileIndex};
 attribute vec2 ${FLUID_DIRECTION_ATTRIBUTE};

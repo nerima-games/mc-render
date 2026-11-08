@@ -157,7 +157,9 @@ void main() {
  * the flip the Fresnel term is computed against a normal pointing away and the
  * surface reads as uniformly dark from below.
  */
-export const waterFragmentDeclarations = (includeSunIntensity = true): string => {
+type WaterShaderText = string
+
+export const waterFragmentDeclarations = (includeSunIntensity = true): WaterShaderText => {
   let sunIntensityDeclaration = ''
   if (includeSunIntensity) {
     sunIntensityDeclaration = 'uniform float uSunIntensity;'
@@ -181,7 +183,7 @@ const vec4 DEEP = ${glslVec4(WATER_DEEP_COLOR)};
 `
 }
 
-export const waterFragmentShadeFunction = (): string => `
+export const waterFragmentShadeFunction = (): WaterShaderText => `
 // Bhaskara's parabolic sine. Coefficients from water-surface.ts; see this
 // file's header on why they are interpolated and not typed.
 float waveApprox(float x) {
