@@ -176,20 +176,18 @@ export const applyChunkShaderEnvironment = (
   }
 }
 
-/** Build a chunk-layer shader material from its structural inputs. */
-export const makeChunkShaderMaterialVariant = <
+const buildChunkShaderMaterialVariant = <
   TCanvas,
   TGeometry extends ThreeBufferGeometry,
   TMaterial extends ThreeMaterial,
   TShaderMaterial extends ThreeMaterial,
 >(options: {
   readonly atlasTexture: unknown
-  readonly sunIntensity?: number
+  readonly sunIntensity: number
   readonly three: ThreeShaderSurface<TCanvas, TGeometry, TMaterial, TShaderMaterial>
   readonly variant: ChunkMaterialVariant
 }): ChunkShaderMaterial<TShaderMaterial> => {
-  const { atlasTexture, three, variant } = options
-  const sunIntensity = options.sunIntensity ?? FULL_SUN_INTENSITY
+  const { atlasTexture, sunIntensity, three, variant } = options
   const source = chunkShaderSource()
   const defaultEnvironment = planRenderEnvironment(FULL_SUN_INTENSITY)
   const alphaTest = chunkAlphaTestFor(variant)
@@ -215,6 +213,21 @@ export const makeChunkShaderMaterialVariant = <
   }
 }
 
+/** Build a chunk-layer shader material from its structural inputs. */
+export const makeChunkShaderMaterialVariant = <
+  TCanvas,
+  TGeometry extends ThreeBufferGeometry,
+  TMaterial extends ThreeMaterial,
+  TShaderMaterial extends ThreeMaterial,
+>(options: {
+  readonly atlasTexture: unknown
+  readonly three: ThreeShaderSurface<TCanvas, TGeometry, TMaterial, TShaderMaterial>
+  readonly variant: ChunkMaterialVariant
+}): ChunkShaderMaterial<TShaderMaterial> => buildChunkShaderMaterialVariant({
+  ...options,
+  sunIntensity: FULL_SUN_INTENSITY,
+})
+
 /** Build the opaque textured, packed-light material and its uniform boxes. */
 export const makeChunkShaderMaterial = <
   TCanvas,
@@ -225,7 +238,7 @@ export const makeChunkShaderMaterial = <
   three: ThreeShaderSurface<TCanvas, TGeometry, TMaterial, TShaderMaterial>,
   atlasTexture: unknown,
   sunIntensity: number = FULL_SUN_INTENSITY,
-): ChunkShaderMaterial<TShaderMaterial> => makeChunkShaderMaterialVariant({
+): ChunkShaderMaterial<TShaderMaterial> => buildChunkShaderMaterialVariant({
   atlasTexture,
   sunIntensity,
   three,

@@ -306,6 +306,24 @@ describe('acquiring the renderer', () => {
     }),
   )
 
+  it.effect('keeps bounds from a valid layer when a later layer has no positions', () =>
+    Effect.gen(function* () {
+      const three = makeFakeThree()
+      const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, { width: 100, height: 100 })
+      const opaque = buildChunkGeometry([quad({ lz: -10 })])
+
+      yield* renderer.setChunks([{
+        buffers: opaque,
+        key: chunkKeyOf(chunkCoord(0, 0)),
+        transparentSolidBuffers: { ...opaque, positions: new Float32Array() },
+      }])
+      yield* renderer.draw(mirroredCameraState(poseAt(0, 0, 0, 0, 0)))
+
+      expect(three.meshes().map(({ visible }) => visible)).toStrictEqual([true, true])
+      expect(three.renderer().renderCalls()).toBe(1)
+    }),
+  )
+
   it.effect('preserves layer material overrides and fallbacks for every optional factory combination', () =>
     Effect.sync(() => {
       FastCheck.assert(
