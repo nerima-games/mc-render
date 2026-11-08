@@ -66,6 +66,7 @@ import { planWitherSkullVisual, planWitherVisual } from '../src/domain/wither-vi
 import { makeThreeWeatherPrecipitation } from '../src/application/three-weather-runtime'
 import type { ThreeScene } from '../src/application/three-surface'
 import { angleRadians, blockId, chunkCoord, position } from './support/kernel-brands'
+import { makeAnimationClockInput } from './support/animation-clock'
 
 const VIEWPORT = { width: 1280, height: 720 }
 const decodePosition = Schema.decodeUnknownSync(ParticleWorldCoordinateSchema)
@@ -1558,9 +1559,7 @@ describe('makeProductionWorldRenderer', () => {
 
       spawnBurst(renderer.particlePool, 1, 2, 3, 0, 0, 1)
       yield* renderer.advanceFrame({
-        simulationTick: 40,
-        partialTick: 0,
-        timeOfDayTicks: 6000,
+        ...makeAnimationClockInput(40, 0, 6000),
         deltaSecs: decodeDelta(0.1),
         cameraPosition: { worldX: 4, worldY: 5, worldZ: 6 },
       })
@@ -1576,9 +1575,7 @@ describe('makeProductionWorldRenderer', () => {
 
       const pausedChunkTimes = chunkTimeUniforms()
       yield* renderer.advanceFrame({
-        simulationTick: 40,
-        partialTick: 0,
-        timeOfDayTicks: 6000,
+        ...makeAnimationClockInput(40, 0, 6000),
         deltaSecs: decodeDelta(0),
         cameraPosition: { worldX: 4, worldY: 5, worldZ: 6 },
       })
@@ -1619,9 +1616,7 @@ describe('makeProductionWorldRenderer', () => {
       applyChunkShaderEnvironment({}, planRenderEnvironment(0.5))
       yield* renderer.setEnvironment(planRenderEnvironment(0.5))
       yield* renderer.advanceFrame({
-        simulationTick: 20,
-        partialTick: 0,
-        timeOfDayTicks: 1200,
+        ...makeAnimationClockInput(20, 0, 1200),
         deltaSecs: decodeDelta(0.01),
         cameraPosition: { worldX: 1, worldY: 2, worldZ: 3 },
       })

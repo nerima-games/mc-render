@@ -2,4 +2,4 @@
 "@nerima-games/mc-render": minor
 ---
 
-Drive animated water, lava, fire, Nether portal, and End portal UVs from `simulationTick` and `partialTick` at 20 ticks per second. Export the shared tick-to-seconds conversion for RN4 and validate the simulation tick, partial tick, and time-of-day tick before updating uniforms. Motion tags come from block identity, so ice remains static even while it shares lava's current atlas tile.
+Require each render frame to carry `simulationTick`, `partialTick`, and `timeOfDayTicks`. Derive animated texture seconds as `(simulationTick + partialTick) / 20` and export that conversion for RN4; do not accumulate frame elapsed time. Validate all three clock values before updating uniforms. Motion tags follow block identity, so water, lava, fire, Nether portals, and End portals animate while ice remains static even when it shares lava's current atlas tile.

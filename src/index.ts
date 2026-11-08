@@ -49,12 +49,19 @@
 // Texture coverage: 117 of 120 rows have a real texture on every face.
 export * from './domain/block-texture-map.js'
 export {
+  AnimationClockInputSchema,
   AnimationClockInputErrorSchema,
+  AnimationSecondsSchema,
+  PartialTickSchema,
+  TimeOfDayTicksSchema,
   animationTimeSeconds,
 } from './domain/animation-clock.js'
 export type {
+  AnimationSeconds,
   AnimationClockInput,
   AnimationClockInputError,
+  PartialTick,
+  TimeOfDayTicks,
 } from './domain/animation-clock.js'
 export * from './domain/block-shapes.js'
 export * from './domain/camera-mirror.js'

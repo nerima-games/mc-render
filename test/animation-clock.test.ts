@@ -37,6 +37,7 @@ describe('animationTimeSeconds', () => {
 
   it.each([
     { input: { partialTick: 0, simulationTick: -1, timeOfDayTicks: 0 }, reason: 'invalid-simulation-tick' },
+    { input: { partialTick: 0, simulationTick: 1.5, timeOfDayTicks: 0 }, reason: 'invalid-simulation-tick' },
     { input: { partialTick: 0, simulationTick: Number.NaN, timeOfDayTicks: 0 }, reason: 'invalid-simulation-tick' },
     { input: { partialTick: Number.NaN, simulationTick: 1, timeOfDayTicks: 0 }, reason: 'invalid-partial-tick' },
     { input: { partialTick: 1, simulationTick: 1, timeOfDayTicks: 0 }, reason: 'invalid-partial-tick' },

@@ -34,6 +34,7 @@ import {
 import { planRenderEnvironment } from '../src/domain/render-environment'
 import { buildChunkGeometry, type MeshQuad } from '../src/domain/chunk-geometry'
 import { FAKE_CANVAS, makeFakeThree } from './support/fake-three'
+import { makeAnimationClockInput } from './support/animation-clock'
 import { blockId, chunkCoord } from './support/kernel-brands'
 
 const VIEWPORT = { width: 1280, height: 720 }
@@ -138,9 +139,7 @@ describe('makeProductionWorldRenderer (the shipped composition)', () => {
 
       yield* renderer.syncEntities([{ id: 'mob-1', kind: 'zombie', feetPosition: { x: 10, y: 20, z: 30 } }])
       yield* renderer.advanceFrame({
-        simulationTick: 0,
-        partialTick: 0,
-        timeOfDayTicks: 0,
+        ...makeAnimationClockInput(0, 0, 0),
         deltaSecs: decodeDelta(0),
         cameraPosition: { worldX: 0, worldY: 0, worldZ: 0 },
       })
@@ -148,9 +147,7 @@ describe('makeProductionWorldRenderer (the shipped composition)', () => {
 
       yield* renderer.syncEntities([{ id: 'mob-1', kind: 'zombie', feetPosition: { x: 11, y: 21, z: 31 } }])
       yield* renderer.advanceFrame({
-        simulationTick: 2,
-        partialTick: 0,
-        timeOfDayTicks: 2,
+        ...makeAnimationClockInput(2, 0, 2),
         deltaSecs: decodeDelta(0.1),
         cameraPosition: { worldX: 0, worldY: 0, worldZ: 0 },
       })
@@ -161,9 +158,7 @@ describe('makeProductionWorldRenderer (the shipped composition)', () => {
       })
 
       yield* renderer.advanceFrame({
-        simulationTick: 4,
-        partialTick: 0,
-        timeOfDayTicks: 4,
+        ...makeAnimationClockInput(4, 0, 4),
         deltaSecs: decodeDelta(0.1),
         cameraPosition: { worldX: 0, worldY: 0, worldZ: 0 },
         dimension: 'nether',
@@ -221,9 +216,7 @@ describe('makeProductionWorldRenderer (the shipped composition)', () => {
 
       spawnBurst(renderer.particlePool, 1, 2, 3, 0, 0, 1)
       yield* renderer.advanceFrame({
-        simulationTick: 40,
-        partialTick: 0,
-        timeOfDayTicks: 6000,
+        ...makeAnimationClockInput(40, 0, 6000),
         deltaSecs: decodeDelta(0.1),
         cameraPosition: { worldX: 4, worldY: 5, worldZ: 6 },
       })
@@ -236,9 +229,7 @@ describe('makeProductionWorldRenderer (the shipped composition)', () => {
 
       const pausedChunkTimes = chunkTimeUniforms(three)
       yield* renderer.advanceFrame({
-        simulationTick: 40,
-        partialTick: 0,
-        timeOfDayTicks: 6000,
+        ...makeAnimationClockInput(40, 0, 6000),
         deltaSecs: decodeDelta(0.1),
         cameraPosition: { worldX: 4, worldY: 5, worldZ: 6 },
       })
@@ -285,9 +276,7 @@ describe('makeProductionWorldRenderer (the shipped composition)', () => {
       applyChunkShaderEnvironment({}, planRenderEnvironment(0.5))
       yield* renderer.setEnvironment(planRenderEnvironment(0.5))
       yield* renderer.advanceFrame({
-        simulationTick: 20,
-        partialTick: 0,
-        timeOfDayTicks: 1200,
+        ...makeAnimationClockInput(20, 0, 1200),
         deltaSecs: decodeDelta(0.01),
         cameraPosition: { worldX: 1, worldY: 2, worldZ: 3 },
       })

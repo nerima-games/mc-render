@@ -4,6 +4,7 @@ import { Effect, Result, Schema } from 'effect'
 import { DomainEventSchema, WorldPositionSchema } from '@nerima-games/mc-kernel'
 import {
   PARTICLE_KIND_DEFAULTS,
+  AnimationSecondsSchema,
   AnimationClockInputErrorSchema,
   animationTimeSeconds,
   ParticleColorSchema,
@@ -78,7 +79,7 @@ describe('public animation clock conversion', () => {
         if (Result.isFailure(result)) {
           return Result.isSuccess(Schema.decodeUnknownResult(AnimationClockInputErrorSchema)(result.failure))
         }
-        return Result.isSuccess(Schema.decodeUnknownResult(Schema.Finite)(result.success))
+        return Result.isSuccess(Schema.decodeUnknownResult(AnimationSecondsSchema)(result.success))
       }),
     )
   })

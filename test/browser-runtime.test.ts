@@ -12,6 +12,7 @@ import {
 import { mirroredCameraState } from '../src/domain/camera-mirror.js'
 import { ParticleDeltaSecsSchema } from '../src/domain/particle-pool.js'
 import { QUALITY_PRESETS, type PostProcessingStep } from '../src/domain/post-processing.js'
+import { makeAnimationClockInput } from './support/animation-clock.js'
 
 const testCamera = mirroredCameraState(undefined)
 const decodeDelta = Schema.decodeUnknownSync(ParticleDeltaSecsSchema)
@@ -1011,9 +1012,7 @@ describe('browser world runtime', () => {
     const frame = {
       camera: testCamera,
       frame: {
-        simulationTick: 20,
-        partialTick: 0,
-        timeOfDayTicks: 1200,
+        ...makeAnimationClockInput(20, 0, 1200),
         deltaSecs: decodeDelta(0.021),
         cameraPosition: { worldX: 0, worldY: 0, worldZ: 0 },
       },
@@ -1066,9 +1065,7 @@ describe('browser world runtime', () => {
       quality: 'high',
     })
     const frame = {
-      simulationTick: 20,
-      partialTick: 0,
-      timeOfDayTicks: 1200,
+      ...makeAnimationClockInput(20, 0, 1200),
       deltaSecs: decodeDelta(0.021),
       cameraPosition: { worldX: 0, worldY: 0, worldZ: 0 },
     }
