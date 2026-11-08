@@ -29,6 +29,7 @@ const SSIM_CONSTANTS = {
   one: ONE,
   ssimC1: SSIM_C1,
   ssimC2: SSIM_C2,
+  three: THREE,
   two: TWO,
   windowSize: WINDOW_SIZE,
   zero: ZERO,
@@ -269,17 +270,18 @@ test('WebGL mip level pixels match the atlas input 2x2 average', async ({ page }
         const tileRow = Math.floor(stoneTop / manifest.layout.columns)
         const sourceX = tileColumn * manifest.layout.cellPixels + manifest.layout.gutterPixels
         const sourceY = tileRow * manifest.layout.cellPixels + manifest.layout.gutterPixels
+        const sampleX = sourceX + constants.two * constants.three
         const points = [
-          [sourceX, sourceY],
-          [sourceX + constants.one, sourceY],
-          [sourceX, sourceY + constants.one],
-          [sourceX + constants.one, sourceY + constants.one],
+          [sampleX, sourceY],
+          [sampleX + constants.one, sourceY],
+          [sampleX, sourceY + constants.one],
+          [sampleX + constants.one, sourceY + constants.one],
         ] as const
         const sourcePixels = points.flatMap(([x, y]) => {
           const offset = (y * source.width + x) * constants.four
-          return source.pixels.slice(offset, offset + constants.four)
+          return Array.from(source.pixels.slice(offset, offset + constants.four))
         })
-        return { sourcePixels, targetX: sourceX / constants.two, targetY: sourceY / constants.two }
+        return { sourcePixels, targetX: sampleX / constants.two, targetY: sourceY / constants.two }
       },
       uploadAtlas: (source: AtlasMipSource, resources: AtlasMipResources): void => {
         const { gl, texture } = resources
@@ -303,12 +305,16 @@ test('WebGL mip level pixels match the atlas input 2x2 average', async ({ page }
   expect(mipPixel.sourcePixels).toHaveLength(FOUR * FOUR)
   expect(mipPixel.actual).toHaveLength(FOUR)
   for (let channel = 0; channel < FOUR; channel += ONE) {
-    const expected = Math.round((
-      (mipPixel.sourcePixels[channel] ?? Number.NaN) +
-      (mipPixel.sourcePixels[channel + FOUR] ?? Number.NaN) +
-      (mipPixel.sourcePixels[channel + TWO * FOUR] ?? Number.NaN) +
-      (mipPixel.sourcePixels[channel + THREE * FOUR] ?? Number.NaN)
-    ) / FOUR)
+    const sourceChannelValues = [
+      mipPixel.sourcePixels[channel] ?? Number.NaN,
+      mipPixel.sourcePixels[channel + FOUR] ?? Number.NaN,
+      mipPixel.sourcePixels[channel + TWO * FOUR] ?? Number.NaN,
+      mipPixel.sourcePixels[channel + THREE * FOUR] ?? Number.NaN,
+    ]
+    const expected = Math.round(sourceChannelValues.reduce((sum, value) => sum + value, ZERO) / FOUR)
+    if (channel === ZERO) {
+      expect(sourceChannelValues).not.toContain(expected)
+    }
     expect(Math.abs((mipPixel.actual[channel] ?? Number.NaN) - expected)).toBeLessThanOrEqual(ONE)
   }
 })
