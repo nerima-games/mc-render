@@ -2,4 +2,6 @@
 "@nerima-games/mc-render": minor
 ---
 
-Require each render frame to carry `simulationTick`, `partialTick`, and `timeOfDayTicks`. Derive animated texture seconds as `(simulationTick + partialTick) / 20` and export that conversion for RN4; do not accumulate frame elapsed time. Validate all three clock values before updating uniforms. Motion tags follow block identity, so water, lava, fire, Nether portals, and End portals animate while ice remains static even when it shares lava's current atlas tile.
+The browser frame payload carries `simulationTick`, `partialTick`, and `timeOfDayTicks`; the last is available to time-of-day rendering. Texture animation uses the exported `animationTimeSeconds` conversion, `(simulationTick + partialTick) / 20`, without accumulating frame elapsed time.
+Invalid clock fields return `AnimationClockInputError` before uniforms update. Per-vertex `ChunkAnimationKind` tags follow block identity: water, lava, fire, Nether portals, and End portals animate, while ice stays static even when it shares lava's atlas tile.
+The package root exports `ChunkAnimationKind` and the clock types `AnimationClockInput`, `AnimationClockInputError`, `AnimationSeconds`, `PartialTick`, and `TimeOfDayTicks`.
