@@ -312,6 +312,9 @@ describe('makeProductionWorldRenderer (the shipped composition)', () => {
         interaction: interactionFrame(targetX, progress, damage),
       })
 
+      yield* renderer.draw(mirroredCameraState(undefined))
+      expect(three.renderer().renderCalls()).toBe(1)
+
       yield* renderer.advanceFrame(frame(2_000, 6_000, 3, 0.2, 0))
       yield* renderer.draw(mirroredCameraState(undefined))
 
@@ -372,7 +375,7 @@ describe('makeProductionWorldRenderer (the shipped composition)', () => {
       yield* renderer.advanceFrame(frame(2_200, 18_000, 5, 0.8, 1))
       yield* renderer.draw(mirroredCameraState(undefined))
 
-      expect(three.renderer().renderCalls()).toBe(2)
+      expect(three.renderer().renderCalls()).toBe(3)
       expect(sun?.position.y).toBeCloseTo(-160)
       expect(stars?.visible).toBe(true)
       expect(nearCloud?.position.x).not.toBe(firstCloudOffset)

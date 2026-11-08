@@ -286,6 +286,21 @@ describe('acquiring the renderer', () => {
     }),
   )
 
+  it.effect('honors explicitly configured camera frustum options', () =>
+    Effect.gen(function* () {
+      const three = makeFakeThree()
+      yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT, {
+        farPlane: 900,
+        fovDegrees: 82,
+        nearPlane: 0.25,
+      })
+
+      expect(three.camera().fov).toBe(82)
+      expect(three.camera().near).toBe(0.25)
+      expect(three.camera().far).toBe(900)
+    }),
+  )
+
   it.effect('a zero-sized canvas gets aspect 1 rather than NaN', () =>
     Effect.gen(function* () {
       // A canvas that has not been laid out reports `clientWidth === 0`, and
