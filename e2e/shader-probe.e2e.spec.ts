@@ -198,49 +198,17 @@ test('shader probe compiles and draws each generated shader on WebGL2', async ({
 test('WebGL mip level pixels match the atlas input 2x2 average', async ({ page }) => {
   await page.goto(`${WEB_ORIGIN}/apps/shader-probe/`)
 
-  const mipPixel = await page.evaluate(async () => {
+  const mipPixel = await page.evaluate(async (constants: typeof SSIM_CONSTANTS) => {
     const browser = globalThis as unknown as AtlasMipBrowser
     const tools = {
-      loadImage: async (): Promise<AtlasMipImage> => {
-        const image = new browser.Image()
-        image.src = '/src/assets/block-textures/atlas.png'
-        await image.decode()
-        return image
-      },
-      readImagePixels: (image: AtlasMipImage): AtlasMipSource => {
-        const canvas = browser.document.createElement('canvas')
-        canvas.width = image.width
-        canvas.height = image.height
-        const context = canvas.getContext('2d')
-        if (context === null) {
-          throw new Error('atlas source canvas has no 2D context')
-        }
-        context.drawImage(image, ZERO, ZERO)
-        const imageData = context.getImageData(ZERO, ZERO, image.width, image.height)
-        return { height: image.height, pixels: imageData.data, width: image.width }
-      },
-      loadManifest: async (): Promise<AtlasMipManifest> => {
-        const response = await browser.fetch('/src/assets/block-textures/manifest.json')
-        if (!response.ok) {
-          throw new Error('atlas manifest could not be loaded')
-        }
-        return await response.json() as AtlasMipManifest
-      },
-      sampleSource: (source: AtlasMipSource, manifest: AtlasMipManifest): AtlasMipSample => {
-        const stoneTop = manifest.blockFaces['stone']?.top
-        if (stoneTop === undefined) {
-          throw new Error('stone top tile is missing from the atlas manifest')
-        }
-        const tileColumn = stoneTop % manifest.layout.columns
-        const tileRow = Math.floor(stoneTop / manifest.layout.columns)
-        const sourceX = tileColumn * manifest.layout.cellPixels + manifest.layout.gutterPixels
-        const sourceY = tileRow * manifest.layout.cellPixels + manifest.layout.gutterPixels
-        const points = [[sourceX, sourceY], [sourceX + ONE, sourceY], [sourceX, sourceY + ONE], [sourceX + ONE, sourceY + ONE]] as const
-        const sourcePixels = points.flatMap(([x, y]) => {
-          const offset = (y * source.width + x) * FOUR
-          return source.pixels.slice(offset, offset + FOUR)
-        })
-        return { sourcePixels, targetX: sourceX / TWO, targetY: sourceY / TWO }
+      configureTexture: (resources: AtlasMipResources): void => {
+        const { gl, texture } = resources
+        gl.bindTexture(gl.TEXTURE_2D, texture)
+        gl.pixelStorei(gl.UNPACK_ALIGNMENT, constants.one)
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST_MIPMAP_NEAREST)
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
       },
       createResources: (): AtlasMipResources => {
         const canvas = browser.document.createElement('canvas')
@@ -255,32 +223,69 @@ test('WebGL mip level pixels match the atlas input 2x2 average', async ({ page }
         }
         return { framebuffer, gl, texture }
       },
-      configureTexture: (resources: AtlasMipResources): void => {
-        const { gl, texture } = resources
-        gl.bindTexture(gl.TEXTURE_2D, texture)
-        gl.pixelStorei(gl.UNPACK_ALIGNMENT, ONE)
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST_MIPMAP_NEAREST)
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+      loadImage: async (): Promise<AtlasMipImage> => {
+        const image = new browser.Image()
+        image.src = '/src/assets/block-textures/atlas.png'
+        await image.decode()
+        return image
       },
-      uploadAtlas: (source: AtlasMipSource, resources: AtlasMipResources): void => {
-        const { gl, texture } = resources
-        gl.bindTexture(gl.TEXTURE_2D, texture)
-        gl.texImage2D(gl.TEXTURE_2D, ZERO, gl.RGBA8, source.width, source.height, ZERO, gl.RGBA, gl.UNSIGNED_BYTE, source.pixels)
-        gl.generateMipmap(gl.TEXTURE_2D)
+      loadManifest: async (): Promise<AtlasMipManifest> => {
+        const response = await browser.fetch('/src/assets/block-textures/manifest.json')
+        if (!response.ok) {
+          throw new Error('atlas manifest could not be loaded')
+        }
+        return await response.json() as AtlasMipManifest
+      },
+      readImagePixels: (image: AtlasMipImage): AtlasMipSource => {
+        const canvas = browser.document.createElement('canvas')
+        canvas.width = image.width
+        canvas.height = image.height
+        const context = canvas.getContext('2d')
+        if (context === null) {
+          throw new Error('atlas source canvas has no 2D context')
+        }
+        context.drawImage(image, constants.zero, constants.zero)
+        const imageData = context.getImageData(constants.zero, constants.zero, image.width, image.height)
+        return { height: image.height, pixels: imageData.data, width: image.width }
       },
       readLevelPixel: (sample: AtlasMipSample, resources: AtlasMipResources) => {
         const { framebuffer, gl, texture } = resources
         gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer)
-        gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, texture, ONE)
+        gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, texture, constants.one)
         const framebufferComplete = gl.checkFramebufferStatus(gl.FRAMEBUFFER) === gl.FRAMEBUFFER_COMPLETE
-        const target = new Uint8Array(FOUR)
-        gl.readPixels(sample.targetX, sample.targetY, ONE, ONE, gl.RGBA, gl.UNSIGNED_BYTE, target)
+        const target = new Uint8Array(constants.four)
+        gl.readPixels(sample.targetX, sample.targetY, constants.one, constants.one, gl.RGBA, gl.UNSIGNED_BYTE, target)
         const glError = gl.getError()
         gl.deleteFramebuffer(framebuffer)
         gl.deleteTexture(texture)
         return { actual: Array.from(target), framebufferComplete, glError }
+      },
+      sampleSource: (source: AtlasMipSource, manifest: AtlasMipManifest): AtlasMipSample => {
+        const stoneTop = manifest.blockFaces['stone']?.top
+        if (stoneTop === undefined) {
+          throw new Error('stone top tile is missing from the atlas manifest')
+        }
+        const tileColumn = stoneTop % manifest.layout.columns
+        const tileRow = Math.floor(stoneTop / manifest.layout.columns)
+        const sourceX = tileColumn * manifest.layout.cellPixels + manifest.layout.gutterPixels
+        const sourceY = tileRow * manifest.layout.cellPixels + manifest.layout.gutterPixels
+        const points = [
+          [sourceX, sourceY],
+          [sourceX + constants.one, sourceY],
+          [sourceX, sourceY + constants.one],
+          [sourceX + constants.one, sourceY + constants.one],
+        ] as const
+        const sourcePixels = points.flatMap(([x, y]) => {
+          const offset = (y * source.width + x) * constants.four
+          return source.pixels.slice(offset, offset + constants.four)
+        })
+        return { sourcePixels, targetX: sourceX / constants.two, targetY: sourceY / constants.two }
+      },
+      uploadAtlas: (source: AtlasMipSource, resources: AtlasMipResources): void => {
+        const { gl, texture } = resources
+        gl.bindTexture(gl.TEXTURE_2D, texture)
+        gl.texImage2D(gl.TEXTURE_2D, constants.zero, gl.RGBA8, source.width, source.height, constants.zero, gl.RGBA, gl.UNSIGNED_BYTE, source.pixels)
+        gl.generateMipmap(gl.TEXTURE_2D)
       },
     }
     const image = await tools.loadImage()
@@ -291,13 +296,13 @@ test('WebGL mip level pixels match the atlas input 2x2 average', async ({ page }
     tools.configureTexture(resources)
     tools.uploadAtlas(source, resources)
     return { ...tools.readLevelPixel(sample, resources), sourcePixels: sample.sourcePixels }
-  })
+  }, SSIM_CONSTANTS)
 
   expect(mipPixel.framebufferComplete).toBe(true)
   expect(mipPixel.glError).toBe(ZERO)
   expect(mipPixel.sourcePixels).toHaveLength(FOUR * FOUR)
   expect(mipPixel.actual).toHaveLength(FOUR)
-  for (let channel = 0; channel < FOUR; channel += 1) {
+  for (let channel = 0; channel < FOUR; channel += ONE) {
     const expected = Math.round((
       (mipPixel.sourcePixels[channel] ?? Number.NaN) +
       (mipPixel.sourcePixels[channel + FOUR] ?? Number.NaN) +
@@ -378,7 +383,7 @@ type AtlasMipBytes = Readonly<ArrayLike<number>> & Readonly<{
 type AtlasMipImageData = Readonly<{ data: AtlasMipBytes }>
 type AtlasMipCanvas2d = Readonly<{
   drawImage: (image: AtlasMipImage, x: number, y: number) => void
-  getImageData: (x: number, y: number, width: number, height: number) => AtlasMipImageData
+  getImageData: (...coordinates: [x: number, y: number, width: number, height: number]) => AtlasMipImageData
 }>
 type AtlasMipWebGl = Readonly<{
   readonly TEXTURE_2D: number
@@ -401,7 +406,7 @@ type AtlasMipWebGl = Readonly<{
   bindTexture: (target: number, texture: object) => void
   pixelStorei: (parameter: number, value: number) => void
   texParameteri: (target: number, parameter: number, value: number) => void
-  texImage2D: (
+  texImage2D: (...parameters: [
     target: number,
     level: number,
     internalFormat: number,
@@ -411,12 +416,26 @@ type AtlasMipWebGl = Readonly<{
     format: number,
     type: number,
     pixels: ArrayLike<number>,
-  ) => void
+  ]) => void
   generateMipmap: (target: number) => void
   bindFramebuffer: (target: number, framebuffer: object) => void
-  framebufferTexture2D: (target: number, attachment: number, textureTarget: number, texture: object, level: number) => void
+  framebufferTexture2D: (...parameters: [
+    target: number,
+    attachment: number,
+    textureTarget: number,
+    texture: object,
+    level: number,
+  ]) => void
   checkFramebufferStatus: (target: number) => number
-  readPixels: (x: number, y: number, width: number, height: number, format: number, type: number, pixels: Uint8Array) => void
+  readPixels: (...parameters: [
+    x: number,
+    y: number,
+    width: number,
+    height: number,
+    format: number,
+    type: number,
+    pixels: Uint8Array,
+  ]) => void
   getError: () => number
   deleteFramebuffer: (framebuffer: object) => void
   deleteTexture: (texture: object) => void
