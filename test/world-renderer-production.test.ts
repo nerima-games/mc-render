@@ -11,6 +11,8 @@
  */
 import { describe, expect, it } from '@effect/vitest'
 import { Effect, Result, Schema } from 'effect'
+import * as THREE from 'three'
+import { mirroredCameraState } from '../src/domain/camera-mirror'
 import type { AnimationClockInputError } from '../src/domain/animation-clock'
 import { ParticleRequestSchema } from '../src/application/particle-service'
 import { makeProductionWorldRenderer, type ProductionFrame } from '../src/application/world-renderer-production'
@@ -33,11 +35,23 @@ import {
 } from '../src/domain/particle-pool'
 import { planRenderEnvironment } from '../src/domain/render-environment'
 import { buildChunkGeometry, type MeshQuad } from '../src/domain/chunk-geometry'
-import { FAKE_CANVAS, makeFakeThree } from './support/fake-three'
+import {
+  FAKE_CANVAS,
+  makeFakeThree,
+  type FakeCanvas,
+  type FakeGeometry,
+  type FakeInstancedGeometry,
+  type FakeMaterial,
+  type FakeShaderMaterial,
+} from './support/fake-three'
 import { makeAnimationClockInput } from './support/animation-clock'
 import { blockId, chunkCoord } from './support/kernel-brands'
 
 const VIEWPORT = { width: 1280, height: 720 }
+const presentationSurface = {
+  ...THREE,
+  BufferGeometry: class extends THREE.BufferGeometry<THREE.NormalBufferAttributes> {},
+}
 const quad = (): MeshQuad => ({
   ao: 0,
   blockId: blockId(1),
@@ -102,7 +116,7 @@ describe('makeProductionWorldRenderer (the shipped composition)', () => {
         three,
         FAKE_CANVAS,
         VIEWPORT,
-        { name: 'terrain-atlas' },
+        { isTexture: true },
         { particles: { capacity: 4 } },
       )
       const request = Schema.decodeUnknownSync(ParticleRequestSchema)({
@@ -127,7 +141,7 @@ describe('makeProductionWorldRenderer (the shipped composition)', () => {
         three,
         FAKE_CANVAS,
         VIEWPORT,
-        { name: 'terrain-atlas' },
+        { isTexture: true },
         { particles: { capacity: 8 } },
       )
       const request = Schema.decodeUnknownSync(ParticleRequestSchema)({
@@ -174,7 +188,7 @@ describe('makeProductionWorldRenderer (the shipped composition)', () => {
   it.effect('owns the atlas shaders, animated water, and shared particle system', () =>
     Effect.gen(function* () {
       const three = makeFakeThree()
-      const atlas = { name: 'terrain-atlas' }
+      const atlas = { isTexture: true as const }
       const renderer = yield* makeProductionWorldRenderer(three, FAKE_CANVAS, VIEWPORT, atlas, {
         particles: { capacity: 4 },
       })
@@ -253,6 +267,135 @@ describe('makeProductionWorldRenderer (the shipped composition)', () => {
     }),
   )
 
+  it.effect('updates and draws sky and interaction visuals on each production frame', () =>
+    Effect.gen(function* () {
+      const three = makeFakeThree()
+      const atlas = new THREE.Texture()
+      const renderer = yield* makeProductionWorldRenderer<
+        FakeCanvas,
+        FakeGeometry,
+        FakeMaterial,
+        FakeInstancedGeometry,
+        FakeShaderMaterial,
+        THREE.Texture,
+        THREE.BufferGeometry<THREE.NormalBufferAttributes>,
+        THREE.MeshBasicMaterial,
+        THREE.LineBasicMaterial,
+        THREE.PointsMaterial
+      >(
+        three,
+        FAKE_CANVAS,
+        VIEWPORT,
+        atlas,
+        { particles: { capacity: 2 } },
+        presentationSurface,
+      )
+      const interactionFrame = (targetX: number, miningProgress: number, damageIntensity: number) => ({
+        action: 'mine' as const,
+        actionProgress: miningProgress,
+        damageDirection: { x: 1, y: 0 },
+        damageIntensity,
+        gaitPhaseRadians: 0.5,
+        heldItem: { kind: 'block' as const, tileIndex: 1 },
+        miningProgress,
+        movementIntensity: 0.5,
+        reducedMotion: false,
+        target: {
+          position: { x: targetX, y: 64, z: 0 },
+          shape: { boxes: [{ min: { x: 0, y: 0, z: 0 }, max: { x: 1, y: 1, z: 1 } }] },
+        },
+      })
+      const frame = (simulationTick: number, timeOfDayTicks: number, targetX: number, progress: number, damage: number) => ({
+        ...makeAnimationClockInput(simulationTick, 0, timeOfDayTicks),
+        deltaSecs: decodeDelta(0.1),
+        cameraPosition: { worldX: 0, worldY: 64, worldZ: 0 },
+        interaction: interactionFrame(targetX, progress, damage),
+      })
+
+      yield* renderer.draw(mirroredCameraState(undefined))
+      expect(three.renderer().renderCalls()).toBe(1)
+
+      yield* renderer.advanceFrame(frame(2_000, 6_000, 3, 0.2, 0))
+      yield* renderer.draw(mirroredCameraState(undefined))
+
+      const scene = three.scene()
+      const sky = scene.members().find((object): object is THREE.Group =>
+        object instanceof THREE.Group && object.children.length === 7,
+      )
+      const interaction = scene.members().find((object): object is THREE.Group =>
+        object instanceof THREE.Group && object.children.length === 2,
+      )
+      expect(sky).toBeDefined()
+      expect(interaction).toBeDefined()
+      if (!sky || !interaction) {
+        yield* renderer.dispose
+        atlas.dispose()
+        return
+      }
+
+      const [, , sun, , stars, nearCloud] = sky.children
+      expect(sun?.position.y).toBeCloseTo(160)
+      expect(stars?.visible).toBe(false)
+      const firstCloudOffset = nearCloud?.position.x
+
+      const [selection, cracks] = interaction.children
+      if (!(selection instanceof THREE.LineSegments) || !(cracks instanceof THREE.LineSegments)) {
+        yield* renderer.dispose
+        atlas.dispose()
+        throw new Error('expected production interaction meshes to be line segments')
+      }
+      const selectionFirstX = selection.geometry.getAttribute('position').getX(0)
+      const firstCrackVertexCount = cracks.geometry.getAttribute('position').count
+
+      const cameraOverlay = three.cameras()[0]?.cameraObjects()[0]
+      expect(cameraOverlay).toBeInstanceOf(THREE.Group)
+      if (!(cameraOverlay instanceof THREE.Group)) {
+        yield* renderer.dispose
+        atlas.dispose()
+        return
+      }
+      const [hand] = cameraOverlay.children
+      expect(hand).toBeInstanceOf(THREE.Group)
+      if (!(hand instanceof THREE.Group)) {
+        yield* renderer.dispose
+        atlas.dispose()
+        return
+      }
+      const [arm, heldBlock] = hand.children
+      expect(arm).toBeInstanceOf(THREE.Mesh)
+      expect(heldBlock).toBeInstanceOf(THREE.Mesh)
+      if (!(arm instanceof THREE.Mesh) || !(heldBlock instanceof THREE.Mesh)) {
+        yield* renderer.dispose
+        atlas.dispose()
+        return
+      }
+      expect((arm.material as THREE.MeshBasicMaterial).map?.isTexture).toBe(true)
+      expect((heldBlock.material as THREE.MeshBasicMaterial).map).toBe(atlas)
+
+      yield* renderer.advanceFrame(frame(2_200, 18_000, 5, 0.8, 1))
+      yield* renderer.draw(mirroredCameraState(undefined))
+
+      expect(three.renderer().renderCalls()).toBe(3)
+      expect(sun?.position.y).toBeCloseTo(-160)
+      expect(stars?.visible).toBe(true)
+      expect(nearCloud?.position.x).not.toBe(firstCloudOffset)
+      const [updatedSelection, updatedCracks] = interaction.children
+      expect(updatedSelection).toBeInstanceOf(THREE.LineSegments)
+      expect(updatedCracks).toBeInstanceOf(THREE.LineSegments)
+      if (!(updatedSelection instanceof THREE.LineSegments) || !(updatedCracks instanceof THREE.LineSegments)) {
+        yield* renderer.dispose
+        atlas.dispose()
+        throw new Error('expected updated production interaction meshes to be line segments')
+      }
+      expect(updatedSelection.geometry.getAttribute('position').getX(0)).not.toBe(selectionFirstX)
+      expect(updatedCracks.geometry.getAttribute('position').count).toBeGreaterThan(firstCrackVertexCount)
+      expect(cameraOverlay.children[1]?.visible).toBe(true)
+
+      yield* renderer.dispose
+      atlas.dispose()
+    }),
+  )
+
   it.effect('tolerates optional water uniforms being absent', () =>
     Effect.gen(function* () {
       const three = makeFakeThree()
@@ -260,7 +403,7 @@ describe('makeProductionWorldRenderer (the shipped composition)', () => {
         three,
         FAKE_CANVAS,
         VIEWPORT,
-        { name: 'terrain-atlas' },
+        { isTexture: true },
         { particles: { capacity: 1 } },
       )
 
@@ -305,7 +448,7 @@ describe('makeProductionWorldRenderer (the shipped composition)', () => {
         }
 
         const outcome = yield* Effect.result(
-          makeProductionWorldRenderer(badThree, FAKE_CANVAS, VIEWPORT, { name: 'terrain-atlas' }),
+          makeProductionWorldRenderer(badThree, FAKE_CANVAS, VIEWPORT, { isTexture: true }),
         )
 
         expect(Result.isFailure(outcome)).toBe(true)
@@ -353,7 +496,7 @@ describe('makeChunkShaderMaterial and makeWaterMaterial default sun intensity', 
         makeFakeThree(),
         FAKE_CANVAS,
         VIEWPORT,
-        { name: 'terrain-atlas' },
+        { isTexture: true },
         { particles: { capacity: 0 } },
       ))
       expect(Result.isFailure(invalidPoolResult)).toBe(true)
@@ -365,7 +508,7 @@ describe('makeChunkShaderMaterial and makeWaterMaterial default sun intensity', 
         makeFakeThree(),
         FAKE_CANVAS,
         VIEWPORT,
-        { name: 'terrain-atlas' },
+        { isTexture: true },
         { particles: { capacity: 2 } },
       )
       const invalidStepResult = yield* Effect.result(advanceFrameWithRawInput(renderer.advanceFrame, {
@@ -387,7 +530,7 @@ describe('makeChunkShaderMaterial and makeWaterMaterial default sun intensity', 
   it.effect('rejects invalid simulation clock input before particle or animation uniform writes', () =>
     Effect.gen(function* () {
       const three = makeFakeThree()
-      const renderer = yield* makeProductionWorldRenderer(three, FAKE_CANVAS, VIEWPORT, { name: 'terrain-atlas' }, {
+      const renderer = yield* makeProductionWorldRenderer(three, FAKE_CANVAS, VIEWPORT, { isTexture: true }, {
         particles: { capacity: 2 },
       })
       spawnBurst(renderer.particlePool, 1, 2, 3, 0, 0, 1)

@@ -64,6 +64,7 @@ import type {
   ThreeDynamicBufferAttribute,
   ThreeMaterial,
   ThreeMesh,
+  ThreeObject3D,
   ThreePerspectiveCamera,
   ThreeRendererParameters,
   ThreeInstancedBufferAttribute,
@@ -152,18 +153,21 @@ export type FakeMesh = ThreeMesh & {
   readonly renderOrder: number
   readonly positions: () => ReadonlyArray<readonly [number, number, number]>
   readonly scales: () => ReadonlyArray<readonly [number, number, number]>
-  readonly rotations: () => ReadonlyArray<readonly [number, number, number, 'YXZ']>
-  readonly position: { readonly set: (x: number, y: number, z: number) => void }
+  readonly rotations: () => ReadonlyArray<readonly [number, number, number, 'YXZ' | 'XYZ']>
+  readonly position: { readonly set: (x: number, y: number, z: number) => unknown }
   readonly scale: { readonly set: (x: number, y: number, z: number) => void }
   readonly rotation: {
-    readonly set: (x: number, y: number, z: number, order: 'YXZ') => void
+    readonly x: number
+    readonly y: number
+    readonly z: number
+    readonly set: (x: number, y: number, z: number, order: 'YXZ' | 'XYZ') => void
   }
 }
 
 /** One `camera.position.set` / `camera.rotation.set`, recorded verbatim. */
 export type RecordedPose = {
   readonly position: readonly [number, number, number]
-  readonly rotation: readonly [number, number, number, 'YXZ']
+  readonly rotation: readonly [number, number, number, 'YXZ' | 'XYZ']
 }
 
 export type FakeCamera = ThreePerspectiveCamera & {
@@ -172,6 +176,7 @@ export type FakeCamera = ThreePerspectiveCamera & {
   readonly far: number
   readonly poses: () => ReadonlyArray<RecordedPose>
   readonly projectionUpdates: () => number
+  readonly cameraObjects: () => ReadonlyArray<ThreeObject3D>
 }
 
 export type FakeRenderer = ThreeWebGLRenderer & {
@@ -183,8 +188,8 @@ export type FakeRenderer = ThreeWebGLRenderer & {
 }
 
 export type FakeScene = ThreeScene & {
-  /** Meshes currently in the scene, in insertion order. */
-  readonly members: () => ReadonlyArray<ThreeMesh>
+  /** Scene objects currently attached, in insertion order. */
+  readonly members: () => ReadonlyArray<ThreeObject3D>
 }
 
 /** The host's canvas, reduced to nothing. The renderer only hands it back. */
@@ -259,7 +264,7 @@ export const makeFakeThree = (): FakeThree => {
 
   const Scene = class {
     constructor() {
-      const members: Array<ThreeMesh> = []
+      const members: Array<ThreeObject3D> = []
       const self: FakeScene = {
         members: () => members,
         add: (object) => members.push(object),
@@ -278,6 +283,7 @@ export const makeFakeThree = (): FakeThree => {
   const PerspectiveCamera = class {
     constructor(fov: number, aspect: number, near: number, far: number) {
       const poses: Array<RecordedPose> = []
+      const cameraObjects: Array<ThreeObject3D> = []
       let pendingPosition: readonly [number, number, number] = [0, 0, 0]
       let projectionUpdates = 0
       const self: FakeCamera = {
@@ -287,6 +293,14 @@ export const makeFakeThree = (): FakeThree => {
         aspect,
         poses: () => poses,
         projectionUpdates: () => projectionUpdates,
+        cameraObjects: () => cameraObjects,
+        add: (object) => cameraObjects.push(object),
+        remove: (object) => {
+          const at = cameraObjects.indexOf(object)
+          if (at >= 0) {
+            cameraObjects.splice(at, 1)
+          }
+        },
         position: {
           set: (x, y, z) => {
             pendingPosition = [x, y, z]
@@ -480,19 +494,26 @@ export const makeFakeThree = (): FakeThree => {
     constructor(geometry: FakeGeometry, material: FakeMaterial | FakeShaderMaterial) {
       const positions: Array<readonly [number, number, number]> = []
       const scales: Array<readonly [number, number, number]> = []
-      const rotations: Array<readonly [number, number, number, 'YXZ']> = []
+      const rotations: Array<readonly [number, number, number, 'YXZ' | 'XYZ']> = []
       const self: FakeMesh = {
+        add: () => undefined,
         frustumCulled: true,
         visible: true,
-        renderOrder: 0,
         geometry,
         material,
+        renderOrder: 0,
         positions: () => positions,
         scales: () => scales,
         rotations: () => rotations,
         position: { set: (x, y, z) => positions.push([x, y, z]) },
         scale: { set: (x, y, z) => scales.push([x, y, z]) },
-        rotation: { set: (x, y, z, order) => rotations.push([x, y, z, order]) },
+        remove: () => undefined,
+        rotation: {
+          x: 0,
+          y: 0,
+          z: 0,
+          set: (x, y, z, order) => rotations.push([x, y, z, order]),
+        },
       }
       meshes.push(self)
       return self

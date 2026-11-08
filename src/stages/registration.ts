@@ -366,7 +366,7 @@ export const renderStages = ({
         // The pose directly would skip the cosmetic offset — i.e. the view bob
         // Would stop working and nothing would fail.
         const camera = yield* Ref.get(state.mirroredCamera)
-        yield* draw.draw(camera)
+        yield* draw.draw(camera).pipe(Effect.orDie)
         // Counted whether or not anything was drawn, because this counter
         // Answers "did the stage run", which is a frame-loop question. What the
         // GPU was actually given is `WorldRenderer.framesRendered`, and the two
