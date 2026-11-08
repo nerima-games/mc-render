@@ -72,7 +72,12 @@ import {
   type RenderEnvironmentPlan,
   planRenderEnvironment,
 } from '../domain/render-environment.js'
-import { type DeltaTimeSecs, type Dimension, type ChunkKey as KernelChunkKey } from '@nerima-games/mc-kernel'
+import {
+  type DeltaTimeSecs,
+  type Dimension,
+  type ChunkKey as KernelChunkKey,
+  MonotonicTimeSecs,
+} from '@nerima-games/mc-kernel'
 export type ChunkKey = KernelChunkKey
 import { Effect, Ref, Result, Schema } from 'effect'
 import {
@@ -1865,10 +1870,10 @@ const productionFrameInputError = (reason: ProductionFrameInputError['reason']):
 
 export const validateProductionFrameElapsedSecs = (
   elapsedSecs: unknown,
-): Result.Result<number, ProductionFrameInputError> => {
+): Result.Result<MonotonicTimeSecs, ProductionFrameInputError> => {
   const decodedElapsedSecs = Schema.decodeUnknownResult(ProductionFrameElapsedSecsSchema)(elapsedSecs)
   if (Result.isSuccess(decodedElapsedSecs)) {
-    return Result.succeed(decodedElapsedSecs.success)
+    return Result.succeed(MonotonicTimeSecs(decodedElapsedSecs.success))
   }
 
   if (typeof elapsedSecs !== 'number') {
