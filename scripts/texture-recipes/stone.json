@@ -1,0 +1,461 @@
+{
+  "group": "stone",
+  "palettes": {
+    "cool-stone": {
+      "shade": "#202A34",
+      "shadow": "#45515E",
+      "base": "#7B858B",
+      "light": "#B0B5B0",
+      "accent": "#E1D8C4"
+    },
+    "warm-granite": {
+      "shade": "#32222A",
+      "shadow": "#684046",
+      "base": "#A2605B",
+      "light": "#CC8471",
+      "accent": "#EDB38B"
+    },
+    "diorite": {
+      "shade": "#363B45",
+      "shadow": "#6E7680",
+      "base": "#A7ADB0",
+      "light": "#D1D0C6",
+      "accent": "#F4EBDD"
+    },
+    "andesite": {
+      "shade": "#282D37",
+      "shadow": "#505A63",
+      "base": "#828B90",
+      "light": "#B6BCB7",
+      "accent": "#E1D7C7"
+    },
+    "deep-slate": {
+      "shade": "#151D27",
+      "shadow": "#2B3642",
+      "base": "#505E68",
+      "light": "#7B8A8E",
+      "accent": "#B5C2B8"
+    },
+    "obsidian": {
+      "shade": "#18172C",
+      "shadow": "#2E2847",
+      "base": "#51476F",
+      "light": "#786B9C",
+      "accent": "#B7A9D1"
+    },
+    "basalt": {
+      "shade": "#171F29",
+      "shadow": "#303D49",
+      "base": "#56656C",
+      "light": "#879394",
+      "accent": "#C3C3B5"
+    },
+    "calcite": {
+      "shade": "#4C4653",
+      "shadow": "#817985",
+      "base": "#B4ACB1",
+      "light": "#D8D1CF",
+      "accent": "#F2EBDD"
+    },
+    "sandstone": {
+      "shade": "#3B2D27",
+      "shadow": "#72553D",
+      "base": "#AC875A",
+      "light": "#D5B579",
+      "accent": "#F2DCA6"
+    },
+    "prismarine": {
+      "shade": "#162F38",
+      "shadow": "#285957",
+      "base": "#48857B",
+      "light": "#80B19C",
+      "accent": "#C4D5B0"
+    },
+    "frost-glass": {
+      "shade": "#273A53",
+      "shadow": "#4C6B86",
+      "base": "#88A9BE",
+      "light": "#BCD8D9",
+      "accent": "#EEF2D8"
+    },
+    "machine-steel": {
+      "shade": "#1B252E",
+      "shadow": "#3A4A56",
+      "base": "#6B7F88",
+      "light": "#A3B3B2",
+      "accent": "#D6D8C7"
+    },
+    "mechanical-iron": {
+      "shade": "#18232C",
+      "shadow": "#40515C",
+      "base": "#738995",
+      "light": "#AEBFC0",
+      "accent": "#E4D5B8"
+    },
+    "cauldron-water": {
+      "shade": "#202D37",
+      "shadow": "#586A72",
+      "base": "#3F8998",
+      "light": "#A8BEC0",
+      "accent": "#C6F0E8"
+    },
+    "endstone": {
+      "shade": "#39352B",
+      "shadow": "#73694A",
+      "base": "#B2A56B",
+      "light": "#D7CC95",
+      "accent": "#F1E8BF"
+    },
+    "end-gem": {
+      "shade": "#1D3235",
+      "shadow": "#315D56",
+      "base": "#63917B",
+      "light": "#A1C49B",
+      "accent": "#E4EAB7"
+    },
+    "purpur": {
+      "shade": "#302238",
+      "shadow": "#583E61",
+      "base": "#8A6490",
+      "light": "#BB8CA7",
+      "accent": "#E5C0C1"
+    },
+    "nether-brick": {
+      "shade": "#291C2A",
+      "shadow": "#553443",
+      "base": "#87535C",
+      "light": "#B87869",
+      "accent": "#E0A17D"
+    },
+    "netherrack": {
+      "shade": "#2A1929",
+      "shadow": "#5B293C",
+      "base": "#913E49",
+      "light": "#C06050",
+      "accent": "#E59569"
+    },
+    "ender-violet": {
+      "shade": "#1A1930",
+      "shadow": "#343451",
+      "base": "#5C5E80",
+      "light": "#9392A8",
+      "accent": "#CEC9D4"
+    },
+    "wither-bone": {
+      "shade": "#312D33",
+      "shadow": "#62606A",
+      "base": "#98949A",
+      "light": "#C5BFC0",
+      "accent": "#EEE3CE"
+    },
+    "glass": {
+      "shade": "#273A4A",
+      "shadow": "#4D7889",
+      "base": "#8FC1C5",
+      "light": "#CDE8D8",
+      "accent": "#F4F4DD"
+    }
+  },
+  "recipes": {
+    "stone": {
+      "palette": "cool-stone",
+      "pattern": "stone-mottle",
+      "alpha": "opaque",
+      "faces": {
+        "top": "stone-mottle",
+        "side": "stone-mottle",
+        "bottom": "stone-mottle"
+      }
+    },
+    "cobblestone": {
+      "palette": "cool-stone",
+      "pattern": "stone-mottle",
+      "alpha": "opaque"
+    },
+    "gravel": {
+      "palette": "andesite",
+      "pattern": "gravel-pebble",
+      "alpha": "opaque"
+    },
+    "glass": {
+      "palette": "glass",
+      "pattern": "glass-pane",
+      "alpha": "translucent"
+    },
+    "bedrock": {
+      "palette": "deep-slate",
+      "pattern": "stone-mottle",
+      "alpha": "opaque"
+    },
+    "snow": {
+      "palette": "frost-glass",
+      "pattern": "cluster",
+      "alpha": "opaque"
+    },
+    "piston": {
+      "palette": "machine-steel",
+      "pattern": "machine-panel",
+      "alpha": "opaque",
+      "faces": {
+        "top": "strata",
+        "side": "machine-panel",
+        "bottom": "machine-panel"
+      }
+    },
+    "pressure_plate": {
+      "palette": "machine-steel",
+      "pattern": "pressure-plate",
+      "alpha": "opaque"
+    },
+    "stone_slab": {
+      "palette": "cool-stone",
+      "pattern": "stone-mottle",
+      "alpha": "opaque"
+    },
+    "stone_button": {
+      "palette": "cool-stone",
+      "pattern": "stone-mottle",
+      "alpha": "opaque"
+    },
+    "lever": {
+      "palette": "machine-steel",
+      "pattern": "lever",
+      "alpha": "cutout"
+    },
+    "rail": {
+      "palette": "mechanical-iron",
+      "pattern": "rail",
+      "alpha": "cutout"
+    },
+    "powered_rail": {
+      "palette": "mechanical-iron",
+      "pattern": "powered-rail",
+      "alpha": "cutout"
+    },
+    "granite": {
+      "palette": "warm-granite",
+      "pattern": "stone-mottle",
+      "alpha": "opaque"
+    },
+    "diorite": {
+      "palette": "diorite",
+      "pattern": "stone-mottle",
+      "alpha": "opaque"
+    },
+    "andesite": {
+      "palette": "andesite",
+      "pattern": "stone-mottle",
+      "alpha": "opaque"
+    },
+    "deepslate": {
+      "palette": "deep-slate",
+      "pattern": "stone-mottle",
+      "alpha": "opaque"
+    },
+    "obsidian": {
+      "palette": "obsidian",
+      "pattern": "stone-mottle",
+      "alpha": "opaque"
+    },
+    "smooth_basalt": {
+      "palette": "basalt",
+      "pattern": "stone-mottle",
+      "alpha": "opaque"
+    },
+    "calcite": {
+      "palette": "calcite",
+      "pattern": "stone-mottle",
+      "alpha": "opaque"
+    },
+    "sandstone": {
+      "palette": "sandstone",
+      "pattern": "stone-mottle",
+      "alpha": "opaque"
+    },
+    "prismarine": {
+      "palette": "prismarine",
+      "pattern": "stone-mottle",
+      "alpha": "opaque"
+    },
+    "ice": {
+      "palette": "frost-glass",
+      "pattern": "glass-pane",
+      "alpha": "translucent"
+    },
+    "piston_head": {
+      "palette": "machine-steel",
+      "pattern": "machine-panel",
+      "alpha": "opaque",
+      "faces": {
+        "top": "strata",
+        "side": "machine-panel",
+        "bottom": "machine-panel"
+      }
+    },
+    "observer": {
+      "palette": "machine-steel",
+      "pattern": "observer",
+      "alpha": "opaque"
+    },
+    "dispenser": {
+      "palette": "machine-steel",
+      "pattern": "dispenser",
+      "alpha": "opaque",
+      "faces": {
+        "top": "stone-mottle",
+        "side": "dispenser",
+        "bottom": "machine-panel"
+      }
+    },
+    "dropper": {
+      "palette": "machine-steel",
+      "pattern": "dropper",
+      "alpha": "opaque",
+      "faces": {
+        "top": "stone-mottle",
+        "side": "dropper",
+        "bottom": "machine-panel"
+      }
+    },
+    "hopper": {
+      "palette": "mechanical-iron",
+      "pattern": "machine-panel",
+      "alpha": "opaque"
+    },
+    "anvil": {
+      "palette": "mechanical-iron",
+      "pattern": "machine-panel",
+      "alpha": "opaque"
+    },
+    "cauldron": {
+      "palette": "mechanical-iron",
+      "pattern": "machine-panel",
+      "faces": {
+        "top": "cauldron",
+        "side": "machine-panel",
+        "bottom": "machine-panel"
+      },
+      "alpha": "opaque"
+    },
+    "water_cauldron": {
+      "palette": "cauldron-water",
+      "pattern": "machine-panel",
+      "alpha": "opaque",
+      "faces": {
+        "top": "water-cauldron",
+        "side": "machine-panel",
+        "bottom": "machine-panel"
+      }
+    },
+    "end_stone": {
+      "palette": "endstone",
+      "pattern": "stone-mottle",
+      "alpha": "opaque"
+    },
+    "end_portal_frame": {
+      "palette": "endstone",
+      "pattern": "stone-mottle",
+      "alpha": "opaque",
+      "faces": {
+        "top": "portal-frame",
+        "side": "stone-mottle",
+        "bottom": "stone-mottle"
+      }
+    },
+    "end_portal_frame_filled": {
+      "palette": "end-gem",
+      "pattern": "stone-mottle",
+      "alpha": "opaque",
+      "faces": {
+        "top": "portal-frame-filled",
+        "side": "stone-mottle",
+        "bottom": "stone-mottle"
+      }
+    },
+    "end_stone_bricks": {
+      "palette": "endstone",
+      "pattern": "brick",
+      "alpha": "opaque"
+    },
+    "purpur_block": {
+      "palette": "purpur",
+      "pattern": "stone-mottle",
+      "alpha": "opaque"
+    },
+    "purpur_pillar": {
+      "palette": "purpur",
+      "pattern": "strata",
+      "alpha": "opaque",
+      "faces": {
+        "top": "flat",
+        "side": "strata",
+        "bottom": "flat"
+      }
+    },
+    "purpur_slab": {
+      "palette": "purpur",
+      "pattern": "strata",
+      "alpha": "opaque"
+    },
+    "purpur_stairs": {
+      "palette": "purpur",
+      "pattern": "brick",
+      "alpha": "opaque"
+    },
+    "ender_chest": {
+      "palette": "ender-violet",
+      "pattern": "chest",
+      "alpha": "opaque",
+      "faces": {
+        "top": "machine-panel",
+        "side": "chest",
+        "bottom": "machine-panel"
+      }
+    },
+    "shulker_box": {
+      "palette": "purpur",
+      "pattern": "chest",
+      "alpha": "opaque"
+    },
+    "enchanting_table": {
+      "palette": "ender-violet",
+      "pattern": "machine-panel",
+      "alpha": "opaque"
+    },
+    "brewing_stand": {
+      "palette": "mechanical-iron",
+      "pattern": "brewing-stand",
+      "alpha": "cutout"
+    },
+    "furnace": {
+      "palette": "machine-steel",
+      "pattern": "furnace",
+      "alpha": "opaque",
+      "faces": {
+        "top": "stone-mottle",
+        "side": "furnace",
+        "bottom": "machine-panel"
+      }
+    },
+    "nether_brick": {
+      "palette": "nether-brick",
+      "pattern": "brick",
+      "alpha": "opaque"
+    },
+    "netherrack": {
+      "palette": "netherrack",
+      "pattern": "stone-mottle",
+      "alpha": "opaque"
+    },
+    "wither_skeleton_skull": {
+      "palette": "wither-bone",
+      "pattern": "skull",
+      "alpha": "opaque",
+      "faces": {
+        "top": "stone-mottle",
+        "side": "skull",
+        "bottom": "stone-mottle"
+      }
+    }
+  }
+}

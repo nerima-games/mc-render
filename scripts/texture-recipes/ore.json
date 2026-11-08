@@ -1,0 +1,183 @@
+{
+  "group": "ore",
+  "palettes": {
+    "coal-ore": {
+      "shade": "#202832",
+      "shadow": "#42515B",
+      "base": "#71818A",
+      "light": "#A0AAA9",
+      "accent": "#171D25"
+    },
+    "iron-ore": {
+      "shade": "#202A34",
+      "shadow": "#465662",
+      "base": "#788993",
+      "light": "#C2A98C",
+      "accent": "#F0D0A2"
+    },
+    "gold-ore": {
+      "shade": "#222A34",
+      "shadow": "#495662",
+      "base": "#76848B",
+      "light": "#E2B34F",
+      "accent": "#FFE28E"
+    },
+    "diamond-ore": {
+      "shade": "#1B2935",
+      "shadow": "#3A5666",
+      "base": "#718D98",
+      "light": "#73C2C0",
+      "accent": "#D5F2D6"
+    },
+    "redstone-ore": {
+      "shade": "#30232D",
+      "shadow": "#59404A",
+      "base": "#817780",
+      "light": "#DC7E69",
+      "accent": "#FFAA70"
+    },
+    "lapis-ore": {
+      "shade": "#1D263A",
+      "shadow": "#374860",
+      "base": "#71808E",
+      "light": "#88A8DF",
+      "accent": "#AFC8F0"
+    },
+    "emerald-ore": {
+      "shade": "#192D31",
+      "shadow": "#31564F",
+      "base": "#71877E",
+      "light": "#45A68C",
+      "accent": "#A5E4B8"
+    },
+    "deep-coal-ore": {
+      "shade": "#111821",
+      "shadow": "#222D39",
+      "base": "#3F505E",
+      "light": "#667680",
+      "accent": "#171E27"
+    },
+    "deep-iron-ore": {
+      "shade": "#111821",
+      "shadow": "#26313D",
+      "base": "#43535F",
+      "light": "#B99E84",
+      "accent": "#EBC99F"
+    },
+    "deep-gold-ore": {
+      "shade": "#101720",
+      "shadow": "#25313D",
+      "base": "#425260",
+      "light": "#D9A944",
+      "accent": "#F8D978"
+    },
+    "deep-diamond-ore": {
+      "shade": "#101821",
+      "shadow": "#22323D",
+      "base": "#405561",
+      "light": "#69B6B6",
+      "accent": "#C5E9D4"
+    },
+    "deep-redstone-ore": {
+      "shade": "#17151F",
+      "shadow": "#322932",
+      "base": "#544A52",
+      "light": "#C84D4A",
+      "accent": "#FA9466"
+    },
+    "deep-lapis-ore": {
+      "shade": "#111725",
+      "shadow": "#222B3E",
+      "base": "#3D4A5E",
+      "light": "#4F73C6",
+      "accent": "#A2B9E8"
+    },
+    "deep-emerald-ore": {
+      "shade": "#101B21",
+      "shadow": "#1F3539",
+      "base": "#3E5758",
+      "light": "#3F9E83",
+      "accent": "#92D7AA"
+    },
+    "coal-mass": {
+      "shade": "#10161F",
+      "shadow": "#1A232E",
+      "base": "#293541",
+      "light": "#3D4D58",
+      "accent": "#65767A"
+    },
+    "polished-iron": {
+      "shade": "#26313C",
+      "shadow": "#4A5B68",
+      "base": "#80949B",
+      "light": "#B9CBC2",
+      "accent": "#E8E4D2"
+    },
+    "redstone-circuit": {
+      "shade": "#241C27",
+      "shadow": "#44313C",
+      "base": "#78636A",
+      "light": "#D05A52",
+      "accent": "#F7BD74"
+    },
+    "lamp-unlit": {
+      "shade": "#30313A",
+      "shadow": "#57535A",
+      "base": "#93816B",
+      "light": "#C5A66B",
+      "accent": "#E4C77F"
+    },
+    "lamp-lit": {
+      "shade": "#57333A",
+      "shadow": "#9B5042",
+      "base": "#D6814D",
+      "light": "#F1C16A",
+      "accent": "#FFF0AA"
+    },
+    "amethyst": {
+      "shade": "#251D38",
+      "shadow": "#453454",
+      "base": "#756386",
+      "light": "#B68DC6",
+      "accent": "#E9D5EF"
+    },
+    "amethyst-cluster": {
+      "shade": "#201A32",
+      "shadow": "#3A2B50",
+      "base": "#705A8C",
+      "light": "#B08FD4",
+      "accent": "#E2D6F6"
+    }
+  },
+  "recipes": {
+    "coal_ore": {"palette": "coal-ore", "pattern": "ore-vein", "alpha": "opaque"},
+    "iron_ore": {"palette": "iron-ore", "pattern": "ore-vein", "alpha": "opaque"},
+    "gold_ore": {"palette": "gold-ore", "pattern": "ore-vein", "alpha": "opaque"},
+    "diamond_ore": {"palette": "diamond-ore", "pattern": "ore-vein", "alpha": "opaque"},
+    "redstone_ore": {"palette": "redstone-ore", "pattern": "ore-vein", "alpha": "opaque"},
+    "lapis_ore": {"palette": "lapis-ore", "pattern": "ore-vein", "alpha": "opaque"},
+    "emerald_ore": {"palette": "emerald-ore", "pattern": "ore-vein", "alpha": "opaque"},
+    "deepslate_coal_ore": {"palette": "deep-coal-ore", "pattern": "ore-vein", "alpha": "opaque"},
+    "deepslate_iron_ore": {"palette": "deep-iron-ore", "pattern": "ore-vein", "alpha": "opaque"},
+    "deepslate_gold_ore": {"palette": "deep-gold-ore", "pattern": "ore-vein", "alpha": "opaque"},
+    "deepslate_diamond_ore": {"palette": "deep-diamond-ore", "pattern": "ore-vein", "alpha": "opaque"},
+    "deepslate_redstone_ore": {"palette": "deep-redstone-ore", "pattern": "ore-vein", "alpha": "opaque"},
+    "deepslate_lapis_ore": {"palette": "deep-lapis-ore", "pattern": "ore-vein", "alpha": "opaque"},
+    "deepslate_emerald_ore": {"palette": "deep-emerald-ore", "pattern": "ore-vein", "alpha": "opaque"},
+    "coal_block": {"palette": "coal-mass", "pattern": "strata", "alpha": "opaque"},
+    "iron_block": {"palette": "polished-iron", "pattern": "machine-panel", "alpha": "opaque"},
+    "gold_block": {"palette": "gold-ore", "pattern": "gem", "alpha": "opaque"},
+    "diamond_block": {"palette": "diamond-ore", "pattern": "gem", "alpha": "opaque"},
+    "redstone_block": {"palette": "redstone-ore", "pattern": "gem", "alpha": "opaque"},
+    "lapis_block": {"palette": "lapis-ore", "pattern": "gem", "alpha": "opaque"},
+    "emerald_block": {"palette": "emerald-ore", "pattern": "gem", "alpha": "opaque"},
+    "redstone_wire": {"palette": "redstone-circuit", "pattern": "redstone-wire", "alpha": "cutout"},
+    "redstone_torch": {"palette": "redstone-circuit", "pattern": "redstone-torch", "alpha": "cutout"},
+    "redstone_lamp": {"palette": "lamp-unlit", "pattern": "machine-panel", "alpha": "opaque"},
+    "redstone_lamp_lit": {"palette": "lamp-lit", "pattern": "machine-panel", "alpha": "opaque"},
+    "comparator": {"palette": "redstone-circuit", "pattern": "comparator", "alpha": "cutout"},
+    "repeater": {"palette": "redstone-circuit", "pattern": "repeater", "alpha": "cutout"},
+    "amethyst_block": {"palette": "amethyst", "pattern": "stone-mottle", "alpha": "opaque"},
+    "amethyst_cluster": {"palette": "amethyst-cluster", "pattern": "ore-vein", "alpha": "cutout"}
+  }
+}

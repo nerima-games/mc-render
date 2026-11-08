@@ -2,7 +2,7 @@ import { type Page, expect, test } from '@playwright/test'
 import type { Effect } from 'effect'
 import { readFile } from 'node:fs/promises'
 
-const WEB_ORIGIN = 'http://127.0.0.1:5182'
+const WEB_ORIGIN = process.env['WEB_ORIGIN'] ?? 'http://127.0.0.1:5182'
 const PNG_SIGNATURE = Buffer.from('89504e470d0a1a0a', 'hex')
 const CANVAS_WIDTH = 320
 const CANVAS_HEIGHT = 240

@@ -3,6 +3,7 @@ import * as FastCheck from 'fast-check'
 import * as THREE from 'three'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
+  DEFAULT_BLOCK_TEXTURE_ATLAS_URL,
   GpuTimerService,
   GpuTimerServiceLayer,
   BrowserRuntimeUnknownResultSchema,
@@ -12,10 +13,12 @@ import {
 import { mirroredCameraState } from '../src/domain/camera-mirror.js'
 import { ParticleDeltaSecsSchema } from '../src/domain/particle-pool.js'
 import { QUALITY_PRESETS, type PostProcessingStep } from '../src/domain/post-processing.js'
+import { ATLAS_PIXELS, AtlasLayoutIntegerSchema } from '../src/domain/texture-atlas.js'
 import { makeAnimationClockInput } from './support/animation-clock.js'
 
 const testCamera = mirroredCameraState(undefined)
 const decodeDelta = Schema.decodeUnknownSync(ParticleDeltaSecsSchema)
+const decodeAtlasLayoutInteger = Schema.decodeUnknownSync(AtlasLayoutIntegerSchema)
 
 const makeBrowserWorldRuntime = (options: Parameters<typeof makeBrowserWorldRuntimeEffect>[0]) =>
   Effect.runPromise(makeBrowserWorldRuntimeEffect(options))
@@ -206,6 +209,8 @@ const browserMocks = vi.hoisted(() => ({
     activePixel: 0,
     failAtlasDataTextureCreation: false,
     failAtlasUrlLoad: false,
+    lastAtlasUrl: undefined as string | undefined,
+    lastWorldAtlas: undefined as unknown,
     failRefractionTargetRender: false,
     failScreenshotCanvasCreation: false,
     failScreenshotImageData: false,
@@ -438,6 +443,7 @@ vi.mock('three', () => {
     loadedUrl: string | undefined
     async loadAsync(url: string): Promise<FakeTexture> {
       this.loadedUrl = url
+      browserMocks.settings.lastAtlasUrl = url
       if (browserMocks.settings.failAtlasUrlLoad) {
         throw new Error('atlas URL load failed')
       }
@@ -454,6 +460,7 @@ vi.mock('three', () => {
     LinearFilter: 3,
     Mesh: FakeMesh,
     NearestFilter: 4,
+    NearestMipmapLinearFilter: 7,
     BufferGeometry: FakeBufferGeometry,
     PerspectiveCamera: FakePerspectiveCamera,
     RGBAFormat: 5,
@@ -785,6 +792,8 @@ beforeEach(() => {
   browserMocks.settings.activePixel = 0
   browserMocks.settings.failAtlasDataTextureCreation = false
   browserMocks.settings.failAtlasUrlLoad = false
+  browserMocks.settings.lastAtlasUrl = undefined
+  browserMocks.settings.lastWorldAtlas = undefined
   browserMocks.settings.failRefractionTargetRender = false
   browserMocks.settings.failScreenshotCanvasCreation = false
   browserMocks.settings.failScreenshotImageData = false
@@ -802,7 +811,8 @@ beforeEach(() => {
   browserMocks.settings.throwOnGetTarget = false
   browserMocks.settings.webgl2 = true
   browserMocks.worldFactory.mockReset()
-  browserMocks.worldFactory.mockImplementation((_three, _canvas, _viewport, _atlas, options) => {
+  browserMocks.worldFactory.mockImplementation((_three, _canvas, _viewport, atlas, options) => {
+    browserMocks.settings.lastWorldAtlas = atlas
     const renderer = new THREE.WebGLRenderer()
     const scene = new THREE.Scene()
     const camera = new THREE.PerspectiveCamera()
@@ -835,6 +845,21 @@ afterEach(() => {
 })
 
 describe('browser world runtime', () => {
+  it('loads the checked-in atlas by default with nearest and mipmapped sampling', async () => {
+    const runtime = await makeBrowserWorldRuntime({
+      autoResize: false,
+      canvas: new HTMLCanvasElement(),
+    })
+    const atlas = browserMocks.settings.lastWorldAtlas as THREE.Texture
+
+    expect(browserMocks.settings.lastAtlasUrl).toBe(DEFAULT_BLOCK_TEXTURE_ATLAS_URL)
+    expect(atlas.magFilter).toBe(THREE.NearestFilter)
+    expect(atlas.minFilter).toBe(THREE.NearestMipmapLinearFilter)
+    expect(atlas.generateMipmaps).toBe(true)
+    expect(atlas.flipY).toBe(true)
+    Effect.runSync(runtime.dispose())
+  })
+
   it('property: invalid custom pixel caps fail the public runtime Effect with tagged details', () => {
     FastCheck.assert(
       FastCheck.property(FastCheck.constantFrom(Number.NaN, Number.POSITIVE_INFINITY, 0.25, 3), (pixelRatioCap) => {
@@ -912,7 +937,11 @@ describe('browser world runtime', () => {
     browserMocks.settings.failAtlasUrlLoad = false
     browserMocks.settings.failAtlasDataTextureCreation = true
     const textureFailure = browserRuntimeFailure(makeBrowserWorldRuntimeEffect({
-      atlas: { data: new Uint8ClampedArray([1, 2, 3, 4]), height: 1, width: 1 },
+      atlas: {
+        data: new Uint8ClampedArray(ATLAS_PIXELS * ATLAS_PIXELS * 4),
+        height: decodeAtlasLayoutInteger(ATLAS_PIXELS),
+        width: decodeAtlasLayoutInteger(ATLAS_PIXELS),
+      },
       autoResize: false,
       canvas: new HTMLCanvasElement(),
     }))
@@ -1278,12 +1307,48 @@ describe('browser world runtime', () => {
     Effect.runSync(loaded.dispose())
 
     const generated = await makeBrowserWorldRuntime({
-      atlas: { data: new Uint8ClampedArray([1, 2, 3, 4]), width: 1, height: 1 },
+      atlas: {
+        data: new Uint8ClampedArray(ATLAS_PIXELS * ATLAS_PIXELS * 4),
+        width: decodeAtlasLayoutInteger(ATLAS_PIXELS),
+        height: decodeAtlasLayoutInteger(ATLAS_PIXELS),
+      },
       autoResize: false,
       canvas: new HTMLCanvasElement(),
       quality: 'low',
     })
     Effect.runSync(generated.dispose())
+
+    const malformed = browserRuntimeFailure(makeBrowserWorldRuntimeEffect({
+      atlas: {
+        data: new Uint8ClampedArray([1, 2, 3, 4]),
+        height: decodeAtlasLayoutInteger(1),
+        width: decodeAtlasLayoutInteger(1),
+      },
+      autoResize: false,
+      canvas: new HTMLCanvasElement(),
+      quality: 'low',
+    }))
+    expect(malformed).toMatchObject({
+      _tag: 'BrowserRuntimeError',
+      operation: 'initialization',
+      reason: 'invalid-input',
+    })
+
+    const invalidDataType = browserRuntimeFailure(makeBrowserWorldRuntimeEffect({
+      atlas: {
+        data: new Uint8Array(ATLAS_PIXELS * ATLAS_PIXELS * 4) as unknown as Uint8ClampedArray,
+        height: decodeAtlasLayoutInteger(ATLAS_PIXELS),
+        width: decodeAtlasLayoutInteger(ATLAS_PIXELS),
+      },
+      autoResize: false,
+      canvas: new HTMLCanvasElement(),
+      quality: 'low',
+    }))
+    expect(invalidDataType).toMatchObject({
+      _tag: 'BrowserRuntimeError',
+      operation: 'initialization',
+      reason: 'invalid-input',
+    })
 
     const defaultAtlas = await makeBrowserWorldRuntime({
       autoResize: false,

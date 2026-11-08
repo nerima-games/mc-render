@@ -4,7 +4,7 @@ import { vi } from 'vitest'
 
 vi.mock('../src/domain/texture-atlas', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../src/domain/texture-atlas')>()
-  return { ...actual, tileUvOrigin: () => ({ u: 1, v: 0 }) }
+  return { ...actual, tileUvOrigin: () => Result.succeed({ u: 1, v: 0 }) }
 })
 
 import {

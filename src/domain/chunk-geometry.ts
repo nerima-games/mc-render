@@ -673,7 +673,7 @@ const processQuad = (context: ChunkBuildContext, quad: MeshQuad, quadIndex: numb
   const color = context.color(quad)
   const [uExtent, vExtent] = quadUvExtent(quad)
   const tileIndex = context.tile(quad)
-  const animationKind = chunkAnimationKindForBlockId(quad.blockId)
+  const animationKind = chunkAnimationKindForBlockId(quad.blockId, quad.role)
   const base = quadIndex * VERTICES_PER_QUAD
   writeQuadCorners(context.buffers, base, { animationKind, color, corners, normal, tileIndex })
   writeQuadUVs(context.buffers.uvs, base * UV_COMPONENTS, [uExtent, vExtent])
@@ -757,7 +757,7 @@ const processCrossPlantQuad = (context: ChunkBuildContext, quad: CrossPlantQuad,
   const normal: QuadVertex = [quad.nx, quad.ny, quad.nz]
   const base = quadIndex * VERTICES_PER_QUAD
   writeQuadCorners(context.buffers, base, {
-    animationKind: chunkAnimationKindForBlockId(quad.blockId),
+    animationKind: chunkAnimationKindForBlockId(quad.blockId, quad.role),
     color: context.color(quad),
     corners,
     normal,
@@ -773,7 +773,7 @@ const processBlockShapeQuad = (context: ChunkBuildContext, quad: BlockShapeQuad,
   const corners = translateQuadCorners(quad.vertices, context.originX, context.originZ)
   const base = quadIndex * VERTICES_PER_QUAD
   writeQuadCorners(context.buffers, base, {
-    animationKind: chunkAnimationKindForBlockId(quad.blockId),
+    animationKind: chunkAnimationKindForBlockId(quad.blockId, quad.role),
     color: context.color(quad),
     corners,
     normal: faceNormal(quad.direction),

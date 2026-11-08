@@ -1,4 +1,10 @@
 import {
+  type AtlasCoordinateError,
+  type AtlasTileIndex,
+  AtlasTileIndexSchema,
+  tileUvBounds,
+} from '../domain/texture-atlas.js'
+import {
   type BlockSelectionShape,
   BlockSelectionShapeSchema,
   type CrackStagePlan,
@@ -24,7 +30,6 @@ import {
   planFirstPersonPose,
   planSelectionOutline,
 } from '../domain/interaction-visuals.js'
-import { Brand, Result, Schema } from 'effect'
 import {
   type PresentationBasicMaterial,
   type PresentationBufferGeometry,
@@ -38,7 +43,7 @@ import {
   setPresentationOpacity,
 } from './render-presentation-surface.js'
 import type { RenderPresentationTexture, RenderPresentationTextures } from './render-presentation-assets.js'
-import { isTileIndex, tileUvBounds } from '../domain/texture-atlas.js'
+import { Result, Schema } from 'effect'
 
 type Axis = 'x' | 'y' | 'z'
 type Geometry = PresentationBufferGeometry
@@ -70,33 +75,38 @@ export type InteractionTarget = Readonly<{
 
 export type TemporaryNonBlockCategory = 'tool' | 'weapon' | 'food' | 'potion' | 'utility'
 
-export type HeldItemAtlasTileIndex = Brand.Branded<number, 'HeldItemAtlasTileIndex'>
+export type HeldItemAtlasTileIndex = AtlasTileIndex
+export type HeldItemAtlasFaceTileIndices = Readonly<{
+  bottom: HeldItemAtlasTileIndex
+  side: HeldItemAtlasTileIndex
+  top: HeldItemAtlasTileIndex
+}>
 
 export type HeldItemDescriptor =
-  | Readonly<{ kind: 'block'; tileIndex: HeldItemAtlasTileIndex }>
+  | Readonly<{ kind: 'block'; faceTileIndices: HeldItemAtlasFaceTileIndices }>
   | Readonly<{ kind: 'temporary-non-block'; category: TemporaryNonBlockCategory }>
 
-type HeldItemAtlasTileIndexEncoded = number
 type HeldItemDescriptorEncoded =
-  | Readonly<{ kind: 'block'; tileIndex: HeldItemAtlasTileIndexEncoded }>
+  | Readonly<{
+    faceTileIndices: Readonly<{
+      bottom: number
+      side: number
+      top: number
+    }>
+    kind: 'block'
+  }>
   | Readonly<{ kind: 'temporary-non-block'; category: TemporaryNonBlockCategory }>
 type InteractionUnitValueEncoded = number
 type InteractionRadiansEncoded = number
 
-const AtlasTileIndexSchema: Schema.Codec<HeldItemAtlasTileIndex, HeldItemAtlasTileIndexEncoded> = Schema.Int.pipe(
-  Schema.check(Schema.makeFilter((tileIndex: number) => {
-    if (isTileIndex(tileIndex)) {
-      return undefined
-    }
-    return 'Expected a tile index in the terrain atlas'
-  })),
-  Schema.brand('HeldItemAtlasTileIndex'),
-)
-
 export const HeldItemDescriptorSchema: Schema.Codec<HeldItemDescriptor, HeldItemDescriptorEncoded> = Schema.Union([
   Schema.Struct({
+    faceTileIndices: Schema.Struct({
+      bottom: AtlasTileIndexSchema,
+      side: AtlasTileIndexSchema,
+      top: AtlasTileIndexSchema,
+    }),
     kind: Schema.Literal('block'),
-    tileIndex: AtlasTileIndexSchema,
   }),
   Schema.Struct({
     category: Schema.Literals(['food', 'potion', 'tool', 'utility', 'weapon']),
@@ -164,10 +174,12 @@ export const InteractionFrameResultSchema: Schema.Codec<InteractionFrameResult, 
   handPose: FirstPersonPoseSchema,
 })
 
+export type InteractionRendererError = InteractionVisualInputError | AtlasCoordinateError
+
 export type InteractionRenderer = Readonly<{
   sceneObject: PresentationObject3D
   cameraObject: PresentationObject3D
-  update: (frame: unknown) => Result.Result<InteractionFrameResult, InteractionVisualInputError>
+  update: (frame: unknown) => Result.Result<InteractionFrameResult, InteractionRendererError>
   dispose: () => void
 }>
 
@@ -450,24 +462,33 @@ const faceUvs = (): Float32Array => new Float32Array([
 ])
 
 type UvBounds = Readonly<{ u0: number; v0: number; u1: number; v1: number }>
+type CubeFaceUvBounds = readonly [UvBounds, UvBounds, UvBounds, UvBounds, UvBounds, UvBounds]
 
 const FULL_TEXTURE_BOUNDS: UvBounds = { u0: UNIT_MIN, u1: UNIT_MAX, v0: UNIT_MIN, v1: UNIT_MAX }
 
-const cubeUvs = (bounds: UvBounds): Float32Array => {
-  const quad = [
-    bounds.u0, bounds.v0,
-    bounds.u1, bounds.v0,
-    bounds.u1, bounds.v1,
-    bounds.u0, bounds.v0,
-    bounds.u1, bounds.v1,
-    bounds.u0, bounds.v1,
-  ]
+const uvQuad = (bounds: UvBounds): ReadonlyArray<number> => [
+  bounds.u0, bounds.v0,
+  bounds.u1, bounds.v0,
+  bounds.u1, bounds.v1,
+  bounds.u0, bounds.v0,
+  bounds.u1, bounds.v1,
+  bounds.u0, bounds.v1,
+]
+
+const cubeUvsByFace = (bounds: CubeFaceUvBounds): Float32Array => {
   const uvs = new Float32Array(BOX_FACE_COUNT * FACE_VERTEX_COUNT * TWO)
-  for (let face = ZERO; face < BOX_FACE_COUNT; face += ONE) {
-    uvs.set(quad, face * FACE_VERTEX_COUNT * TWO)
-  }
+  bounds.forEach((faceBounds, faceIndex) =>
+    uvs.set(uvQuad(faceBounds), faceIndex * FACE_VERTEX_COUNT * TWO),
+  )
   return uvs
 }
+
+const cubeUvs = (bounds: UvBounds): Float32Array =>
+  cubeUvsByFace([bounds, bounds, bounds, bounds, bounds, bounds])
+
+const heldItemCubeUvs = (bounds: Readonly<{ bottom: UvBounds; side: UvBounds; top: UvBounds }>): Float32Array =>
+  // BOX_FACE_CORNERS orders faces as -Z, +Z, -Y, +Y, -X, +X.
+  cubeUvsByFace([bounds.side, bounds.side, bounds.bottom, bounds.top, bounds.side, bounds.side])
 
 const quadPositions = (corners: QuadCorners): Float32Array => {
   const [lowerLeft, lowerRight, upperRight, upperLeft] = corners
@@ -784,7 +805,7 @@ type HandOverlay<TGeometry extends Geometry, TBasicMaterial extends Presentation
   object: PresentationObject3D
   arm: DrawnObject<TGeometry, TBasicMaterial>
   heldItem: DrawnObject<TGeometry, TBasicMaterial>
-  setHeldItem: (descriptor: HeldItemDescriptor | undefined) => void
+  setHeldItem: (descriptor: HeldItemDescriptor | undefined) => Result.Result<void, AtlasCoordinateError>
 }>
 
 type TemporaryItemProfile = Readonly<{ color: number; depth: number; height: number; width: number }>
@@ -802,7 +823,8 @@ const heldItemKey = (descriptor: HeldItemDescriptor | undefined): string => {
     return 'empty'
   }
   if (descriptor.kind === 'block') {
-    return `block:${descriptor.tileIndex}`
+    const { bottom, side, top } = descriptor.faceTileIndices
+    return `block:${top}:${side}:${bottom}`
   }
   return `temporary:${descriptor.category}`
 }
@@ -819,30 +841,48 @@ type HeldItemUpdateContext<
   surface: Surface<TTexture, TGeometry, TBasicMaterial, TLineMaterial, TPointsMaterial>
 }>
 
+const updateHeldItemFaceGeometry = <
+  TTexture extends RenderPresentationTexture,
+  TGeometry extends Geometry,
+  TBasicMaterial extends BasicMaterial<TTexture>,
+  TLineMaterial extends LineMaterial,
+  TPointsMaterial extends PresentationMaterial,
+>(
+  input: HeldItemUpdateContext<TTexture, TGeometry, TBasicMaterial, TLineMaterial, TPointsMaterial>,
+  faceTileIndices: HeldItemAtlasFaceTileIndices,
+): Result.Result<void, AtlasCoordinateError> => {
+  const faceBounds = Result.all({
+    bottom: tileUvBounds(faceTileIndices.bottom),
+    side: tileUvBounds(faceTileIndices.side),
+    top: tileUvBounds(faceTileIndices.top),
+  })
+  return Result.map(faceBounds, (bounds) => {
+    input.heldItem.geometry.setAttribute('position', new input.surface.BufferAttribute(
+      cubePositions(ITEM_WIDTH, ITEM_HEIGHT, ITEM_DEPTH),
+      makePresentationItemSize(THREE),
+    ))
+    input.heldItem.geometry.setAttribute('uv', new input.surface.BufferAttribute(
+      heldItemCubeUvs(bounds),
+      makePresentationItemSize(TWO),
+    ))
+  })
+}
+
 const updateBlockHeldItem = <
   TTexture extends RenderPresentationTexture,
   TGeometry extends Geometry,
   TBasicMaterial extends BasicMaterial<TTexture>,
   TLineMaterial extends LineMaterial,
   TPointsMaterial extends PresentationMaterial,
->(input: HeldItemUpdateContext<TTexture, TGeometry, TBasicMaterial, TLineMaterial, TPointsMaterial> & Readonly<{ tileIndex: number }>): void => {
-  input.heldItem.geometry.setAttribute('position', new input.surface.BufferAttribute(
-    cubePositions(ITEM_WIDTH, ITEM_HEIGHT, ITEM_DEPTH),
-    makePresentationItemSize(THREE),
-  ))
-  input.heldItem.geometry.setAttribute('uv', new input.surface.BufferAttribute(
-    cubeUvs(tileUvBounds(input.tileIndex)),
-    makePresentationItemSize(TWO),
-  ))
-  input.heldItem.material.map = input.atlas ?? null
-  if (input.atlas === undefined) {
-    input.heldItem.material.color.set(makePresentationColor(ITEM_COLOR))
-  } else {
-    input.heldItem.material.color.set(makePresentationColor(ITEM_TEXTURE_COLOR))
-  }
-  input.heldItem.object.visible = true
-}
-
+>(input: HeldItemUpdateContext<TTexture, TGeometry, TBasicMaterial, TLineMaterial, TPointsMaterial> & Readonly<{ faceTileIndices: HeldItemAtlasFaceTileIndices }>): Result.Result<void, AtlasCoordinateError> => Result.map(updateHeldItemFaceGeometry(input, input.faceTileIndices), () => {
+    input.heldItem.material.map = input.atlas ?? null
+    if (input.atlas === undefined) {
+      input.heldItem.material.color.set(makePresentationColor(ITEM_COLOR))
+    } else {
+      input.heldItem.material.color.set(makePresentationColor(ITEM_TEXTURE_COLOR))
+    }
+    input.heldItem.object.visible = true
+  })
 const updateTemporaryHeldItem = <
   TTexture extends RenderPresentationTexture,
   TGeometry extends Geometry,
@@ -866,17 +906,17 @@ const updateHeldItemAppearance = <
   TBasicMaterial extends BasicMaterial<TTexture>,
   TLineMaterial extends LineMaterial,
   TPointsMaterial extends PresentationMaterial,
->(input: HeldItemUpdateContext<TTexture, TGeometry, TBasicMaterial, TLineMaterial, TPointsMaterial> & Readonly<{ descriptor: HeldItemDescriptor | undefined }>): void => {
+>(input: HeldItemUpdateContext<TTexture, TGeometry, TBasicMaterial, TLineMaterial, TPointsMaterial> & Readonly<{ descriptor: HeldItemDescriptor | undefined }>): Result.Result<void, AtlasCoordinateError> => {
   if (input.descriptor === undefined) {
     input.heldItem.material.map = null
     input.heldItem.object.visible = false
-    return
+    return Result.succeed(undefined)
   }
   if (input.descriptor.kind === 'block') {
-    updateBlockHeldItem({ ...input, tileIndex: input.descriptor.tileIndex })
-    return
+    return updateBlockHeldItem({ ...input, faceTileIndices: input.descriptor.faceTileIndices })
   }
   updateTemporaryHeldItem({ ...input, category: input.descriptor.category })
+  return Result.succeed(undefined)
 }
 
 const createHeldItemSetter = <
@@ -886,16 +926,17 @@ const createHeldItemSetter = <
   TLineMaterial extends LineMaterial,
   TPointsMaterial extends PresentationMaterial,
 >(input: HeldItemUpdateContext<TTexture, TGeometry, TBasicMaterial, TLineMaterial, TPointsMaterial>): Readonly<{
-  setHeldItem: (descriptor: HeldItemDescriptor | undefined) => void
+  setHeldItem: (descriptor: HeldItemDescriptor | undefined) => Result.Result<void, AtlasCoordinateError>
 }> => {
   let lastItemKey = 'empty'
-  const setHeldItem = (descriptor: HeldItemDescriptor | undefined): void => {
+  const setHeldItem = (descriptor: HeldItemDescriptor | undefined): Result.Result<void, AtlasCoordinateError> => {
     const nextItemKey = heldItemKey(descriptor)
     if (lastItemKey === nextItemKey) {
-      return
+      return Result.succeed(undefined)
     }
-    lastItemKey = nextItemKey
-    updateHeldItemAppearance({ ...input, descriptor })
+    return Result.map(updateHeldItemAppearance({ ...input, descriptor }), () => {
+      lastItemKey = nextItemKey
+    })
   }
   return { setHeldItem }
 }
@@ -1136,17 +1177,16 @@ const applyInteractionFrame = <
     hand: HandOverlay<TGeometry, TBasicMaterial>
     damageOverlays: DamageOverlay<TGeometry, TBasicMaterial>
   }>,
-): Result.Result<InteractionFrameResult, InteractionVisualInputError> => {
-  updateFrameTarget(input.world, input.frame.selection)
-  input.world.updateCracks(input.frame.result.crackStage)
-  input.hand.setHeldItem(input.frame.frame.heldItem)
-  applyFirstPersonPose(input.hand, input.frame.result.handPose)
-  applyDamageFeedback(input.damageOverlays, {
-    direction: input.frame.frame.damageDirection,
-    intensity: input.frame.frame.damageIntensity,
-  }, input.frame.result.damage)
-  return Result.succeed(input.frame.result)
-}
+): Result.Result<InteractionFrameResult, InteractionRendererError> => Result.map(input.hand.setHeldItem(input.frame.frame.heldItem), () => {
+    updateFrameTarget(input.world, input.frame.selection)
+    input.world.updateCracks(input.frame.result.crackStage)
+    applyFirstPersonPose(input.hand, input.frame.result.handPose)
+    applyDamageFeedback(input.damageOverlays, {
+      direction: input.frame.frame.damageDirection,
+      intensity: input.frame.frame.damageIntensity,
+    }, input.frame.result.damage)
+    return input.frame.result
+  })
 
 export const createInteractionRenderer = <
   TTexture extends RenderPresentationTexture,
@@ -1166,7 +1206,7 @@ export const createInteractionRenderer = <
   cameraObject.add(handOverlay.object, damageOverlays.flash.object, damageOverlays.direction.object)
   let isDisposed = false
 
-  const update = (input: unknown): Result.Result<InteractionFrameResult, InteractionVisualInputError> => {
+  const update = (input: unknown): Result.Result<InteractionFrameResult, InteractionRendererError> => {
     if (isDisposed) {
       return Result.fail({
         _tag: 'InteractionVisualInputError',

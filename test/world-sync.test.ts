@@ -44,7 +44,7 @@ import {
 } from '../src/application/world-sync'
 import { CHUNK_SIZE } from '@nerima-games/mc-meshing'
 import type { CrossPlantQuad, GeometryQuad, MeshQuad, QuadColor } from '../src/domain/chunk-geometry'
-import { quadTileForLookup } from '../src/domain/block-texture-map'
+import { TILE_BY_BLOCK_NAME, quadTileForLookup } from '../src/domain/block-texture-map'
 import { FAKE_CANVAS, makeFakeThree } from './support/fake-three'
 import { blockId, chunkCoord } from './support/kernel-brands'
 
@@ -243,7 +243,7 @@ describe('syncWorld', () => {
       })
       const source = yield* scriptedSource([{ changed: [chunkCoord(0, 0)], removed: [] }])
       const report = yield* syncWorld(renderer, source, mesher, {
-        tile: quadTileForLookup(blockNameFromKernel),
+        tile: (geometryQuad) => Result.getOrThrow(quadTileForLookup(blockNameFromKernel)(geometryQuad)),
       })
 
       expect(report.meshed).toBe(1)
@@ -261,10 +261,14 @@ describe('syncWorld', () => {
         }
         return Array.from(attribute.array)
       }
-      expect(tileIndicesFor(materials.cutout).every((tile) => tile === 8)).toBe(true)
-      expect(tileIndicesFor(materials.transparent)).toContain(9)
-      expect(tileIndicesFor(materials.transparent)).toContain(18)
-      expect(tileIndicesFor(materials.transparent)).toContain(7)
+      const cutoutTiles = tileIndicesFor(materials.cutout)
+      const transparentTiles = tileIndicesFor(materials.transparent)
+      const expectedLeafTiles = new Set<number>(Object.values(TILE_BY_BLOCK_NAME.oak_leaves))
+      expect(cutoutTiles.length).toBeGreaterThan(0)
+      expect(cutoutTiles.every((tile) => expectedLeafTiles.has(tile))).toBe(true)
+      for (const blockName of ['glass', 'water', 'lava'] as const) {
+        expect(Object.values(TILE_BY_BLOCK_NAME[blockName]).some((tile) => transparentTiles.includes(tile))).toBe(true)
+      }
       const waterFlags = three.meshes()[2]?.geometry.attributes.get('waterSurface')?.array ?? []
       expect(Array.from(waterFlags).some((flag) => flag === 1)).toBe(true)
 

@@ -1,0 +1,171 @@
+{
+  "group": "liquids",
+  "palettes": {
+    "tideline": {
+      "shade": "#123044",
+      "shadow": "#205068",
+      "base": "#2F8194",
+      "light": "#70C9B0",
+      "accent": "#C4F0C8"
+    },
+    "emberflow": {
+      "shade": "#321B31",
+      "shadow": "#803347",
+      "base": "#D5523D",
+      "light": "#F28E47",
+      "accent": "#FFD477"
+    },
+    "wicklight": {
+      "shade": "#352A37",
+      "shadow": "#725044",
+      "base": "#C2824D",
+      "light": "#E6AF61",
+      "accent": "#FFE6A4"
+    },
+    "moss-gate": {
+      "shade": "#152F42",
+      "shadow": "#245C68",
+      "base": "#32A892",
+      "light": "#78D5B0",
+      "accent": "#D4F394"
+    },
+    "orchid-gate": {
+      "shade": "#351B46",
+      "shadow": "#68365E",
+      "base": "#A84E82",
+      "light": "#DE79A5",
+      "accent": "#FFC17A"
+    },
+    "dusk-gate": {
+      "shade": "#192641",
+      "shadow": "#344B77",
+      "base": "#5B5D9C",
+      "light": "#9E82C4",
+      "accent": "#D5C3DC"
+    },
+    "eggstone": {
+      "shade": "#251C37",
+      "shadow": "#44304E",
+      "base": "#71506E",
+      "light": "#B46F8F",
+      "accent": "#ECC08D"
+    },
+    "crystal-clear": {
+      "shade": "#1F334A",
+      "shadow": "#426A7A",
+      "base": "#69B4B1",
+      "light": "#A7E1CD",
+      "accent": "#F2E4A3"
+    },
+    "porcelain-wick": {
+      "shade": "#333248",
+      "shadow": "#6A6887",
+      "base": "#C6B2A7",
+      "light": "#F0D8B5",
+      "accent": "#FFF4D6"
+    },
+    "cinder": {
+      "shade": "#2C2036",
+      "shadow": "#70405B",
+      "base": "#C34F49",
+      "light": "#F08A4B",
+      "accent": "#FFD078"
+    }
+  },
+  "recipes": {
+    "water": {
+      "palette": "tideline",
+      "pattern": "ripple",
+      "alpha": "translucent",
+      "faces": {
+        "top": "ripple",
+        "side": "flow",
+        "bottom": "flow"
+      },
+      "animation": {
+        "group": "water",
+        "frames": 4
+      }
+    },
+    "lava": {
+      "palette": "emberflow",
+      "pattern": "flow",
+      "alpha": "translucent",
+      "faces": {
+        "top": "flow",
+        "side": "flow",
+        "bottom": "flow"
+      },
+      "animation": {
+        "group": "lava",
+        "frames": 4
+      }
+    },
+    "torch": {
+      "palette": "wicklight",
+      "pattern": "flame",
+      "alpha": "cutout",
+      "faces": {
+        "top": "flame",
+        "side": "plank-grain",
+        "bottom": "plank-grain"
+      }
+    },
+    "glowstone": {
+      "palette": "wicklight",
+      "pattern": "stone-mottle",
+      "alpha": "opaque"
+    },
+    "end_portal": {
+      "palette": "moss-gate",
+      "pattern": "portal",
+      "alpha": "translucent",
+      "animation": {
+        "group": "portal",
+        "frames": 4
+      }
+    },
+    "dragon_egg": {
+      "palette": "eggstone",
+      "pattern": "stone-mottle",
+      "alpha": "opaque"
+    },
+    "end_crystal": {
+      "palette": "crystal-clear",
+      "pattern": "glass-pane",
+      "alpha": "translucent"
+    },
+    "end_gateway": {
+      "palette": "dusk-gate",
+      "pattern": "portal",
+      "alpha": "translucent",
+      "animation": {
+        "group": "portal",
+        "frames": 4
+      }
+    },
+    "end_rod": {
+      "palette": "porcelain-wick",
+      "pattern": "end-rod",
+      "alpha": "cutout"
+    },
+    "nether_portal": {
+      "palette": "orchid-gate",
+      "pattern": "portal",
+      "alpha": "translucent",
+      "animation": {
+        "group": "portal",
+        "frames": 4
+      }
+    },
+    "fire": {
+      "palette": "cinder",
+      "pattern": "flame",
+      "alpha": "cutout",
+      "animation": {
+        "group": "fire",
+        "frames": 4
+      }
+    }
+  }
+}

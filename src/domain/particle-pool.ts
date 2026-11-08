@@ -700,12 +700,11 @@ const decodeBlockBurstUv = (tileIndex: ParticleTileIndex) => {
     return Result.fail(particlePoolInputError('block-burst', 'invalid-tile-index'))
   }
 
-  const origin = tileUvOrigin(decodedTileIndex.success)
-  const decodedOrigin = Schema.decodeUnknownResult(ParticleUvSchema, { onExcessProperty: 'error' })(origin)
-  if (Result.isFailure(decodedOrigin)) {
-    return Result.fail(particlePoolInputError('block-burst', 'invalid-uv'))
-  }
-  return Result.succeed(decodedOrigin.success)
+  const decodedOrigin = Result.flatMap(
+    tileUvOrigin(decodedTileIndex.success),
+    (origin) => Schema.decodeUnknownResult(ParticleUvSchema, { onExcessProperty: 'error' })(origin),
+  )
+  return Result.mapError(decodedOrigin, () => particlePoolInputError('block-burst', 'invalid-uv'))
 }
 
 export type ParticleFrameSnapshot = Readonly<{

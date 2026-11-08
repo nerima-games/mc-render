@@ -118,8 +118,20 @@ import {
   LIGHT_SHADE_FLOOR,
   LIGHT_SHADE_RANGE,
 } from './voxel-lighting.js'
-import { ATLAS_COLUMNS, HALF_TEXEL_UV } from './texture-atlas.js'
-import { CHUNK_ANIMATION_KIND } from './chunk-animation-kind.js'
+import {
+  ATLAS_COLUMNS,
+  ATLAS_PIXELS,
+  type AtlasTileIndex,
+  AtlasTileIndexSchema,
+  HALF_TEXEL_UV,
+  TILE_CELL_PIXELS,
+  TILE_GUTTER_PIXELS,
+  TILE_UV_SPAN,
+} from './texture-atlas.js'
+import { type AnimationSeconds, AnimationSecondsSchema } from './animation-clock.js'
+import { CHUNK_ANIMATION_KIND, type ChunkAnimationKind } from './chunk-animation-kind.js'
+import { Result, Schema } from 'effect'
+import { ANIMATED_TEXTURE_FRAMES } from './block-texture-map.js'
 
 /**
  * Render a number as a GLSL float literal.
@@ -140,12 +152,155 @@ const GLSL_FLOAT_DECIMAL_PLACES = 6
 
 export const glslFloat = (value: number): string => value.toFixed(GLSL_FLOAT_DECIMAL_PLACES)
 
-const WATER_UV_CYCLES_PER_SECOND = 0.045
-const LAVA_UV_CYCLES_PER_SECOND = 0.025
-const FIRE_U_UV_CYCLES_PER_SECOND = 0.08
-const FIRE_V_UV_CYCLES_PER_SECOND = 0.13
-const NETHER_PORTAL_UV_CYCLES_PER_SECOND = 0.018
-const END_PORTAL_UV_CYCLES_PER_SECOND = 0.027
+const WATER_FRAMES_PER_SECOND = 1
+const LAVA_FRAMES_PER_SECOND = 1
+const FIRE_FRAMES_PER_SECOND = 2
+const NETHER_PORTAL_FRAMES_PER_SECOND = 1
+const END_PORTAL_FRAMES_PER_SECOND = 1
+const END_GATEWAY_FRAMES_PER_SECOND = 1
+const FRAME_INDEX_HALF_STEP = 0.5
+const LAST_FRAME_OFFSET = 1
+
+const CHUNK_ANIMATION_KIND_VALUES = [
+  CHUNK_ANIMATION_KIND.none,
+  CHUNK_ANIMATION_KIND.water,
+  CHUNK_ANIMATION_KIND.lava,
+  CHUNK_ANIMATION_KIND.fire,
+  CHUNK_ANIMATION_KIND.netherPortal,
+  CHUNK_ANIMATION_KIND.endPortal,
+  CHUNK_ANIMATION_KIND.endGateway,
+] as const
+
+type AnimationFrameSet = Readonly<{
+  readonly animationKind: ChunkAnimationKind
+  readonly frames: readonly [AtlasTileIndex, ...AtlasTileIndex[]]
+  readonly framesPerSecond: number
+}>
+
+const ANIMATION_FRAME_SETS: ReadonlyArray<AnimationFrameSet> = [
+  {
+    animationKind: CHUNK_ANIMATION_KIND.water,
+    frames: ANIMATED_TEXTURE_FRAMES.water.water,
+    framesPerSecond: WATER_FRAMES_PER_SECOND,
+  },
+  {
+    animationKind: CHUNK_ANIMATION_KIND.lava,
+    frames: ANIMATED_TEXTURE_FRAMES.lava.lava,
+    framesPerSecond: LAVA_FRAMES_PER_SECOND,
+  },
+  {
+    animationKind: CHUNK_ANIMATION_KIND.fire,
+    frames: ANIMATED_TEXTURE_FRAMES.fire.fire,
+    framesPerSecond: FIRE_FRAMES_PER_SECOND,
+  },
+  {
+    animationKind: CHUNK_ANIMATION_KIND.netherPortal,
+    frames: ANIMATED_TEXTURE_FRAMES.portal.nether_portal,
+    framesPerSecond: NETHER_PORTAL_FRAMES_PER_SECOND,
+  },
+  {
+    animationKind: CHUNK_ANIMATION_KIND.endPortal,
+    frames: ANIMATED_TEXTURE_FRAMES.portal.end_portal,
+    framesPerSecond: END_PORTAL_FRAMES_PER_SECOND,
+  },
+  {
+    animationKind: CHUNK_ANIMATION_KIND.endGateway,
+    frames: ANIMATED_TEXTURE_FRAMES.portal.end_gateway,
+    framesPerSecond: END_GATEWAY_FRAMES_PER_SECOND,
+  },
+]
+
+export type ChunkTextureFrameSelectionError = Readonly<{
+  readonly _tag: 'ChunkTextureFrameSelectionError'
+  readonly reason: 'invalid-input'
+}>
+
+export const ChunkTextureFrameSelectionErrorSchema: Schema.Codec<ChunkTextureFrameSelectionError> = Schema.Struct({
+  _tag: Schema.Literal('ChunkTextureFrameSelectionError'),
+  reason: Schema.Literal('invalid-input'),
+})
+
+const ChunkAnimationKindSchema: Schema.Codec<ChunkAnimationKind, (typeof CHUNK_ANIMATION_KIND_VALUES)[number]> =
+  Schema.Literals(CHUNK_ANIMATION_KIND_VALUES)
+
+type ChunkTextureFrameSelectionInput = Readonly<{
+  readonly animationKind: ChunkAnimationKind
+  readonly baseTileIndex: AtlasTileIndex
+  readonly timeSeconds: AnimationSeconds
+}>
+
+const ChunkTextureFrameSelectionInputSchema: Schema.Codec<ChunkTextureFrameSelectionInput, Readonly<{
+  readonly animationKind: number
+  readonly baseTileIndex: number
+  readonly timeSeconds: number
+}>> = Schema.Struct({
+  animationKind: ChunkAnimationKindSchema,
+  baseTileIndex: AtlasTileIndexSchema,
+  timeSeconds: AnimationSecondsSchema,
+})
+
+const frameSelectionError: ChunkTextureFrameSelectionError = {
+  _tag: 'ChunkTextureFrameSelectionError',
+  reason: 'invalid-input',
+}
+
+const animationFrameIndex = (timeSeconds: number, framesPerSecond: number, frameCount: number): number | undefined => {
+  const framePosition = timeSeconds * framesPerSecond
+  if (!Number.isFinite(framePosition)) {
+    return undefined
+  }
+  return Math.floor(framePosition) % frameCount
+}
+
+const selectAnimationFrame = ({ animationKind, baseTileIndex, timeSeconds }: ChunkTextureFrameSelectionInput):
+  Result.Result<AtlasTileIndex, ChunkTextureFrameSelectionError> => {
+  const frameSet = ANIMATION_FRAME_SETS.find((candidate) => candidate.animationKind === animationKind)
+  if (frameSet === undefined) {
+    return Result.succeed(baseTileIndex)
+  }
+
+  const frameIndex = animationFrameIndex(timeSeconds, frameSet.framesPerSecond, frameSet.frames.length)
+  if (frameIndex === undefined) {
+    return Result.fail(frameSelectionError)
+  }
+  const [firstFrame] = frameSet.frames
+  const frameTile = frameSet.frames.reduce((selectedFrame, candidateFrame, candidateIndex) => {
+    if (candidateIndex === frameIndex) {
+      return candidateFrame
+    }
+    return selectedFrame
+  }, firstFrame)
+  return Result.succeed(frameTile)
+}
+
+/** Select an atlas frame from the block-derived animation kind and simulation time. */
+export const chunkTextureFrameTile = (input: unknown): Result.Result<AtlasTileIndex, ChunkTextureFrameSelectionError> => {
+  const decoded = Schema.decodeUnknownResult(ChunkTextureFrameSelectionInputSchema)(input)
+  if (Result.isFailure(decoded)) {
+    return Result.fail(frameSelectionError)
+  }
+  return selectAnimationFrame(decoded.success)
+}
+
+const chunkTextureFrameShaderFunction = (): string => {
+  const branches = ANIMATION_FRAME_SETS.map(({ animationKind, frames, framesPerSecond }) => {
+    const frameSelections = frames.map((frameTile, index) => {
+      if (index === frames.length - LAST_FRAME_OFFSET) {
+        return `    return ${glslFloat(frameTile)};`
+      }
+      return `    if (frameIndex < ${glslFloat(index + FRAME_INDEX_HALF_STEP)}) { return ${glslFloat(frameTile)}; }`
+    })
+    return `  if (animationKind == ${glslFloat(animationKind)}) {
+    float frameIndex = mod(floor(time * ${glslFloat(framesPerSecond)}), ${glslFloat(frames.length)});
+${frameSelections.join('\n')}
+  }`
+  })
+
+  return `float chunkTextureFrameTile(float tile, float animationKind, float time) {
+${branches.join('\n')}
+  return tile;
+}`
+}
 
 /** Attribute names the geometry must supply. */
 export const CHUNK_SHADER_ATTRIBUTES = {
@@ -165,7 +320,7 @@ export const CHUNK_SHADER_UNIFORMS = {
   fogNear: 'uFogNear',
   /** `float` 0..1. The day/night cycle's one input; scales the sky channel only. */
   sunIntensity: 'uSunIntensity',
-  /** `float`. Tick-derived animation time in seconds for animated texture frames. */
+  /** `float`. Tick-derived simulation time in seconds used to select animated atlas frames. */
   time: 'uTime',
 } as const
 
@@ -264,51 +419,35 @@ varying float vFogDepth;
 
 const float ATLAS_COLUMNS = ${glslFloat(ATLAS_COLUMNS)};
 const float HALF_TEXEL = ${glslFloat(HALF_TEXEL_UV)};
+const float CELL_UV_PITCH = ${glslFloat(TILE_CELL_PIXELS / ATLAS_PIXELS)};
+const float TILE_GUTTER_UV = ${glslFloat(TILE_GUTTER_PIXELS / ATLAS_PIXELS)};
+const float TILE_UV_SPAN = ${glslFloat(TILE_UV_SPAN)};
 `
 }
 
-export const chunkFragmentShadeFunction = (): ChunkShaderText => `
+export const chunkFragmentShadeFunction = (): ChunkShaderText => `${chunkTextureFrameShaderFunction()}
 vec4 shadeChunkSurface() {
   // Undo the interpolation: every vertex of a quad carries the same index, so
   // the varying is that index up to float error.
-  float tile = floor(vTileIndex + 0.5);
-  float animationKind = floor(vAnimationKind + 0.5);
+  float tile = chunkTextureFrameTile(
+    floor(vTileIndex + 0.5),
+    floor(vAnimationKind + 0.5),
+    ${CHUNK_SHADER_UNIFORMS.time}
+  );
   float column = mod(tile, ATLAS_COLUMNS);
   float row = floor(tile / ATLAS_COLUMNS);
 
   // UVs are in BLOCK units so a merged quad repeats the tile once per block.
   // fract() is what makes that work; see this file's header.
   vec2 inTile = fract(vUv);
-  vec2 animationOffset = vec2(0.0);
-  if (animationKind == ${glslFloat(CHUNK_ANIMATION_KIND.water)}) {
-    animationOffset.y = fract(${CHUNK_SHADER_UNIFORMS.time} * ${glslFloat(WATER_UV_CYCLES_PER_SECOND)});
-  } else if (animationKind == ${glslFloat(CHUNK_ANIMATION_KIND.lava)}) {
-    animationOffset.y = fract(${CHUNK_SHADER_UNIFORMS.time} * ${glslFloat(LAVA_UV_CYCLES_PER_SECOND)});
-  } else if (animationKind == ${glslFloat(CHUNK_ANIMATION_KIND.fire)}) {
-    animationOffset.x = fract(${CHUNK_SHADER_UNIFORMS.time} * ${glslFloat(FIRE_U_UV_CYCLES_PER_SECOND)});
-    animationOffset.y = fract(${CHUNK_SHADER_UNIFORMS.time} * ${glslFloat(FIRE_V_UV_CYCLES_PER_SECOND)});
-  } else if (animationKind == ${glslFloat(CHUNK_ANIMATION_KIND.netherPortal)}) {
-    animationOffset.x = fract(${CHUNK_SHADER_UNIFORMS.time} * ${glslFloat(NETHER_PORTAL_UV_CYCLES_PER_SECOND)});
-    animationOffset.y = fract(-${CHUNK_SHADER_UNIFORMS.time} * ${glslFloat(NETHER_PORTAL_UV_CYCLES_PER_SECOND)});
-  } else if (animationKind == ${glslFloat(CHUNK_ANIMATION_KIND.endPortal)}) {
-    animationOffset.x = fract(-${CHUNK_SHADER_UNIFORMS.time} * ${glslFloat(END_PORTAL_UV_CYCLES_PER_SECOND)});
-    animationOffset.y = fract(${CHUNK_SHADER_UNIFORMS.time} * ${glslFloat(END_PORTAL_UV_CYCLES_PER_SECOND)});
-  }
-  inTile = fract(inTile + animationOffset);
 
-  // V counts up from the bottom in GL and down from the top in the image, which
-  // is why the row term is subtracted from 1. domain/texture-atlas.ts derives it.
-  // BOTH bounds are inset by half a texel — the reference insets only the near
-  // edge and pairs it with a full-pitch span, which lands half a texel inside
-  // the neighbouring tile.
-  vec2 lo = vec2(
-    column / ATLAS_COLUMNS + HALF_TEXEL,
-    1.0 - (row + 1.0) / ATLAS_COLUMNS + HALF_TEXEL
+  // Cells include edge-extruded gutters; sample only the 16px source image.
+  vec2 cellOrigin = vec2(
+    column * CELL_UV_PITCH,
+    1.0 - (row + 1.0) * CELL_UV_PITCH
   );
-  vec2 hi = vec2(
-    (column + 1.0) / ATLAS_COLUMNS - HALF_TEXEL,
-    1.0 - row / ATLAS_COLUMNS - HALF_TEXEL
-  );
+  vec2 lo = cellOrigin + vec2(TILE_GUTTER_UV + HALF_TEXEL);
+  vec2 hi = lo + vec2(TILE_UV_SPAN);
 
   vec4 texel = texture2D(${CHUNK_SHADER_UNIFORMS.atlas}, mix(lo, hi, inTile));
   if (texel.a < ${CHUNK_ALPHA_TEST_UNIFORM}) {

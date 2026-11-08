@@ -1,0 +1,239 @@
+{
+  "group": "plants",
+  "palettes": {
+    "canopy": {
+      "shade": "#26333A",
+      "shadow": "#355D55",
+      "base": "#5A8F61",
+      "light": "#8DBC69",
+      "accent": "#D2D987"
+    },
+    "spider-silk": {
+      "shade": "#2F2B3D",
+      "shadow": "#625B74",
+      "base": "#AAA7B2",
+      "light": "#D7D2D9",
+      "accent": "#80C9C2"
+    },
+    "new-sprout": {
+      "shade": "#29343A",
+      "shadow": "#437053",
+      "base": "#6D9D58",
+      "light": "#A2BD68",
+      "accent": "#DFD18A"
+    },
+    "sun-gold": {
+      "shade": "#382C3C",
+      "shadow": "#76524A",
+      "base": "#D29A43",
+      "light": "#F1C75C",
+      "accent": "#FFE9A1"
+    },
+    "coral-bloom": {
+      "shade": "#39293B",
+      "shadow": "#8F4152",
+      "base": "#D65D6E",
+      "light": "#EF8A7C",
+      "accent": "#FFD18D"
+    },
+    "mushroom-umber": {
+      "shade": "#302B39",
+      "shadow": "#695045",
+      "base": "#AA7654",
+      "light": "#D5A679",
+      "accent": "#EED2A1"
+    },
+    "mushroom-rose": {
+      "shade": "#33293D",
+      "shadow": "#77404D",
+      "base": "#C85663",
+      "light": "#E88776",
+      "accent": "#F4C79A"
+    },
+    "meadow": {
+      "shade": "#2B363D",
+      "shadow": "#486A50",
+      "base": "#70965D",
+      "light": "#A5B66E",
+      "accent": "#D9D58B"
+    },
+    "fern": {
+      "shade": "#283640",
+      "shadow": "#365E58",
+      "base": "#4C8775",
+      "light": "#83B79A",
+      "accent": "#CCE19B"
+    },
+    "reed": {
+      "shade": "#2B3740",
+      "shadow": "#436C62",
+      "base": "#70A47A",
+      "light": "#A6C48A",
+      "accent": "#E1D58F"
+    },
+    "lily-pad": {
+      "shade": "#2B3B41",
+      "shadow": "#437257",
+      "base": "#63985B",
+      "light": "#9EC86B",
+      "accent": "#D8DF9E"
+    },
+    "underwater": {
+      "shade": "#223943",
+      "shadow": "#2E6C71",
+      "base": "#458F7C",
+      "light": "#82B988",
+      "accent": "#D5D48A"
+    },
+    "cactus": {
+      "shade": "#273A3F",
+      "shadow": "#3C6C60",
+      "base": "#5B9B72",
+      "light": "#92C18A",
+      "accent": "#D7D88F"
+    },
+    "wheat": {
+      "shade": "#303442",
+      "shadow": "#695445",
+      "base": "#A77D45",
+      "light": "#D1AA58",
+      "accent": "#F1D17A"
+    },
+    "potato": {
+      "shade": "#2A3A3B",
+      "shadow": "#486F4F",
+      "base": "#709452",
+      "light": "#A6B966",
+      "accent": "#D8D284"
+    },
+    "nether-wart": {
+      "shade": "#333040",
+      "shadow": "#65415A",
+      "base": "#A75467",
+      "light": "#D8796B",
+      "accent": "#EAB77C"
+    },
+    "chorus": {
+      "shade": "#302B45",
+      "shadow": "#5A4C79",
+      "base": "#8A70A5",
+      "light": "#BCA2C5",
+      "accent": "#E5CCB5"
+    }
+  },
+  "recipes": {
+    "oak_leaves": {
+      "palette": "canopy",
+      "pattern": "leaf-canopy",
+      "alpha": "cutout"
+    },
+    "cobweb": {
+      "palette": "spider-silk",
+      "pattern": "cloth",
+      "alpha": "cutout"
+    },
+    "sapling": {
+      "palette": "new-sprout",
+      "pattern": "foliage",
+      "alpha": "cutout"
+    },
+    "dandelion": {
+      "palette": "sun-gold",
+      "pattern": "flower",
+      "alpha": "cutout"
+    },
+    "poppy": {
+      "palette": "coral-bloom",
+      "pattern": "flower",
+      "alpha": "cutout"
+    },
+    "brown_mushroom": {
+      "palette": "mushroom-umber",
+      "pattern": "cluster",
+      "faces": {
+        "top": "stalk",
+        "side": "stalk",
+        "bottom": "flat"
+      },
+      "alpha": "cutout"
+    },
+    "red_mushroom": {
+      "palette": "mushroom-rose",
+      "pattern": "cluster",
+      "faces": {
+        "top": "cluster",
+        "side": "stalk",
+        "bottom": "flat"
+      },
+      "alpha": "cutout"
+    },
+    "tall_grass": {
+      "palette": "meadow",
+      "pattern": "foliage",
+      "alpha": "cutout"
+    },
+    "fern": {
+      "palette": "fern",
+      "pattern": "foliage",
+      "alpha": "cutout"
+    },
+    "sugar_cane": {
+      "palette": "reed",
+      "pattern": "stalk",
+      "alpha": "cutout"
+    },
+    "lily_pad": {
+      "palette": "lily-pad",
+      "pattern": "foliage",
+      "alpha": "cutout"
+    },
+    "kelp": {
+      "palette": "underwater",
+      "pattern": "stalk",
+      "alpha": "cutout"
+    },
+    "seagrass": {
+      "palette": "underwater",
+      "pattern": "foliage",
+      "alpha": "cutout"
+    },
+    "cactus": {
+      "palette": "cactus",
+      "pattern": "stalk",
+      "faces": {
+        "top": "cluster",
+        "side": "stalk",
+        "bottom": "flat"
+      },
+      "alpha": "opaque"
+    },
+    "wheat_crop": {
+      "palette": "wheat",
+      "pattern": "stalk",
+      "alpha": "cutout",
+      "variants": 8
+    },
+    "potato_crop": {
+      "palette": "potato",
+      "pattern": "foliage",
+      "alpha": "cutout",
+      "variants": 8
+    },
+    "nether_wart_crop": {
+      "palette": "nether-wart",
+      "pattern": "stalk",
+      "alpha": "cutout",
+      "variants": 3
+    },
+    "chorus_flower": {
+      "palette": "chorus",
+      "pattern": "flower",
+      "alpha": "cutout"
+    },
+    "chorus_plant": {
+      "palette": "chorus",
+      "pattern": "stalk",
+      "alpha": "opaque"
+    }
+  }
+}
