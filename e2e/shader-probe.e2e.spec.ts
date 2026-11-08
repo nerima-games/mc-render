@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { type Page, expect, test } from '@playwright/test'
 import { createHash } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 
@@ -6,6 +6,8 @@ const WEB_ORIGIN = process.env['WEB_ORIGIN'] ?? 'http://127.0.0.1:5182'
 const ZERO = 0
 const ONE = 1
 const TWO = 2
+const TEN = 10
+const TWENTY = 20
 const FOUR = 4
 const WINDOW_SIZE = 8
 const LUMA_RANGE = 255
@@ -17,6 +19,7 @@ const SSIM_K2 = 0.03
 const SSIM_C1 = (SSIM_K1 * LUMA_RANGE) ** TWO
 const SSIM_C2 = (SSIM_K2 * LUMA_RANGE) ** TWO
 const SSIM_THRESHOLD = 0.95
+const PARTIAL_TICK_BEFORE_BOUNDARY = 0.99
 const SSIM_CONSTANTS = {
   four: FOUR,
   lumaBlue: LUMA_BLUE,
@@ -218,4 +221,160 @@ test('render preview stays above 0.95 SSIM against the pinned baseline', async (
   })
 
   expect(ssim).toBeGreaterThan(SSIM_THRESHOLD)
+})
+
+type AnimationPixelSample = Readonly<{
+  readonly expectedTileIndex: number
+  readonly expected: ReadonlyArray<ReadonlyArray<number>>
+  readonly actual: ReadonlyArray<ReadonlyArray<number>>
+}>
+
+type AnimationPixelProbeResult = Readonly<{
+  readonly blockType: string
+  readonly boundaryTick: number
+  readonly beforeTick: number
+  readonly beforePartialTick: number
+  readonly afterTick: number
+  readonly afterPartialTick: number
+  readonly repeatedTick: number
+  readonly repeatedPartialTick: number
+  readonly before: AnimationPixelSample
+  readonly after: AnimationPixelSample
+  readonly repeated: AnimationPixelSample
+}>
+
+type TextureManifest = Readonly<{
+  readonly blockFaces: Readonly<Record<string, Readonly<{ readonly top: number }>>>
+  readonly animations: Readonly<{
+    readonly water: Readonly<{ readonly water: ReadonlyArray<number> }>
+    readonly lava: Readonly<{ readonly lava: ReadonlyArray<number> }>
+    readonly fire: Readonly<{ readonly fire: ReadonlyArray<number> }>
+    readonly portal: Readonly<{
+      readonly nether_portal: ReadonlyArray<number>
+      readonly end_portal: ReadonlyArray<number>
+      readonly end_gateway: ReadonlyArray<number>
+    }>
+  }>
+}>
+
+const ANIMATION_BOUNDARY_TICKS: Readonly<Record<string, number>> = {
+  end_gateway: TWENTY,
+  end_portal: TWENTY,
+  fire: TEN,
+  lava: TWENTY,
+  nether_portal: TWENTY,
+  water: TWENTY,
+}
+
+const expectedFrameSequences = (manifest: TextureManifest): Readonly<Record<string, ReadonlyArray<number>>> => ({
+  end_gateway: manifest.animations.portal.end_gateway,
+  end_portal: manifest.animations.portal.end_portal,
+  fire: manifest.animations.fire.fire,
+  lava: manifest.animations.lava.lava,
+  nether_portal: manifest.animations.portal.nether_portal,
+  water: manifest.animations.water.water,
+})
+
+const readAnimationProbe = async (page: Page): Promise<Readonly<{
+  readonly manifest: TextureManifest
+  readonly results: ReadonlyArray<AnimationPixelProbeResult>
+}>> => {
+  await page.goto(`${WEB_ORIGIN}/apps/shader-probe/?chunk-animation-pixels`)
+  const body = page.locator('body')
+  await expect.poll(async () => body.getAttribute('data-chunk-animation-probe'), { timeout: 30_000 }).toBe('passed')
+  const encodedResults = await body.getAttribute('data-chunk-animation-probe-result')
+  expect(encodedResults).not.toBeNull()
+  const manifestContents = await readFile(new URL('../src/assets/block-textures/manifest.json', import.meta.url), 'utf8')
+  return {
+    manifest: JSON.parse(manifestContents) as TextureManifest,
+    results: JSON.parse(encodedResults ?? 'null') as ReadonlyArray<AnimationPixelProbeResult>,
+  }
+}
+
+const verifyTickBoundary = (result: AnimationPixelProbeResult, boundaryTick: number): void => {
+  expect(result.boundaryTick).toBe(boundaryTick)
+  expect(result.beforeTick).toBe(boundaryTick - ONE)
+  expect(result.beforePartialTick).toBe(PARTIAL_TICK_BEFORE_BOUNDARY)
+  expect(result.afterTick).toBe(boundaryTick)
+  expect(result.afterPartialTick).toBe(ZERO)
+  expect(result.repeatedTick).toBe(result.afterTick)
+  expect(result.repeatedPartialTick).toBe(result.afterPartialTick)
+}
+
+const verifyTilePixel = (sample: AnimationPixelSample, tileIndex: number): void => {
+  expect(sample.expectedTileIndex).toBe(tileIndex)
+  expect(sample.expected.length).toBeGreaterThan(ZERO)
+  expect(sample.actual).toEqual(sample.expected)
+}
+
+const verifyAnimatedPixelProbe = (
+  result: AnimationPixelProbeResult,
+  frames: ReadonlyArray<number>,
+  boundaryTick: number,
+): void => {
+  const [firstFrame, secondFrame] = frames
+  if (firstFrame === undefined || secondFrame === undefined) {
+    throw new Error(`${result.blockType} manifest animation needs at least two frames`)
+  }
+  verifyTickBoundary(result, boundaryTick)
+  verifyTilePixel(result.before, firstFrame)
+  verifyTilePixel(result.after, secondFrame)
+  verifyTilePixel(result.repeated, secondFrame)
+  expect(result.before.expected).not.toEqual(result.after.expected)
+  expect(result.after.actual).not.toEqual(result.before.actual)
+  expect(result.repeated.actual).toEqual(result.after.actual)
+}
+
+const verifyStaticPixelProbe = (result: AnimationPixelProbeResult, tileIndex: number): void => {
+  expect(result.boundaryTick).toBe(TWENTY)
+  expect(result.beforeTick).toBe(ZERO)
+  expect(result.afterTick).toBe(TWENTY)
+  expect(result.repeatedTick).toBe(result.afterTick)
+  verifyTilePixel(result.before, tileIndex)
+  verifyTilePixel(result.after, tileIndex)
+  verifyTilePixel(result.repeated, tileIndex)
+  expect(result.after.actual).toEqual(result.before.actual)
+  expect(result.repeated.actual).toEqual(result.after.actual)
+}
+
+const verifyAnimatedBlockResults = (
+  resultsByBlock: ReadonlyMap<string, AnimationPixelProbeResult>,
+  framesByBlock: Readonly<Record<string, ReadonlyArray<number>>>,
+): void => {
+  for (const [blockType, frames] of Object.entries(framesByBlock)) {
+    const result = resultsByBlock.get(blockType)
+    const boundaryTick = ANIMATION_BOUNDARY_TICKS[blockType]
+    if (result === undefined || boundaryTick === undefined) {
+      throw new Error(`missing WebGL probe data for ${blockType}`)
+    }
+    verifyAnimatedPixelProbe(result, frames, boundaryTick)
+  }
+}
+
+const verifyIceResult = (
+  resultsByBlock: ReadonlyMap<string, AnimationPixelProbeResult>,
+  manifest: TextureManifest,
+): void => {
+  const ice = resultsByBlock.get('ice')
+  const iceFaces = manifest.blockFaces['ice']
+  if (ice === undefined || iceFaces === undefined) {
+    throw new Error('missing static ice WebGL probe data')
+  }
+  verifyStaticPixelProbe(ice, iceFaces.top)
+}
+
+const verifyAnimationProbeResults = (
+  results: ReadonlyArray<AnimationPixelProbeResult>,
+  manifest: TextureManifest,
+): void => {
+  const framesByBlock = expectedFrameSequences(manifest)
+  const resultsByBlock = new Map(results.map((result) => [result.blockType, result]))
+  expect([...resultsByBlock.keys()].sort()).toEqual([...Object.keys(framesByBlock), 'ice'].sort())
+  verifyAnimatedBlockResults(resultsByBlock, framesByBlock)
+  verifyIceResult(resultsByBlock, manifest)
+}
+
+test('chunk animation pixels follow simulation tick boundaries in WebGL', async ({ page }) => {
+  const probe = await readAnimationProbe(page)
+  verifyAnimationProbeResults(probe.results, probe.manifest)
 })
