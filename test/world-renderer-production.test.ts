@@ -330,15 +330,12 @@ describe('makeProductionWorldRenderer (the shipped composition)', () => {
         return
       }
 
-      const sun = sky.children[2]
-      const stars = sky.children[4]
-      const nearCloud = sky.children[5]
+      const [, , sun, , stars, nearCloud] = sky.children
       expect(sun?.position.y).toBeCloseTo(160)
       expect(stars?.visible).toBe(false)
       const firstCloudOffset = nearCloud?.position.x
 
-      const selection = interaction.children[0]
-      const cracks = interaction.children[1]
+      const [selection, cracks] = interaction.children
       if (!(selection instanceof THREE.LineSegments) || !(cracks instanceof THREE.LineSegments)) {
         yield* renderer.dispose
         atlas.dispose()
@@ -354,15 +351,14 @@ describe('makeProductionWorldRenderer (the shipped composition)', () => {
         atlas.dispose()
         return
       }
-      const hand = cameraOverlay.children[0]
+      const [hand] = cameraOverlay.children
       expect(hand).toBeInstanceOf(THREE.Group)
       if (!(hand instanceof THREE.Group)) {
         yield* renderer.dispose
         atlas.dispose()
         return
       }
-      const arm = hand.children[0]
-      const heldBlock = hand.children[1]
+      const [arm, heldBlock] = hand.children
       expect(arm).toBeInstanceOf(THREE.Mesh)
       expect(heldBlock).toBeInstanceOf(THREE.Mesh)
       if (!(arm instanceof THREE.Mesh) || !(heldBlock instanceof THREE.Mesh)) {
@@ -380,8 +376,7 @@ describe('makeProductionWorldRenderer (the shipped composition)', () => {
       expect(sun?.position.y).toBeCloseTo(-160)
       expect(stars?.visible).toBe(true)
       expect(nearCloud?.position.x).not.toBe(firstCloudOffset)
-      const updatedSelection = interaction.children[0]
-      const updatedCracks = interaction.children[1]
+      const [updatedSelection, updatedCracks] = interaction.children
       expect(updatedSelection).toBeInstanceOf(THREE.LineSegments)
       expect(updatedCracks).toBeInstanceOf(THREE.LineSegments)
       if (!(updatedSelection instanceof THREE.LineSegments) || !(updatedCracks instanceof THREE.LineSegments)) {

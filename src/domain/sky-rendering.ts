@@ -1,7 +1,7 @@
+import { type AnimationClockInput, PartialTickSchema, animationTimeSeconds } from './animation-clock.js'
 import { Brand, Result, Schema } from 'effect'
+import { type Dimension, SimulationTickSchema } from '@nerima-games/mc-kernel'
 import { END_VOID_COLOR, NETHER_FOG_COLOR } from './render-environment.js'
-import { PartialTickSchema, animationTimeSeconds, type AnimationClockInput } from './animation-clock.js'
-import { SimulationTickSchema, type Dimension } from '@nerima-games/mc-kernel'
 
 type WorldAxis = 'x' | 'y' | 'z'
 
@@ -396,9 +396,9 @@ const nonOverworldPlan = (
     cameraPitchRadians: input.cameraPitchRadians,
     cameraYawRadians: input.cameraYawRadians,
     clouds: cloudLayers({
+      animationSeconds,
       cameraPosition: input.cameraPosition,
       daylight: DAYLIGHT_MIN,
-      animationSeconds,
       visible: false,
     }),
     daylight: makeSkyUnitValue(DAYLIGHT_MIN),
@@ -507,9 +507,9 @@ const overworldPlan = (frame: SkyFrameInput, derived: SkyDerivedFrame, animation
     cameraPitchRadians: frame.cameraPitchRadians,
     cameraYawRadians: frame.cameraYawRadians,
     clouds: cloudLayers({
+      animationSeconds,
       cameraPosition: frame.cameraPosition,
       daylight: derived.daylight,
-      animationSeconds,
       visible: true,
     }),
     daylight: makeSkyUnitValue(derived.daylight),

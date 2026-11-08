@@ -9,6 +9,7 @@ import {
   type RenderEnvironmentPlan,
 } from '../domain/render-environment.js'
 import { type DeltaTimeSecs, type Dimension } from '@nerima-games/mc-kernel'
+import { Effect, Schema } from 'effect'
 import {
   FIRST_PERSON_ARM_TEXTURE_HEIGHT,
   FIRST_PERSON_ARM_TEXTURE_WIDTH,
@@ -21,11 +22,11 @@ import {
   createInteractionRenderer,
 } from './interaction-renderer.js'
 import {
+  ParticleDeltaSecsSchema,
   type ParticleFrameSnapshot,
   type ParticlePool,
   type ParticlePoolInputError,
   type ParticlePoolOptions,
-  ParticleDeltaSecsSchema,
   advanceParticles,
 } from '../domain/particle-pool.js'
 import { ParticleService, ParticleServiceLive, ParticleServicePoolAccess } from './particle-service.js'
@@ -46,6 +47,8 @@ import {
   makeTranslucentChunkMaterial,
   makeWaterMaterial,
 } from './world-renderer-materials.js'
+import { SKY_DAY_LENGTH_TICKS, SKY_MOON_PHASE_COUNT } from '../domain/sky-rendering.js'
+import { type SkyRenderer, createSkyRenderer } from './sky-renderer.js'
 import type {
   ThreeBufferGeometry,
   ThreeEuler,
@@ -63,9 +66,6 @@ import {
   makeWorldRenderer,
 } from './world-renderer.js'
 import { CHUNK_SHADER_UNIFORMS } from '../domain/chunk-shader.js'
-import { SKY_DAY_LENGTH_TICKS, SKY_MOON_PHASE_COUNT } from '../domain/sky-rendering.js'
-import { type SkyRenderer, createSkyRenderer } from './sky-renderer.js'
-import { Effect, Schema } from 'effect'
 import type { MirroredCameraState } from '../domain/camera-mirror.js'
 /**
  * Production renderer composition.
@@ -156,8 +156,8 @@ const INITIAL_FRAME: ProductionFrame = {
     simulationTick: ZERO,
     timeOfDayTicks: ZERO,
   }),
-  deltaSecs: Schema.decodeUnknownSync(ParticleDeltaSecsSchema)(ZERO),
   cameraPosition: { worldX: ZERO, worldY: ZERO, worldZ: ZERO },
+  deltaSecs: Schema.decodeUnknownSync(ParticleDeltaSecsSchema)(ZERO),
 }
 
 const createProductionPresentation = <
@@ -200,7 +200,7 @@ const drawProductionPresentation = <TTexture extends RenderPresentationTexture>(
   Effect.gen(function* updatePresentationFrame() {
     const { camera, dimension, frame } = input
     const currentFrame = frame ?? INITIAL_FRAME
-    const timeOfDayTicks = currentFrame.timeOfDayTicks
+    const { timeOfDayTicks } = currentFrame
     yield* Effect.fromResult(presentation.sky.update({
       cameraPitchRadians: camera.rotation.x,
       cameraPosition: {
@@ -320,9 +320,15 @@ export const makeProductionWorldRenderer = <
   ProductionWorldRenderer<TShaderMaterial>,
   RendererMaterialPolicyError | ParticlePoolInputError
 > => {
-  let activeDimension = options.dimension ?? DEFAULT_DIMENSION
-  let particleFrame: ParticleFrameSnapshot = { dimension: activeDimension, entities: [] }
-  let latestFrame: ProductionFrame | undefined
+  const frameState: {
+    activeDimension: Dimension
+    latestFrame: ProductionFrame | undefined
+    particleFrame: ParticleFrameSnapshot
+  } = {
+    activeDimension: options.dimension ?? DEFAULT_DIMENSION,
+    latestFrame: undefined,
+    particleFrame: { dimension: options.dimension ?? DEFAULT_DIMENSION, entities: [] },
+  }
   const buildRenderer = Effect.gen(function* buildProductionRenderer() {
     const chunkMaterials = {
       cutout: makeChunkShaderMaterialVariant({ atlasTexture, three, variant: 'cutout' }),
@@ -330,13 +336,16 @@ export const makeProductionWorldRenderer = <
       transparent: makeTranslucentChunkMaterial({ atlasTexture, three, viewport }),
     }
     const water = makeWaterMaterial(three, viewport)
-    const particleService = yield* ParticleService
-    const particlePool = yield* ParticleServicePoolAccess
-    const particles = yield* makeParticleSystem(three, particlePool, atlasTexture).pipe(
-      Effect.tap((particleSystem) => Effect.fromResult(assertRendererMaterialPolicies(water.material, particleSystem.material))),
-    )
+    const { particleService, particlePool, particles } = yield* Effect.gen(function* makeProductionParticles() {
+      const service = yield* ParticleService
+      const pool = yield* ParticleServicePoolAccess
+      const system = yield* makeParticleSystem(three, pool, atlasTexture).pipe(
+        Effect.tap((particleSystem) => Effect.fromResult(assertRendererMaterialPolicies(water.material, particleSystem.material))),
+      )
+      return { particlePool: pool, particleService: service, particles: system }
+    })
     const presentation = createProductionPresentation(presentationSurface, atlasTexture)
-    const beforeDraw = makeBeforeDraw(presentation, () => latestFrame, () => activeDimension)
+    const beforeDraw = makeBeforeDraw(presentation, () => frameState.latestFrame, () => frameState.activeDimension)
     const { particles: _particles, ...rendererOptions } = options
     const renderer = yield* makeWorldRenderer(three, canvas, viewport, {
       ...rendererOptions,
@@ -347,29 +356,30 @@ export const makeProductionWorldRenderer = <
         const sun = water.uniforms['uSunIntensity']
         if (sun) {sun.value = environment.sunIntensity}
       },
+      beforeDraw,
       cutoutMaterial: () => chunkMaterials.cutout.material,
       material: () => chunkMaterials.opaque.material,
       transparentMaterial: () => chunkMaterials.transparent.material,
-      beforeDraw,
     })
-    yield* renderer.attachSceneObject(particles.mesh)
-    yield* attachPresentation(renderer, presentation)
+    yield* renderer.attachSceneObject(particles.mesh).pipe(
+      Effect.andThen(attachPresentation(renderer, presentation)),
+    )
 
     const advanceParticleFrame = (frame: ProductionFrame) => Effect.gen(function* advanceParticleFrameEffect() {
-      activeDimension = frame.dimension ?? activeDimension
+      frameState.activeDimension = frame.dimension ?? frameState.activeDimension
       const entities = yield* renderer.entitySnapshot
-      particleFrame = {
-        dimension: activeDimension,
+      frameState.particleFrame = {
+        dimension: frameState.activeDimension,
         entities: entities.map(({ feetPosition, id }) => ({ feetPosition, id })),
       }
-      yield* Effect.fromResult(advanceParticles(particlePool, frame.deltaSecs, particleFrame))
+      yield* Effect.fromResult(advanceParticles(particlePool, frame.deltaSecs, frameState.particleFrame))
     })
 
     return {
       ...renderer,
       advanceFrame: (frame: ProductionFrame) => Effect.gen(function* advanceProductionFrame() {
         const animationSecs = yield* Effect.fromResult(animationTimeSeconds(frame))
-        latestFrame = frame
+        frameState.latestFrame = frame
         yield* advanceParticleFrame(frame)
         applyChunkShaderTime(Object.values(chunkMaterials), animationSecs)
         applyWaterFrameUniforms(water.uniforms, animationSecs, frame.cameraPosition)
@@ -393,7 +403,7 @@ export const makeProductionWorldRenderer = <
         if (transparentResolution) {transparentResolution.value = [width, height]}
       }))),
       setEnvironment: (environment: RenderEnvironmentPlan) => renderer.setEnvironment(environment).pipe(
-        Effect.tap(() => Effect.sync(() => { activeDimension = environment.dimension })),
+        Effect.tap(() => Effect.sync(() => { frameState.activeDimension = environment.dimension })),
       ),
       waterMaterial: water.material,
       waterUniforms: water.uniforms,
@@ -401,7 +411,7 @@ export const makeProductionWorldRenderer = <
   })
   return buildRenderer.pipe(Effect.provide(ParticleServiceLive({
     pool: options.particles,
-    renderContext: () => particleFrame,
+    renderContext: () => frameState.particleFrame,
   })))
 }
 // oxlint-enable max-params
