@@ -43,10 +43,7 @@
  */
 
 // --- Domain: pure values, policies and orderings ---------------------------
-// Which atlas tile each block shows. Keyed by NAME and not by id: the
-// Reference's table is indexed by ITS block ids, and mc-kernel's ordering
-// Disagrees from index 1 onward, so an index-wise copy would have been wrong in
-// Texture coverage: 117 of 120 rows have a real texture on every face.
+// Block-name keyed per-face texture assignments and animation frames.
 export * from './domain/block-texture-map.js'
 export {
   AnimationClockInputSchema,
