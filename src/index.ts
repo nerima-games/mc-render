@@ -48,6 +48,22 @@
 // Disagrees from index 1 onward, so an index-wise copy would have been wrong in
 // Texture coverage: 117 of 120 rows have a real texture on every face.
 export * from './domain/block-texture-map.js'
+export {
+  AnimationClockInputSchema,
+  AnimationClockInputErrorSchema,
+  AnimationSecondsSchema,
+  PartialTickSchema,
+  TimeOfDayTicksSchema,
+  animationTimeSeconds,
+} from './domain/animation-clock.js'
+export type {
+  AnimationSeconds,
+  AnimationClockInput,
+  AnimationClockInputError,
+  PartialTick,
+  TimeOfDayTicks,
+} from './domain/animation-clock.js'
+export type { ChunkAnimationKind } from './domain/chunk-animation-kind.js'
 export * from './domain/block-shapes.js'
 export * from './domain/camera-mirror.js'
 export * from './domain/chunk-geometry.js'

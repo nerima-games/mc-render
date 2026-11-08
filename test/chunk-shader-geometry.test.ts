@@ -22,7 +22,7 @@
  * exactly that misreading.
  *
  * THE NAMES ARE READ, NOT RESTATED. Every assertion below derives the attribute
- * and uniform names from `chunkShaderSource()`, so a shader that grows a fifth
+ * and uniform names from `chunkShaderSource()`, so every shader attribute
  * attribute fails here until the geometry supplies it. A hand-written list
  * would be a second copy of the shader's requirements and would drift — the
  * failure docs' §6.2 records six instances of.
@@ -30,7 +30,13 @@
 import { describe, expect, it } from '@effect/vitest'
 import { Effect } from 'effect'
 import { chunkKeyOf } from '@nerima-games/mc-kernel'
-import { buildChunkGeometry, TILE_INDEX_COMPONENTS, VERTICES_PER_QUAD, type MeshQuad } from '../src/domain/chunk-geometry'
+import {
+  ANIMATION_KIND_COMPONENTS,
+  buildChunkGeometry,
+  TILE_INDEX_COMPONENTS,
+  VERTICES_PER_QUAD,
+  type MeshQuad,
+} from '../src/domain/chunk-geometry'
 import { chunkShaderSource, CHUNK_SHADER_UNIFORMS } from '../src/domain/chunk-shader'
 import { MISSING_TILE, quadTileForLookup, tileIndexForBlockName } from '../src/domain/block-texture-map'
 import {
@@ -109,6 +115,7 @@ describe('the geometry supplies every attribute the shader declares', () => {
 
       expect(buffers.vertexCount).toBe(3 * VERTICES_PER_QUAD)
       expect(buffers.tileIndices).toHaveLength(buffers.vertexCount * TILE_INDEX_COMPONENTS)
+      expect(buffers.animationKinds).toHaveLength(buffers.vertexCount * ANIMATION_KIND_COMPONENTS)
     }),
   )
 })

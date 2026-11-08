@@ -33,6 +33,7 @@ const NO_POLICY_VIOLATIONS = 0
 const CHUNK_ALPHA_TEST_UNIFORM = 'uAlphaTest'
 const CHUNK_CUTOUT_ALPHA_TEST = 0.1
 const CHUNK_ALPHA_TEST_DISABLED = 0
+const INITIAL_CHUNK_TIME_SECS = 0
 
 type ChunkMaterialVariant = 'opaque' | 'cutout' | 'transparent'
 type WaterFrameTimeSecs = number
@@ -223,6 +224,7 @@ const buildChunkShaderMaterialVariant = <
   const alphaTest = chunkAlphaTestFor(variant)
   const uniforms: Record<string, ThreeUniform> = {
     [CHUNK_SHADER_UNIFORMS.atlas]: { value: atlasTexture },
+    [CHUNK_SHADER_UNIFORMS.time]: { value: INITIAL_CHUNK_TIME_SECS },
     [CHUNK_ALPHA_TEST_UNIFORM]: { value: alphaTest },
     [CHUNK_SHADER_UNIFORMS.sunIntensity]: { value: sunIntensity },
     [CHUNK_SHADER_UNIFORMS.fogColor]: { value: [...defaultEnvironment.fogColor] },

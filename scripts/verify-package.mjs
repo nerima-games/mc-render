@@ -92,6 +92,25 @@ const typeConsumerSubpathImports = importSpecifiers
   .map((specifier, index) => `import * as packageExport${index} from ${JSON.stringify(specifier)}`)
   .join("\n");
 const typeConsumerSubpathUses = importSpecifiers.map((_, index) => `  packageExport${index}`).join(",\n");
+const typeConsumerAnimationApi = `
+import type {
+  AnimationClockInput,
+  AnimationClockInputError,
+  AnimationSeconds,
+  ChunkAnimationKind,
+  PartialTick,
+  TimeOfDayTicks,
+} from ${JSON.stringify(packageName)}
+
+type PublicAnimationApiConsumer = {
+  readonly animationKind: ChunkAnimationKind
+  readonly clock: AnimationClockInput
+  readonly clockFailure: AnimationClockInputError
+  readonly animationSeconds: AnimationSeconds
+  readonly partialTick: PartialTick
+  readonly timeOfDayTicks: TimeOfDayTicks
+}
+`;
 const peerDependencies = manifest.peerDependencies ?? {};
 
 const workspace = await mkdtemp(join(tmpdir(), "mc-render-package-"));
@@ -178,6 +197,7 @@ try {
 
   const typeConsumerSource = `
 ${typeConsumerSubpathImports}
+${typeConsumerAnimationApi}
 
 const declaredPackageExports: readonly object[] = [
 ${typeConsumerSubpathUses}

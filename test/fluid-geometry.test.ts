@@ -117,6 +117,7 @@ describe('combineChunkGeometry', () => {
       positions: new Float32Array(0),
       quadCount: 0,
       tileIndices: new Float32Array(0),
+      animationKinds: new Float32Array(0),
       uvs: new Float32Array(0),
       vertexCount: 0,
     }

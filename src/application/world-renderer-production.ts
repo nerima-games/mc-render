@@ -1,8 +1,13 @@
 import {
+  type AnimationClockInput,
+  type AnimationClockInputError,
+  animationTimeSeconds,
+} from '../domain/animation-clock.js'
+import {
   DEFAULT_DIMENSION,
   type RenderEnvironmentPlan,
 } from '../domain/render-environment.js'
-import type { DeltaTimeSecs, Dimension } from '@nerima-games/mc-kernel'
+import { type DeltaTimeSecs, type Dimension } from '@nerima-games/mc-kernel'
 import {
   type ParticleFrameSnapshot,
   type ParticlePool,
@@ -34,7 +39,12 @@ import type {
   ThreeUniform,
   ThreeVector3,
 } from './three-surface.js'
-import { type WorldRenderer, type WorldRendererOptions, makeWorldRenderer } from './world-renderer.js'
+import {
+  type WorldRenderer,
+  type WorldRendererOptions,
+  makeWorldRenderer,
+} from './world-renderer.js'
+import { CHUNK_SHADER_UNIFORMS } from '../domain/chunk-shader.js'
 import { Effect } from 'effect'
 /**
  * Production renderer composition.
@@ -50,8 +60,17 @@ type TransformableThreeMesh = ThreeMesh & {
   readonly scale: ThreeVector3
 }
 
-export type ProductionFrame = {
-  readonly elapsedSecs: number
+const applyChunkShaderTime = (
+  chunkMaterials: ReadonlyArray<{ readonly uniforms: Record<string, ThreeUniform> }>,
+  animationSecs: number,
+): void => {
+  for (const chunkMaterial of chunkMaterials) {
+    const time = chunkMaterial.uniforms[CHUNK_SHADER_UNIFORMS.time]
+    if (time) {time.value = animationSecs}
+  }
+}
+
+export type ProductionFrame = AnimationClockInput & {
   readonly deltaSecs: DeltaTimeSecs
   readonly cameraPosition: Readonly<{ worldX: number; worldY: number; worldZ: number }>
   /** Defaults to the renderer's current dimension, initially `overworld`. */
@@ -66,7 +85,7 @@ export type ProductionWorldRenderer<TShaderMaterial extends ThreeMaterial> = Wor
   readonly particleService: ParticleService['Service']
   readonly particles: ParticleSystem<TShaderMaterial>
   readonly setEnvironment: (environment: RenderEnvironmentPlan) => Effect.Effect<void>
-  readonly advanceFrame: (frame: ProductionFrame) => Effect.Effect<void, ParticlePoolInputError>
+  readonly advanceFrame: (frame: ProductionFrame) => Effect.Effect<void, ParticlePoolInputError | AnimationClockInputError>
 }
 
 export type ProductionWorldRendererOptions = Omit<
@@ -110,8 +129,9 @@ export const makeProductionWorldRenderer = <
     const water = makeWaterMaterial(three, viewport)
     const particleService = yield* ParticleService
     const particlePool = yield* ParticleServicePoolAccess
-    const particles = yield* makeParticleSystem(three, particlePool, atlasTexture)
-    yield* Effect.fromResult(assertRendererMaterialPolicies(water.material, particles.material))
+    const particles = yield* makeParticleSystem(three, particlePool, atlasTexture).pipe(
+      Effect.tap((particleSystem) => Effect.fromResult(assertRendererMaterialPolicies(water.material, particleSystem.material))),
+    )
     const { particles: _particles, ...rendererOptions } = options
     const renderer = yield* makeWorldRenderer(three, canvas, viewport, {
       ...rendererOptions,
@@ -128,18 +148,24 @@ export const makeProductionWorldRenderer = <
     })
     yield* renderer.attachSceneObject(particles.mesh)
 
+    const advanceParticleFrame = (frame: ProductionFrame) => Effect.gen(function* advanceParticleFrameEffect() {
+      activeDimension = frame.dimension ?? activeDimension
+      const entities = yield* renderer.entitySnapshot
+      particleFrame = {
+        dimension: activeDimension,
+        entities: entities.map(({ feetPosition, id }) => ({ feetPosition, id })),
+      }
+      yield* Effect.fromResult(advanceParticles(particlePool, frame.deltaSecs, particleFrame))
+    })
+
     return {
       ...renderer,
       advanceFrame: (frame: ProductionFrame) => Effect.gen(function* advanceProductionFrame() {
-        activeDimension = frame.dimension ?? activeDimension
-        const entities = yield* renderer.entitySnapshot
-        particleFrame = {
-          dimension: activeDimension,
-          entities: entities.map(({ feetPosition, id }) => ({ feetPosition, id })),
-        }
-        yield* Effect.fromResult(advanceParticles(particlePool, frame.deltaSecs, particleFrame))
-        applyWaterFrameUniforms(water.uniforms, frame.elapsedSecs, frame.cameraPosition)
-        applyWaterFrameUniforms(chunkMaterials.transparent.uniforms, frame.elapsedSecs, frame.cameraPosition)
+        const animationSecs = yield* Effect.fromResult(animationTimeSeconds(frame))
+        yield* advanceParticleFrame(frame)
+        applyChunkShaderTime(Object.values(chunkMaterials), animationSecs)
+        applyWaterFrameUniforms(water.uniforms, animationSecs, frame.cameraPosition)
+        applyWaterFrameUniforms(chunkMaterials.transparent.uniforms, animationSecs, frame.cameraPosition)
       }).pipe(Effect.andThen(particles.sync)),
       chunkMaterial: chunkMaterials.opaque.material,
       dispose: renderer.detachSceneObject(particles.mesh).pipe(

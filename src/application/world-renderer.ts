@@ -46,17 +46,7 @@
  * branch.
  */
 import {
-  type AxisAlignedBounds,
-  aabbIntersectsPreparedPerspectiveFrustum,
-  boundsFromPositions,
-  preparePerspectiveFrustum,
-} from '../domain/frustum-culling.js'
-import {
-  CHUNK_SHADER_ATTRIBUTES,
-  CHUNK_SHADER_UNIFORMS,
-  chunkShaderSource,
-} from '../domain/chunk-shader.js'
-import {
+  ANIMATION_KIND_COMPONENTS,
   COLOR_COMPONENTS,
   type ChunkGeometryBuffers,
   FLUID_DIRECTION_COMPONENTS,
@@ -68,13 +58,34 @@ import {
   combineChunkGeometry,
 } from '../domain/chunk-geometry.js'
 import {
+  type AnimationClockInput,
+  type AnimationClockInputError,
+  animationTimeSeconds,
+} from '../domain/animation-clock.js'
+import {
+  type AxisAlignedBounds,
+  aabbIntersectsPreparedPerspectiveFrustum,
+  boundsFromPositions,
+  preparePerspectiveFrustum,
+} from '../domain/frustum-culling.js'
+import {
+  CHUNK_SHADER_ATTRIBUTES,
+  CHUNK_SHADER_UNIFORMS,
+  chunkShaderSource,
+} from '../domain/chunk-shader.js'
+import {
   DAY_SKY_COLOR,
   type RenderEnvironmentPlan,
   planRenderEnvironment,
 } from '../domain/render-environment.js'
-import { type DeltaTimeSecs, type Dimension, type ChunkKey as KernelChunkKey } from '@nerima-games/mc-kernel'
+import {
+  type DeltaTimeSecs,
+  type Dimension,
+  type ChunkKey as KernelChunkKey,
+  MonotonicTimeSecs,
+} from '@nerima-games/mc-kernel'
 export type ChunkKey = KernelChunkKey
-import { Effect, Ref } from 'effect'
+import { Effect, Ref, Result, Schema } from 'effect'
 import {
   type MobAnimationInput,
   type MobVisualPartPlan,
@@ -270,6 +281,7 @@ export const FULL_SUN_INTENSITY = 1
 const CHUNK_ALPHA_TEST_UNIFORM = 'uAlphaTest'
 const CHUNK_CUTOUT_ALPHA_TEST = 0.1
 const CHUNK_ALPHA_TEST_DISABLED = 0
+const INITIAL_CHUNK_TIME_SECS = 0
 
 type ChunkMaterialVariant = 'opaque' | 'cutout' | 'transparent'
 
@@ -299,6 +311,16 @@ const chunkAlphaTestFor = (variant: ChunkMaterialVariant): number => {
 export type ChunkShaderMaterial<TShaderMaterial extends ThreeMaterial> = {
   readonly material: TShaderMaterial
   readonly uniforms: Record<string, ThreeUniform>
+}
+
+const applyChunkShaderTime = (
+  chunkMaterials: ReadonlyArray<ChunkShaderMaterial<ThreeMaterial>>,
+  animationSecs: number,
+): void => {
+  for (const chunkMaterial of chunkMaterials) {
+    const time = chunkMaterial.uniforms[CHUNK_SHADER_UNIFORMS.time]
+    if (time) {time.value = animationSecs}
+  }
 }
 
 /** Update the shared shader's stable uniform boxes without rebuilding it. */
@@ -341,6 +363,7 @@ const makeChunkShaderMaterialVariant = <
   const alphaTest = chunkAlphaTestFor(variant)
   const uniforms: Record<string, ThreeUniform> = {
     [CHUNK_SHADER_UNIFORMS.atlas]: { value: atlasTexture },
+    [CHUNK_SHADER_UNIFORMS.time]: { value: INITIAL_CHUNK_TIME_SECS },
     [CHUNK_ALPHA_TEST_UNIFORM]: { value: alphaTest },
     [CHUNK_SHADER_UNIFORMS.sunIntensity]: { value: sunIntensity },
     [CHUNK_SHADER_UNIFORMS.fogColor]: { value: [...defaultEnvironment.fogColor] },
@@ -1476,6 +1499,10 @@ export const makeWorldRenderer = <
           CHUNK_SHADER_ATTRIBUTES.tileIndex,
           new three.BufferAttribute(buffers.tileIndices, TILE_INDEX_COMPONENTS, false),
         )
+        geometry.setAttribute(
+          CHUNK_SHADER_ATTRIBUTES.animationKind,
+          new three.BufferAttribute(buffers.animationKinds, ANIMATION_KIND_COMPONENTS, false),
+        )
       },
 
       buildChunkEntry: (update: ChunkGeometryUpdate): ChunkEntry<TGeometry> => {
@@ -1821,10 +1848,50 @@ export const makeWorldRenderer = <
   })
 }
 
-export type ProductionFrame = {
-  readonly elapsedSecs: number
+export type ProductionFrame = AnimationClockInput & {
   readonly deltaSecs: DeltaTimeSecs
   readonly cameraPosition: Readonly<{ worldX: number; worldY: number; worldZ: number }>
+}
+
+const MINIMUM_PRODUCTION_FRAME_ELAPSED_SECS = 0
+
+export const ProductionFrameElapsedSecsSchema: Schema.Codec<number> = Schema.Finite.check(
+  Schema.isGreaterThanOrEqualTo(MINIMUM_PRODUCTION_FRAME_ELAPSED_SECS),
+)
+
+export type ProductionFrameInputError = Readonly<{
+  readonly _tag: 'ProductionFrameInputError'
+  readonly operation: 'advance-frame'
+  readonly reason: 'negative-elapsed-secs' | 'non-finite-elapsed-secs' | 'not-number'
+}>
+
+export const ProductionFrameInputErrorSchema: Schema.Codec<ProductionFrameInputError> = Schema.Struct({
+  _tag: Schema.Literal('ProductionFrameInputError'),
+  operation: Schema.Literal('advance-frame'),
+  reason: Schema.Literals(['negative-elapsed-secs', 'non-finite-elapsed-secs', 'not-number']),
+})
+
+const productionFrameInputError = (reason: ProductionFrameInputError['reason']): ProductionFrameInputError => ({
+  _tag: 'ProductionFrameInputError',
+  operation: 'advance-frame',
+  reason,
+})
+
+export const validateProductionFrameElapsedSecs = (
+  elapsedSecs: unknown,
+): Result.Result<MonotonicTimeSecs, ProductionFrameInputError> => {
+  const decodedElapsedSecs = Schema.decodeUnknownResult(ProductionFrameElapsedSecsSchema)(elapsedSecs)
+  if (Result.isSuccess(decodedElapsedSecs)) {
+    return Result.succeed(MonotonicTimeSecs(decodedElapsedSecs.success))
+  }
+
+  if (typeof elapsedSecs !== 'number') {
+    return Result.fail(productionFrameInputError('not-number'))
+  }
+  if (elapsedSecs < MINIMUM_PRODUCTION_FRAME_ELAPSED_SECS) {
+    return Result.fail(productionFrameInputError('negative-elapsed-secs'))
+  }
+  return Result.fail(productionFrameInputError('non-finite-elapsed-secs'))
 }
 
 export type ProductionWorldRenderer<TShaderMaterial extends ThreeMaterial> = WorldRenderer & {
@@ -1833,7 +1900,7 @@ export type ProductionWorldRenderer<TShaderMaterial extends ThreeMaterial> = Wor
   readonly waterUniforms: Record<string, ThreeUniform>
   readonly particlePool: ParticlePool
   readonly particles: ParticleSystem
-  readonly advanceFrame: (frame: ProductionFrame) => Effect.Effect<void, ParticlePoolInputError>
+  readonly advanceFrame: (frame: ProductionFrame) => Effect.Effect<void, ParticlePoolInputError | AnimationClockInputError>
 }
 
 export type ProductionWorldRendererOptions = Omit<
@@ -1889,9 +1956,11 @@ export const makeProductionWorldRenderer = <
     return {
       ...renderer,
       advanceFrame: (frame) => Effect.gen(function* advanceProductionFrame() {
+        const animationSecs = yield* Effect.fromResult(animationTimeSeconds(frame))
         yield* Effect.fromResult(advanceParticles(particlePool, frame.deltaSecs))
-        applyWaterFrameUniforms(water.uniforms, frame.elapsedSecs, frame.cameraPosition)
-        applyWaterFrameUniforms(transparentSolid.uniforms, frame.elapsedSecs, frame.cameraPosition)
+        applyChunkShaderTime([chunk, cutout, transparentSolid], animationSecs)
+        applyWaterFrameUniforms(water.uniforms, animationSecs, frame.cameraPosition)
+        applyWaterFrameUniforms(transparentSolid.uniforms, animationSecs, frame.cameraPosition)
       }).pipe(Effect.andThen(particles.sync)),
       chunkMaterial: chunk.material,
       dispose: renderer.detachSceneObject(particles.mesh).pipe(

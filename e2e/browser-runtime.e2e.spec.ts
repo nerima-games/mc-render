@@ -67,7 +67,9 @@ type BrowserRuntimeOptions = Readonly<{
 type CompositeRuntimeOptions = BrowserRuntimeOptions & Readonly<{
   cameraPosition: typeof FRAME_CAMERA_POSITION
   deltaSecs: number
-  elapsedSecs: number
+  simulationTick: number
+  partialTick: number
+  timeOfDayTicks: number
 }>
 
 type RefractionRuntimeOptions = BrowserRuntimeOptions & Readonly<{
@@ -95,7 +97,9 @@ type CompositeRuntime = Readonly<{
   advanceFrame: (frame: Readonly<{
     cameraPosition: typeof FRAME_CAMERA_POSITION
     deltaSecs: number
-    elapsedSecs: number
+    simulationTick: number
+    partialTick: number
+    timeOfDayTicks: number
   }>) => Effect.Effect<void, unknown>
   captureScreenshot: () => Effect.Effect<Blob, unknown>
   dispose: () => Effect.Effect<void, unknown>
@@ -139,7 +143,9 @@ const inspectCompositeRuntime = async (options: CompositeRuntimeOptions): Promis
       await effectModule.Effect.runPromise(runtime.advanceFrame({
         cameraPosition: options.cameraPosition,
         deltaSecs: options.deltaSecs,
-        elapsedSecs: options.elapsedSecs,
+        partialTick: options.partialTick,
+        simulationTick: options.simulationTick,
+        timeOfDayTicks: options.timeOfDayTicks,
       }))
       await effectModule.Effect.runPromise(runtime.render(options.camera))
       const screenshot = await effectModule.Effect.runPromise(runtime.captureScreenshot())
@@ -366,9 +372,11 @@ test('ultra renders its composite chain and exposes browser stage measures', asy
     canvasHeight: CANVAS_HEIGHT,
     canvasWidth: CANVAS_WIDTH,
     deltaSecs: FRAME_DELTA_SECS,
-    elapsedSecs: FRAME_DELTA_SECS,
     maxPixelRatio: PIXEL_RATIO,
     one: ONE,
+    partialTick: 0.25,
+    simulationTick: 20,
+    timeOfDayTicks: 6000,
     zero: ZERO,
   })
   expectCompositeResult(result)

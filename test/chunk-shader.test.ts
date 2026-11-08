@@ -25,6 +25,7 @@ import {
   chunkVertexShader,
   glslFloat,
 } from '../src/domain/chunk-shader'
+import { CHUNK_ANIMATION_KIND } from '../src/domain/chunk-animation-kind'
 import {
   AO_SHADE_FLOOR,
   AO_SHADE_RANGE,
@@ -83,6 +84,26 @@ describe('the fragment source carries the CPU path`s coefficients', () => {
       expect(source).toContain(glslFloat(LIGHT_SHADE_RANGE))
       expect(source).toContain(glslFloat(AO_SHADE_FLOOR))
       expect(source).toContain(glslFloat(AO_SHADE_RANGE))
+    }),
+  )
+
+  it.effect('uses elapsed time to scroll block-selected animated materials inside their atlas bounds', () =>
+    Effect.sync(() => {
+      const source = chunkFragmentShader()
+
+      expect(source).toContain('uniform float uTime;')
+      for (const kind of [
+        CHUNK_ANIMATION_KIND.water,
+        CHUNK_ANIMATION_KIND.lava,
+        CHUNK_ANIMATION_KIND.fire,
+        CHUNK_ANIMATION_KIND.netherPortal,
+        CHUNK_ANIMATION_KIND.endPortal,
+      ]) {
+        expect(source).toContain(`animationKind == ${glslFloat(kind)}`)
+      }
+      expect(source).not.toMatch(/if\s*\(\s*tile\s*==/)
+      expect(source).toContain('inTile = fract(inTile + animationOffset)')
+      expect(source).toContain('mix(lo, hi, inTile)')
     }),
   )
 
@@ -217,6 +238,8 @@ describe('the vertex source', () => {
       const source = chunkVertexShader()
       expect(source).toContain(`attribute float ${CHUNK_SHADER_ATTRIBUTES.tileIndex}`)
       expect(source).toContain(`vTileIndex = ${CHUNK_SHADER_ATTRIBUTES.tileIndex}`)
+      expect(source).toContain(`attribute float ${CHUNK_SHADER_ATTRIBUTES.animationKind}`)
+      expect(source).toContain(`vAnimationKind = ${CHUNK_SHADER_ATTRIBUTES.animationKind}`)
     }),
   )
 })

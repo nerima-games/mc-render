@@ -15,6 +15,7 @@ import {
   VERTICES_PER_QUAD,
   tangentAxes,
 } from './meshing-vocabulary.js'
+import { chunkAnimationKindForBlockId } from './chunk-animation-kind.js'
 
 export { INDICES_PER_QUAD, VERTICES_PER_QUAD, tangentAxes }
 export type {
@@ -35,6 +36,7 @@ export const POSITION_COMPONENTS = 3
 export const NORMAL_COMPONENTS = 3
 export const COLOR_COMPONENTS = 3
 export const UV_COMPONENTS = 2
+export const ANIMATION_KIND_COMPONENTS = 1
 /**
  * One `float` per vertex, because `./chunk-shader.ts` declares
  * `attribute float tileIndex` and a `vec` would not link against it.
@@ -279,7 +281,7 @@ export const quadUvExtent = (
 }
 
 /**
- * The five arrays a chunk's `BufferGeometry` is assembled from, plus the counts.
+ * The arrays a chunk's `BufferGeometry` is assembled from, plus the counts.
  *
  * OWNED AND EXACTLY SIZED, never a view into a shared accumulator. mc-meshing's
  * `domain/mesh.ts` header records the same decision on its own output and the
@@ -331,6 +333,8 @@ export type ChunkGeometryBuffers = {
    * `chunkShaderSource()` rather than restating them.
    */
   readonly tileIndices: Float32Array
+  /** Block-derived animated material kind, repeated for each quad vertex. */
+  readonly animationKinds: Float32Array
   /** Horizontal animation direction; zero for solids and still fluids. */
   readonly fluidDirections: Float32Array
   /** One for falling fluid faces, zero otherwise. */
@@ -350,6 +354,7 @@ const EMPTY_COUNT = 0
 
 /** The buffers for a chunk with no visible faces. Allocation-free. */
 const EMPTY_BUFFERS: ChunkGeometryBuffers = {
+  animationKinds: new Float32Array(EMPTY_LENGTH),
   colors: new Uint8Array(EMPTY_LENGTH),
   fluidDirections: new Float32Array(EMPTY_LENGTH),
   fluidFalling: new Float32Array(EMPTY_LENGTH),
@@ -518,12 +523,14 @@ type ChunkWriteBuffers = {
   readonly colors: Uint8Array
   readonly uvs: Float32Array
   readonly tileIndices: Float32Array
+  readonly animationKinds: Float32Array
   readonly fluidDirections: Float32Array
   readonly fluidFalling: Float32Array
   readonly indices: Uint32Array
 }
 
 const allocateChunkWriteBuffers = (vertexCount: number, indexCount: number): ChunkWriteBuffers => ({
+  animationKinds: new Float32Array(vertexCount * ANIMATION_KIND_COMPONENTS),
   colors: new Uint8Array(vertexCount * COLOR_COMPONENTS),
   fluidDirections: new Float32Array(vertexCount * FLUID_DIRECTION_COMPONENTS),
   fluidFalling: new Float32Array(vertexCount * FLUID_FALLING_COMPONENTS),
@@ -547,6 +554,7 @@ type QuadAttributes = {
   readonly normal: QuadVertex
   readonly color: readonly [number, number, number]
   readonly tileIndex: number
+  readonly animationKind: number
 }
 
 type VertexWrite = {
@@ -557,6 +565,7 @@ type VertexWrite = {
   readonly normal: QuadVertex
   readonly color: readonly [number, number, number]
   readonly tileIndex: number
+  readonly animationKind: number
 }
 
 /** Write one vertex's position and normal. Split from colour/tile so each stays a small function. */
@@ -573,18 +582,19 @@ const writeVertexPositionAndNormal = (write: VertexWrite): void => {
 }
 
 /**
- * Write one vertex's colour and tile index.
+ * Write one vertex's colour, atlas tile and block-derived animation kind.
  *
  * The same shade and the same tile four times per quad — see `processQuad`'s
  * header on why both are computed once per quad and written once per vertex.
  */
-const writeVertexColorAndTile = (write: VertexWrite): void => {
-  const { buffers, at, tileAt, color, tileIndex } = write
+const writeVertexSurfaceAttributes = (write: VertexWrite): void => {
+  const { buffers, at, tileAt, color, tileIndex, animationKind } = write
   const [red, green, blue] = color
   buffers.colors[at] = red
   buffers.colors[at + GREEN_CHANNEL_OFFSET] = green
   buffers.colors[at + BLUE_CHANNEL_OFFSET] = blue
   buffers.tileIndices[tileAt] = tileIndex
+  buffers.animationKinds[tileAt] = animationKind
 }
 
 /**
@@ -597,15 +607,15 @@ const writeVertexColorAndTile = (write: VertexWrite): void => {
  * non-null assertions in the hot path.
  */
 const writeQuadCorners = (buffers: ChunkWriteBuffers, base: number, attributes: QuadAttributes): void => {
-  const { corners, normal, color, tileIndex } = attributes
+  const { corners, normal, color, tileIndex, animationKind } = attributes
   let corner = 0
   for (const vertex of corners) {
     const at = (base + corner) * POSITION_COMPONENTS
     const tileAt = (base + corner) * TILE_INDEX_COMPONENTS
     corner += LOOP_STEP
-    const write: VertexWrite = { at, buffers, color, normal, tileAt, tileIndex, vertex }
+    const write: VertexWrite = { animationKind, at, buffers, color, normal, tileAt, tileIndex, vertex }
     writeVertexPositionAndNormal(write)
-    writeVertexColorAndTile(write)
+    writeVertexSurfaceAttributes(write)
   }
 }
 
@@ -663,8 +673,9 @@ const processQuad = (context: ChunkBuildContext, quad: MeshQuad, quadIndex: numb
   const color = context.color(quad)
   const [uExtent, vExtent] = quadUvExtent(quad)
   const tileIndex = context.tile(quad)
+  const animationKind = chunkAnimationKindForBlockId(quad.blockId)
   const base = quadIndex * VERTICES_PER_QUAD
-  writeQuadCorners(context.buffers, base, { color, corners, normal, tileIndex })
+  writeQuadCorners(context.buffers, base, { animationKind, color, corners, normal, tileIndex })
   writeQuadUVs(context.buffers.uvs, base * UV_COMPONENTS, [uExtent, vExtent])
   writeQuadIndices(context.buffers.indices, quadIndex * INDICES_PER_QUAD, base)
 }
@@ -746,6 +757,7 @@ const processCrossPlantQuad = (context: ChunkBuildContext, quad: CrossPlantQuad,
   const normal: QuadVertex = [quad.nx, quad.ny, quad.nz]
   const base = quadIndex * VERTICES_PER_QUAD
   writeQuadCorners(context.buffers, base, {
+    animationKind: chunkAnimationKindForBlockId(quad.blockId),
     color: context.color(quad),
     corners,
     normal,
@@ -761,6 +773,7 @@ const processBlockShapeQuad = (context: ChunkBuildContext, quad: BlockShapeQuad,
   const corners = translateQuadCorners(quad.vertices, context.originX, context.originZ)
   const base = quadIndex * VERTICES_PER_QUAD
   writeQuadCorners(context.buffers, base, {
+    animationKind: chunkAnimationKindForBlockId(quad.blockId),
     color: context.color(quad),
     corners,
     normal: faceNormal(quad.direction),
@@ -1103,6 +1116,15 @@ const copyGeometryIndices = (target: ChunkWriteBuffers, offsets: GeometryOffsets
   }
 }
 
+const copyGeometryMaterialAttributes = (
+  target: ChunkWriteBuffers,
+  vertexOffset: number,
+  part: ChunkGeometryBuffers,
+): void => {
+  target.animationKinds.set(part.animationKinds, vertexOffset)
+  target.tileIndices.set(part.tileIndices, vertexOffset)
+}
+
 /**
  * Copy one part's buffers into the combined target at its assigned offsets,
  * and return the offsets the next part starts at.
@@ -1117,7 +1139,7 @@ const copyGeometryPart = (
   target.normals.set(part.normals, vertexOffset * NORMAL_COMPONENTS)
   target.colors.set(part.colors, vertexOffset * COLOR_COMPONENTS)
   target.uvs.set(part.uvs, vertexOffset * UV_COMPONENTS)
-  target.tileIndices.set(part.tileIndices, vertexOffset)
+  copyGeometryMaterialAttributes(target, vertexOffset, part)
   target.fluidDirections.set(part.fluidDirections, vertexOffset * FLUID_DIRECTION_COMPONENTS)
   target.fluidFalling.set(part.fluidFalling, vertexOffset)
   copyGeometryIndices(target, offsets, part)

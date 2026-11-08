@@ -1,8 +1,12 @@
 import { describe, expect, it } from '@effect/vitest'
-import { Effect, Schema } from 'effect'
+import * as FastCheck from 'fast-check'
+import { Effect, Result, Schema } from 'effect'
 import { DomainEventSchema, WorldPositionSchema } from '@nerima-games/mc-kernel'
 import {
   PARTICLE_KIND_DEFAULTS,
+  AnimationSecondsSchema,
+  AnimationClockInputErrorSchema,
+  animationTimeSeconds,
   ParticleColorSchema,
   ParticleDirectionSchema,
   ParticleKindSchema,
@@ -57,6 +61,27 @@ describe('public focus navigation and input DTO exports', () => {
     expect(clickLandingForTarget(focus)).toBe('ui')
     browserOptions.onFocusNavigationDirection?.('down')
     expect(directions).toStrictEqual(['down'])
+  })
+})
+
+describe('public animation clock conversion', () => {
+  it('exports the simulation-tick to seconds function', () => {
+    expect(animationTimeSeconds({ partialTick: 0.5, simulationTick: 20, timeOfDayTicks: 100 })).toMatchObject({
+      _tag: 'Success',
+      success: 1.025,
+    })
+  })
+
+  it('returns a finite time or a schema-checked failure for arbitrary input', () => {
+    FastCheck.assert(
+      FastCheck.property(FastCheck.anything(), (input) => {
+        const result = animationTimeSeconds(input)
+        if (Result.isFailure(result)) {
+          return Result.isSuccess(Schema.decodeUnknownResult(AnimationClockInputErrorSchema)(result.failure))
+        }
+        return Result.isSuccess(Schema.decodeUnknownResult(AnimationSecondsSchema)(result.success))
+      }),
+    )
   })
 })
 
