@@ -317,6 +317,30 @@ describe('interaction renderer', () => {
     }),
   )
 
+  it.effect('uses the fallback color without an atlas and hides a cleared held item', () =>
+    Effect.sync(() => {
+      const renderer = createInteractionRenderer(new FakeSurface())
+      const [hand] = cameraChildren(renderer)
+      const heldItem = fakeMesh(hand?.children[1])
+      const shown = renderer.update({
+        ...FRAME,
+        heldItem: { kind: 'block', tileIndex: 47 },
+      })
+
+      expect(Result.isSuccess(shown)).toBe(true)
+      expect(heldItem.material.map).toBeNull()
+      expect(heldItem.material.color.value).toBe(0xb69b6a)
+      expect(heldItem.visible).toBe(true)
+
+      const cleared = renderer.update({ ...FRAME, heldItem: undefined })
+
+      expect(Result.isSuccess(cleared)).toBe(true)
+      expect(heldItem.material.map).toBeNull()
+      expect(heldItem.visible).toBe(false)
+      renderer.dispose()
+    }),
+  )
+
   it.effect('renders temporary non-block item categories with distinct silhouettes and tints', () =>
     Effect.sync(() => {
       const renderer = createInteractionRenderer(new FakeSurface())
