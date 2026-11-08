@@ -20,6 +20,7 @@ import { mirroredCameraState } from '../src/domain/camera-mirror'
 import {
   buildChunkGeometry,
   buildFluidGeometry,
+  combineChunkGeometry,
   type FluidQuad,
   type MeshQuad,
 } from '../src/domain/chunk-geometry'
@@ -336,12 +337,22 @@ describe('acquiring the renderer', () => {
         direction: 'zPos',
         vertices: [[1, 0, 2], [1, 1, 2], [0, 1, 2], [0, 0, 2]],
       }
+      const lavaFace: FluidQuad = {
+        ao: 0,
+        blockId: blockIdForType('lava'),
+        direction: 'zPos',
+        vertices: [[1, 0, 0], [1, 1, 0], [0, 1, 0], [0, 0, 0]],
+      }
+      const transparentSolidBuffers = combineChunkGeometry(
+        glassBuffers,
+        buildFluidGeometry([lavaFace]),
+      )
       const waterBuffers = buildFluidGeometry([waterFace])
 
       yield* renderer.setChunks([{
         buffers: buildChunkGeometry([]),
         key: chunkKeyOf(chunkCoord(0, 0)),
-        transparentSolidBuffers: glassBuffers,
+        transparentSolidBuffers,
         waterBuffers,
       }])
 
@@ -350,17 +361,29 @@ describe('acquiring the renderer', () => {
       const readIndices = (): ReadonlyArray<number> => Array.from(transparentGeometry?.index()?.array ?? [])
 
       yield* renderer.draw(mirroredCameraState(poseAt(0, 0, 4, 0, 0)))
-      expect(readIndices()).toStrictEqual([0, 1, 2, 0, 2, 3, 4, 5, 6, 4, 6, 7])
+      expect(readIndices()).toStrictEqual([
+        0, 1, 2, 0, 2, 3,
+        4, 5, 6, 4, 6, 7,
+        8, 9, 10, 8, 10, 11,
+      ])
       expect(Array.from(transparentGeometry?.attributes.get('waterSurface')?.array ?? [])).toStrictEqual([
-        0, 0, 0, 0, 1, 1, 1, 1,
+        0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1,
       ])
       expect(indexAttribute?.needsUpdate).toBeUndefined()
 
       yield* renderer.draw(mirroredCameraState(poseAt(0, 0, 4, 0, 0)))
-      expect(readIndices()).toStrictEqual([0, 1, 2, 0, 2, 3, 4, 5, 6, 4, 6, 7])
+      expect(readIndices()).toStrictEqual([
+        0, 1, 2, 0, 2, 3,
+        4, 5, 6, 4, 6, 7,
+        8, 9, 10, 8, 10, 11,
+      ])
 
       yield* renderer.draw(mirroredCameraState(poseAt(0, 0, -4, Math.PI, 0)))
-      expect(readIndices()).toStrictEqual([4, 5, 6, 4, 6, 7, 0, 1, 2, 0, 2, 3])
+      expect(readIndices()).toStrictEqual([
+        8, 9, 10, 8, 10, 11,
+        4, 5, 6, 4, 6, 7,
+        0, 1, 2, 0, 2, 3,
+      ])
       expect(indexAttribute?.needsUpdate).toBe(true)
       expect(transparentGeometry?.index()).toBe(indexAttribute)
 
