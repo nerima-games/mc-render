@@ -115,7 +115,6 @@ const cameraFrom = (pose: typeof START_POSE, rollRadians = 0): MirroredCameraSta
     sourceCapturedAtSecs: 0,
   }) as unknown as MirroredCameraState
 
-/** A fixture quad whose face tile is resolved from its block ID and role. */
 type FixtureQuad = MeshQuad
 
 type TerrainFixture = {

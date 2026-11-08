@@ -43,4 +43,4 @@ Use an original, low-resolution pixel-art style built from authored palettes and
 - Chunk quads expose `top`, `side`, and `bottom` texture roles. All four horizontal directions use `side`; kernel block IDs do not carry a facing state, so a functional front detail currently appears on each vertical face.
 - Coordinate helpers in `src/domain/texture-atlas.ts` return typed failures for invalid tile indices, mip levels, and UV coordinates rather than selecting tile zero.
 - Tests cover map completeness, valid and invalid coordinate boundaries, generation determinism, checked-in asset freshness, mip levels, and tile-edge extrusion.
-- The package changeset is minor. Keep the version in `package.json` unchanged until release tooling applies the changeset.
+- Keep the version in `package.json` unchanged until release tooling applies the changeset.
