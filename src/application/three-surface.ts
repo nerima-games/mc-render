@@ -149,10 +149,15 @@
  * than a check on a shape. It is not a place to add members. `copyArray` and
  * `needsUpdate`, which the reference's `tryReuseGeometry` uses
  * (ts-minecraft `packages/rendering/infrastructure/meshing/chunk-mesh-geometry.ts:68-71`),
- * belong to the in-place GPU buffer reuse path this repository has not written
- * and has no benchmark to justify.
+ * is exposed only through `ThreeDynamicBufferAttribute` for dynamic index
+ * updates. The broader in-place GPU buffer reuse path remains unimplemented.
  */
 export type ThreeBufferAttribute = Record<never, never>
+
+/** A buffer attribute whose existing GPU storage can be marked dirty. */
+export interface ThreeDynamicBufferAttribute extends ThreeBufferAttribute {
+  set needsUpdate(value: boolean)
+}
 
 /**
  * A material: opaque, and disposable.
@@ -177,8 +182,9 @@ export type ThreeMaterial = {
  * any geometry with an empty position attribute — and an empty chunk is the
  * normal case at the edge of the loaded world, not an error.
  *
- * `setIndex` takes `| null` because the real one does and the comparison is
- * bivariant; the renderer never passes it. See `ThreeBufferAttribute`.
+ * `setIndex` accepts a typed attribute or `null`; the chunk renderer supplies
+ * its index attribute through this method. Its opaque attribute type keeps the
+ * method compatible with three's `BufferAttribute | number[] | null` signature.
  */
 export type ThreeBufferGeometry = {
   setAttribute(name: string, attribute: ThreeBufferAttribute): unknown
@@ -324,7 +330,7 @@ export type ThreeSurface<
     array: Float32Array | Uint8Array | Uint32Array,
     itemSize: number,
     normalized: boolean,
-  ) => ThreeBufferAttribute
+  ) => ThreeDynamicBufferAttribute
   readonly Mesh: new (geometry: TGeometry, material: TMaterial) => ThreeMesh
   readonly MeshBasicMaterial: new (parameters: {
     readonly vertexColors: boolean

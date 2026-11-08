@@ -15,11 +15,19 @@
 import { describe, expect, it } from '@effect/vitest'
 import { Effect, Ref, Result, Schema } from 'effect'
 import * as FastCheck from 'fast-check'
+import { BLOCK_IDS, BlockAxis, LocalAxis } from '@nerima-games/mc-kernel'
+import type { Chunk } from '@nerima-games/mc-worldgen'
+import { emptyBlocks, setBlockAt } from '@nerima-games/mc-worldgen/testing'
 import {
   makeWorldRenderer,
   type ChunkGeometryUpdate,
   type WorldRenderer,
 } from '../src/application/world-renderer'
+import {
+  blockNameFromKernel,
+  makeChunkStoreMesher,
+  type MeshingChunkStore,
+} from '../src/application/chunk-store-mesher'
 import {
   EMPTY_SYNC_REPORT,
   BudgetedDirtySourceInputErrorSchema,
@@ -36,6 +44,7 @@ import {
 } from '../src/application/world-sync'
 import { CHUNK_SIZE } from '@nerima-games/mc-meshing'
 import type { CrossPlantQuad, GeometryQuad, MeshQuad, QuadColor } from '../src/domain/chunk-geometry'
+import { quadTileForLookup } from '../src/domain/block-texture-map'
 import { FAKE_CANVAS, makeFakeThree } from './support/fake-three'
 import { blockId, chunkCoord } from './support/kernel-brands'
 
@@ -168,19 +177,168 @@ describe('syncWorld', () => {
       const report = yield* syncWorld(renderer, source, () => Effect.succeed(mesh))
 
       expect(report).toStrictEqual({ meshed: 1, deferred: 0, removed: 0 })
-      const [geometry] = three.geometries()
+      const geometry = three.geometries().find((candidate) => candidate.index()?.array.length === 12)
       if (geometry === undefined) {
-        throw new Error('the synchronized chunk must create a geometry')
+        throw new Error('the cross plant must create its own double-sided geometry')
       }
       const positions = geometry.attributes.get('position')
       const index = geometry.index()
       if (positions === undefined || index === undefined) {
-        throw new Error('the synchronized chunk must expose position and index buffers')
+        throw new Error('the cross plant geometry must expose position and index buffers')
       }
 
-      expect(positions.array).toHaveLength(24)
-      expect(index.array).toHaveLength(18)
-      expect(Array.from(index.array).slice(6)).toStrictEqual([4, 5, 6, 4, 6, 7, 4, 6, 5, 4, 7, 6])
+      expect(positions.array).toHaveLength(12)
+      expect(index.array).toHaveLength(12)
+      expect(Array.from(index.array)).toStrictEqual([0, 1, 2, 0, 2, 3, 0, 2, 1, 0, 3, 2])
+    }),
+  )
+
+  it.effect('routes kernel leaves, glass, water and lava to their render layers', () =>
+    Effect.gen(function* () {
+      const blockIdNamed = (name: string) => BLOCK_IDS.find((candidateId) => blockNameFromKernel(candidateId) === name)
+      const stone = blockIdNamed('stone')
+      const leaves = blockIdNamed('oak_leaves')
+      const glass = blockIdNamed('glass')
+      const water = blockIdNamed('water')
+      const lava = blockIdNamed('lava')
+      if (stone === undefined || leaves === undefined || glass === undefined || water === undefined || lava === undefined) {
+        throw new Error('mc-kernel must expose the block ids used by the render-layer test')
+      }
+
+      const blocks = emptyBlocks()
+      for (const [lx, placedBlockId] of [[1, stone], [4, leaves], [7, glass], [10, water], [13, lava]] as const) {
+        setBlockAt(blocks, LocalAxis(lx), BlockAxis(20), LocalAxis(1), placedBlockId)
+      }
+      const resident: Chunk = {
+        biomes: Array.from({ length: 16 * 16 }, () => 'PLAINS' as const),
+        blocks,
+        coord: chunkCoord(0, 0),
+      }
+      const store: MeshingChunkStore = {
+        neighbours: () => Effect.succeed({}),
+        peek: () => Effect.succeed(resident),
+      }
+      const mesher = makeChunkStoreMesher(store)
+      const mesh = yield* mesher(chunkCoord(0, 0))
+      if (mesh === undefined) {
+        throw new Error('the resident test chunk must produce a mesh')
+      }
+
+      expect(mesh.renderLayers?.opaque.some(({ blockId: quadBlockId }) => quadBlockId === stone)).toBe(true)
+      expect(mesh.renderLayers?.cutout.some(({ blockId: quadBlockId }) => quadBlockId === leaves)).toBe(true)
+      expect(mesh.renderLayers?.transparentSolid.some(({ blockId: quadBlockId }) => quadBlockId === glass)).toBe(true)
+      expect(mesh.fluids?.some(({ blockId: fluidBlockId }) => fluidBlockId === water)).toBe(true)
+      expect(mesh.fluids?.some(({ blockId: fluidBlockId }) => fluidBlockId === lava)).toBe(true)
+
+      const three = makeFakeThree()
+      const materials = {
+        cutout: new three.MeshBasicMaterial({ vertexColors: true, wireframe: false }),
+        opaque: new three.MeshBasicMaterial({ vertexColors: true, wireframe: false }),
+        transparent: new three.MeshBasicMaterial({ vertexColors: true, wireframe: false }),
+      }
+      const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT, {
+        cutoutMaterial: () => materials.cutout,
+        material: () => materials.opaque,
+        transparentMaterial: () => materials.transparent,
+      })
+      const source = yield* scriptedSource([{ changed: [chunkCoord(0, 0)], removed: [] }])
+      const report = yield* syncWorld(renderer, source, mesher, {
+        tile: quadTileForLookup(blockNameFromKernel),
+      })
+
+      expect(report.meshed).toBe(1)
+      expect(three.meshes()).toHaveLength(3)
+      expect(three.meshes().map(({ material }) => material)).toStrictEqual([
+        materials.opaque,
+        materials.cutout,
+        materials.transparent,
+      ])
+      const tileIndicesFor = (material: (typeof materials)[keyof typeof materials]): ReadonlyArray<number> => {
+        const meshForLayer = three.meshes().find((candidateMesh) => candidateMesh.material === material)
+        const attribute = meshForLayer?.geometry.attributes.get('tileIndex')
+        if (attribute === undefined) {
+          return []
+        }
+        return Array.from(attribute.array)
+      }
+      expect(tileIndicesFor(materials.cutout).every((tile) => tile === 8)).toBe(true)
+      expect(tileIndicesFor(materials.transparent)).toContain(9)
+      expect(tileIndicesFor(materials.transparent)).toContain(18)
+      expect(tileIndicesFor(materials.transparent)).toContain(7)
+      const waterFlags = three.meshes()[2]?.geometry.attributes.get('waterSurface')?.array ?? []
+      expect(Array.from(waterFlags).some((flag) => flag === 1)).toBe(true)
+
+      yield* renderer.dispose
+    }),
+  )
+
+  it.effect('keeps an empty layered chunk registered without allocating a renderable', () =>
+    Effect.gen(function* () {
+      const three = makeFakeThree()
+      const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT)
+      const source = yield* scriptedSource([{ changed: [chunkCoord(0, 0)], removed: [] }])
+      const emptyMesh = Object.assign([], {
+        renderLayers: {
+          cutout: [],
+          opaque: [],
+          transparentSolid: [],
+          water: [],
+        },
+      })
+
+      const report = yield* syncWorld(renderer, source, () => Effect.succeed(emptyMesh))
+
+      expect(report).toStrictEqual({ meshed: 1, deferred: 0, removed: 0 })
+      expect(yield* renderer.chunkKeys).toStrictEqual(['0,0'])
+      expect(three.meshes()).toHaveLength(0)
+      expect(three.scene().members()).toHaveLength(0)
+
+      yield* renderer.dispose
+    }),
+  )
+
+  it.effect('preserves every generated render-layer count, including empty and single-quad boundaries', () =>
+    Effect.sync(() => {
+      const updates: Array<ChunkGeometryUpdate> = []
+      const renderer = {
+        removeChunk: () => Effect.void,
+        setChunks: (batch: ReadonlyArray<ChunkGeometryUpdate>) => Effect.sync(() => updates.push(...batch)),
+      } as unknown as WorldRenderer
+      const source: DirtySource = {
+        drain: Effect.succeed({ changed: [chunkCoord(0, 0)], removed: [] }),
+      }
+      const quadCount = FastCheck.integer({ min: 0, max: 4 })
+      const counts = FastCheck.record({
+        cutout: quadCount,
+        opaque: quadCount,
+        transparentSolid: quadCount,
+        water: quadCount,
+      })
+
+      FastCheck.assert(
+        FastCheck.property(counts, (expected) => {
+          updates.length = 0
+          const quads = (count: number): ReadonlyArray<MeshQuad> => Array.from({ length: count }, () => quad())
+          const renderLayers = {
+            cutout: quads(expected.cutout),
+            opaque: quads(expected.opaque),
+            transparentSolid: quads(expected.transparentSolid),
+            water: quads(expected.water),
+          }
+          const mesh = Object.assign(
+            [...renderLayers.opaque, ...renderLayers.cutout, ...renderLayers.transparentSolid, ...renderLayers.water],
+            { renderLayers },
+          )
+          const report = Effect.runSync(syncWorld(renderer, source, () => Effect.succeed(mesh)))
+          const [update] = updates
+          return report.meshed === 1 && update !== undefined &&
+            update.buffers.quadCount === expected.opaque &&
+            update.cutoutBuffers?.quadCount === expected.cutout &&
+            update.transparentSolidBuffers?.quadCount === expected.transparentSolid &&
+            update.waterBuffers?.quadCount === expected.water
+        }),
+        { seed: 0x51a7e, numRuns: 100 },
+      )
     }),
   )
 

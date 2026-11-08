@@ -156,6 +156,8 @@ export const CHUNK_SHADER_UNIFORMS = {
   sunIntensity: 'uSunIntensity',
 } as const
 
+const CHUNK_ALPHA_TEST_UNIFORM = 'uAlphaTest'
+
 /**
  * The vertex stage: pass through the tile index, and compute the fixed per-face
  * brightness from the normal.
@@ -221,12 +223,20 @@ void main() {
  * `MAX_SHADE_BYTE` has no counterpart in the shader — which is correct rather
  * than an omission.
  */
-export const chunkFragmentShader = (): string => `
+type ChunkShaderText = string
+
+export const chunkFragmentDeclarations = (includeSunIntensity = true): ChunkShaderText => {
+  let sunIntensityDeclaration = ''
+  if (includeSunIntensity) {
+    sunIntensityDeclaration = `uniform float ${CHUNK_SHADER_UNIFORMS.sunIntensity};`
+  }
+  return `
 uniform sampler2D ${CHUNK_SHADER_UNIFORMS.atlas};
-uniform float ${CHUNK_SHADER_UNIFORMS.sunIntensity};
+${sunIntensityDeclaration}
 uniform vec3 ${CHUNK_SHADER_UNIFORMS.fogColor};
 uniform float ${CHUNK_SHADER_UNIFORMS.fogNear};
 uniform float ${CHUNK_SHADER_UNIFORMS.fogFar};
+uniform float ${CHUNK_ALPHA_TEST_UNIFORM};
 
 varying vec2 vUv;
 varying vec3 vColor;
@@ -236,8 +246,11 @@ varying float vFogDepth;
 
 const float ATLAS_COLUMNS = ${glslFloat(ATLAS_COLUMNS)};
 const float HALF_TEXEL = ${glslFloat(HALF_TEXEL_UV)};
+`
+}
 
-void main() {
+export const chunkFragmentShadeFunction = (): ChunkShaderText => `
+vec4 shadeChunkSurface() {
   // Undo the interpolation: every vertex of a quad carries the same index, so
   // the varying is that index up to float error.
   float tile = floor(vTileIndex + 0.5);
@@ -263,6 +276,9 @@ void main() {
   );
 
   vec4 texel = texture2D(${CHUNK_SHADER_UNIFORMS.atlas}, mix(lo, hi, inTile));
+  if (texel.a < ${CHUNK_ALPHA_TEST_UNIFORM}) {
+    discard;
+  }
 
   // R = ambient occlusion, G = sky light, B = block light. Packed by
   // packedLightColor in domain/voxel-lighting.ts, already 0..1 because the
@@ -285,10 +301,16 @@ void main() {
     ${CHUNK_SHADER_UNIFORMS.fogFar},
     vFogDepth
   );
-  gl_FragColor = vec4(
+  return vec4(
     mix(texel.rgb * shade, ${CHUNK_SHADER_UNIFORMS.fogColor}, fogAmount),
     texel.a
   );
+}
+`
+
+export const chunkFragmentShader = (): string => `${chunkFragmentDeclarations()}${chunkFragmentShadeFunction()}
+void main() {
+  gl_FragColor = shadeChunkSurface();
 }
 `
 
@@ -310,6 +332,6 @@ export type ChunkShaderSource = {
 export const chunkShaderSource = (): ChunkShaderSource => ({
   attributeNames: Object.values(CHUNK_SHADER_ATTRIBUTES),
   fragmentShader: chunkFragmentShader(),
-  uniformNames: Object.values(CHUNK_SHADER_UNIFORMS),
+  uniformNames: [...Object.values(CHUNK_SHADER_UNIFORMS), CHUNK_ALPHA_TEST_UNIFORM],
   vertexShader: chunkVertexShader(),
 })

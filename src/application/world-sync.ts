@@ -32,6 +32,7 @@
  * drain per frame re-meshes it once per frame, which is the most often anything
  * can be seen. The batch is the unit of work because the frame is.
  */
+import { BLOCK_IDS, type BlockId, type ChunkCoord, chunkCoord, propertyOfBlockId } from '@nerima-games/mc-kernel'
 import {
   type BlockShapeQuad,
   type CrossPlantQuad,
@@ -47,7 +48,6 @@ import {
   combineChunkGeometry,
 } from '../domain/chunk-geometry.js'
 import { CHUNK_SIZE, meshChunk } from '@nerima-games/mc-meshing'
-import { type ChunkCoord, chunkCoord } from '@nerima-games/mc-kernel'
 import { type ChunkGeometryUpdate, type ChunkKey, type WorldRenderer } from './world-renderer.js'
 import { Effect, Ref, Result, Schema, Semaphore } from 'effect'
 import { chunkKeyOf as worldgenChunkKeyOf } from '@nerima-games/mc-worldgen'
@@ -104,6 +104,12 @@ export type DirtySubscriptionStore = {
  * lookup cannot supply its contents.
  */
 export type ChunkMesh = ReadonlyArray<MeshQuad> & {
+  readonly renderLayers?: {
+    readonly opaque: ReadonlyArray<MeshQuad>
+    readonly cutout: ReadonlyArray<MeshQuad>
+    readonly transparentSolid: ReadonlyArray<MeshQuad>
+    readonly water: ReadonlyArray<MeshQuad>
+  }
   readonly blockShapes?: ReadonlyArray<BlockShapeQuad>
   readonly crossPlants?: ReadonlyArray<CrossPlantQuad>
   readonly fluids?: ReadonlyArray<FluidQuad>
@@ -112,6 +118,34 @@ export type ChunkMesherError = ReturnType<typeof meshChunk> extends Result.Resul
   ? Failure
   : never
 export type ChunkMesher = (chunk: ChunkRef) => Effect.Effect<ChunkMesh | undefined, ChunkMesherError>
+
+const FLUID_KIND_BY_BLOCK_ID = new Map<BlockId, 'lava' | 'water'>(
+  BLOCK_IDS.flatMap((blockId) => {
+    const fluid = Result.getOrThrow(propertyOfBlockId(blockId, 'fluid'))
+    if (fluid === 'lava' || fluid === 'water') {
+      return [[blockId, fluid] as const]
+    }
+    return []
+  }),
+)
+
+const splitFluidsByKind = (fluids: ReadonlyArray<FluidQuad>) => {
+  const water: Array<FluidQuad> = []
+  const transparent: Array<FluidQuad> = []
+  for (const fluid of fluids) {
+    if (FLUID_KIND_BY_BLOCK_ID.get(fluid.blockId) === 'water') {
+      water.push(fluid)
+    } else {
+      transparent.push(fluid)
+    }
+  }
+  return { transparent, water }
+}
+
+type ChunkLayerGeometryBuffers = Pick<
+  ChunkGeometryUpdate,
+  'buffers' | 'cutoutBuffers' | 'transparentSolidBuffers' | 'waterBuffers'
+>
 
 /** How a chunk coordinate becomes the renderer's key. */
 export const chunkKeyOf = (chunk: ChunkRef): ChunkKey =>
@@ -132,6 +166,46 @@ export const chunkOrigin = (chunk: ChunkRef): readonly [number, number] => [
   chunk.cx * CHUNK_SIZE,
   chunk.cz * CHUNK_SIZE,
 ]
+
+const buildChunkLayerGeometryBuffers = ({
+  blockShapes,
+  chunk,
+  color,
+  crossPlants,
+  renderLayers,
+  tile,
+  transparentFluids,
+  waterFluids,
+}: {
+  readonly blockShapes: ReadonlyArray<BlockShapeQuad>
+  readonly chunk: ChunkRef
+  readonly color: QuadColor | undefined
+  readonly crossPlants: ReadonlyArray<CrossPlantQuad>
+  readonly renderLayers: NonNullable<ChunkMesh['renderLayers']>
+  readonly tile: QuadTile | undefined
+  readonly transparentFluids: ReadonlyArray<FluidQuad>
+  readonly waterFluids: ReadonlyArray<FluidQuad>
+}): ChunkLayerGeometryBuffers => {
+  const [originX, originZ] = chunkOrigin(chunk)
+  return {
+    buffers: combineChunkGeometry(
+      buildChunkGeometry(renderLayers.opaque, originX, originZ, color, tile),
+      buildBlockShapeGeometry(blockShapes, originX, originZ, color, tile),
+    ),
+    cutoutBuffers: combineChunkGeometry(
+      buildChunkGeometry(renderLayers.cutout, originX, originZ, color, tile),
+      buildCrossPlantGeometry(crossPlants, originX, originZ, color, tile),
+    ),
+    transparentSolidBuffers: combineChunkGeometry(
+      buildChunkGeometry(renderLayers.transparentSolid, originX, originZ, color, tile),
+      buildFluidGeometry(transparentFluids, originX, originZ, color, tile),
+    ),
+    waterBuffers: combineChunkGeometry(
+      buildChunkGeometry(renderLayers.water, originX, originZ, color, tile),
+      buildFluidGeometry(waterFluids, originX, originZ, color, tile),
+    ),
+  }
+}
 
 /** What one `syncWorld` pass did. Diagnostics, and what the tests assert on. */
 export type SyncReport = {
@@ -155,7 +229,7 @@ export type SyncOptions = {
     chunk: ChunkRef,
     quads: ReadonlyArray<GeometryQuad>,
   ) => Effect.Effect<QuadColor>
-  /** Atlas tile per quad. Defaults to the untextured tile. */
+  /** Atlas tile per quad. Direct `syncWorld` calls default to the untextured tile. */
   readonly tile?: QuadTile
 }
 
@@ -226,16 +300,25 @@ const meshChangedChunk = (
     const blockShapes = mesh.blockShapes ?? []
     const crossPlants = mesh.crossPlants ?? []
     const fluids = mesh.fluids ?? []
-    const [originX, originZ] = chunkOrigin(chunk)
-    const colorQuads = colorQuadsForMesh(mesh, blockShapes, crossPlants)
-    const color = yield* resolveChunkColor(options, chunk, colorQuads)
+    const renderLayers = mesh.renderLayers ?? {
+      cutout: [],
+      opaque: mesh,
+      transparentSolid: [],
+      water: [],
+    }
+    const fluidLayers = splitFluidsByKind(fluids)
+    const color = yield* resolveChunkColor(options, chunk, colorQuadsForMesh(mesh, blockShapes, crossPlants))
     return {
-      buffers: combineChunkGeometry(
-        buildChunkGeometry(mesh, originX, originZ, color, options.tile),
-        buildBlockShapeGeometry(blockShapes, originX, originZ, color, options.tile),
-        buildCrossPlantGeometry(crossPlants, originX, originZ, color, options.tile),
-        buildFluidGeometry(fluids, originX, originZ, color, options.tile),
-      ),
+      ...buildChunkLayerGeometryBuffers({
+        blockShapes,
+        chunk,
+        color,
+        crossPlants,
+        renderLayers,
+        tile: options.tile,
+        transparentFluids: fluidLayers.transparent,
+        waterFluids: fluidLayers.water,
+      }),
       key: chunkKeyOf(chunk),
     }
   })

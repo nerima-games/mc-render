@@ -15,9 +15,23 @@
  */
 import { describe, expect, it } from '@effect/vitest'
 import { Effect, Result, Schema } from 'effect'
+import * as FastCheck from 'fast-check'
 import { mirroredCameraState } from '../src/domain/camera-mirror'
-import { buildChunkGeometry, type MeshQuad } from '../src/domain/chunk-geometry'
-import { chunkKeyOf, MonotonicTimeSecs, type CameraPoseSnapshot } from '@nerima-games/mc-kernel'
+import {
+  buildChunkGeometry,
+  buildFluidGeometry,
+  combineChunkGeometry,
+  type FluidQuad,
+  type MeshQuad,
+} from '../src/domain/chunk-geometry'
+import {
+  BLOCK_IDS,
+  blockTypeOfId,
+  chunkKeyOf,
+  MonotonicTimeSecs,
+  type BlockId,
+  type CameraPoseSnapshot,
+} from '@nerima-games/mc-kernel'
 import {
   applyChunkShaderEnvironment,
   CAMERA_FAR_PLANE,
@@ -79,6 +93,14 @@ const isParticlePoolInputFailure = (
   })(error)
   return Result.isSuccess(decoded) && decoded.success.operation === operation &&
     decoded.success.reason === reason
+}
+
+const blockIdForType = (blockType: string): BlockId => {
+  const match = BLOCK_IDS.find((candidate) => Result.getOrThrow(blockTypeOfId(candidate)) === blockType)
+  if (match === undefined) {
+    throw new Error(`block type not found: ${blockType}`)
+  }
+  return match
 }
 
 const quad = (overrides: Partial<MeshQuad> = {}): MeshQuad => ({
@@ -251,6 +273,239 @@ describe('acquiring the renderer', () => {
       ])
     }),
   )
+
+  it.effect('routes nonempty layers to their materials and creates no mesh for empty layers', () =>
+    Effect.gen(function* () {
+      const three = makeFakeThree()
+      const makeMaterial = () => new three.MeshBasicMaterial({ vertexColors: true, wireframe: false })
+      const materials = {
+        cutout: makeMaterial(),
+        opaque: makeMaterial(),
+        transparent: makeMaterial(),
+      }
+      const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT, {
+        cutoutMaterial: () => materials.cutout,
+        material: () => materials.opaque,
+        transparentMaterial: () => materials.transparent,
+      })
+      const nonempty = buildChunkGeometry([quad()])
+      const empty = buildChunkGeometry([])
+
+      yield* renderer.setChunks([
+        {
+          buffers: nonempty,
+          cutoutBuffers: nonempty,
+          key: chunkKeyOf(chunkCoord(0, 0)),
+          transparentSolidBuffers: nonempty,
+          waterBuffers: nonempty,
+        },
+        {
+          buffers: nonempty,
+          cutoutBuffers: empty,
+          key: chunkKeyOf(chunkCoord(1, 0)),
+          transparentSolidBuffers: empty,
+          waterBuffers: empty,
+        },
+      ])
+
+      expect(three.meshes()).toHaveLength(4)
+      expect(three.scene().members()).toHaveLength(4)
+      expect(three.meshes().map(({ material }) => material)).toStrictEqual([
+        materials.opaque,
+        materials.cutout,
+        materials.transparent,
+        materials.opaque,
+      ])
+      expect(three.meshes()[2]?.renderOrder).toBe(three.meshes()[3]?.renderOrder)
+      expect(three.meshes()[2]?.renderOrder).toBe(0)
+      expect(three.geometries().every((geometry) => geometry.boundingSphereComputations() === 1)).toBe(true)
+
+      yield* renderer.dispose
+    }),
+  )
+
+  it.effect('sorts glass and water faces together back-to-front from either camera side', () =>
+    Effect.gen(function* () {
+      const three = makeFakeThree()
+      const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT)
+      const glassBuffers = buildChunkGeometry([
+        quad({ blockId: blockIdForType('glass'), direction: 'zPos', lz: -1 }),
+      ])
+      const waterFace: FluidQuad = {
+        ao: 0,
+        blockId: blockIdForType('water'),
+        direction: 'zPos',
+        vertices: [[1, 0, 2], [1, 1, 2], [0, 1, 2], [0, 0, 2]],
+      }
+      const lavaFace: FluidQuad = {
+        ao: 0,
+        blockId: blockIdForType('lava'),
+        direction: 'zPos',
+        vertices: [[1, 0, 0], [1, 1, 0], [0, 1, 0], [0, 0, 0]],
+      }
+      const transparentSolidBuffers = combineChunkGeometry(
+        glassBuffers,
+        buildFluidGeometry([lavaFace]),
+      )
+      const waterBuffers = buildFluidGeometry([waterFace])
+
+      yield* renderer.setChunks([{
+        buffers: buildChunkGeometry([]),
+        key: chunkKeyOf(chunkCoord(0, 0)),
+        transparentSolidBuffers,
+        waterBuffers,
+      }])
+
+      const [transparentGeometry] = three.geometries()
+      const indexAttribute = transparentGeometry?.index()
+      const readIndices = (): ReadonlyArray<number> => Array.from(transparentGeometry?.index()?.array ?? [])
+
+      yield* renderer.draw(mirroredCameraState(poseAt(0, 0, 4, 0, 0)))
+      expect(readIndices()).toStrictEqual([
+        0, 1, 2, 0, 2, 3,
+        4, 5, 6, 4, 6, 7,
+        8, 9, 10, 8, 10, 11,
+      ])
+      expect(Array.from(transparentGeometry?.attributes.get('waterSurface')?.array ?? [])).toStrictEqual([
+        0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1,
+      ])
+      expect(indexAttribute?.needsUpdate).toBeUndefined()
+
+      yield* renderer.draw(mirroredCameraState(poseAt(0, 0, 4, 0, 0)))
+      expect(readIndices()).toStrictEqual([
+        0, 1, 2, 0, 2, 3,
+        4, 5, 6, 4, 6, 7,
+        8, 9, 10, 8, 10, 11,
+      ])
+
+      yield* renderer.draw(mirroredCameraState(poseAt(0, 0, -4, Math.PI, 0)))
+      expect(readIndices()).toStrictEqual([
+        8, 9, 10, 8, 10, 11,
+        4, 5, 6, 4, 6, 7,
+        0, 1, 2, 0, 2, 3,
+      ])
+      expect(indexAttribute?.needsUpdate).toBe(true)
+      expect(transparentGeometry?.index()).toBe(indexAttribute)
+
+      yield* renderer.setChunks([{
+        buffers: buildChunkGeometry([]),
+        key: chunkKeyOf(chunkCoord(0, 0)),
+        waterBuffers,
+      }])
+      const waterOnlyGeometry = three.geometries().at(-1)
+      expect(Array.from(waterOnlyGeometry?.attributes.get('waterSurface')?.array ?? [])).toStrictEqual([1, 1, 1, 1])
+
+      yield* renderer.dispose
+    }),
+  )
+
+  it.effect('keeps the source order when transparent faces have equal camera depth', () =>
+    Effect.gen(function* () {
+      const three = makeFakeThree()
+      const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT)
+      const glassBuffers = buildChunkGeometry([
+        quad({ blockId: blockIdForType('glass'), direction: 'zPos', lz: 1 }),
+      ])
+      const waterFace: FluidQuad = {
+        ao: 0,
+        blockId: blockIdForType('water'),
+        direction: 'zPos',
+        vertices: [[1, 0, 2], [1, 1, 2], [0, 1, 2], [0, 0, 2]],
+      }
+
+      yield* renderer.setChunks([{
+        buffers: buildChunkGeometry([]),
+        key: chunkKeyOf(chunkCoord(0, 0)),
+        transparentSolidBuffers: glassBuffers,
+        waterBuffers: buildFluidGeometry([waterFace]),
+      }])
+      yield* renderer.draw(mirroredCameraState(poseAt(0, 0, 4, 0, 0)))
+
+      const [transparentGeometry] = three.geometries()
+      expect(Array.from(transparentGeometry?.index()?.array ?? [])).toStrictEqual([
+        0, 1, 2, 0, 2, 3, 4, 5, 6, 4, 6, 7,
+      ])
+
+      yield* renderer.dispose
+    }),
+  )
+
+  it.effect('keeps valid chunk bounds when a later layer has non-finite positions', () =>
+    Effect.gen(function* () {
+      const three = makeFakeThree()
+      const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, { width: 100, height: 100 })
+      const opaque = buildChunkGeometry([quad({ lz: -10 })])
+
+      yield* renderer.setChunks([{
+        buffers: opaque,
+        key: chunkKeyOf(chunkCoord(0, 0)),
+        transparentSolidBuffers: {
+          ...opaque,
+          positions: Float32Array.from(opaque.positions, () => Number.NaN),
+        },
+      }])
+      yield* renderer.draw(mirroredCameraState(poseAt(0, 0, 0, 0, 0)))
+
+      expect(three.meshes().map(({ visible }) => visible)).toStrictEqual([true, true])
+      expect(three.renderer().renderCalls()).toBe(1)
+    }),
+  )
+
+  it.effect('preserves layer material overrides and fallbacks for every optional factory combination', () =>
+    Effect.sync(() => {
+      FastCheck.assert(
+        FastCheck.property(
+          FastCheck.boolean(),
+          FastCheck.boolean(),
+          (hasCutout, hasTransparent) => {
+            const three = makeFakeThree()
+            const materials = {
+              cutout: new three.MeshBasicMaterial({ vertexColors: true, wireframe: false }),
+              opaque: new three.MeshBasicMaterial({ vertexColors: true, wireframe: false }),
+              transparent: new three.MeshBasicMaterial({ vertexColors: true, wireframe: false }),
+            }
+            const factoryOptions: {
+              cutoutMaterial?: () => typeof materials.cutout
+              transparentMaterial?: () => typeof materials.transparent
+            } = {}
+            if (hasCutout) {
+              factoryOptions.cutoutMaterial = () => materials.cutout
+            }
+            if (hasTransparent) {
+              factoryOptions.transparentMaterial = () => materials.transparent
+            }
+            const renderer = Effect.runSync(makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT, {
+              ...factoryOptions,
+              material: () => materials.opaque,
+            }))
+            const buffers = buildChunkGeometry([quad()])
+            Effect.runSync(renderer.setChunks([{
+              buffers,
+              cutoutBuffers: buffers,
+              key: chunkKeyOf(chunkCoord(0, 0)),
+              transparentSolidBuffers: buffers,
+              waterBuffers: buffers,
+            }]))
+            const expected = [materials.opaque]
+            if (hasCutout) {
+              expected.push(materials.cutout)
+            } else {
+              expected.push(materials.opaque)
+            }
+            if (hasTransparent) {
+              expected.push(materials.transparent)
+            } else {
+              expected.push(materials.opaque)
+            }
+            const assigned = three.meshes().map(({ material }) => material)
+            Effect.runSync(renderer.dispose)
+            return assigned.length === expected.length && assigned.every((material, index) => material === expected[index])
+          },
+        ),
+        { seed: 0x1a7e, numRuns: 100 },
+      )
+    }),
+  )
 })
 
 describe('chunk geometry in the scene', () => {
@@ -287,9 +542,7 @@ describe('chunk geometry in the scene', () => {
         'normal',
         'color',
         'uv',
-        // Uploaded on BOTH material paths although only the shader samples it.
-        // A missing attribute does not fail: GL feeds 0 to an unbound one, so
-        // the whole world would draw from atlas tile 0 with nothing reported.
+        // The fluid attributes are uploaded on both material paths.
         'fluidDirection',
         'fluidFalling',
         'tileIndex',
@@ -335,17 +588,18 @@ describe('chunk geometry in the scene', () => {
     }),
   )
 
-  it.effect('the bounding sphere is computed before the geometry is ever rendered', () =>
+  it.effect('skips empty geometry before allocating a mesh or bounding sphere', () =>
     Effect.gen(function* () {
-      // Not lazily. three computes it on demand and warns "Computed radius is
-      // NaN" for an empty position attribute — and an empty chunk is the normal
-      // case at the edge of the loaded world, not an error.
+      // Empty layers have no renderable. Constructing one would make three
+      // compute a NaN sphere lazily and would add a draw call with no indices.
       const three = makeFakeThree()
       const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT)
 
       yield* renderer.setChunk(chunkKeyOf(chunkCoord(0, 0)), buildChunkGeometry([]))
 
-      expect(three.geometries()[0]?.boundingSphereComputations()).toBe(1)
+      expect(three.geometries()).toHaveLength(0)
+      expect(three.meshes()).toHaveLength(0)
+      expect(three.scene().members()).toHaveLength(0)
       expect(three.renderer().renderCalls()).toBe(0)
     }),
   )
@@ -799,11 +1053,11 @@ describe('drawing', () => {
       yield* renderer.setChunk(chunkKeyOf(chunkCoord(0, 0)), buildChunkGeometry([quad({ lx: 10, lz: -10 })]))
       yield* renderer.setChunk(chunkKeyOf(chunkCoord(1, 0)), buildChunkGeometry([]))
       yield* renderer.draw(mirroredCameraState(poseAt(0, 0, 0, 0, 0)))
-      expect(three.meshes().map(({ visible }) => visible)).toStrictEqual([false, false])
+      expect(three.meshes().map(({ visible }) => visible)).toStrictEqual([false])
 
       yield* renderer.resize(200, 100)
       yield* renderer.draw(mirroredCameraState(poseAt(0, 0, 0, 0, 0)))
-      expect(three.meshes().map(({ visible }) => visible)).toStrictEqual([true, false])
+      expect(three.meshes().map(({ visible }) => visible)).toStrictEqual([true])
     }),
   )
 
@@ -1209,16 +1463,42 @@ describe('makeProductionWorldRenderer', () => {
       })
 
       expect(three.materials()).toHaveLength(0)
-      expect(three.shaderMaterials()).toHaveLength(3)
+      expect(three.shaderMaterials()).toHaveLength(5)
+      const shaderMaterials = three.shaderMaterials()
+      const cutoutMaterial = shaderMaterials.find(({ uniforms }) => uniforms['uAlphaTest']?.value === 0.1)
+      const transparentSolidMaterial = shaderMaterials.find(({ transparent, uniforms }) =>
+        transparent === true && uniforms['uAlphaTest']?.value === 0,
+      )
+      if (cutoutMaterial === undefined || transparentSolidMaterial === undefined) {
+        throw new Error('the production renderer must build cutout and blended chunk materials')
+      }
       expect(renderer.chunkMaterial.uniforms['uAtlas']?.value).toBe(atlas)
+      expect(cutoutMaterial.alphaTest).toBe(0.1)
+      expect(cutoutMaterial.uniforms['uAlphaTest']?.value).toBe(0.1)
+      expect(transparentSolidMaterial.transparent).toBe(true)
+      expect(transparentSolidMaterial.depthWrite).toBe(false)
       expect(renderer.waterMaterial.transparent).toBe(true)
       expect(renderer.waterMaterial.depthWrite).toBe(false)
       expect(renderer.waterMaterial.forceSinglePass).toBe(true)
-      expect(three.shaderMaterials()[2]?.uniforms['uAtlas']?.value).toBe(atlas)
+      expect(three.shaderMaterials()[4]?.uniforms['uAtlas']?.value).toBe(atlas)
       expect(three.scene().members()).toContain(renderer.particles.mesh)
+
+      const layerBuffers = buildChunkGeometry([quad()])
+      yield* renderer.setChunks([{
+        buffers: buildChunkGeometry([]),
+        key: chunkKeyOf(chunkCoord(0, 0)),
+        transparentSolidBuffers: layerBuffers,
+        waterBuffers: layerBuffers,
+      }])
+      const translucentMeshes = three.meshes().filter(({ material }) =>
+        material === transparentSolidMaterial,
+      )
+      expect(translucentMeshes.map(({ material }) => material)).toStrictEqual([transparentSolidMaterial])
 
       yield* renderer.setEnvironment(planRenderEnvironment(0.25))
       expect(renderer.chunkMaterial.uniforms['uSunIntensity']?.value).toBeCloseTo(0.25)
+      expect(cutoutMaterial.uniforms['uSunIntensity']?.value).toBeCloseTo(0.25)
+      expect(transparentSolidMaterial.uniforms['uSunIntensity']?.value).toBeCloseTo(0.25)
       expect(renderer.waterUniforms['uSunIntensity']?.value).toBeCloseTo(0.25)
 
       spawnBurst(renderer.particlePool, 1, 2, 3, 0, 0, 1)
@@ -1228,11 +1508,18 @@ describe('makeProductionWorldRenderer', () => {
         cameraPosition: { worldX: 4, worldY: 5, worldZ: 6 },
       })
       expect(renderer.waterUniforms['uTime']?.value).toBe(2)
+      expect(transparentSolidMaterial.uniforms['uTime']?.value).toBe(2)
       expect(renderer.waterUniforms['uCameraPosition']?.value).toStrictEqual([4, 5, 6])
+      expect(transparentSolidMaterial.uniforms['uCameraPosition']?.value).toStrictEqual([4, 5, 6])
       expect(three.instancedGeometries()[0]?.instanceCount).toBe(1)
 
       yield* renderer.resize(640, 360)
       expect(renderer.waterUniforms['uResolution']?.value).toStrictEqual([640, 360])
+      expect(transparentSolidMaterial.uniforms['uResolution']?.value).toStrictEqual([640, 360])
+
+      delete transparentSolidMaterial.uniforms['uResolution']
+      yield* renderer.resize(320, 180)
+      expect(transparentSolidMaterial.uniforms['uResolution']).toBeUndefined()
 
       yield* renderer.dispose
       expect(three.scene().members()).toStrictEqual([])
