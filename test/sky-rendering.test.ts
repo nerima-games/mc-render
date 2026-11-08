@@ -169,6 +169,13 @@ describe('sky render planning', () => {
     })
   })
 
+  it('rejects non-integer time-of-day ticks', () => {
+    expect(planSkyFrame(frame({ timeOfDayTicks: 1.5 }))).toMatchObject({
+      _tag: 'Failure',
+      failure: { reason: 'invalid-input' },
+    })
+  })
+
   it('hides celestial and cloud visuals outside the overworld', () => {
     const nether = success(frame({ dimension: 'nether' }))
     const end = success(frame({ dimension: 'end' }))

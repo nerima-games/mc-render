@@ -31,7 +31,7 @@ const SKY_UNIT_VALUE_SCHEMA: Schema.Codec<SkyUnitValue, number> = Schema.Finite.
 const SKY_ANGLE_RADIANS_SCHEMA: Schema.Codec<SkyAngleRadians, number> = Schema.Finite.pipe(Schema.brand('SkyAngleRadians'))
 const SKY_COLOR_SCHEMA: Schema.Codec<SkyColor, number> = Schema.Int.pipe(Schema.brand('SkyColor'))
 const SKY_MOON_PHASE_SCHEMA: Schema.Codec<SkyMoonPhase, number> = Schema.Finite.pipe(Schema.brand('SkyMoonPhase'))
-const SKY_TIME_OF_DAY_TICK_SCHEMA: Schema.Codec<SkyTimeOfDayTick, number> = Schema.Finite.pipe(Schema.brand('TimeOfDayTicks'))
+const SKY_TIME_OF_DAY_TICK_SCHEMA: Schema.Codec<SkyTimeOfDayTick, number> = Schema.Int.pipe(Schema.brand('TimeOfDayTicks'))
 
 export type SkyCloudLayerPlan = {
   readonly worldY: SkyWorldCoordinate
@@ -528,15 +528,12 @@ const planValidatedSkyFrame = (frame: SkyFrameInput): Result.Result<SkyRenderPla
   if (validationError !== undefined) {
     return Result.fail(validationError)
   }
-  const animationTime = animationTimeSeconds(frame)
-  if (Result.isFailure(animationTime)) {
-    return Result.fail(INVALID_INPUT_ERROR)
-  }
+  const animationSeconds = Result.getOrThrow(animationTimeSeconds(frame))
   const derived = deriveSkyFrame(frame)
   if (frame.dimension !== 'overworld') {
-    return Result.succeed(nonOverworldPlan(frame, derived, animationTime.success))
+    return Result.succeed(nonOverworldPlan(frame, derived, animationSeconds))
   }
-  return Result.succeed(overworldPlan(frame, derived, animationTime.success))
+  return Result.succeed(overworldPlan(frame, derived, animationSeconds))
 }
 
 export const planSkyFrame = (input: unknown): Result.Result<SkyRenderPlan, SkyRenderInputError> => {
