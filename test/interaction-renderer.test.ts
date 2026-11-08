@@ -6,6 +6,7 @@ import {
   InteractionFrameInputSchema,
   InteractionFrameResultSchema,
   type InteractionFrameInputEncoded,
+  type InteractionRendererError,
   createInteractionRenderer,
   type TemporaryNonBlockCategory,
 } from '../src/application/interaction-renderer'
@@ -24,7 +25,7 @@ import {
   makeFirstPersonArmTextureData,
   type RenderPresentationTexture,
 } from '../src/application/render-presentation-assets'
-import { ATLAS_TILE_COUNT, tileUvBounds } from '../src/domain/texture-atlas'
+import { ATLAS_TILE_COUNT } from '../src/domain/texture-atlas'
 
 type FakeTexture = RenderPresentationTexture & Readonly<{ name: string }>
 
@@ -199,6 +200,32 @@ const TEMPORARY_ITEM_CATEGORIES: ReadonlyArray<TemporaryNonBlockCategory> = [
   'utility',
 ]
 
+const GRASS_BLOCK_FACE_TILE_INDICES = { bottom: 12, side: 11, top: 10 } as const
+const GRASS_BLOCK_SIDE_FACE_UVS = [
+  0.3544921875, 0.9794921875,
+  0.3642578125, 0.9794921875,
+  0.3642578125, 0.9892578125,
+  0.3544921875, 0.9794921875,
+  0.3642578125, 0.9892578125,
+  0.3544921875, 0.9892578125,
+] as const
+const GRASS_BLOCK_BOTTOM_FACE_UVS = [
+  0.3857421875, 0.9794921875,
+  0.3955078125, 0.9794921875,
+  0.3955078125, 0.9892578125,
+  0.3857421875, 0.9794921875,
+  0.3955078125, 0.9892578125,
+  0.3857421875, 0.9892578125,
+] as const
+const GRASS_BLOCK_TOP_FACE_UVS = [
+  0.3232421875, 0.9794921875,
+  0.3330078125, 0.9794921875,
+  0.3330078125, 0.9892578125,
+  0.3232421875, 0.9794921875,
+  0.3330078125, 0.9892578125,
+  0.3232421875, 0.9892578125,
+] as const
+
 const fakeObject = (object: PresentationObject3D | undefined): FakeObject => {
   if (object instanceof FakeObject) {
     return object
@@ -219,10 +246,15 @@ const fakeMeshes = (object: PresentationObject3D): ReadonlyArray<FakeMesh> =>
 const cameraChildren = (renderer: ReturnType<typeof createInteractionRenderer>): ReadonlyArray<FakeObject> =>
   fakeObject(renderer.cameraObject).children.map(fakeObject)
 
-const expectValidResult = (value: Result.Result<unknown, unknown>): void => {
+const expectValidResult = (value: Result.Result<unknown, InteractionRendererError>): void => {
   if (Result.isSuccess(value)) {
     const decoded = Schema.decodeUnknownResult(InteractionFrameResultSchema, { onExcessProperty: 'error' })(value.success)
     expect(Result.isSuccess(decoded)).toBe(true)
+    return
+  }
+  if (value.failure._tag === 'AtlasCoordinateError') {
+    expect(value.failure.operation).toBeDefined()
+    expect(value.failure.reason).toBeDefined()
     return
   }
   const decoded = Schema.decodeUnknownResult(InteractionVisualInputErrorSchema, { onExcessProperty: 'error' })(value.failure)
@@ -295,7 +327,7 @@ describe('interaction renderer', () => {
     }),
   )
 
-  it.effect('uses injected crack and held-item textures from the shared texture input', () =>
+  it.effect('uses grass block top, side and bottom atlas tiles on the matching held-item faces', () =>
     Effect.sync(() => {
       const crackTexture = { isTexture: true, name: 'cracks' } satisfies FakeTexture
       const armTexture = { isTexture: true, name: 'generated-arm' } satisfies FakeTexture
@@ -305,17 +337,15 @@ describe('interaction renderer', () => {
         cracks: crackTexture,
         heldItem: atlasTexture,
       })
-      const tileIndex = 47
       const result = renderer.update({
         ...FRAME,
-        heldItem: { kind: 'block', tileIndex },
+        heldItem: { kind: 'block', faceTileIndices: GRASS_BLOCK_FACE_TILE_INDICES },
         target: { shape: FULL_CUBE, position: { x: 0, y: 0, z: 0 } },
       })
       const worldChildren = fakeMeshes(renderer.sceneObject)
       const [hand] = cameraChildren(renderer)
       const arm = fakeMesh(hand?.children[0])
       const heldItem = fakeMesh(hand?.children[1])
-      const expectedTile = tileUvBounds(tileIndex)
 
       expect(Result.isSuccess(result)).toBe(true)
       expect(worldChildren).toHaveLength(8)
@@ -326,22 +356,23 @@ describe('interaction renderer', () => {
       expect(heldItem.material.map).toBe(atlasTexture)
       const itemUvs = heldItem.geometry.attributes.get('uv')
       expect(itemUvs?.count).toBe(36)
-      expect(Array.from(itemUvs?.array.slice(0, 12) ?? [])).toStrictEqual([
-        expectedTile.u0,
-        expectedTile.v0,
-        expectedTile.u1,
-        expectedTile.v0,
-        expectedTile.u1,
-        expectedTile.v1,
-        expectedTile.u0,
-        expectedTile.v0,
-        expectedTile.u1,
-        expectedTile.v1,
-        expectedTile.u0,
-        expectedTile.v1,
+      const faceUvs = Array.from({ length: 6 }, (_unused, faceIndex) =>
+        Array.from(itemUvs?.array.slice(faceIndex * 12, (faceIndex + 1) * 12) ?? []),
+      )
+      expect(faceUvs).toStrictEqual([
+        GRASS_BLOCK_SIDE_FACE_UVS,
+        GRASS_BLOCK_SIDE_FACE_UVS,
+        GRASS_BLOCK_BOTTOM_FACE_UVS,
+        GRASS_BLOCK_TOP_FACE_UVS,
+        GRASS_BLOCK_SIDE_FACE_UVS,
+        GRASS_BLOCK_SIDE_FACE_UVS,
       ])
       expect(worldChildren[1]?.material.opacity).toBeGreaterThan(0)
-      renderer.update({ ...FRAME, heldItem: { kind: 'block', tileIndex }, miningProgress: 0.7 })
+      renderer.update({
+        ...FRAME,
+        heldItem: { kind: 'block', faceTileIndices: GRASS_BLOCK_FACE_TILE_INDICES },
+        miningProgress: 0.7,
+      })
       const updatedChildren = fakeMeshes(renderer.sceneObject)
       expect(updatedChildren[7]?.geometry.attributes.get('position')?.count).toBe(84)
       renderer.dispose()
@@ -355,7 +386,7 @@ describe('interaction renderer', () => {
       const heldItem = fakeMesh(hand?.children[1])
       const shown = renderer.update({
         ...FRAME,
-        heldItem: { kind: 'block', tileIndex: 47 },
+        heldItem: { kind: 'block', faceTileIndices: GRASS_BLOCK_FACE_TILE_INDICES },
       })
 
       expect(Result.isSuccess(shown)).toBe(true)
@@ -401,24 +432,46 @@ describe('interaction renderer', () => {
 
   it.effect('validates held-item atlas tile boundaries and the public descriptor schema', () =>
     Effect.sync(() => {
-      for (const tileIndex of [0, ATLAS_TILE_COUNT - 1]) {
-        const valid = Schema.decodeUnknownResult(HeldItemDescriptorSchema, { onExcessProperty: 'error' })({
-          kind: 'block',
-          tileIndex,
-        })
-        expect(Result.isSuccess(valid)).toBe(true)
-      }
-      for (const tileIndex of [-1, ATLAS_TILE_COUNT]) {
-        const invalid = Schema.decodeUnknownResult(HeldItemDescriptorSchema, { onExcessProperty: 'error' })({
-          kind: 'block',
-          tileIndex,
-        })
-        expect(Result.isFailure(invalid)).toBe(true)
-      }
+      const valid = Schema.decodeUnknownResult(HeldItemDescriptorSchema, { onExcessProperty: 'error' })({
+        kind: 'block',
+        faceTileIndices: {
+          bottom: ATLAS_TILE_COUNT - 1,
+          side: 0,
+          top: ATLAS_TILE_COUNT - 1,
+        },
+      })
+      expect(Result.isSuccess(valid)).toBe(true)
+
+      const invalidTop = Schema.decodeUnknownResult(HeldItemDescriptorSchema, { onExcessProperty: 'error' })({
+        kind: 'block',
+        faceTileIndices: {
+          bottom: 0,
+          side: ATLAS_TILE_COUNT - 1,
+          top: -1,
+        },
+      })
+      expect(Result.isFailure(invalidTop)).toBe(true)
+
+      const invalidSide = Schema.decodeUnknownResult(HeldItemDescriptorSchema, { onExcessProperty: 'error' })({
+        kind: 'block',
+        faceTileIndices: {
+          bottom: 0,
+          side: ATLAS_TILE_COUNT,
+          top: ATLAS_TILE_COUNT - 1,
+        },
+      })
+      expect(Result.isFailure(invalidSide)).toBe(true)
 
       const frameDecode = Schema.decodeUnknownResult(InteractionFrameInputSchema, { onExcessProperty: 'error' })({
         ...FRAME,
-        heldItem: { kind: 'block', tileIndex: ATLAS_TILE_COUNT },
+        heldItem: {
+          kind: 'block',
+          faceTileIndices: {
+            bottom: 0,
+            side: 1,
+            top: ATLAS_TILE_COUNT,
+          },
+        },
       })
       expect(Result.isFailure(frameDecode)).toBe(true)
     }),
@@ -426,8 +479,12 @@ describe('interaction renderer', () => {
 
   it.effect('property-checks every public held-item descriptor against its schema', () =>
     Effect.sync(() => {
-      const blockDescriptor = FastCheck.integer({ max: ATLAS_TILE_COUNT - 1, min: 0 })
-        .map((tileIndex) => ({ kind: 'block' as const, tileIndex }))
+      const tileIndex = FastCheck.integer({ max: ATLAS_TILE_COUNT - 1, min: 0 })
+      const blockDescriptor = FastCheck.tuple(tileIndex, tileIndex, tileIndex)
+        .map(([top, side, bottom]) => ({
+          faceTileIndices: { bottom, side, top },
+          kind: 'block' as const,
+        }))
       const temporaryDescriptor = FastCheck.constantFrom(...TEMPORARY_ITEM_CATEGORIES)
         .map((category) => ({ category, kind: 'temporary-non-block' as const }))
       FastCheck.assert(

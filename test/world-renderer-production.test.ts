@@ -296,7 +296,10 @@ describe('makeProductionWorldRenderer (the shipped composition)', () => {
         damageDirection: { x: 1, y: 0 },
         damageIntensity,
         gaitPhaseRadians: 0.5,
-        heldItem: { kind: 'block' as const, tileIndex: 1 },
+        heldItem: {
+          kind: 'block' as const,
+          faceTileIndices: { bottom: 12, side: 11, top: 10 },
+        },
         miningProgress,
         movementIntensity: 0.5,
         reducedMotion: false,

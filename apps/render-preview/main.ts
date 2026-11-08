@@ -12,9 +12,9 @@
  * PROVES: that `buildChunkGeometry` -> `setChunk` -> `draw` with a
  * `ShaderMaterial` produces non-background pixels in Chromium using the
  * SwiftShader WebGL renderer, and that the `tileIndex` attribute reaches the
- * fragment stage. The atlas gives every tile a different colour, so a broken
- * tile path renders one flat colour and
- * the tile-variety assertion fails.
+ * fragment stage. Terrain faces use the checked-in block atlas. The
+ * `presentation=1` view also draws the generated first-person arm and a
+ * held block through the interaction renderer.
  *
  * THE QUADS ARE REAL. `terrain-fixture.json` is the output of
  * `generateChunkAt(20260728, cx, cz)` from mc-worldgen, meshed by mc-meshing's
@@ -26,20 +26,13 @@
  * `.oxlintrc.json` and `pnpm lint` enforce its direct-import boundary; browser
  * runtime paths are covered separately by E2E tests.
  *
- * ---------------------------------------------------------------------------
- * WHY THE ATLAS IS GENERATED RATHER THAN LOADED
- * ---------------------------------------------------------------------------
- *
- * There is no atlas PNG in the organisation yet — `domain/block-texture-map.ts`
- * assigns 120 blocks to tile indices and the image itself is still outstanding.
- * A generated one is BETTER for this page than the real one would be: each tile
- * is a flat, distinct colour, so "which tile did this face sample" is readable
- * from a pixel rather than from an artist's texture. A photographic atlas would
- * make a tile-index bug look like a texture.
+ * `terrain-fixture.json` stores mesh quads without baked texture indices.
+ * `fixtureTile` resolves each quad's block ID and face role against the
+ * checked-in texture map, keeping the preview aligned with runtime meshing.
  */
 import * as THREE from 'three'
 import { Context, Effect, Layer, Result, Scope } from 'effect'
-import { ChunkAxis, ChunkKey, chunkCoord, chunkCoordOfKey } from '@nerima-games/mc-kernel'
+import { ChunkAxis, ChunkKey, blockTypeOfId, chunkCoord, chunkCoordOfKey } from '@nerima-games/mc-kernel'
 import {
   browserInputLayer,
 } from '../../src/application/browser-input-adapter.js'
@@ -54,14 +47,11 @@ import { createSkyRenderer } from '../../src/application/sky-renderer.js'
 import type { PresentationObject3D } from '../../src/application/render-presentation-surface.js'
 import { makeChunkShaderMaterial, makeWorldRenderer, SKY_CLEAR_COLOR } from '../../src/application/world-renderer.js'
 import { chunkKeyOf, syncWorld, type ChunkRef } from '../../src/application/world-sync.js'
-import { ATLAS_COLUMNS } from '../../src/domain/texture-atlas.js'
+import { tileIndexForBlockName, type BlockTextureLookupError } from '../../src/domain/block-texture-map.js'
 import type { GeometryQuad, MeshQuad } from '../../src/domain/meshing-vocabulary.js'
 import type { MirroredCameraState } from '../../src/domain/camera-mirror.js'
 
 const VIEWPORT = { width: 640, height: 360 }
-
-/** Pixels per atlas tile in the generated image. Small; they are flat colours. */
-const TILE_PIXELS = 16
 
 /**
  * A camera looking down at the fixture from one corner.
@@ -108,7 +98,7 @@ const PRESENTATION_NIGHT_START = 18_000
 const ANIMATION_TICKS_PER_SECOND = 20
 const PRESENTATION_TICKS_PER_SECOND = 1_200
 const PRESENTATION_MOON_PHASE = 5
-const PRESENTATION_BLOCK_TILE_INDEX = 5
+const PRESENTATION_BLOCK_NAME = 'grass_block'
 const PRESENTATION_CAMERA_PITCH = -0.4
 const PRESENTATION_CAMERA_Z = 48
 const STARS_PREVIEW_CAMERA_PITCH = 1.2
@@ -125,18 +115,8 @@ const cameraFrom = (pose: typeof START_POSE, rollRadians = 0): MirroredCameraSta
     sourceCapturedAtSecs: 0,
   }) as unknown as MirroredCameraState
 
-/**
- * A quad as the fixture stores it: mc-meshing's `Quad`, plus its resolved tile.
- *
- * The TILE IS BAKED IN because resolving it needs `blockId -> name`, and the
- * names are mc-kernel's closed union. The published kernel package is
- * available to the project, while this fixture still stores the resolved tile
- * as data rather than importing the world-generation path. `domain/
- * block-texture-map.ts`'s `BlockNameLookup`
- * header is the same argument from mc-render's side: the vocabulary is carried
- * whole or not carried, and this page needs a number, not a union.
- */
-type FixtureQuad = MeshQuad & { readonly tile: number }
+/** A fixture quad whose face tile is resolved from its block ID and role. */
+type FixtureQuad = MeshQuad
 
 type TerrainFixture = {
   readonly seed: number
@@ -149,40 +129,13 @@ type TerrainFixture = {
   }>
 }
 
-/** The tile the generator resolved, not one this page invents. */
-// mc-render's QuadTile signature is `(quad: GeometryQuad) => number`, wider than
-// the MeshQuad-only fixtures this preview builds; the cast below is unchanged,
-// only the parameter type widened to satisfy that signature.
-const fixtureTile = (quad: GeometryQuad): number => (quad as FixtureQuad).tile
-
-/**
- * A 16x16 grid of flat, distinct colours, as a `THREE.Texture`.
- *
- * `NearestFilter` is not cosmetic: with the default linear filter the tiles
- * blend at their shared edges and the "how many distinct colours" count below
- * would read the blend as extra tiles.
- */
-const generateAtlas = (): THREE.Texture => {
-  const size = ATLAS_COLUMNS * TILE_PIXELS
-  const canvas = document.createElement('canvas')
-  canvas.width = size
-  canvas.height = size
-  const context = canvas.getContext('2d')
-  if (context === null) {
-    throw new Error('the atlas canvas has no 2d context')
+const fixtureTile = (quad: GeometryQuad): number => {
+  const blockName = Result.getOrThrow(blockTypeOfId(quad.blockId))
+  const tileIndex = tileIndexForBlockName(blockName, quad.role)
+  if (Result.isFailure(tileIndex)) {
+    throw tileIndex.failure
   }
-  for (let tile = 0; tile < ATLAS_COLUMNS * ATLAS_COLUMNS; tile += 1) {
-    const column = tile % ATLAS_COLUMNS
-    const row = Math.floor(tile / ATLAS_COLUMNS)
-    // Spread the hue so adjacent tiles are far apart in colour.
-    context.fillStyle = `hsl(${String((tile * 47) % 360)}, 70%, 55%)`
-    context.fillRect(column * TILE_PIXELS, row * TILE_PIXELS, TILE_PIXELS, TILE_PIXELS)
-  }
-  const texture = new THREE.Texture(canvas)
-  texture.magFilter = THREE.NearestFilter
-  texture.minFilter = THREE.NearestFilter
-  texture.needsUpdate = true
-  return texture
+  return tileIndex.success
 }
 
 const createPresentationArmTexture = (): THREE.DataTexture => {
@@ -222,10 +175,18 @@ type PreviewPresentation = {
 const createPreviewPresentation = async (
   renderer: PresentationAttachmentPort,
   atlasTexture: THREE.Texture,
-): Promise<PreviewPresentation> => {
+): Promise<Result.Result<PreviewPresentation, BlockTextureLookupError>> => {
   const variant = new URLSearchParams(window.location.search).get('presentation')
   const enabled = variant === '1' || variant === 'sky' || variant === 'stars'
   const interactionFeedback = variant === '1'
+  const faceTileIndices = Result.all({
+    top: tileIndexForBlockName(PRESENTATION_BLOCK_NAME, 'top'),
+    side: tileIndexForBlockName(PRESENTATION_BLOCK_NAME, 'side'),
+    bottom: tileIndexForBlockName(PRESENTATION_BLOCK_NAME, 'bottom'),
+  })
+  if (Result.isFailure(faceTileIndices)) {
+    return Result.fail(faceTileIndices.failure)
+  }
   const skyView = variant === 'sky' || variant === 'stars'
   const startTicks = variant === 'stars'
     ? PRESENTATION_NIGHT_START
@@ -281,7 +242,7 @@ const createPreviewPresentation = async (
 
   const interactionFrame = (elapsedSeconds: number) => ({
     ...(interactionFeedback ? { target: PRESENTATION_TARGET } : {}),
-    ...(interactionFeedback ? { heldItem: { kind: 'block' as const, tileIndex: PRESENTATION_BLOCK_TILE_INDEX } } : {}),
+    ...(interactionFeedback ? { heldItem: { kind: 'block' as const, faceTileIndices: faceTileIndices.success } } : {}),
     miningProgress: interactionFeedback ? 0.6 : 0,
     action: interactionFeedback ? 'mine' : 'idle',
     actionProgress: interactionFeedback ? (elapsedSeconds * 0.75) % 1 : 0,
@@ -337,7 +298,7 @@ const createPreviewPresentation = async (
     }
   }
 
-  return { dispose, enabled, startPose, update }
+  return Result.succeed({ dispose, enabled, startPose, update })
 }
 
 const main = async (): Promise<void> => {
@@ -350,7 +311,16 @@ const main = async (): Promise<void> => {
   canvas.width = VIEWPORT.width
   canvas.height = VIEWPORT.height
 
-  const atlasTexture = generateAtlas()
+  const atlasUrl = new URL('../../src/assets/block-textures/atlas.png', import.meta.url).href
+  const atlasTexture = await new THREE.TextureLoader().loadAsync(atlasUrl)
+  atlasTexture.colorSpace = THREE.SRGBColorSpace
+  atlasTexture.flipY = true
+  atlasTexture.magFilter = THREE.NearestFilter
+  atlasTexture.minFilter = THREE.NearestMipmapLinearFilter
+  atlasTexture.generateMipmaps = true
+  atlasTexture.wrapS = THREE.ClampToEdgeWrapping
+  atlasTexture.wrapT = THREE.ClampToEdgeWrapping
+  atlasTexture.needsUpdate = true
   const renderer = await Effect.runPromise(
     makeWorldRenderer<
       HTMLCanvasElement,
@@ -368,7 +338,13 @@ const main = async (): Promise<void> => {
     }),
   )
 
-  const presentation = await createPreviewPresentation(renderer, atlasTexture)
+  const presentationSetupResult = await createPreviewPresentation(renderer, atlasTexture)
+  if (Result.isFailure(presentationSetupResult)) {
+    document.body.setAttribute('data-render-presentation', 'failed')
+    report.textContent = JSON.stringify(presentationSetupResult.failure)
+    return
+  }
+  const presentation = presentationSetupResult.success
 
   // REAL GENERATED TERRAIN, loaded as data. See this file's header on why it
   // arrives as JSON rather than as a call into mc-worldgen.
@@ -394,6 +370,13 @@ const main = async (): Promise<void> => {
    */
   const fixtureMesher = (chunk: ChunkRef) =>
     Effect.sync(() => quadsByKey.get(chunkKeyOf(chunk)))
+
+  const resolvedTileIndices = new Set<number>()
+  const resolveFixtureTile = (quad: GeometryQuad): number => {
+    const tileIndex = fixtureTile(quad)
+    resolvedTileIndices.add(tileIndex)
+    return tileIndex
+  }
 
   /** Chunks currently in the scene, so a batch can be a DIFFERENCE. */
   const loaded = new Set<ChunkKey>()
@@ -442,7 +425,7 @@ const main = async (): Promise<void> => {
 
   // The first load, around the start pose, before anything is measured.
   await Effect.runPromise(
-    syncWorld(renderer, streamingSource(presentation.startPose), fixtureMesher, { tile: fixtureTile }),
+    syncWorld(renderer, streamingSource(presentation.startPose), fixtureMesher, { tile: resolveFixtureTile }),
   )
   const initialPresentation = presentation.update(presentation.startPose, 0)
   if (Result.isFailure(initialPresentation)) {
@@ -468,7 +451,6 @@ const main = async (): Promise<void> => {
 
   const [skyR, skyG, skyB] = skyBytes()
   let drawn = 0
-  const colours = new Set<string>()
   for (let at = 0; at < pixels.length; at += 4) {
     const r = pixels[at] ?? 0
     const g = pixels[at + 1] ?? 0
@@ -478,9 +460,6 @@ const main = async (): Promise<void> => {
     const isSky = Math.abs(r - skyR) <= 2 && Math.abs(g - skyG) <= 2 && Math.abs(b - skyB) <= 2
     if (!isSky) {
       drawn += 1
-      // Quantised, so that shading gradients within one tile do not inflate
-      // the count — this is asking "how many TILES are visible".
-      colours.add(`${String(r >> 4)},${String(g >> 4)},${String(b >> 4)}`)
     }
   }
 
@@ -489,12 +468,12 @@ const main = async (): Promise<void> => {
       `${String(fixture.totalQuads)} quads`,
     `streaming radius ${String(STREAM_RADIUS_CHUNKS)}; loaded now: ${String(loaded.size)}`,
     `pixels drawn: ${String(drawn)} of ${String(VIEWPORT.width * VIEWPORT.height)}`,
-    `distinct ${presentation.enabled ? 'rendered' : 'tile'} colours: ${String(colours.size)}`,
+    `distinct resolved atlas tiles: ${String(resolvedTileIndices.size)}`,
   ].join('\n')
 
   document.body.setAttribute('data-render-preview', drawn > 0 ? 'drawn' : 'empty')
   document.body.setAttribute('data-pixels-drawn', String(drawn))
-  document.body.setAttribute('data-tile-colours', String(colours.size))
+  document.body.setAttribute('data-resolved-tile-count', String(resolvedTileIndices.size))
 
   // -------------------------------------------------------------------------
   // Interactive: WASD + mouse-look, through mc-render's own InputService
@@ -572,7 +551,7 @@ const main = async (): Promise<void> => {
     // why one drain and not a loop: meshing a chunk can dirty its neighbours,
     // and a loop-until-empty has no bound on a frame's work.
     const syncReport = Effect.runSync(
-      syncWorld(renderer, streamingSource(pose), fixtureMesher, { tile: fixtureTile }),
+      syncWorld(renderer, streamingSource(pose), fixtureMesher, { tile: resolveFixtureTile }),
     )
     streamed += syncReport.meshed
     dropped += syncReport.removed
