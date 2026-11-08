@@ -1011,7 +1011,9 @@ describe('browser world runtime', () => {
     const frame = {
       camera: testCamera,
       frame: {
-        elapsedSecs: 1,
+        simulationTick: 20,
+        partialTick: 0,
+        timeOfDayTicks: 1200,
         deltaSecs: decodeDelta(0.021),
         cameraPosition: { worldX: 0, worldY: 0, worldZ: 0 },
       },
@@ -1064,7 +1066,9 @@ describe('browser world runtime', () => {
       quality: 'high',
     })
     const frame = {
-      elapsedSecs: 1,
+      simulationTick: 20,
+      partialTick: 0,
+      timeOfDayTicks: 1200,
       deltaSecs: decodeDelta(0.021),
       cameraPosition: { worldX: 0, worldY: 0, worldZ: 0 },
     }

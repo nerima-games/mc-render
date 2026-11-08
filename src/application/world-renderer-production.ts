@@ -1,8 +1,13 @@
 import {
+  type AnimationClockInput,
+  type AnimationClockInputError,
+  animationTimeSeconds,
+} from '../domain/animation-clock.js'
+import {
   DEFAULT_DIMENSION,
   type RenderEnvironmentPlan,
 } from '../domain/render-environment.js'
-import type { DeltaTimeSecs, Dimension } from '@nerima-games/mc-kernel'
+import { type DeltaTimeSecs, type Dimension } from '@nerima-games/mc-kernel'
 import {
   type ParticleFrameSnapshot,
   type ParticlePool,
@@ -12,13 +17,6 @@ import {
 } from '../domain/particle-pool.js'
 import { ParticleService, ParticleServiceLive, ParticleServicePoolAccess } from './particle-service.js'
 import { type ParticleSystem, makeParticleSystem } from './particle-system.js'
-import {
-  type ProductionFrameInputError,
-  type WorldRenderer,
-  type WorldRendererOptions,
-  makeWorldRenderer,
-  validateProductionFrameElapsedSecs,
-} from './world-renderer.js'
 import {
   type RendererMaterialPolicyError,
   type Viewport,
@@ -41,6 +39,11 @@ import type {
   ThreeUniform,
   ThreeVector3,
 } from './three-surface.js'
+import {
+  type WorldRenderer,
+  type WorldRendererOptions,
+  makeWorldRenderer,
+} from './world-renderer.js'
 import { CHUNK_SHADER_UNIFORMS } from '../domain/chunk-shader.js'
 import { Effect } from 'effect'
 /**
@@ -59,16 +62,15 @@ type TransformableThreeMesh = ThreeMesh & {
 
 const applyChunkShaderTime = (
   chunkMaterials: ReadonlyArray<{ readonly uniforms: Record<string, ThreeUniform> }>,
-  elapsedSecs: number,
+  animationSecs: number,
 ): void => {
   for (const chunkMaterial of chunkMaterials) {
     const time = chunkMaterial.uniforms[CHUNK_SHADER_UNIFORMS.time]
-    if (time) {time.value = elapsedSecs}
+    if (time) {time.value = animationSecs}
   }
 }
 
-export type ProductionFrame = {
-  readonly elapsedSecs: number
+export type ProductionFrame = AnimationClockInput & {
   readonly deltaSecs: DeltaTimeSecs
   readonly cameraPosition: Readonly<{ worldX: number; worldY: number; worldZ: number }>
   /** Defaults to the renderer's current dimension, initially `overworld`. */
@@ -83,7 +85,7 @@ export type ProductionWorldRenderer<TShaderMaterial extends ThreeMaterial> = Wor
   readonly particleService: ParticleService['Service']
   readonly particles: ParticleSystem<TShaderMaterial>
   readonly setEnvironment: (environment: RenderEnvironmentPlan) => Effect.Effect<void>
-  readonly advanceFrame: (frame: ProductionFrame) => Effect.Effect<void, ParticlePoolInputError | ProductionFrameInputError>
+  readonly advanceFrame: (frame: ProductionFrame) => Effect.Effect<void, ParticlePoolInputError | AnimationClockInputError>
 }
 
 export type ProductionWorldRendererOptions = Omit<
@@ -159,11 +161,11 @@ export const makeProductionWorldRenderer = <
     return {
       ...renderer,
       advanceFrame: (frame: ProductionFrame) => Effect.gen(function* advanceProductionFrame() {
-        const elapsedSecs = yield* Effect.fromResult(validateProductionFrameElapsedSecs(frame.elapsedSecs))
+        const animationSecs = yield* Effect.fromResult(animationTimeSeconds(frame))
         yield* advanceParticleFrame(frame)
-        applyChunkShaderTime(Object.values(chunkMaterials), elapsedSecs)
-        applyWaterFrameUniforms(water.uniforms, elapsedSecs, frame.cameraPosition)
-        applyWaterFrameUniforms(chunkMaterials.transparent.uniforms, elapsedSecs, frame.cameraPosition)
+        applyChunkShaderTime(Object.values(chunkMaterials), animationSecs)
+        applyWaterFrameUniforms(water.uniforms, animationSecs, frame.cameraPosition)
+        applyWaterFrameUniforms(chunkMaterials.transparent.uniforms, animationSecs, frame.cameraPosition)
       }).pipe(Effect.andThen(particles.sync)),
       chunkMaterial: chunkMaterials.opaque.material,
       dispose: renderer.detachSceneObject(particles.mesh).pipe(

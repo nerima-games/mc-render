@@ -55,7 +55,13 @@ import {
   POSITION_COMPONENTS,
   TILE_INDEX_COMPONENTS,
   UV_COMPONENTS,
+  combineChunkGeometry,
 } from '../domain/chunk-geometry.js'
+import {
+  type AnimationClockInput,
+  type AnimationClockInputError,
+  animationTimeSeconds,
+} from '../domain/animation-clock.js'
 import {
   type AxisAlignedBounds,
   aabbIntersectsPreparedPerspectiveFrustum,
@@ -68,17 +74,6 @@ import {
   chunkShaderSource,
 } from '../domain/chunk-shader.js'
 import {
-  ANIMATION_KIND_COMPONENTS,
-  COLOR_COMPONENTS,
-  type ChunkGeometryBuffers,
-  FLUID_DIRECTION_COMPONENTS,
-  FLUID_FALLING_COMPONENTS,
-  NORMAL_COMPONENTS,
-  POSITION_COMPONENTS,
-  TILE_INDEX_COMPONENTS,
-  UV_COMPONENTS,
-  combineChunkGeometry,
-} from '../domain/chunk-geometry.js'
   DAY_SKY_COLOR,
   type RenderEnvironmentPlan,
   planRenderEnvironment,
@@ -320,11 +315,11 @@ export type ChunkShaderMaterial<TShaderMaterial extends ThreeMaterial> = {
 
 const applyChunkShaderTime = (
   chunkMaterials: ReadonlyArray<ChunkShaderMaterial<ThreeMaterial>>,
-  elapsedSecs: number,
+  animationSecs: number,
 ): void => {
   for (const chunkMaterial of chunkMaterials) {
     const time = chunkMaterial.uniforms[CHUNK_SHADER_UNIFORMS.time]
-    if (time) {time.value = elapsedSecs}
+    if (time) {time.value = animationSecs}
   }
 }
 
@@ -1853,8 +1848,7 @@ export const makeWorldRenderer = <
   })
 }
 
-export type ProductionFrame = {
-  readonly elapsedSecs: number
+export type ProductionFrame = AnimationClockInput & {
   readonly deltaSecs: DeltaTimeSecs
   readonly cameraPosition: Readonly<{ worldX: number; worldY: number; worldZ: number }>
 }
@@ -1906,7 +1900,7 @@ export type ProductionWorldRenderer<TShaderMaterial extends ThreeMaterial> = Wor
   readonly waterUniforms: Record<string, ThreeUniform>
   readonly particlePool: ParticlePool
   readonly particles: ParticleSystem
-  readonly advanceFrame: (frame: ProductionFrame) => Effect.Effect<void, ParticlePoolInputError | ProductionFrameInputError>
+  readonly advanceFrame: (frame: ProductionFrame) => Effect.Effect<void, ParticlePoolInputError | AnimationClockInputError>
 }
 
 export type ProductionWorldRendererOptions = Omit<
@@ -1962,11 +1956,11 @@ export const makeProductionWorldRenderer = <
     return {
       ...renderer,
       advanceFrame: (frame) => Effect.gen(function* advanceProductionFrame() {
-        const elapsedSecs = yield* Effect.fromResult(validateProductionFrameElapsedSecs(frame.elapsedSecs))
+        const animationSecs = yield* Effect.fromResult(animationTimeSeconds(frame))
         yield* Effect.fromResult(advanceParticles(particlePool, frame.deltaSecs))
-        applyChunkShaderTime([chunk, cutout, transparentSolid], elapsedSecs)
-        applyWaterFrameUniforms(water.uniforms, elapsedSecs, frame.cameraPosition)
-        applyWaterFrameUniforms(transparentSolid.uniforms, elapsedSecs, frame.cameraPosition)
+        applyChunkShaderTime([chunk, cutout, transparentSolid], animationSecs)
+        applyWaterFrameUniforms(water.uniforms, animationSecs, frame.cameraPosition)
+        applyWaterFrameUniforms(transparentSolid.uniforms, animationSecs, frame.cameraPosition)
       }).pipe(Effect.andThen(particles.sync)),
       chunkMaterial: chunk.material,
       dispose: renderer.detachSceneObject(particles.mesh).pipe(

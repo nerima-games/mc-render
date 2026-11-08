@@ -17,6 +17,7 @@ import { describe, expect, it } from '@effect/vitest'
 import { Effect, Result, Schema } from 'effect'
 import * as FastCheck from 'fast-check'
 import { mirroredCameraState } from '../src/domain/camera-mirror'
+import type { AnimationClockInputError } from '../src/domain/animation-clock'
 import {
   buildChunkGeometry,
   buildFluidGeometry,
@@ -43,7 +44,6 @@ import {
   type ProductionFrame,
   ProductionFrameElapsedSecsSchema,
   ProductionFrameInputErrorSchema,
-  type ProductionFrameInputError,
   SKY_CLEAR_ALPHA,
   SKY_CLEAR_COLOR,
   validateProductionFrameElapsedSecs,
@@ -73,9 +73,9 @@ const decodeUv = Schema.decodeUnknownSync(ParticleUvCoordinateSchema)
 const decodeCount = Schema.decodeUnknownSync(ParticleBurstCountSchema)
 const decodeDelta = Schema.decodeUnknownSync(ParticleDeltaSecsSchema)
 const advanceFrameWithRawInput = (
-  advanceFrame: (frame: ProductionFrame) => Effect.Effect<void, ParticlePoolInputError | ProductionFrameInputError>,
+  advanceFrame: (frame: ProductionFrame) => Effect.Effect<void, ParticlePoolInputError | AnimationClockInputError>,
   frame: unknown,
-): Effect.Effect<void, ParticlePoolInputError | ProductionFrameInputError> =>
+): Effect.Effect<void, ParticlePoolInputError | AnimationClockInputError> =>
   Function.prototype.apply.call(advanceFrame, undefined, [frame])
 const spawnBurst = (pool: Parameters<typeof spawnBurstResult>[0], x: number, y: number, z: number, u: number, v: number, count: number) =>
   Result.getOrThrow(spawnBurstResult(
@@ -106,11 +106,6 @@ const blockIdForType = (blockType: string): BlockId => {
     throw new Error(`block type not found: ${blockType}`)
   }
   return match
-}
-
-const isProductionFrameInputFailure = (error: unknown, reason: ProductionFrameInputError['reason']): boolean => {
-  const decoded = Schema.decodeUnknownResult(ProductionFrameInputErrorSchema, { onExcessProperty: 'error' })(error)
-  return Result.isSuccess(decoded) && decoded.success.reason === reason
 }
 
 describe('validateProductionFrameElapsedSecs', () => {
@@ -1563,7 +1558,9 @@ describe('makeProductionWorldRenderer', () => {
 
       spawnBurst(renderer.particlePool, 1, 2, 3, 0, 0, 1)
       yield* renderer.advanceFrame({
-        elapsedSecs: 2,
+        simulationTick: 40,
+        partialTick: 0,
+        timeOfDayTicks: 6000,
         deltaSecs: decodeDelta(0.1),
         cameraPosition: { worldX: 4, worldY: 5, worldZ: 6 },
       })
@@ -1579,7 +1576,9 @@ describe('makeProductionWorldRenderer', () => {
 
       const pausedChunkTimes = chunkTimeUniforms()
       yield* renderer.advanceFrame({
-        elapsedSecs: 2,
+        simulationTick: 40,
+        partialTick: 0,
+        timeOfDayTicks: 6000,
         deltaSecs: decodeDelta(0),
         cameraPosition: { worldX: 4, worldY: 5, worldZ: 6 },
       })
@@ -1620,7 +1619,9 @@ describe('makeProductionWorldRenderer', () => {
       applyChunkShaderEnvironment({}, planRenderEnvironment(0.5))
       yield* renderer.setEnvironment(planRenderEnvironment(0.5))
       yield* renderer.advanceFrame({
-        elapsedSecs: 1,
+        simulationTick: 20,
+        partialTick: 0,
+        timeOfDayTicks: 1200,
         deltaSecs: decodeDelta(0.01),
         cameraPosition: { worldX: 1, worldY: 2, worldZ: 3 },
       })
@@ -1651,7 +1652,9 @@ describe('makeProductionWorldRenderer', () => {
         { particles: { capacity: 2 } },
       )
       const invalidStepResult = yield* Effect.result(advanceFrameWithRawInput(renderer.advanceFrame, {
-        elapsedSecs: 1,
+        simulationTick: 20,
+        partialTick: 0,
+        timeOfDayTicks: 1200,
         deltaSecs: -0.01,
         cameraPosition: { worldX: 0, worldY: 0, worldZ: 0 },
       }))
@@ -1664,7 +1667,7 @@ describe('makeProductionWorldRenderer', () => {
     }),
   )
 
-  it.effect('rejects invalid elapsed time before particle or animation uniform writes', () =>
+  it.effect('rejects invalid simulation clock input before particle or animation uniform writes', () =>
     Effect.gen(function* () {
       const three = makeFakeThree()
       const renderer = yield* makeProductionWorldRenderer(three, FAKE_CANVAS, VIEWPORT, { name: 'terrain-atlas' }, {
@@ -1680,18 +1683,23 @@ describe('makeProductionWorldRenderer', () => {
       ]
       const initialTimes = animationTimes()
 
-      for (const [elapsedSecs, reason] of [
-        [-0.01, 'negative-elapsed-secs'],
-        [Number.NaN, 'non-finite-elapsed-secs'],
+      for (const [simulationTick, partialTick, timeOfDayTicks, reason] of [
+        [-1, 0, 0, 'invalid-simulation-tick'],
+        [Number.NaN, 0, 0, 'invalid-simulation-tick'],
+        [1, Number.NaN, 0, 'invalid-partial-tick'],
+        [1, 1, 0, 'invalid-partial-tick'],
+        [1, 0, 24_000, 'invalid-time-of-day-ticks'],
       ] as const) {
         const result = yield* Effect.result(advanceFrameWithRawInput(renderer.advanceFrame, {
-          elapsedSecs,
+          simulationTick,
+          partialTick,
+          timeOfDayTicks,
           deltaSecs: decodeDelta(0.1),
           cameraPosition: { worldX: 0, worldY: 0, worldZ: 0 },
         }))
         expect(Result.isFailure(result)).toBe(true)
         if (Result.isFailure(result)) {
-          expect(isProductionFrameInputFailure(result.failure, reason)).toBe(true)
+          expect(result.failure).toStrictEqual({ _tag: 'AnimationClockInputError', reason })
         }
         expect(readSlot(renderer.particlePool, 0)).toStrictEqual(initialParticle)
         expect(animationTimes()).toStrictEqual(initialTimes)

@@ -2,4 +2,4 @@
 "@nerima-games/mc-render": minor
 ---
 
-Scroll the water, lava, fire, Nether portal, and End portal tile UVs from cumulative frame elapsed time (`elapsedSecs`); reject negative and non-finite elapsed times. Tile 18 is shared by lava and ice, so both receive the lava UV offset.
+Drive animated water, lava, fire, Nether portal, and End portal UVs from `simulationTick` and `partialTick` at 20 ticks per second. Export the shared tick-to-seconds conversion for RN4 and validate the simulation tick, partial tick, and time-of-day tick before updating uniforms. Motion tags come from block identity, so ice remains static even while it shares lava's current atlas tile.

@@ -11,12 +11,9 @@
  */
 import { describe, expect, it } from '@effect/vitest'
 import { Effect, Result, Schema } from 'effect'
+import type { AnimationClockInputError } from '../src/domain/animation-clock'
 import { ParticleRequestSchema } from '../src/application/particle-service'
 import { makeProductionWorldRenderer, type ProductionFrame } from '../src/application/world-renderer-production'
-import {
-  ProductionFrameInputErrorSchema,
-  type ProductionFrameInputError,
-} from '../src/application/world-renderer'
 import { chunkKeyOf } from '../src/application/world-sync'
 import {
   applyChunkShaderEnvironment,
@@ -55,10 +52,24 @@ const decodePosition = Schema.decodeUnknownSync(ParticleWorldCoordinateSchema)
 const decodeUv = Schema.decodeUnknownSync(ParticleUvCoordinateSchema)
 const decodeCount = Schema.decodeUnknownSync(ParticleBurstCountSchema)
 const decodeDelta = Schema.decodeUnknownSync(ParticleDeltaSecsSchema)
+const chunkTimeUniforms = (three: ReturnType<typeof makeFakeThree>): ReadonlyArray<unknown> => three.shaderMaterials()
+  .filter(({ uniforms }) => uniforms['uAlphaTest'] !== undefined)
+  .map(({ uniforms }) => uniforms['uTime']?.value)
+const findChunkMaterials = (three: ReturnType<typeof makeFakeThree>) => {
+  const shaderMaterials = three.shaderMaterials()
+  const cutoutMaterial = shaderMaterials.find(({ uniforms }) => uniforms['uAlphaTest']?.value === 0.1)
+  const transparentSolidMaterial = shaderMaterials.find(({ transparent, uniforms }) =>
+    transparent === true && uniforms['uAlphaTest']?.value === 0,
+  )
+  if (cutoutMaterial === undefined || transparentSolidMaterial === undefined) {
+    throw new Error('the production renderer must build cutout and blended chunk materials')
+  }
+  return { cutoutMaterial, transparentSolidMaterial }
+}
 const advanceFrameWithRawInput = (
-  advanceFrame: (frame: ProductionFrame) => Effect.Effect<void, ParticlePoolInputError | ProductionFrameInputError>,
+  advanceFrame: (frame: ProductionFrame) => Effect.Effect<void, ParticlePoolInputError | AnimationClockInputError>,
   frame: unknown,
-): Effect.Effect<void, ParticlePoolInputError | ProductionFrameInputError> =>
+): Effect.Effect<void, ParticlePoolInputError | AnimationClockInputError> =>
   Function.prototype.apply.call(advanceFrame, undefined, [frame])
 const spawnBurst = (pool: Parameters<typeof spawnBurstResult>[0], x: number, y: number, z: number, u: number, v: number, count: number) =>
   Result.getOrThrow(spawnBurstResult(
@@ -80,11 +91,6 @@ const isParticlePoolInputFailure = (
   })(error)
   return Result.isSuccess(decoded) && decoded.success.operation === operation &&
     decoded.success.reason === reason
-}
-
-const isProductionFrameInputFailure = (error: unknown, reason: ProductionFrameInputError['reason']): boolean => {
-  const decoded = Schema.decodeUnknownResult(ProductionFrameInputErrorSchema, { onExcessProperty: 'error' })(error)
-  return Result.isSuccess(decoded) && decoded.success.reason === reason
 }
 
 describe('makeProductionWorldRenderer (the shipped composition)', () => {
@@ -132,7 +138,9 @@ describe('makeProductionWorldRenderer (the shipped composition)', () => {
 
       yield* renderer.syncEntities([{ id: 'mob-1', kind: 'zombie', feetPosition: { x: 10, y: 20, z: 30 } }])
       yield* renderer.advanceFrame({
-        elapsedSecs: 0,
+        simulationTick: 0,
+        partialTick: 0,
+        timeOfDayTicks: 0,
         deltaSecs: decodeDelta(0),
         cameraPosition: { worldX: 0, worldY: 0, worldZ: 0 },
       })
@@ -140,7 +148,9 @@ describe('makeProductionWorldRenderer (the shipped composition)', () => {
 
       yield* renderer.syncEntities([{ id: 'mob-1', kind: 'zombie', feetPosition: { x: 11, y: 21, z: 31 } }])
       yield* renderer.advanceFrame({
-        elapsedSecs: 0.1,
+        simulationTick: 2,
+        partialTick: 0,
+        timeOfDayTicks: 2,
         deltaSecs: decodeDelta(0.1),
         cameraPosition: { worldX: 0, worldY: 0, worldZ: 0 },
       })
@@ -151,7 +161,9 @@ describe('makeProductionWorldRenderer (the shipped composition)', () => {
       })
 
       yield* renderer.advanceFrame({
-        elapsedSecs: 0.2,
+        simulationTick: 4,
+        partialTick: 0,
+        timeOfDayTicks: 4,
         deltaSecs: decodeDelta(0.1),
         cameraPosition: { worldX: 0, worldY: 0, worldZ: 0 },
         dimension: 'nether',
@@ -174,14 +186,7 @@ describe('makeProductionWorldRenderer (the shipped composition)', () => {
 
       expect(three.materials()).toHaveLength(0)
       expect(three.shaderMaterials()).toHaveLength(5)
-      const shaderMaterials = three.shaderMaterials()
-      const cutoutMaterial = shaderMaterials.find(({ uniforms }) => uniforms['uAlphaTest']?.value === 0.1)
-      const transparentSolidMaterial = shaderMaterials.find(({ transparent, uniforms }) =>
-        transparent === true && uniforms['uAlphaTest']?.value === 0,
-      )
-      if (cutoutMaterial === undefined || transparentSolidMaterial === undefined) {
-        throw new Error('the production renderer must build cutout and blended chunk materials')
-      }
+      const { cutoutMaterial, transparentSolidMaterial } = findChunkMaterials(three)
       expect(renderer.chunkMaterial.uniforms['uAtlas']?.value).toBe(atlas)
       expect(cutoutMaterial.alphaTest).toBe(0.1)
       expect(cutoutMaterial.uniforms['uAlphaTest']?.value).toBe(0.1)
@@ -216,27 +221,28 @@ describe('makeProductionWorldRenderer (the shipped composition)', () => {
 
       spawnBurst(renderer.particlePool, 1, 2, 3, 0, 0, 1)
       yield* renderer.advanceFrame({
-        elapsedSecs: 2,
+        simulationTick: 40,
+        partialTick: 0,
+        timeOfDayTicks: 6000,
         deltaSecs: decodeDelta(0.1),
         cameraPosition: { worldX: 4, worldY: 5, worldZ: 6 },
       })
       expect(renderer.waterUniforms['uTime']?.value).toBe(2)
       expect(transparentSolidMaterial.uniforms['uTime']?.value).toBe(2)
-      const chunkTimeUniforms = (): ReadonlyArray<unknown> => three.shaderMaterials()
-        .filter(({ uniforms }) => uniforms['uAlphaTest'] !== undefined)
-        .map(({ uniforms }) => uniforms['uTime']?.value)
-      expect(chunkTimeUniforms()).toStrictEqual([2, 2, 2])
+      expect(chunkTimeUniforms(three)).toStrictEqual([2, 2, 2])
       expect(renderer.waterUniforms['uCameraPosition']?.value).toStrictEqual([4, 5, 6])
       expect(transparentSolidMaterial.uniforms['uCameraPosition']?.value).toStrictEqual([4, 5, 6])
       expect(three.instancedGeometries()[0]?.instanceCount).toBe(1)
 
-      const pausedChunkTimes = chunkTimeUniforms()
+      const pausedChunkTimes = chunkTimeUniforms(three)
       yield* renderer.advanceFrame({
-        elapsedSecs: 2,
-        deltaSecs: decodeDelta(0),
+        simulationTick: 40,
+        partialTick: 0,
+        timeOfDayTicks: 6000,
+        deltaSecs: decodeDelta(0.1),
         cameraPosition: { worldX: 4, worldY: 5, worldZ: 6 },
       })
-      expect(chunkTimeUniforms()).toStrictEqual(pausedChunkTimes)
+      expect(chunkTimeUniforms(three)).toStrictEqual(pausedChunkTimes)
       expect(renderer.waterUniforms['uTime']?.value).toBe(2)
 
       yield* renderer.resize(640, 360)
@@ -279,7 +285,9 @@ describe('makeProductionWorldRenderer (the shipped composition)', () => {
       applyChunkShaderEnvironment({}, planRenderEnvironment(0.5))
       yield* renderer.setEnvironment(planRenderEnvironment(0.5))
       yield* renderer.advanceFrame({
-        elapsedSecs: 1,
+        simulationTick: 20,
+        partialTick: 0,
+        timeOfDayTicks: 1200,
         deltaSecs: decodeDelta(0.01),
         cameraPosition: { worldX: 1, worldY: 2, worldZ: 3 },
       })
@@ -372,7 +380,9 @@ describe('makeChunkShaderMaterial and makeWaterMaterial default sun intensity', 
         { particles: { capacity: 2 } },
       )
       const invalidStepResult = yield* Effect.result(advanceFrameWithRawInput(renderer.advanceFrame, {
-        elapsedSecs: 1,
+        simulationTick: 20,
+        partialTick: 0,
+        timeOfDayTicks: 1200,
         deltaSecs: -0.01,
         cameraPosition: { worldX: 0, worldY: 0, worldZ: 0 },
       }))
@@ -385,7 +395,7 @@ describe('makeChunkShaderMaterial and makeWaterMaterial default sun intensity', 
     }),
   )
 
-  it.effect('rejects invalid elapsed time before particle or animation uniform writes', () =>
+  it.effect('rejects invalid simulation clock input before particle or animation uniform writes', () =>
     Effect.gen(function* () {
       const three = makeFakeThree()
       const renderer = yield* makeProductionWorldRenderer(three, FAKE_CANVAS, VIEWPORT, { name: 'terrain-atlas' }, {
@@ -401,18 +411,23 @@ describe('makeChunkShaderMaterial and makeWaterMaterial default sun intensity', 
       ]
       const initialTimes = animationTimes()
 
-      for (const [elapsedSecs, reason] of [
-        [-0.01, 'negative-elapsed-secs'],
-        [Number.NaN, 'non-finite-elapsed-secs'],
+      for (const [simulationTick, partialTick, timeOfDayTicks, reason] of [
+        [-1, 0, 0, 'invalid-simulation-tick'],
+        [Number.NaN, 0, 0, 'invalid-simulation-tick'],
+        [1, Number.NaN, 0, 'invalid-partial-tick'],
+        [1, 1, 0, 'invalid-partial-tick'],
+        [1, 0, 24_000, 'invalid-time-of-day-ticks'],
       ] as const) {
         const result = yield* Effect.result(advanceFrameWithRawInput(renderer.advanceFrame, {
-          elapsedSecs,
+          simulationTick,
+          partialTick,
+          timeOfDayTicks,
           deltaSecs: decodeDelta(0.1),
           cameraPosition: { worldX: 0, worldY: 0, worldZ: 0 },
         }))
         expect(Result.isFailure(result)).toBe(true)
         if (Result.isFailure(result)) {
-          expect(isProductionFrameInputFailure(result.failure, reason)).toBe(true)
+          expect(result.failure).toStrictEqual({ _tag: 'AnimationClockInputError', reason })
         }
         expect(readSlot(renderer.particlePool, 0)).toStrictEqual(initialParticle)
         expect(animationTimes()).toStrictEqual(initialTimes)
