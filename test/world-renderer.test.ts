@@ -364,6 +364,14 @@ describe('acquiring the renderer', () => {
       expect(indexAttribute?.needsUpdate).toBe(true)
       expect(transparentGeometry?.index()).toBe(indexAttribute)
 
+      yield* renderer.setChunks([{
+        buffers: buildChunkGeometry([]),
+        key: chunkKeyOf(chunkCoord(0, 0)),
+        waterBuffers,
+      }])
+      const waterOnlyGeometry = three.geometries().at(-1)
+      expect(Array.from(waterOnlyGeometry?.attributes.get('waterSurface')?.array ?? [])).toStrictEqual([1, 1, 1, 1])
+
       yield* renderer.dispose
     }),
   )
@@ -1485,6 +1493,10 @@ describe('makeProductionWorldRenderer', () => {
       yield* renderer.resize(640, 360)
       expect(renderer.waterUniforms['uResolution']?.value).toStrictEqual([640, 360])
       expect(transparentSolidMaterial.uniforms['uResolution']?.value).toStrictEqual([640, 360])
+
+      delete transparentSolidMaterial.uniforms['uResolution']
+      yield* renderer.resize(320, 180)
+      expect(transparentSolidMaterial.uniforms['uResolution']).toBeUndefined()
 
       yield* renderer.dispose
       expect(three.scene().members()).toStrictEqual([])
