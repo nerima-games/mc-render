@@ -238,23 +238,22 @@ const expectedCuboidSelectionVertices = (
   position: Readonly<{ x: number; y: number; z: number }>,
 ): ReadonlyArray<string> => {
   const corners = Array.from({ length: 8 }, (_unused, index) => ({
-    x: position.x + ((index & 1) === 0 ? bounds.x.min : bounds.x.max),
-    y: position.y + ((index & 2) === 0 ? bounds.y.min : bounds.y.max),
-    z: position.z + ((index & 4) === 0 ? bounds.z.min : bounds.z.max),
+    x: position.x + bounds.x.min + (index & 1) * (bounds.x.max - bounds.x.min),
+    y: position.y + bounds.y.min + ((index >> 1) & 1) * (bounds.y.max - bounds.y.min),
+    z: position.z + bounds.z.min + ((index >> 2) & 1) * (bounds.z.max - bounds.z.min),
   }))
   const vertices: Array<string> = []
   for (const [firstIndex, start] of corners.entries()) {
     for (const end of corners.slice(firstIndex + 1)) {
       const changedAxes = Number(start.x !== end.x) + Number(start.y !== end.y) + Number(start.z !== end.z)
-      if (changedAxes !== 1) {
-        continue
-      }
-      for (const point of [start, end]) {
-        vertices.push([
-          point.x + (Math.sign(point.x - position.x - 0.5) || 1) * 0.002,
-          point.y + (Math.sign(point.y - position.y - 0.5) || 1) * 0.002,
-          point.z + (Math.sign(point.z - position.z - 0.5) || 1) * 0.002,
-        ].map((coordinate) => coordinate.toFixed(3)).join(','))
+      if (changedAxes === 1) {
+        for (const point of [start, end]) {
+          vertices.push([
+            point.x + (Math.sign(point.x - position.x - 0.5) || 1) * 0.002,
+            point.y + (Math.sign(point.y - position.y - 0.5) || 1) * 0.002,
+            point.z + (Math.sign(point.z - position.z - 0.5) || 1) * 0.002,
+          ].map((coordinate) => coordinate.toFixed(3)).join(','))
+        }
       }
     }
   }
@@ -580,8 +579,8 @@ describe('interaction renderer', () => {
             return false
           }
 
-          const stage = input.miningProgress === 0 ? 0 : Math.ceil(input.miningProgress * 10)
-          const expectedCrackOpacity = stage === 0 ? 0 : 0.16 + (stage / 10) * 0.64
+          const stage = Math.ceil(input.miningProgress * 10) * Number(input.miningProgress > 0)
+          const expectedCrackOpacity = Number(stage > 0) * (0.16 + (stage / 10) * 0.64)
           expect(result.success.crackStage).toStrictEqual({ stage, opacity: expectedCrackOpacity })
 
           const profile = {
@@ -590,10 +589,10 @@ describe('interaction renderer', () => {
             mine: { drop: 0.18, forward: 0.07, swing: 1.1, twist: 0 },
             place: { drop: 0.025, forward: 0.11, swing: 0.28, twist: -0.08 },
           }[input.action]
-          const movement = input.reducedMotion ? 0 : input.movementIntensity
+          const movement = input.movementIntensity * Number(!input.reducedMotion)
           const gaitX = Math.cos(input.gaitPhaseRadians) * movement
           const gaitY = Math.sin(input.gaitPhaseRadians * 2) * movement
-          const actionSwing = Math.sin(input.actionProgress * Math.PI) * (input.reducedMotion ? 0.5 : 1)
+          const actionSwing = Math.sin(input.actionProgress * Math.PI) * (1 - Number(input.reducedMotion) * 0.5)
           const expectedPose = {
             offset: {
               x: 0.42 + gaitX * 0.018,
@@ -616,9 +615,9 @@ describe('interaction renderer', () => {
           const magnitude = Math.hypot(input.damageDirection.x, input.damageDirection.y)
           const normalizedX = input.damageDirection.x / magnitude
           const angle = Math.atan2(input.damageDirection.y, input.damageDirection.x)
-          const expectedRollMagnitude = normalizedX * 0.14 * input.damageIntensity * (input.reducedMotion ? 0.25 : 1)
+          const expectedRollMagnitude = normalizedX * 0.14 * input.damageIntensity * (1 - Number(input.reducedMotion) * 0.75)
           const expectedDamage = {
-            cameraRollRadians: expectedRollMagnitude === 0 ? 0 : -expectedRollMagnitude,
+            cameraRollRadians: -expectedRollMagnitude,
             directionAngleRadians: angle,
             flashOpacity: 0.48 * input.damageIntensity,
           }
@@ -627,7 +626,7 @@ describe('interaction renderer', () => {
           expect(result.success.damage.flashOpacity).toBeCloseTo(expectedDamage.flashOpacity, 10)
 
           const worldMeshes = fakeMeshes(renderer.sceneObject)
-          expect(worldMeshes).toHaveLength(stage === 0 ? 1 : 2)
+          expect(worldMeshes).toHaveLength(1 + Number(stage > 0))
           const selectionAttribute = fakeMesh(worldMeshes[0]).geometry.attributes.get('position')
           expect(selectionAttribute?.count).toBe(24)
           if (selectionAttribute === undefined) {

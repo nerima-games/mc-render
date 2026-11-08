@@ -323,8 +323,7 @@ describe('sky renderer', () => {
         if (!(scene instanceof FakeObject)) {
           return false
         }
-        const nearClouds = scene.children[5]
-        const farClouds = scene.children[6]
+        const [, , , , , nearClouds, farClouds] = scene.children
         expect(nearClouds instanceof FakeObject).toBe(true)
         expect(farClouds instanceof FakeObject).toBe(true)
         if (!(nearClouds instanceof FakeObject) || !(farClouds instanceof FakeObject)) {

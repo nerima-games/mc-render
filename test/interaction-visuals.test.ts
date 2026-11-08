@@ -70,9 +70,9 @@ const expectedCuboidEdges = (
   position: Readonly<{ x: number; y: number; z: number }>,
 ): ReadonlyArray<string> => {
   const corners = Array.from({ length: 8 }, (_unused, index) => ({
-    x: position.x + ((index & 1) === 0 ? bounds.x.min : bounds.x.max),
-    y: position.y + ((index & 2) === 0 ? bounds.y.min : bounds.y.max),
-    z: position.z + ((index & 4) === 0 ? bounds.z.min : bounds.z.max),
+    x: position.x + bounds.x.min + (index & 1) * (bounds.x.max - bounds.x.min),
+    y: position.y + bounds.y.min + ((index >> 1) & 1) * (bounds.y.max - bounds.y.min),
+    z: position.z + bounds.z.min + ((index >> 2) & 1) * (bounds.z.max - bounds.z.min),
   }))
   const edges: Array<string> = []
   for (const [firstIndex, start] of corners.entries()) {
@@ -208,8 +208,8 @@ describe('interaction visual planning', () => {
       const progress = FastCheck.integer({ max: 1000, min: 0 }).map((value) => value / 1000)
       FastCheck.assert(FastCheck.property(progress, (miningProgress) => {
         const actual = expectSuccess(planCrackStage(miningProgress))
-        const stage = miningProgress === 0 ? 0 : Math.ceil(miningProgress * 10)
-        const opacity = stage === 0 ? 0 : 0.16 + (stage / 10) * 0.64
+        const stage = Math.ceil(miningProgress * 10) * Number(miningProgress > 0)
+        const opacity = Number(stage > 0) * (0.16 + (stage / 10) * 0.64)
         expect(actual).toStrictEqual({ stage, opacity })
       }))
 
@@ -228,10 +228,10 @@ describe('interaction visual planning', () => {
           mine: { drop: 0.18, forward: 0.07, swing: 1.1, twist: 0 },
           place: { drop: 0.025, forward: 0.11, swing: 0.28, twist: -0.08 },
         }[input.action]
-        const movement = input.reducedMotion ? 0 : input.movementIntensity
+        const movement = input.movementIntensity * Number(!input.reducedMotion)
         const gaitX = Math.cos(input.gaitPhaseRadians) * movement
         const gaitY = Math.sin(input.gaitPhaseRadians * 2) * movement
-        const actionSwing = Math.sin(input.actionProgress * Math.PI) * (input.reducedMotion ? 0.5 : 1)
+        const actionSwing = Math.sin(input.actionProgress * Math.PI) * (1 - Number(input.reducedMotion) * 0.5)
         const expected = {
           offset: {
             x: 0.42 + gaitX * 0.018,
@@ -265,9 +265,9 @@ describe('interaction visual planning', () => {
         const actual = expectSuccess(planDamageFeedback(input))
         const magnitude = Math.hypot(input.attackDirection.x, input.attackDirection.y)
         const normalizedX = input.attackDirection.x / magnitude
-        const expectedRollMagnitude = normalizedX * 0.14 * input.intensity * (input.reducedMotion ? 0.25 : 1)
+        const expectedRollMagnitude = normalizedX * 0.14 * input.intensity * (1 - Number(input.reducedMotion) * 0.75)
         const expected = {
-          cameraRollRadians: expectedRollMagnitude === 0 ? 0 : -expectedRollMagnitude,
+          cameraRollRadians: -expectedRollMagnitude,
           directionAngleRadians: Math.atan2(input.attackDirection.y, input.attackDirection.x),
           flashOpacity: 0.48 * input.intensity,
         }
