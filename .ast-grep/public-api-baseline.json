@@ -390,7 +390,7 @@
     "text": "string"
   },
   {
-    "count": 4,
+    "count": 3,
     "file": "src/application/world-renderer-production.ts",
     "ruleId": "no-raw-exported-type-field",
     "text": "number"
@@ -402,7 +402,7 @@
     "text": "string"
   },
   {
-    "count": 21,
+    "count": 20,
     "file": "src/application/world-renderer.ts",
     "ruleId": "no-raw-exported-type-field",
     "text": "number"

@@ -48,11 +48,7 @@ export const TimeOfDayTicksSchema: Schema.Codec<TimeOfDayTicks, number> = Schema
 export const AnimationSecondsSchema: Schema.Codec<AnimationSeconds, number> = Schema.Finite
   .check(Schema.isGreaterThanOrEqualTo(ZERO))
   .pipe(Schema.brand('AnimationSeconds'))
-
-const AnimationSimulationTickSchema: Schema.Codec<SimulationTick, number> = SimulationTickSchema
-  .check(Schema.makeFilter<SimulationTick>((value) =>
-    Number.isSafeInteger(value) || 'Simulation tick must be a safe integer'
-  ))
+const makeAnimationSeconds = Brand.nominal<AnimationSeconds>()
 
 export const AnimationClockInputSchema: Schema.Codec<AnimationClockInput, Readonly<{
   readonly simulationTick: number
@@ -60,7 +56,7 @@ export const AnimationClockInputSchema: Schema.Codec<AnimationClockInput, Readon
   readonly timeOfDayTicks: number
 }>> = Schema.Struct({
   partialTick: PartialTickSchema,
-  simulationTick: AnimationSimulationTickSchema,
+  simulationTick: SimulationTickSchema,
   timeOfDayTicks: TimeOfDayTicksSchema,
 })
 
@@ -68,6 +64,18 @@ const animationClockInputError = (reason: AnimationClockInputError['reason']): A
   _tag: 'AnimationClockInputError',
   reason,
 })
+
+const decodeClockField = <Value>(
+  schema: Schema.Codec<Value, number>,
+  input: unknown,
+  reason: AnimationClockInputError['reason'],
+): Result.Result<Value, AnimationClockInputError> => {
+  const decoded = Schema.decodeUnknownResult(schema)(input)
+  if (Result.isFailure(decoded)) {
+    return Result.fail(animationClockInputError(reason))
+  }
+  return Result.succeed(decoded.success)
+}
 
 const isAnimationClockInputRecord = (
   input: unknown,
@@ -78,43 +86,47 @@ const isAnimationClockInputRecord = (
   'partialTick' in input &&
   'timeOfDayTicks' in input
 
-const invalidAnimationClockReason = (
+const decodeAnimationClockFields = (
   input: Readonly<Record<'simulationTick' | 'partialTick' | 'timeOfDayTicks', unknown>>,
-): AnimationClockInputError['reason'] => {
-  if (Result.isFailure(Schema.decodeUnknownResult(AnimationSimulationTickSchema)(input.simulationTick))) {
-    return 'invalid-simulation-tick'
+): Result.Result<AnimationClockInput, AnimationClockInputError> => {
+  const simulationTick = decodeClockField(SimulationTickSchema, input.simulationTick, 'invalid-simulation-tick')
+  if (Result.isFailure(simulationTick)) {
+    return Result.fail(simulationTick.failure)
   }
-  if (Result.isFailure(Schema.decodeUnknownResult(PartialTickSchema)(input.partialTick))) {
-    return 'invalid-partial-tick'
+  const partialTick = decodeClockField(PartialTickSchema, input.partialTick, 'invalid-partial-tick')
+  if (Result.isFailure(partialTick)) {
+    return Result.fail(partialTick.failure)
   }
-  if (Result.isFailure(Schema.decodeUnknownResult(TimeOfDayTicksSchema)(input.timeOfDayTicks))) {
-    return 'invalid-time-of-day-ticks'
+  const timeOfDayTicks = decodeClockField(TimeOfDayTicksSchema, input.timeOfDayTicks, 'invalid-time-of-day-ticks')
+  if (Result.isFailure(timeOfDayTicks)) {
+    return Result.fail(timeOfDayTicks.failure)
   }
-  return 'invalid-clock-input'
+  return Result.succeed({
+    partialTick: partialTick.success,
+    simulationTick: simulationTick.success,
+    timeOfDayTicks: timeOfDayTicks.success,
+  })
 }
 
-const convertClockToAnimationSeconds = (
-  clock: AnimationClockInput,
-): Result.Result<AnimationSeconds, AnimationClockInputError> => {
-  const decodedSeconds = Schema.decodeUnknownResult(AnimationSecondsSchema)(
-    (clock.simulationTick + clock.partialTick) / TICKS_PER_SECOND,
-  )
-  if (Result.isFailure(decodedSeconds)) {
+const decodeAnimationClockInput = (
+  input: unknown,
+): Result.Result<AnimationClockInput, AnimationClockInputError> => {
+  if (!isAnimationClockInputRecord(input)) {
     return Result.fail(animationClockInputError('invalid-clock-input'))
   }
-  return Result.succeed(decodedSeconds.success)
+  return decodeAnimationClockFields(input)
 }
 
 /** Convert the host's simulation clock to animation seconds. */
 export const animationTimeSeconds = (
   input: unknown,
 ): Result.Result<AnimationSeconds, AnimationClockInputError> => {
-  if (!isAnimationClockInputRecord(input)) {
-    return Result.fail(animationClockInputError('invalid-clock-input'))
+  const clock = decodeAnimationClockInput(input)
+  if (Result.isFailure(clock)) {
+    return Result.fail(clock.failure)
   }
-  const decodedClock = Schema.decodeUnknownResult(AnimationClockInputSchema)(input)
-  if (Result.isFailure(decodedClock)) {
-    return Result.fail(animationClockInputError(invalidAnimationClockReason(input)))
-  }
-  return convertClockToAnimationSeconds(decodedClock.success)
+  // Valid ticks and a fractional tick below one keep the conversion finite and non-negative.
+  return Result.succeed(makeAnimationSeconds(
+    (clock.success.simulationTick + clock.success.partialTick) / TICKS_PER_SECOND,
+  ))
 }
