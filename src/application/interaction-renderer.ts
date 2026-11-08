@@ -934,11 +934,9 @@ const createHeldItemSetter = <
     if (lastItemKey === nextItemKey) {
       return Result.succeed(undefined)
     }
-    const result = updateHeldItemAppearance({ ...input, descriptor })
-    if (Result.isSuccess(result)) {
+    return Result.map(updateHeldItemAppearance({ ...input, descriptor }), () => {
       lastItemKey = nextItemKey
-    }
-    return result
+    })
   }
   return { setHeldItem }
 }
