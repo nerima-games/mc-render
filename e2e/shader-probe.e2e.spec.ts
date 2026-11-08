@@ -71,6 +71,13 @@ type CompareImagesOptions = Readonly<{
   referenceBase64: string
 }>
 
+type AtlasMipReadback = Readonly<{
+  actual: ReadonlyArray<number>
+  framebufferComplete: boolean
+  glError: number
+  sourcePixels: ReadonlyArray<number>
+}>
+
 const compareScreenshotSsim = async (images: CompareImagesOptions): Promise<number> => {
   const browser = globalThis as unknown as BrowserImageTools
   const { constants } = images
@@ -184,6 +191,26 @@ const compareScreenshotSsim = async (images: CompareImagesOptions): Promise<numb
   return tools.compare(images)
 }
 
+const expectMipReadbackMatchesAverage = (mipPixel: AtlasMipReadback): void => {
+  expect(mipPixel.framebufferComplete).toBe(true)
+  expect(mipPixel.glError).toBe(ZERO)
+  expect(mipPixel.sourcePixels).toHaveLength(FOUR * FOUR)
+  expect(mipPixel.actual).toHaveLength(FOUR)
+  for (let channel = ZERO; channel < FOUR; channel += ONE) {
+    const sourceChannelValues = [
+      mipPixel.sourcePixels[channel] ?? Number.NaN,
+      mipPixel.sourcePixels[channel + FOUR] ?? Number.NaN,
+      mipPixel.sourcePixels[channel + TWO * FOUR] ?? Number.NaN,
+      mipPixel.sourcePixels[channel + THREE * FOUR] ?? Number.NaN,
+    ]
+    const expected = Math.round(sourceChannelValues.reduce((sum, value) => sum + value, ZERO) / FOUR)
+    if (channel === ZERO) {
+      expect(sourceChannelValues).not.toContain(expected)
+    }
+    expect(Math.abs((mipPixel.actual[channel] ?? Number.NaN) - expected)).toBeLessThanOrEqual(ONE)
+  }
+}
+
 test('shader probe compiles and draws each generated shader on WebGL2', async ({ page }) => {
   await page.goto(`${WEB_ORIGIN}/apps/shader-probe/`)
 
@@ -268,9 +295,9 @@ test('WebGL mip level pixels match the atlas input 2x2 average', async ({ page }
         }
         const tileColumn = stoneTop % manifest.layout.columns
         const tileRow = Math.floor(stoneTop / manifest.layout.columns)
-        const sourceX = tileColumn * manifest.layout.cellPixels + manifest.layout.gutterPixels
+        // The first 2x2 patch is flat; this offset selects the varied stone sample.
+        const sampleX = tileColumn * manifest.layout.cellPixels + manifest.layout.gutterPixels + constants.two * constants.three
         const sourceY = tileRow * manifest.layout.cellPixels + manifest.layout.gutterPixels
-        const sampleX = sourceX + constants.two * constants.three
         const points = [
           [sampleX, sourceY],
           [sampleX + constants.one, sourceY],
@@ -300,23 +327,7 @@ test('WebGL mip level pixels match the atlas input 2x2 average', async ({ page }
     return { ...tools.readLevelPixel(sample, resources), sourcePixels: sample.sourcePixels }
   }, SSIM_CONSTANTS)
 
-  expect(mipPixel.framebufferComplete).toBe(true)
-  expect(mipPixel.glError).toBe(ZERO)
-  expect(mipPixel.sourcePixels).toHaveLength(FOUR * FOUR)
-  expect(mipPixel.actual).toHaveLength(FOUR)
-  for (let channel = 0; channel < FOUR; channel += ONE) {
-    const sourceChannelValues = [
-      mipPixel.sourcePixels[channel] ?? Number.NaN,
-      mipPixel.sourcePixels[channel + FOUR] ?? Number.NaN,
-      mipPixel.sourcePixels[channel + TWO * FOUR] ?? Number.NaN,
-      mipPixel.sourcePixels[channel + THREE * FOUR] ?? Number.NaN,
-    ]
-    const expected = Math.round(sourceChannelValues.reduce((sum, value) => sum + value, ZERO) / FOUR)
-    if (channel === ZERO) {
-      expect(sourceChannelValues).not.toContain(expected)
-    }
-    expect(Math.abs((mipPixel.actual[channel] ?? Number.NaN) - expected)).toBeLessThanOrEqual(ONE)
-  }
+  expectMipReadbackMatchesAverage(mipPixel)
 })
 
 test('render preview draws the fixed fixture with more than one atlas tile', async ({ page }) => {
