@@ -165,7 +165,7 @@ export const CHUNK_SHADER_UNIFORMS = {
   fogNear: 'uFogNear',
   /** `float` 0..1. The day/night cycle's one input; scales the sky channel only. */
   sunIntensity: 'uSunIntensity',
-  /** `float`. Elapsed frame time used for animated atlas UV offsets. */
+  /** `float`. Tick-derived animation time in seconds for animated texture frames. */
   time: 'uTime',
 } as const
 
