@@ -24,6 +24,7 @@ import {
   WATER_WRITES_DEPTH,
 } from '../domain/water-surface.js'
 import { PARTICLE_MATERIAL_SPEC } from '../domain/particle-pool.js'
+import { translucentChunkShaderSource } from '../domain/translucent-chunk-shader.js'
 import { waterShaderSource } from '../domain/water-shader.js'
 
 /** Full daylight used when no environment plan has been supplied. */
@@ -176,6 +177,17 @@ export const applyChunkShaderEnvironment = (
   }
 }
 
+export const applyWaterFrameUniforms = (
+  uniforms: Record<string, ThreeUniform>,
+  timeSecs: number,
+  cameraPosition: Readonly<{ worldX: number; worldY: number; worldZ: number }>,
+): void => {
+  const time = uniforms['uTime']
+  const camera = uniforms['uCameraPosition']
+  if (time) {time.value = timeSecs}
+  if (camera) {camera.value = [cameraPosition.worldX, cameraPosition.worldY, cameraPosition.worldZ]}
+}
+
 const buildChunkShaderMaterialVariant = <
   TCanvas,
   TGeometry extends ThreeBufferGeometry,
@@ -278,6 +290,51 @@ export const makeWaterMaterial = <
   }
   return {
     material: new three.ShaderMaterial({
+      depthWrite: WATER_WRITES_DEPTH,
+      forceSinglePass: true,
+      fragmentShader: source.fragmentShader,
+      side: THREE_DOUBLE_SIDE,
+      transparent: WATER_MATERIAL_SPEC.transparent,
+      uniforms,
+      vertexColors: true,
+      vertexShader: source.vertexShader,
+    }),
+    uniforms,
+  }
+}
+
+/** Build the single transparent chunk material that shades atlas faces and water faces. */
+export const makeTranslucentChunkMaterial = <
+  TCanvas,
+  TGeometry extends ThreeBufferGeometry,
+  TMaterial extends ThreeMaterial,
+  TShaderMaterial extends ThreeMaterial,
+>(options: {
+  readonly atlasTexture: unknown
+  readonly three: ThreeShaderSurface<TCanvas, TGeometry, TMaterial, TShaderMaterial>
+  readonly viewport: Viewport
+  readonly sunIntensity?: number
+}): ChunkShaderMaterial<TShaderMaterial> => {
+  const { atlasTexture, three, viewport } = options
+  const sunIntensity = options.sunIntensity ?? FULL_SUN_INTENSITY
+  const source = translucentChunkShaderSource()
+  const defaultEnvironment = planRenderEnvironment(sunIntensity)
+  const uniforms: Record<string, ThreeUniform> = {
+    [CHUNK_SHADER_UNIFORMS.atlas]: { value: atlasTexture },
+    [CHUNK_ALPHA_TEST_UNIFORM]: { value: CHUNK_ALPHA_TEST_DISABLED },
+    [CHUNK_SHADER_UNIFORMS.sunIntensity]: { value: sunIntensity },
+    [CHUNK_SHADER_UNIFORMS.fogColor]: { value: [...defaultEnvironment.fogColor] },
+    [CHUNK_SHADER_UNIFORMS.fogNear]: { value: defaultEnvironment.fogNear },
+    [CHUNK_SHADER_UNIFORMS.fogFar]: { value: defaultEnvironment.fogFar },
+    uCameraPosition: { value: [...UNIFORM_ORIGIN] },
+    uRefractionMap: { value: null },
+    uRefractionValid: { value: REFRACTION_UNAVAILABLE },
+    uResolution: { value: [viewport.width, viewport.height] },
+    uTime: { value: ORIGIN_COMPONENT },
+  }
+  return {
+    material: new three.ShaderMaterial({
+      alphaTest: CHUNK_ALPHA_TEST_DISABLED,
       depthWrite: WATER_WRITES_DEPTH,
       forceSinglePass: true,
       fragmentShader: source.fragmentShader,

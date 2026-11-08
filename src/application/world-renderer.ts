@@ -65,6 +65,7 @@ import {
   POSITION_COMPONENTS,
   TILE_INDEX_COMPONENTS,
   UV_COMPONENTS,
+  combineChunkGeometry,
 } from '../domain/chunk-geometry.js'
 import {
   DAY_SKY_COLOR,
@@ -119,6 +120,10 @@ import type { PostProcessingStep } from '../domain/post-processing.js'
 import type { WeatherFrameOptions } from '../domain/weather-rendering.js'
 import { makeThreeWeatherPrecipitation } from './three-weather-runtime.js'
 import { waterShaderSource } from '../domain/water-shader.js'
+import {
+  applyWaterFrameUniforms,
+  makeTranslucentChunkMaterial,
+} from './world-renderer-materials.js'
 // oxlint-disable-next-line sort-imports
 import { requiresForceSinglePass } from '../domain/material-policy.js'
 
@@ -467,6 +472,8 @@ export type ChunkGeometryUpdate = {
   readonly waterBuffers?: ChunkGeometryBuffers
 }
 
+type ChunkLayerBuffers = ChunkGeometryBuffers & { readonly waterSurfaceFlags?: Float32Array }
+
 /** A chunk's live layer meshes, disposable geometries, and the bounds culling reads. */
 type ChunkEntry<TGeometry> = {
   readonly meshes: ReadonlyArray<ThreeMesh>
@@ -499,7 +506,7 @@ type TransparentSortState = {
 }
 
 type ChunkLayerDefinition<TMaterial> = {
-  readonly buffers: ChunkGeometryBuffers | undefined
+  readonly buffers: ChunkLayerBuffers | undefined
   readonly material: TMaterial
   readonly sortTransparent: boolean
 }
@@ -547,6 +554,32 @@ const createTransparentSortState = (
       buffers.indices.byteLength,
     ),
   }
+}
+
+const EMPTY_TRANSPARENT_INDEX_COUNT = 0
+const EMPTY_TRANSPARENT_PART_COUNT = 0
+const EMPTY_TRANSPARENT_VERTEX_COUNT = 0
+const WATER_SURFACE_FLAG = 1
+const WATER_SURFACE_COMPONENTS = 1
+
+const combineTransparentLayers = (
+  transparentSolidBuffers: ChunkGeometryBuffers | undefined,
+  waterBuffers: ChunkGeometryBuffers | undefined,
+): ChunkLayerBuffers | undefined => {
+  const parts = [transparentSolidBuffers, waterBuffers].filter(
+    (buffers): buffers is ChunkGeometryBuffers =>
+      buffers !== undefined && buffers.indexCount !== EMPTY_TRANSPARENT_INDEX_COUNT,
+  )
+  if (parts.length === EMPTY_TRANSPARENT_PART_COUNT) {
+    return undefined
+  }
+
+  const combined = combineChunkGeometry(...parts)
+  const waterSurfaceFlags = new Float32Array(combined.vertexCount)
+  const firstWaterVertex = transparentSolidBuffers?.vertexCount ?? EMPTY_TRANSPARENT_VERTEX_COUNT
+  const waterEndVertex = firstWaterVertex + (waterBuffers?.vertexCount ?? EMPTY_TRANSPARENT_VERTEX_COUNT)
+  waterSurfaceFlags.fill(WATER_SURFACE_FLAG, firstWaterVertex, waterEndVertex)
+  return { ...combined, waterSurfaceFlags }
 }
 
 const addChunkMesh = <TGeometry extends ThreeBufferGeometry, TMaterial extends ThreeMaterial>(
@@ -694,6 +727,7 @@ const writeSortedTransparentIndices = (state: TransparentSortState): void => {
   }
 }
 
+// Face-centre painter ordering is exact for separated quads. Intersecting faces can require cyclic per-pixel order, which a single index list cannot represent.
 const updateTransparentIndexOrder = (state: TransparentSortState, mirrored: MirroredCameraState): void => {
   if (sameTransparentSortCamera(state.lastCamera, mirrored)) {
     return
@@ -837,10 +871,8 @@ export type WorldRendererOptions<TMaterial extends ThreeMaterial = ThreeMaterial
   readonly material?: MaterialFactory<TMaterial>
   /** Material for alpha-tested atlas tiles. Defaults to `material`. */
   readonly cutoutMaterial?: MaterialFactory<TMaterial>
-  /** Blended, distance-sorted glass and lava. Defaults to `material`. */
+  /** Blended, face-sorted glass, fluids, and water. Defaults to `material`. */
   readonly transparentMaterial?: MaterialFactory<TMaterial>
-  /** Fluid surface material. Defaults to `material`. */
-  readonly waterMaterial?: MaterialFactory<TMaterial>
   readonly weather?: WeatherFrameOptions
   /** Optional host-owned compositor; absent in headless and preview renders. */
   readonly postProcessing?: PostProcessingRendererFactory
@@ -1255,7 +1287,6 @@ export const makeWorldRenderer = <
       cutout: options.cutoutMaterial?.() ?? opaque,
       opaque,
       transparent: options.transparentMaterial?.() ?? opaque,
-      water: options.waterMaterial?.() ?? opaque,
     }
   }
 
@@ -1413,7 +1444,7 @@ export const makeWorldRenderer = <
         mesh.rotation.set(rotationX, rotationY + facing, rotationZ, 'YXZ')
       },
 
-      attachChunkGeometryAttributes: (geometry: TGeometry, buffers: ChunkGeometryBuffers): void => {
+      attachChunkGeometryAttributes: (geometry: TGeometry, buffers: ChunkLayerBuffers): void => {
         geometry.setAttribute(
           'position',
           new three.BufferAttribute(buffers.positions, POSITION_COMPONENTS, false),
@@ -1429,6 +1460,12 @@ export const makeWorldRenderer = <
         geometry.setAttribute('uv', new three.BufferAttribute(buffers.uvs, UV_COMPONENTS, false))
         geometry.setAttribute('fluidDirection', new three.BufferAttribute(buffers.fluidDirections, FLUID_DIRECTION_COMPONENTS, false))
         geometry.setAttribute('fluidFalling', new three.BufferAttribute(buffers.fluidFalling, FLUID_FALLING_COMPONENTS, false))
+        if (buffers.waterSurfaceFlags !== undefined) {
+          geometry.setAttribute(
+            'waterSurface',
+            new three.BufferAttribute(buffers.waterSurfaceFlags, WATER_SURFACE_COMPONENTS, false),
+          )
+        }
         /* UPLOADED ON BOTH PATHS, though only the shader reads it. An unused
            attribute costs one buffer per chunk; a MISSING one costs a world drawn
            entirely from atlas tile 0, because GL supplies 0 for an attribute no
@@ -1442,12 +1479,15 @@ export const makeWorldRenderer = <
       },
 
       buildChunkEntry: (update: ChunkGeometryUpdate): ChunkEntry<TGeometry> => {
-        // Three sorts layers back-to-front by each mesh's projected bounding-sphere center.
+        const transparentBuffers = combineTransparentLayers(
+          update.transparentSolidBuffers,
+          update.waterBuffers,
+        )
+        // Three sorts chunk meshes back-to-front; the shared index sort interleaves their faces.
         const layers: ReadonlyArray<ChunkLayerDefinition<TMaterial | TUsedMaterial>> = [
           { buffers: update.buffers, material: materials.opaque, sortTransparent: false },
           { buffers: update.cutoutBuffers, material: materials.cutout, sortTransparent: false },
-          { buffers: update.transparentSolidBuffers, material: materials.transparent, sortTransparent: true },
-          { buffers: update.waterBuffers, material: materials.water, sortTransparent: false },
+          { buffers: transparentBuffers, material: materials.transparent, sortTransparent: true },
         ]
         const renderedLayers = layers.flatMap((layer) => {
           const rendered = ops.buildChunkLayer(layer)
@@ -1530,7 +1570,7 @@ export const makeWorldRenderer = <
       },
 
       buildGeometry: (
-        buffers: ChunkGeometryBuffers,
+        buffers: ChunkLayerBuffers,
         indexAttribute?: ThreeDynamicBufferAttribute,
       ): TGeometry => {
         const geometry = new three.BufferGeometry()
@@ -1564,7 +1604,6 @@ export const makeWorldRenderer = <
           materials.opaque,
           materials.cutout,
           materials.transparent,
-          materials.water,
         ])) {
           sharedMaterial.dispose()
         }
@@ -1799,7 +1838,7 @@ export type ProductionWorldRenderer<TShaderMaterial extends ThreeMaterial> = Wor
 
 export type ProductionWorldRendererOptions = Omit<
   WorldRendererOptions<ThreeMaterial>,
-  'material' | 'cutoutMaterial' | 'transparentMaterial' | 'waterMaterial' | 'applyMaterialEnvironment'
+  'material' | 'cutoutMaterial' | 'transparentMaterial' | 'applyMaterialEnvironment'
 > & {
   readonly particles?: ParticlePoolOptions
 }
@@ -1828,7 +1867,7 @@ export const makeProductionWorldRenderer = <
     const particlePool = yield* Effect.fromResult(makeParticlePool(options.particles))
     const chunk = makeChunkShaderMaterial(three, atlasTexture)
     const cutout = makeChunkShaderMaterialVariant(three, atlasTexture, FULL_SUN_INTENSITY, 'cutout')
-    const transparentSolid = makeChunkShaderMaterialVariant(three, atlasTexture, FULL_SUN_INTENSITY, 'transparent')
+    const transparentSolid = makeTranslucentChunkMaterial({ atlasTexture, three, viewport })
     const water = makeWaterMaterial(three, viewport)
     const particles = yield* makeParticleSystem(three, particlePool, atlasTexture)
     const { particles: _particles, ...rendererOptions } = options
@@ -1844,7 +1883,6 @@ export const makeProductionWorldRenderer = <
       cutoutMaterial: () => cutout.material,
       material: () => chunk.material,
       transparentMaterial: () => transparentSolid.material,
-      waterMaterial: () => water.material,
     })
     yield* renderer.attachSceneObject(particles.mesh)
 
@@ -1852,23 +1890,22 @@ export const makeProductionWorldRenderer = <
       ...renderer,
       advanceFrame: (frame) => Effect.gen(function* advanceProductionFrame() {
         yield* Effect.fromResult(advanceParticles(particlePool, frame.deltaSecs))
-        const time = water.uniforms['uTime']
-        const cameraPosition = water.uniforms['uCameraPosition']
-        if (time) {time.value = frame.elapsedSecs}
-        if (cameraPosition) {
-          cameraPosition.value = [frame.cameraPosition.worldX, frame.cameraPosition.worldY, frame.cameraPosition.worldZ]
-        }
+        applyWaterFrameUniforms(water.uniforms, frame.elapsedSecs, frame.cameraPosition)
+        applyWaterFrameUniforms(transparentSolid.uniforms, frame.elapsedSecs, frame.cameraPosition)
       }).pipe(Effect.andThen(particles.sync)),
       chunkMaterial: chunk.material,
       dispose: renderer.detachSceneObject(particles.mesh).pipe(
         Effect.andThen(renderer.dispose),
         Effect.andThen(particles.dispose),
+        Effect.andThen(Effect.sync(() => water.material.dispose())),
       ),
       particlePool,
       particles,
       resize: (width, height) => renderer.resize(width, height).pipe(Effect.tap(() => Effect.sync(() => {
         const resolution = water.uniforms['uResolution']
+        const transparentResolution = transparentSolid.uniforms['uResolution']
         if (resolution) {resolution.value = [width, height]}
+        if (transparentResolution) {transparentResolution.value = [width, height]}
       }))),
       waterMaterial: water.material,
       waterUniforms: water.uniforms,

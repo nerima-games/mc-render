@@ -16,9 +16,11 @@ import {
   type RendererMaterialPolicyError,
   type Viewport,
   applyChunkShaderEnvironment,
+  applyWaterFrameUniforms,
   assertRendererMaterialPolicies,
   makeChunkShaderMaterial,
   makeChunkShaderMaterialVariant,
+  makeTranslucentChunkMaterial,
   makeWaterMaterial,
 } from './world-renderer-materials.js'
 import type {
@@ -69,7 +71,7 @@ export type ProductionWorldRenderer<TShaderMaterial extends ThreeMaterial> = Wor
 
 export type ProductionWorldRendererOptions = Omit<
   WorldRendererOptions<ThreeMaterial>,
-  'material' | 'cutoutMaterial' | 'transparentMaterial' | 'waterMaterial' | 'applyMaterialEnvironment'
+  'material' | 'cutoutMaterial' | 'transparentMaterial' | 'applyMaterialEnvironment'
 > & {
   readonly particles?: ParticlePoolOptions
 }
@@ -103,7 +105,7 @@ export const makeProductionWorldRenderer = <
     const chunkMaterials = {
       cutout: makeChunkShaderMaterialVariant({ atlasTexture, three, variant: 'cutout' }),
       opaque: makeChunkShaderMaterial(three, atlasTexture),
-      transparent: makeChunkShaderMaterialVariant({ atlasTexture, three, variant: 'transparent' }),
+      transparent: makeTranslucentChunkMaterial({ atlasTexture, three, viewport }),
     }
     const water = makeWaterMaterial(three, viewport)
     const particleService = yield* ParticleService
@@ -123,7 +125,6 @@ export const makeProductionWorldRenderer = <
       cutoutMaterial: () => chunkMaterials.cutout.material,
       material: () => chunkMaterials.opaque.material,
       transparentMaterial: () => chunkMaterials.transparent.material,
-      waterMaterial: () => water.material,
     })
     yield* renderer.attachSceneObject(particles.mesh)
 
@@ -137,24 +138,23 @@ export const makeProductionWorldRenderer = <
           entities: entities.map(({ feetPosition, id }) => ({ feetPosition, id })),
         }
         yield* Effect.fromResult(advanceParticles(particlePool, frame.deltaSecs, particleFrame))
-        const time = water.uniforms['uTime']
-        const cameraPosition = water.uniforms['uCameraPosition']
-        if (time) {time.value = frame.elapsedSecs}
-        if (cameraPosition) {
-          cameraPosition.value = [frame.cameraPosition.worldX, frame.cameraPosition.worldY, frame.cameraPosition.worldZ]
-        }
+        applyWaterFrameUniforms(water.uniforms, frame.elapsedSecs, frame.cameraPosition)
+        applyWaterFrameUniforms(chunkMaterials.transparent.uniforms, frame.elapsedSecs, frame.cameraPosition)
       }).pipe(Effect.andThen(particles.sync)),
       chunkMaterial: chunkMaterials.opaque.material,
       dispose: renderer.detachSceneObject(particles.mesh).pipe(
         Effect.andThen(renderer.dispose),
         Effect.andThen(particles.dispose),
+        Effect.andThen(Effect.sync(() => water.material.dispose())),
       ),
       particlePool,
       particleService,
       particles,
       resize: (width: number, height: number) => renderer.resize(width, height).pipe(Effect.tap(() => Effect.sync(() => {
         const resolution = water.uniforms['uResolution']
+        const transparentResolution = chunkMaterials.transparent.uniforms['uResolution']
         if (resolution) {resolution.value = [width, height]}
+        if (transparentResolution) {transparentResolution.value = [width, height]}
       }))),
       setEnvironment: (environment: RenderEnvironmentPlan) => renderer.setEnvironment(environment).pipe(
         Effect.tap(() => Effect.sync(() => { activeDimension = environment.dimension })),

@@ -20,7 +20,6 @@ import { mirroredCameraState } from '../src/domain/camera-mirror'
 import {
   buildChunkGeometry,
   buildFluidGeometry,
-  combineChunkGeometry,
   type FluidQuad,
   type MeshQuad,
 } from '../src/domain/chunk-geometry'
@@ -282,13 +281,11 @@ describe('acquiring the renderer', () => {
         cutout: makeMaterial(),
         opaque: makeMaterial(),
         transparent: makeMaterial(),
-        water: makeMaterial(),
       }
       const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT, {
         cutoutMaterial: () => materials.cutout,
         material: () => materials.opaque,
         transparentMaterial: () => materials.transparent,
-        waterMaterial: () => materials.water,
       })
       const nonempty = buildChunkGeometry([quad()])
       const empty = buildChunkGeometry([])
@@ -310,13 +307,12 @@ describe('acquiring the renderer', () => {
         },
       ])
 
-      expect(three.meshes()).toHaveLength(5)
-      expect(three.scene().members()).toHaveLength(5)
+      expect(three.meshes()).toHaveLength(4)
+      expect(three.scene().members()).toHaveLength(4)
       expect(three.meshes().map(({ material }) => material)).toStrictEqual([
         materials.opaque,
         materials.cutout,
         materials.transparent,
-        materials.water,
         materials.opaque,
       ])
       expect(three.meshes()[2]?.renderOrder).toBe(three.meshes()[3]?.renderOrder)
@@ -327,25 +323,26 @@ describe('acquiring the renderer', () => {
     }),
   )
 
-  it.effect('sorts glass and lava faces back-to-front from either camera side', () =>
+  it.effect('sorts glass and water faces together back-to-front from either camera side', () =>
     Effect.gen(function* () {
       const three = makeFakeThree()
       const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT)
       const glassBuffers = buildChunkGeometry([
         quad({ blockId: blockIdForType('glass'), direction: 'zPos', lz: -1 }),
       ])
-      const lavaFace: FluidQuad = {
+      const waterFace: FluidQuad = {
         ao: 0,
-        blockId: blockIdForType('lava'),
+        blockId: blockIdForType('water'),
         direction: 'zPos',
         vertices: [[1, 0, 2], [1, 1, 2], [0, 1, 2], [0, 0, 2]],
       }
-      const transparentBuffers = combineChunkGeometry(glassBuffers, buildFluidGeometry([lavaFace]))
+      const waterBuffers = buildFluidGeometry([waterFace])
 
       yield* renderer.setChunks([{
         buffers: buildChunkGeometry([]),
         key: chunkKeyOf(chunkCoord(0, 0)),
-        transparentSolidBuffers: transparentBuffers,
+        transparentSolidBuffers: glassBuffers,
+        waterBuffers,
       }])
 
       const [transparentGeometry] = three.geometries()
@@ -354,6 +351,9 @@ describe('acquiring the renderer', () => {
 
       yield* renderer.draw(mirroredCameraState(poseAt(0, 0, 4, 0, 0)))
       expect(readIndices()).toStrictEqual([0, 1, 2, 0, 2, 3, 4, 5, 6, 4, 6, 7])
+      expect(Array.from(transparentGeometry?.attributes.get('waterSurface')?.array ?? [])).toStrictEqual([
+        0, 0, 0, 0, 1, 1, 1, 1,
+      ])
       expect(indexAttribute?.needsUpdate).toBeUndefined()
 
       yield* renderer.draw(mirroredCameraState(poseAt(0, 0, 4, 0, 0)))
@@ -375,18 +375,18 @@ describe('acquiring the renderer', () => {
       const glassBuffers = buildChunkGeometry([
         quad({ blockId: blockIdForType('glass'), direction: 'zPos', lz: 1 }),
       ])
-      const lavaFace: FluidQuad = {
+      const waterFace: FluidQuad = {
         ao: 0,
-        blockId: blockIdForType('lava'),
+        blockId: blockIdForType('water'),
         direction: 'zPos',
         vertices: [[1, 0, 2], [1, 1, 2], [0, 1, 2], [0, 0, 2]],
       }
-      const transparentBuffers = combineChunkGeometry(glassBuffers, buildFluidGeometry([lavaFace]))
 
       yield* renderer.setChunks([{
         buffers: buildChunkGeometry([]),
         key: chunkKeyOf(chunkCoord(0, 0)),
-        transparentSolidBuffers: transparentBuffers,
+        transparentSolidBuffers: glassBuffers,
+        waterBuffers: buildFluidGeometry([waterFace]),
       }])
       yield* renderer.draw(mirroredCameraState(poseAt(0, 0, 4, 0, 0)))
 
@@ -423,28 +423,22 @@ describe('acquiring the renderer', () => {
         FastCheck.property(
           FastCheck.boolean(),
           FastCheck.boolean(),
-          FastCheck.boolean(),
-          (hasCutout, hasTransparent, hasWater) => {
+          (hasCutout, hasTransparent) => {
             const three = makeFakeThree()
             const materials = {
               cutout: new three.MeshBasicMaterial({ vertexColors: true, wireframe: false }),
               opaque: new three.MeshBasicMaterial({ vertexColors: true, wireframe: false }),
               transparent: new three.MeshBasicMaterial({ vertexColors: true, wireframe: false }),
-              water: new three.MeshBasicMaterial({ vertexColors: true, wireframe: false }),
             }
             const factoryOptions: {
               cutoutMaterial?: () => typeof materials.cutout
               transparentMaterial?: () => typeof materials.transparent
-              waterMaterial?: () => typeof materials.water
             } = {}
             if (hasCutout) {
               factoryOptions.cutoutMaterial = () => materials.cutout
             }
             if (hasTransparent) {
               factoryOptions.transparentMaterial = () => materials.transparent
-            }
-            if (hasWater) {
-              factoryOptions.waterMaterial = () => materials.water
             }
             const renderer = Effect.runSync(makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT, {
               ...factoryOptions,
@@ -466,11 +460,6 @@ describe('acquiring the renderer', () => {
             }
             if (hasTransparent) {
               expected.push(materials.transparent)
-            } else {
-              expected.push(materials.opaque)
-            }
-            if (hasWater) {
-              expected.push(materials.water)
             } else {
               expected.push(materials.opaque)
             }
@@ -519,9 +508,7 @@ describe('chunk geometry in the scene', () => {
         'normal',
         'color',
         'uv',
-        // Uploaded on BOTH material paths although only the shader samples it.
-        // A missing attribute does not fail: GL feeds 0 to an unbound one, so
-        // the whole world would draw from atlas tile 0 with nothing reported.
+        // The fluid attributes are uploaded on both material paths.
         'fluidDirection',
         'fluidFalling',
         'tileIndex',
@@ -1470,13 +1457,9 @@ describe('makeProductionWorldRenderer', () => {
         waterBuffers: layerBuffers,
       }])
       const translucentMeshes = three.meshes().filter(({ material }) =>
-        material === transparentSolidMaterial || material === renderer.waterMaterial,
+        material === transparentSolidMaterial,
       )
-      expect(translucentMeshes.map(({ material }) => material)).toStrictEqual([
-        transparentSolidMaterial,
-        renderer.waterMaterial,
-      ])
-      expect(translucentMeshes[0]?.renderOrder).toBe(translucentMeshes[1]?.renderOrder)
+      expect(translucentMeshes.map(({ material }) => material)).toStrictEqual([transparentSolidMaterial])
 
       yield* renderer.setEnvironment(planRenderEnvironment(0.25))
       expect(renderer.chunkMaterial.uniforms['uSunIntensity']?.value).toBeCloseTo(0.25)
@@ -1491,11 +1474,14 @@ describe('makeProductionWorldRenderer', () => {
         cameraPosition: { worldX: 4, worldY: 5, worldZ: 6 },
       })
       expect(renderer.waterUniforms['uTime']?.value).toBe(2)
+      expect(transparentSolidMaterial.uniforms['uTime']?.value).toBe(2)
       expect(renderer.waterUniforms['uCameraPosition']?.value).toStrictEqual([4, 5, 6])
+      expect(transparentSolidMaterial.uniforms['uCameraPosition']?.value).toStrictEqual([4, 5, 6])
       expect(three.instancedGeometries()[0]?.instanceCount).toBe(1)
 
       yield* renderer.resize(640, 360)
       expect(renderer.waterUniforms['uResolution']?.value).toStrictEqual([640, 360])
+      expect(transparentSolidMaterial.uniforms['uResolution']?.value).toStrictEqual([640, 360])
 
       yield* renderer.dispose
       expect(three.scene().members()).toStrictEqual([])

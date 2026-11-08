@@ -223,9 +223,14 @@ void main() {
  * `MAX_SHADE_BYTE` has no counterpart in the shader — which is correct rather
  * than an omission.
  */
-export const chunkFragmentShader = (): string => `
+export const chunkFragmentDeclarations = (includeSunIntensity = true): string => {
+  let sunIntensityDeclaration = ''
+  if (includeSunIntensity) {
+    sunIntensityDeclaration = `uniform float ${CHUNK_SHADER_UNIFORMS.sunIntensity};`
+  }
+  return `
 uniform sampler2D ${CHUNK_SHADER_UNIFORMS.atlas};
-uniform float ${CHUNK_SHADER_UNIFORMS.sunIntensity};
+${sunIntensityDeclaration}
 uniform vec3 ${CHUNK_SHADER_UNIFORMS.fogColor};
 uniform float ${CHUNK_SHADER_UNIFORMS.fogNear};
 uniform float ${CHUNK_SHADER_UNIFORMS.fogFar};
@@ -239,8 +244,11 @@ varying float vFogDepth;
 
 const float ATLAS_COLUMNS = ${glslFloat(ATLAS_COLUMNS)};
 const float HALF_TEXEL = ${glslFloat(HALF_TEXEL_UV)};
+`
+}
 
-void main() {
+export const chunkFragmentShadeFunction = (): string => `
+vec4 shadeChunkSurface() {
   // Undo the interpolation: every vertex of a quad carries the same index, so
   // the varying is that index up to float error.
   float tile = floor(vTileIndex + 0.5);
@@ -291,10 +299,16 @@ void main() {
     ${CHUNK_SHADER_UNIFORMS.fogFar},
     vFogDepth
   );
-  gl_FragColor = vec4(
+  return vec4(
     mix(texel.rgb * shade, ${CHUNK_SHADER_UNIFORMS.fogColor}, fogAmount),
     texel.a
   );
+}
+`
+
+export const chunkFragmentShader = (): string => `${chunkFragmentDeclarations()}${chunkFragmentShadeFunction()}
+void main() {
+  gl_FragColor = shadeChunkSurface();
 }
 `
 

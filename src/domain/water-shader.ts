@@ -157,13 +157,18 @@ void main() {
  * the flip the Fresnel term is computed against a normal pointing away and the
  * surface reads as uniformly dark from below.
  */
-export const waterFragmentShader = (): string => `
+export const waterFragmentDeclarations = (includeSunIntensity = true): string => {
+  let sunIntensityDeclaration = ''
+  if (includeSunIntensity) {
+    sunIntensityDeclaration = 'uniform float uSunIntensity;'
+  }
+  return `
 uniform float uTime;
 uniform sampler2D uRefractionMap;
 uniform vec3 uCameraPosition;
 uniform vec2 uResolution;
 uniform float uRefractionValid;
-uniform float uSunIntensity;
+${sunIntensityDeclaration}
 
 varying vec3 vWorldPosition;
 varying vec4 vClipPosition;
@@ -173,7 +178,10 @@ varying float vFluidFalling;
 
 const vec4 SHALLOW = ${glslVec4(WATER_SHALLOW_COLOR)};
 const vec4 DEEP = ${glslVec4(WATER_DEEP_COLOR)};
+`
+}
 
+export const waterFragmentShadeFunction = (): string => `
 // Bhaskara's parabolic sine. Coefficients from water-surface.ts; see this
 // file's header on why they are interpolated and not typed.
 float waveApprox(float x) {
@@ -188,7 +196,7 @@ float waveApproxCos(float x) {
   return waveApprox(x + ${glslFloat(TWO_PI / QUARTER_TURN_DIVISOR)});
 }
 
-void main() {
+vec4 shadeWaterSurface() {
   // DoubleSide: underwater, the geometry's own normal points away from us.
   vec3 normal = gl_FrontFacing ? normalize(vNormal) : -normalize(vNormal);
   vec3 viewDir = normalize(uCameraPosition - vWorldPosition);
@@ -234,7 +242,13 @@ void main() {
   float sun = ${glslFloat(WATER_SUN_FLOOR)}
     + ${glslFloat(WATER_SUN_RANGE)} * clamp(uSunIntensity, 0.0, 1.0);
 
-  gl_FragColor = vec4(body * sun, ${glslFloat(WATER_SURFACE_ALPHA)});
+  return vec4(body * sun, ${glslFloat(WATER_SURFACE_ALPHA)});
+}
+`
+
+export const waterFragmentShader = (): string => `${waterFragmentDeclarations()}${waterFragmentShadeFunction()}
+void main() {
+  gl_FragColor = shadeWaterSurface();
 }
 `
 

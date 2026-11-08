@@ -194,13 +194,9 @@ describe('makeProductionWorldRenderer (the shipped composition)', () => {
         waterBuffers: fluidBuffers,
       }])
       const translucentMeshes = three.meshes().filter(({ material }) =>
-        material === transparentSolidMaterial || material === renderer.waterMaterial,
+        material === transparentSolidMaterial,
       )
-      expect(translucentMeshes.map(({ material }) => material)).toStrictEqual([
-        transparentSolidMaterial,
-        renderer.waterMaterial,
-      ])
-      expect(translucentMeshes[0]?.renderOrder).toBe(translucentMeshes[1]?.renderOrder)
+      expect(translucentMeshes.map(({ material }) => material)).toStrictEqual([transparentSolidMaterial])
       expect(translucentMeshes[0]?.renderOrder).toBe(0)
 
       yield* renderer.setEnvironment(planRenderEnvironment(0.25))
@@ -216,11 +212,14 @@ describe('makeProductionWorldRenderer (the shipped composition)', () => {
         cameraPosition: { worldX: 4, worldY: 5, worldZ: 6 },
       })
       expect(renderer.waterUniforms['uTime']?.value).toBe(2)
+      expect(transparentSolidMaterial.uniforms['uTime']?.value).toBe(2)
       expect(renderer.waterUniforms['uCameraPosition']?.value).toStrictEqual([4, 5, 6])
+      expect(transparentSolidMaterial.uniforms['uCameraPosition']?.value).toStrictEqual([4, 5, 6])
       expect(three.instancedGeometries()[0]?.instanceCount).toBe(1)
 
       yield* renderer.resize(640, 360)
       expect(renderer.waterUniforms['uResolution']?.value).toStrictEqual([640, 360])
+      expect(transparentSolidMaterial.uniforms['uResolution']?.value).toStrictEqual([640, 360])
 
       yield* renderer.dispose
       expect(three.scene().members()).toStrictEqual([])

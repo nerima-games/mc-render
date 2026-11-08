@@ -235,13 +235,11 @@ describe('syncWorld', () => {
         cutout: new three.MeshBasicMaterial({ vertexColors: true, wireframe: false }),
         opaque: new three.MeshBasicMaterial({ vertexColors: true, wireframe: false }),
         transparent: new three.MeshBasicMaterial({ vertexColors: true, wireframe: false }),
-        water: new three.MeshBasicMaterial({ vertexColors: true, wireframe: false }),
       }
       const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT, {
         cutoutMaterial: () => materials.cutout,
         material: () => materials.opaque,
         transparentMaterial: () => materials.transparent,
-        waterMaterial: () => materials.water,
       })
       const source = yield* scriptedSource([{ changed: [chunkCoord(0, 0)], removed: [] }])
       const report = yield* syncWorld(renderer, source, mesher, {
@@ -249,12 +247,11 @@ describe('syncWorld', () => {
       })
 
       expect(report.meshed).toBe(1)
-      expect(three.meshes()).toHaveLength(4)
+      expect(three.meshes()).toHaveLength(3)
       expect(three.meshes().map(({ material }) => material)).toStrictEqual([
         materials.opaque,
         materials.cutout,
         materials.transparent,
-        materials.water,
       ])
       const tileIndicesFor = (material: (typeof materials)[keyof typeof materials]): ReadonlyArray<number> => {
         const meshForLayer = three.meshes().find((candidateMesh) => candidateMesh.material === material)
@@ -267,8 +264,9 @@ describe('syncWorld', () => {
       expect(tileIndicesFor(materials.cutout).every((tile) => tile === 8)).toBe(true)
       expect(tileIndicesFor(materials.transparent)).toContain(9)
       expect(tileIndicesFor(materials.transparent)).toContain(18)
-      expect(tileIndicesFor(materials.water).every((tile) => tile === 7)).toBe(true)
-      expect(three.meshes()[2]?.renderOrder).toBe(three.meshes()[3]?.renderOrder)
+      expect(tileIndicesFor(materials.transparent)).toContain(7)
+      const waterFlags = three.meshes()[2]?.geometry.attributes.get('waterSurface')?.array ?? []
+      expect(Array.from(waterFlags).some((flag) => flag === 1)).toBe(true)
 
       yield* renderer.dispose
     }),
