@@ -118,6 +118,7 @@ import {
   LIGHT_SHADE_RANGE,
 } from './voxel-lighting.js'
 import { ATLAS_COLUMNS, HALF_TEXEL_UV } from './texture-atlas.js'
+import { tileIndexForBlockName } from './block-texture-map.js'
 
 /**
  * Render a number as a GLSL float literal.
@@ -138,6 +139,20 @@ const GLSL_FLOAT_DECIMAL_PLACES = 6
 
 export const glslFloat = (value: number): string => value.toFixed(GLSL_FLOAT_DECIMAL_PLACES)
 
+const WATER_TILE_INDEX = tileIndexForBlockName('water', 'top')
+const WATER_CAULDRON_TILE_INDEX = tileIndexForBlockName('water_cauldron', 'top')
+const LAVA_TILE_INDEX = tileIndexForBlockName('lava', 'top')
+const FIRE_TILE_INDEX = tileIndexForBlockName('fire', 'top')
+const NETHER_PORTAL_TILE_INDEX = tileIndexForBlockName('nether_portal', 'top')
+const END_PORTAL_TILE_INDEX = tileIndexForBlockName('end_portal', 'top')
+
+const WATER_UV_CYCLES_PER_SECOND = 0.045
+const LAVA_UV_CYCLES_PER_SECOND = 0.025
+const FIRE_U_UV_CYCLES_PER_SECOND = 0.08
+const FIRE_V_UV_CYCLES_PER_SECOND = 0.13
+const NETHER_PORTAL_UV_CYCLES_PER_SECOND = 0.018
+const END_PORTAL_UV_CYCLES_PER_SECOND = 0.027
+
 /** Attribute names the geometry must supply. */
 export const CHUNK_SHADER_ATTRIBUTES = {
   /** `float`, per vertex. Which atlas tile this face draws. */
@@ -154,6 +169,8 @@ export const CHUNK_SHADER_UNIFORMS = {
   fogNear: 'uFogNear',
   /** `float` 0..1. The day/night cycle's one input; scales the sky channel only. */
   sunIntensity: 'uSunIntensity',
+  /** `float`. Elapsed frame time used for animated atlas UV offsets. */
+  time: 'uTime',
 } as const
 
 const CHUNK_ALPHA_TEST_UNIFORM = 'uAlphaTest'
@@ -232,6 +249,7 @@ export const chunkFragmentDeclarations = (includeSunIntensity = true): ChunkShad
   }
   return `
 uniform sampler2D ${CHUNK_SHADER_UNIFORMS.atlas};
+uniform float ${CHUNK_SHADER_UNIFORMS.time};
 ${sunIntensityDeclaration}
 uniform vec3 ${CHUNK_SHADER_UNIFORMS.fogColor};
 uniform float ${CHUNK_SHADER_UNIFORMS.fogNear};
@@ -260,6 +278,23 @@ vec4 shadeChunkSurface() {
   // UVs are in BLOCK units so a merged quad repeats the tile once per block.
   // fract() is what makes that work; see this file's header.
   vec2 inTile = fract(vUv);
+  vec2 animationOffset = vec2(0.0);
+  if (tile == ${glslFloat(WATER_TILE_INDEX)} || tile == ${glslFloat(WATER_CAULDRON_TILE_INDEX)}) {
+    animationOffset.y = fract(${CHUNK_SHADER_UNIFORMS.time} * ${glslFloat(WATER_UV_CYCLES_PER_SECOND)});
+  } else if (tile == ${glslFloat(LAVA_TILE_INDEX)}) {
+    // Tile 18 is shared by lava and ice in the current block map; both inherit this offset.
+    animationOffset.y = fract(${CHUNK_SHADER_UNIFORMS.time} * ${glslFloat(LAVA_UV_CYCLES_PER_SECOND)});
+  } else if (tile == ${glslFloat(FIRE_TILE_INDEX)}) {
+    animationOffset.x = fract(${CHUNK_SHADER_UNIFORMS.time} * ${glslFloat(FIRE_U_UV_CYCLES_PER_SECOND)});
+    animationOffset.y = fract(${CHUNK_SHADER_UNIFORMS.time} * ${glslFloat(FIRE_V_UV_CYCLES_PER_SECOND)});
+  } else if (tile == ${glslFloat(NETHER_PORTAL_TILE_INDEX)}) {
+    animationOffset.x = fract(${CHUNK_SHADER_UNIFORMS.time} * ${glslFloat(NETHER_PORTAL_UV_CYCLES_PER_SECOND)});
+    animationOffset.y = fract(-${CHUNK_SHADER_UNIFORMS.time} * ${glslFloat(NETHER_PORTAL_UV_CYCLES_PER_SECOND)});
+  } else if (tile == ${glslFloat(END_PORTAL_TILE_INDEX)}) {
+    animationOffset.x = fract(-${CHUNK_SHADER_UNIFORMS.time} * ${glslFloat(END_PORTAL_UV_CYCLES_PER_SECOND)});
+    animationOffset.y = fract(${CHUNK_SHADER_UNIFORMS.time} * ${glslFloat(END_PORTAL_UV_CYCLES_PER_SECOND)});
+  }
+  inTile = fract(inTile + animationOffset);
 
   // V counts up from the bottom in GL and down from the top in the image, which
   // is why the row term is subtracted from 1. domain/texture-atlas.ts derives it.

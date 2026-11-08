@@ -41,8 +41,12 @@ import {
   makeWorldRenderer,
   NO_DRAW_TARGET,
   type ProductionFrame,
+  ProductionFrameElapsedSecsSchema,
+  ProductionFrameInputErrorSchema,
+  type ProductionFrameInputError,
   SKY_CLEAR_ALPHA,
   SKY_CLEAR_COLOR,
+  validateProductionFrameElapsedSecs,
 } from '../src/application/world-renderer'
 import {
   ParticleBurstCountSchema,
@@ -51,6 +55,7 @@ import {
   ParticlePoolInputErrorSchema,
   ParticleUvCoordinateSchema,
   ParticleWorldCoordinateSchema,
+  readSlot,
   spawnBurst as spawnBurstResult,
 } from '../src/domain/particle-pool'
 import { FAKE_CANVAS, makeFakeThree } from './support/fake-three'
@@ -68,9 +73,9 @@ const decodeUv = Schema.decodeUnknownSync(ParticleUvCoordinateSchema)
 const decodeCount = Schema.decodeUnknownSync(ParticleBurstCountSchema)
 const decodeDelta = Schema.decodeUnknownSync(ParticleDeltaSecsSchema)
 const advanceFrameWithRawInput = (
-  advanceFrame: (frame: ProductionFrame) => Effect.Effect<void, ParticlePoolInputError>,
+  advanceFrame: (frame: ProductionFrame) => Effect.Effect<void, ParticlePoolInputError | ProductionFrameInputError>,
   frame: unknown,
-): Effect.Effect<void, ParticlePoolInputError> =>
+): Effect.Effect<void, ParticlePoolInputError | ProductionFrameInputError> =>
   Function.prototype.apply.call(advanceFrame, undefined, [frame])
 const spawnBurst = (pool: Parameters<typeof spawnBurstResult>[0], x: number, y: number, z: number, u: number, v: number, count: number) =>
   Result.getOrThrow(spawnBurstResult(
@@ -102,6 +107,55 @@ const blockIdForType = (blockType: string): BlockId => {
   }
   return match
 }
+
+const isProductionFrameInputFailure = (error: unknown, reason: ProductionFrameInputError['reason']): boolean => {
+  const decoded = Schema.decodeUnknownResult(ProductionFrameInputErrorSchema, { onExcessProperty: 'error' })(error)
+  return Result.isSuccess(decoded) && decoded.success.reason === reason
+}
+
+describe('validateProductionFrameElapsedSecs', () => {
+  it.effect('rejects invalid and negative time without throwing for arbitrary input', () =>
+    Effect.sync(() => {
+      FastCheck.assert(
+        FastCheck.property(
+          FastCheck.anything(),
+          (elapsedSecs) => {
+            const decoded = validateProductionFrameElapsedSecs(elapsedSecs)
+            if (Result.isSuccess(decoded)) {
+              expect(Result.isSuccess(Schema.decodeUnknownResult(ProductionFrameElapsedSecsSchema)(decoded.success))).toBe(true)
+              return
+            }
+
+            const error = Schema.decodeUnknownResult(ProductionFrameInputErrorSchema, { onExcessProperty: 'error' })(decoded.failure)
+            expect(Result.isSuccess(error)).toBe(true)
+          },
+        ),
+        { seed: 0, numRuns: 200 },
+      )
+
+      expect(Result.isSuccess(validateProductionFrameElapsedSecs(0))).toBe(true)
+      expect(Result.isSuccess(validateProductionFrameElapsedSecs(Number.MIN_VALUE))).toBe(true)
+      expect(Result.isSuccess(validateProductionFrameElapsedSecs(Number.MAX_VALUE))).toBe(true)
+      const numericString = validateProductionFrameElapsedSecs('1')
+      expect(Result.isFailure(numericString)).toBe(true)
+      if (Result.isFailure(numericString)) {
+        expect(numericString.failure.reason).toBe('not-number')
+      }
+      const justBelowZero = validateProductionFrameElapsedSecs(-Number.MIN_VALUE)
+      expect(Result.isFailure(justBelowZero)).toBe(true)
+      if (Result.isFailure(justBelowZero)) {
+        expect(justBelowZero.failure.reason).toBe('negative-elapsed-secs')
+      }
+      for (const nonFinite of [Number.NaN, Number.POSITIVE_INFINITY]) {
+        const result = validateProductionFrameElapsedSecs(nonFinite)
+        expect(Result.isFailure(result)).toBe(true)
+        if (Result.isFailure(result)) {
+          expect(result.failure.reason).toBe('non-finite-elapsed-secs')
+        }
+      }
+    }),
+  )
+})
 
 const quad = (overrides: Partial<MeshQuad> = {}): MeshQuad => ({
   blockId: blockId(1),
@@ -1509,9 +1563,22 @@ describe('makeProductionWorldRenderer', () => {
       })
       expect(renderer.waterUniforms['uTime']?.value).toBe(2)
       expect(transparentSolidMaterial.uniforms['uTime']?.value).toBe(2)
+      const chunkTimeUniforms = (): ReadonlyArray<unknown> => three.shaderMaterials()
+        .filter(({ uniforms }) => uniforms['uAlphaTest'] !== undefined)
+        .map(({ uniforms }) => uniforms['uTime']?.value)
+      expect(chunkTimeUniforms()).toStrictEqual([2, 2, 2])
       expect(renderer.waterUniforms['uCameraPosition']?.value).toStrictEqual([4, 5, 6])
       expect(transparentSolidMaterial.uniforms['uCameraPosition']?.value).toStrictEqual([4, 5, 6])
       expect(three.instancedGeometries()[0]?.instanceCount).toBe(1)
+
+      const pausedChunkTimes = chunkTimeUniforms()
+      yield* renderer.advanceFrame({
+        elapsedSecs: 2,
+        deltaSecs: decodeDelta(0),
+        cameraPosition: { worldX: 4, worldY: 5, worldZ: 6 },
+      })
+      expect(chunkTimeUniforms()).toStrictEqual(pausedChunkTimes)
+      expect(renderer.waterUniforms['uTime']?.value).toBe(2)
 
       yield* renderer.resize(640, 360)
       expect(renderer.waterUniforms['uResolution']?.value).toStrictEqual([640, 360])
@@ -1539,6 +1606,10 @@ describe('makeProductionWorldRenderer', () => {
       delete renderer.waterUniforms['uTime']
       delete renderer.waterUniforms['uCameraPosition']
       delete renderer.waterUniforms['uResolution']
+      const chunkMaterials = three.shaderMaterials().filter(({ uniforms }) => uniforms['uAlphaTest'] !== undefined)
+      for (const { uniforms } of chunkMaterials) {
+        delete uniforms['uTime']
+      }
 
       applyChunkShaderEnvironment({}, planRenderEnvironment(0.5))
       yield* renderer.setEnvironment(planRenderEnvironment(0.5))
@@ -1583,6 +1654,43 @@ describe('makeProductionWorldRenderer', () => {
         expect(isParticlePoolInputFailure(invalidStepResult.failure, 'advance', 'invalid-delta')).toBe(true)
       }
       expect(renderer.waterUniforms['uTime']?.value).toBe(0)
+      yield* renderer.dispose
+    }),
+  )
+
+  it.effect('rejects invalid elapsed time before particle or animation uniform writes', () =>
+    Effect.gen(function* () {
+      const three = makeFakeThree()
+      const renderer = yield* makeProductionWorldRenderer(three, FAKE_CANVAS, VIEWPORT, { name: 'terrain-atlas' }, {
+        particles: { capacity: 2 },
+      })
+      spawnBurst(renderer.particlePool, 1, 2, 3, 0, 0, 1)
+      const initialParticle = readSlot(renderer.particlePool, 0)
+      const animationTimes = (): ReadonlyArray<unknown> => [
+        ...three.shaderMaterials()
+          .filter(({ uniforms }) => uniforms['uAlphaTest'] !== undefined)
+          .map(({ uniforms }) => uniforms['uTime']?.value),
+        renderer.waterUniforms['uTime']?.value,
+      ]
+      const initialTimes = animationTimes()
+
+      for (const [elapsedSecs, reason] of [
+        [-0.01, 'negative-elapsed-secs'],
+        [Number.NaN, 'non-finite-elapsed-secs'],
+      ] as const) {
+        const result = yield* Effect.result(advanceFrameWithRawInput(renderer.advanceFrame, {
+          elapsedSecs,
+          deltaSecs: decodeDelta(0.1),
+          cameraPosition: { worldX: 0, worldY: 0, worldZ: 0 },
+        }))
+        expect(Result.isFailure(result)).toBe(true)
+        if (Result.isFailure(result)) {
+          expect(isProductionFrameInputFailure(result.failure, reason)).toBe(true)
+        }
+        expect(readSlot(renderer.particlePool, 0)).toStrictEqual(initialParticle)
+        expect(animationTimes()).toStrictEqual(initialTimes)
+      }
+
       yield* renderer.dispose
     }),
   )

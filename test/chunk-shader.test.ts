@@ -25,6 +25,7 @@ import {
   chunkVertexShader,
   glslFloat,
 } from '../src/domain/chunk-shader'
+import { tileIndexForBlockName } from '../src/domain/block-texture-map'
 import {
   AO_SHADE_FLOOR,
   AO_SHADE_RANGE,
@@ -83,6 +84,23 @@ describe('the fragment source carries the CPU path`s coefficients', () => {
       expect(source).toContain(glslFloat(LIGHT_SHADE_RANGE))
       expect(source).toContain(glslFloat(AO_SHADE_FLOOR))
       expect(source).toContain(glslFloat(AO_SHADE_RANGE))
+    }),
+  )
+
+  it.effect('uses elapsed time to scroll mapped animated tiles inside their atlas bounds', () =>
+    Effect.sync(() => {
+      const source = chunkFragmentShader()
+      const tileIndex = (name: string): string => glslFloat(tileIndexForBlockName(name, 'top'))
+
+      expect(source).toContain('uniform float uTime;')
+      expect(source).toContain(`tile == ${tileIndex('water')} || tile == ${tileIndex('water_cauldron')}`)
+      expect(source).toContain(`tile == ${tileIndex('lava')}`)
+      expect(source).toContain(`tile == ${tileIndex('fire')}`)
+      expect(source).toContain(`tile == ${tileIndex('nether_portal')}`)
+      expect(source).toContain(`tile == ${tileIndex('end_portal')}`)
+      expect(source).toContain('inTile = fract(inTile + animationOffset)')
+      expect(source).toContain('mix(lo, hi, inTile)')
+      expect(tileIndexForBlockName('ice', 'top')).toBe(tileIndexForBlockName('lava', 'top'))
     }),
   )
 
