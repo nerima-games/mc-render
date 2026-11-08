@@ -356,10 +356,44 @@ describe('acquiring the renderer', () => {
       expect(readIndices()).toStrictEqual([0, 1, 2, 0, 2, 3, 4, 5, 6, 4, 6, 7])
       expect(indexAttribute?.needsUpdate).toBeUndefined()
 
+      yield* renderer.draw(mirroredCameraState(poseAt(0, 0, 4, 0, 0)))
+      expect(readIndices()).toStrictEqual([0, 1, 2, 0, 2, 3, 4, 5, 6, 4, 6, 7])
+
       yield* renderer.draw(mirroredCameraState(poseAt(0, 0, -4, Math.PI, 0)))
       expect(readIndices()).toStrictEqual([4, 5, 6, 4, 6, 7, 0, 1, 2, 0, 2, 3])
       expect(indexAttribute?.needsUpdate).toBe(true)
       expect(transparentGeometry?.index()).toBe(indexAttribute)
+
+      yield* renderer.dispose
+    }),
+  )
+
+  it.effect('keeps the source order when transparent faces have equal camera depth', () =>
+    Effect.gen(function* () {
+      const three = makeFakeThree()
+      const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT)
+      const glassBuffers = buildChunkGeometry([
+        quad({ blockId: blockIdForType('glass'), direction: 'zPos', lz: 1 }),
+      ])
+      const lavaFace: FluidQuad = {
+        ao: 0,
+        blockId: blockIdForType('lava'),
+        direction: 'zPos',
+        vertices: [[1, 0, 2], [1, 1, 2], [0, 1, 2], [0, 0, 2]],
+      }
+      const transparentBuffers = combineChunkGeometry(glassBuffers, buildFluidGeometry([lavaFace]))
+
+      yield* renderer.setChunks([{
+        buffers: buildChunkGeometry([]),
+        key: chunkKeyOf(chunkCoord(0, 0)),
+        transparentSolidBuffers: transparentBuffers,
+      }])
+      yield* renderer.draw(mirroredCameraState(poseAt(0, 0, 4, 0, 0)))
+
+      const [transparentGeometry] = three.geometries()
+      expect(Array.from(transparentGeometry?.index()?.array ?? [])).toStrictEqual([
+        0, 1, 2, 0, 2, 3, 4, 5, 6, 4, 6, 7,
+      ])
 
       yield* renderer.dispose
     }),
