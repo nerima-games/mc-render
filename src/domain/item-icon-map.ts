@@ -4,17 +4,20 @@ import {
   ATLAS_PIXELS,
   ATLAS_ROWS,
   ATLAS_TILE_COUNT,
+  type AtlasLayoutInteger,
   AtlasLayoutIntegerSchema,
+  type AtlasPixelCoordinate,
   type AtlasTileIndex,
   AtlasTileIndexSchema,
   TILE_CELL_PIXELS,
   TILE_GUTTER_PIXELS,
   TILE_PIXELS,
   type TileUvBounds,
+  tileImageOriginPixels,
   tileUvBounds,
 } from './texture-atlas.js'
+import { Brand, Result, Schema } from 'effect'
 import { ITEM_TYPES, type ItemType } from '@nerima-games/mc-kernel'
-import { Result, Schema } from 'effect'
 import itemIconManifest from '../assets/item-icons/manifest.json' with { type: 'json' }
 
 declare global {
@@ -27,6 +30,8 @@ const MANIFEST_SCHEMA_VERSION = 1
 const ITEM_ICON_URL_PATH_SEPARATOR = '/'
 const ITEM_ICON_URL_PATH_SEPARATOR_LENGTH = 1
 const URL_SLICE_START = 0
+const ITEM_ICON_DIMENSION: AtlasLayoutInteger = Schema.decodeUnknownSync(AtlasLayoutIntegerSchema)(TILE_PIXELS)
+const ITEM_ICON_ATLAS_DIMENSION: AtlasLayoutInteger = Schema.decodeUnknownSync(AtlasLayoutIntegerSchema)(ATLAS_PIXELS)
 
 export type ItemIconLookupError = Readonly<{
   readonly _tag: 'ItemIconLookupError'
@@ -36,14 +41,16 @@ export type ItemIconLookupError = Readonly<{
 
 export type ItemIconAtlasResolution = Readonly<{
   readonly kind: 'atlas'
-  readonly url: string
-  readonly x: number
-  readonly y: number
-  readonly width: number
-  readonly height: number
-  readonly atlasWidth: number
-  readonly atlasHeight: number
+  readonly url: ItemIconAtlasUrl
+  readonly x: AtlasPixelCoordinate
+  readonly y: AtlasPixelCoordinate
+  readonly width: AtlasLayoutInteger
+  readonly height: AtlasLayoutInteger
+  readonly atlasWidth: AtlasLayoutInteger
+  readonly atlasHeight: AtlasLayoutInteger
 }>
+
+export type ItemIconAtlasUrl = Brand.Branded<string, 'ItemIconAtlasUrl'>
 
 export type ItemIconAtlasResolutionFailure = Readonly<{ readonly _tag: 'ItemIconUnavailable' }>
 
@@ -127,6 +134,7 @@ const validateManifest = (value: ItemIconManifest): Result.Result<ItemIconManife
 }
 
 const decodedManifest = Result.getOrThrow(validateManifest(manifest))
+const makeItemIconAtlasUrl = Brand.nominal<ItemIconAtlasUrl>()
 const itemIconModuleUrl = import.meta.url
 const itemIconModuleDirectory = itemIconModuleUrl.slice(
   URL_SLICE_START,
@@ -180,14 +188,18 @@ export const itemIconAtlasForItemId = (
     return Result.fail({ _tag: 'ItemIconUnavailable' })
   }
   const { tileIndex } = tile.success
+  const pixelOrigin = tileImageOriginPixels(tileIndex)
+  if (Result.isFailure(pixelOrigin)) {
+    return Result.fail({ _tag: 'ItemIconUnavailable' })
+  }
   return Result.succeed({
-    atlasHeight: ATLAS_PIXELS,
-    atlasWidth: ATLAS_PIXELS,
-    height: TILE_PIXELS,
+    atlasHeight: ITEM_ICON_ATLAS_DIMENSION,
+    atlasWidth: ITEM_ICON_ATLAS_DIMENSION,
+    height: ITEM_ICON_DIMENSION,
     kind: 'atlas',
-    url: ITEM_ICON_ATLAS_URL,
-    width: TILE_PIXELS,
-    x: (tileIndex % ATLAS_COLUMNS) * TILE_CELL_PIXELS + TILE_GUTTER_PIXELS,
-    y: Math.floor(tileIndex / ATLAS_COLUMNS) * TILE_CELL_PIXELS + TILE_GUTTER_PIXELS,
+    url: makeItemIconAtlasUrl(ITEM_ICON_ATLAS_URL),
+    width: ITEM_ICON_DIMENSION,
+    x: pixelOrigin.success.x,
+    y: pixelOrigin.success.y,
   })
 }
