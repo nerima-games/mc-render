@@ -2,6 +2,7 @@ import { describe, expect, it } from '@effect/vitest'
 import { Result, Schema } from 'effect'
 import { EntityRenderProgressSchema } from '../src/domain/entity-render-input'
 import { planMobVisual } from '../src/domain/mob-visual'
+import { itemIconUvForItemId } from '../src/domain/item-icon-map'
 import { planWitherSkullVisual, planWitherVisual } from '../src/domain/wither-visual'
 import { copyRenderEntity, planEntityVisual } from '../src/application/entity-visual-plan'
 
@@ -44,6 +45,42 @@ describe('entity visual planning', () => {
           size: [0.3, 0.3, 0.3],
         },
       ],
+      position,
+    })
+  })
+
+  it('plans a registered dropped-item ID as an atlas card', () => {
+    const bounds = itemIconUvForItemId('bookshelf')
+    expect(Result.isSuccess(bounds)).toBe(true)
+    if (Result.isFailure(bounds)) {
+      return
+    }
+    const planned = planEntityVisual(entity({ category: 'item', itemId: 'bookshelf', kind: 'dropped_item' }), true)
+    expect(Result.isSuccess(planned)).toBe(true)
+    if (Result.isSuccess(planned)) {
+      expect(planned.success.parts).toStrictEqual([{
+        center: [0, 0.2, 0],
+        color: [255, 255, 255],
+        iconUv: bounds.success,
+        id: 'item-icon',
+        role: 'body',
+        rotation: [0, 0, 0],
+        size: [0.34, 0.34, 0.01],
+      }])
+    }
+  })
+
+  it('keeps a dropped item on the fallback cube path when its identity is missing', () => {
+    expectVisualShape(entity({ category: 'item', kind: 'dropped_item' }), {
+      facingRadians: 0,
+      parts: [{
+        center: [0, 0.15, 0],
+        color: [225, 165, 65],
+        id: 'item',
+        role: 'body',
+        rotation: [0, 0, 0],
+        size: [0.3, 0.3, 0.3],
+      }],
       position,
     })
   })

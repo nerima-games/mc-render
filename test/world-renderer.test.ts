@@ -76,8 +76,9 @@ import { renderEnvironmentPlan } from './support/render-environment'
 import { planMobVisual } from '../src/domain/mob-visual'
 import { buildPostProcessingChain, QUALITY_PRESETS } from '../src/domain/post-processing'
 import { planWitherSkullVisual, planWitherVisual } from '../src/domain/wither-visual'
+import { itemIconUvForItemId } from '../src/domain/item-icon-map'
 import { makeThreeWeatherPrecipitation } from '../src/application/three-weather-runtime'
-import type { ThreeObject3D, ThreeScene } from '../src/application/three-surface'
+import { THREE_DOUBLE_SIDE, type ThreeObject3D, type ThreeScene } from '../src/application/three-surface'
 import { angleRadians, blockId, chunkCoord, position } from './support/kernel-brands'
 import { makeAnimationClockInput } from './support/animation-clock'
 
@@ -1647,6 +1648,75 @@ describe('entity meshes in the scene', () => {
     }),
   )
 })
+
+  it.effect('maps a dropped item ID to atlas UVs and faces its card toward the camera', () =>
+    Effect.gen(function* () {
+      const three = makeFakeThree()
+      const itemIconAtlasTexture = {}
+      const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT, { itemIconAtlasTexture })
+      const feetPosition = { x: 0, y: 2, z: 0 }
+      yield* renderer.syncEntities([{
+        category: 'item',
+        feetPosition,
+        id: 'bookshelf-drop',
+        itemId: 'bookshelf',
+        kind: 'dropped_item',
+      }])
+
+      const bounds = itemIconUvForItemId('bookshelf')
+      expect(Result.isSuccess(bounds)).toBe(true)
+      if (Result.isFailure(bounds)) {
+        return
+      }
+      const [mesh] = three.meshes()
+      const uvAttribute = mesh?.geometry.attributes.get('uv')
+      expect(uvAttribute?.array).toStrictEqual(new Float32Array([
+        bounds.success.u0, bounds.success.v0,
+        bounds.success.u1, bounds.success.v0,
+        bounds.success.u1, bounds.success.v1,
+        bounds.success.u0, bounds.success.v1,
+      ]))
+      expect(mesh?.material).toMatchObject({ map: itemIconAtlasTexture })
+      expect(mesh?.material.transparent).toBe(true)
+      expect(mesh?.material.forceSinglePass).toBe(true)
+      expect(mesh?.material.side).toBe(THREE_DOUBLE_SIDE)
+      expect(yield* renderer.entitySnapshot).toStrictEqual([{
+        category: 'item',
+        feetPosition,
+        id: 'bookshelf-drop',
+        itemId: 'bookshelf',
+        kind: 'dropped_item',
+      }])
+
+      const cameraYaw = Math.PI / 3
+      yield* renderer.draw(mirroredCameraState(poseAt(0, 2, 4, cameraYaw, 0)))
+      expect(mesh?.rotations().at(-1)).toStrictEqual([0, cameraYaw, 0, 'YXZ'])
+    }),
+  )
+
+  it.effect('builds separate visible parts for arrow and eye-of-ender entities', () =>
+    Effect.gen(function* () {
+      const three = makeFakeThree()
+      const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT)
+      yield* renderer.syncEntities([
+        { category: 'item', feetPosition: { x: 0, y: 0, z: 0 }, id: 'arrow', kind: 'arrow' },
+        { category: 'item', feetPosition: { x: 1, y: 0, z: 0 }, id: 'eye', kind: 'eye_of_ender' },
+      ])
+
+      const meshes = three.meshes()
+      expect(meshes).toHaveLength(6)
+      expect(meshes.slice(0, 3).map(({ scales }) => scales().at(-1))).toStrictEqual([
+        [0.045, 0.045, 0.48],
+        [0.13, 0.13, 0.12],
+        [0.12, 0.07, 0.08],
+      ])
+      expect(meshes.slice(3).map(({ scales }) => scales().at(-1))).toStrictEqual([
+        [0.28, 0.28, 0.2],
+        [0.19, 0.19, 0.06],
+        [0.075, 0.075, 0.025],
+      ])
+    }),
+  )
 
 describe('drawing', () => {
   it.effect('retains the post-processing plan supplied by the draw port', () =>

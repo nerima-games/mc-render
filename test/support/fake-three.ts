@@ -74,6 +74,8 @@ import type {
   ThreeInstancedSurface,
   ThreeShaderSurface,
   ThreeSurface,
+  ThreeMaterialSide,
+  ThreeTexture,
   ThreeUniform,
   ThreeWebGLRenderer,
 } from '../../src/application/three-surface'
@@ -106,7 +108,52 @@ export type FakeGeometry = ThreeBufferGeometry & {
 export type FakeMaterial = ThreeMaterial & {
   readonly vertexColors: boolean
   readonly wireframe: boolean
+  readonly map?: ThreeTexture | null
+  readonly transparent?: boolean
+  readonly depthWrite?: boolean
+  readonly forceSinglePass?: boolean
+  readonly alphaTest?: number
+  readonly side?: ThreeMaterialSide
   readonly disposed: () => boolean
+}
+
+type FakeOptionalMaterialParameters = Pick<
+  FakeMaterial,
+  'alphaTest' | 'depthWrite' | 'forceSinglePass' | 'map' | 'side' | 'transparent'
+>
+
+type FakeOptionalMaterialProperties = {
+  alphaTest?: number
+  depthWrite?: boolean
+  forceSinglePass?: boolean
+  map?: ThreeTexture | null
+  side?: ThreeMaterialSide
+  transparent?: boolean
+}
+
+const fakeOptionalMaterialProperties = (
+  parameters: FakeOptionalMaterialParameters,
+): FakeOptionalMaterialProperties => {
+  const properties: FakeOptionalMaterialProperties = {}
+  if (parameters.alphaTest !== undefined) {
+    properties.alphaTest = parameters.alphaTest
+  }
+  if (parameters.depthWrite !== undefined) {
+    properties.depthWrite = parameters.depthWrite
+  }
+  if (parameters.forceSinglePass !== undefined) {
+    properties.forceSinglePass = parameters.forceSinglePass
+  }
+  if (parameters.map !== undefined) {
+    properties.map = parameters.map
+  }
+  if (parameters.side !== undefined) {
+    properties.side = parameters.side
+  }
+  if (parameters.transparent !== undefined) {
+    properties.transparent = parameters.transparent
+  }
+  return properties
 }
 
 /**
@@ -383,11 +430,21 @@ export const makeFakeThree = (): FakeThree => {
   ) => ThreeDynamicBufferAttribute
 
   const MeshBasicMaterial = class {
-    constructor(parameters: { readonly vertexColors: boolean; readonly wireframe: boolean }) {
+    constructor(parameters: {
+      readonly vertexColors: boolean
+      readonly wireframe: boolean
+      readonly map?: ThreeTexture | null
+      readonly transparent?: boolean
+      readonly depthWrite?: boolean
+      readonly forceSinglePass?: boolean
+      readonly alphaTest?: number
+      readonly side?: ThreeMaterialSide
+    }) {
       let disposed = false
       const self: FakeMaterial = {
         vertexColors: parameters.vertexColors,
         wireframe: parameters.wireframe,
+        ...fakeOptionalMaterialProperties(parameters),
         disposed: () => disposed,
         dispose: () => {
           disposed = true
@@ -399,6 +456,12 @@ export const makeFakeThree = (): FakeThree => {
   } as unknown as new (parameters: {
     readonly vertexColors: boolean
     readonly wireframe: boolean
+    readonly map?: ThreeTexture | null
+    readonly transparent?: boolean
+    readonly depthWrite?: boolean
+    readonly forceSinglePass?: boolean
+    readonly alphaTest?: number
+    readonly side?: ThreeMaterialSide
   }) => FakeMaterial
 
   const InstancedBufferAttribute = class {

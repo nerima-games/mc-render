@@ -58,9 +58,11 @@ import { Effect, Result, Schema } from 'effect'
 import { BLOCK_IDS, BlockId, ChunkKey, blockTypeOfId } from '@nerima-games/mc-kernel'
 import { makeParticleSystem } from '../../src/application/particle-system.js'
 import {
+  CAMERA_FOV_DEGREES,
   makeChunkShaderMaterial,
   makeWaterMaterial,
   makeWorldRenderer,
+  type WorldRenderer,
 } from '../../src/application/world-renderer.js'
 import {
   buildChunkGeometry,
@@ -96,6 +98,25 @@ const ANIMATION_PROBE_PARTIAL_TICK = 0.99
 const ANIMATION_PROBE_UV_BELOW_ONE = 0.999999
 const ANIMATION_PROBE_TIME_OF_DAY_TICKS = 0
 const ANIMATION_PROBE_QUERY = 'chunk-animation-pixels'
+const ITEM_ICON_PROBE_QUERY = 'item-icon-pixels'
+const ITEM_ICON_PROBE_WIDTH = 320
+const ITEM_ICON_PROBE_HEIGHT = 240
+const ITEM_ICON_PROBE_DISTANCE = 2.5
+const ITEM_ICON_PROBE_CENTER_X = ITEM_ICON_PROBE_WIDTH / 2
+const ITEM_ICON_PROBE_CENTER_Y = ITEM_ICON_PROBE_HEIGHT / 2
+const ITEM_ICON_PROBE_HALF_REGION = 12
+const ITEM_ICON_PROBE_HALF_VIEW_ANGLE_TANGENT = Math.tan((CAMERA_FOV_DEGREES * Math.PI / 180) / 2)
+const ITEM_ICON_PROBE_CAMERA: MirroredCameraState = {
+  position: { x: 0, y: 0.2, z: ITEM_ICON_PROBE_DISTANCE },
+  rotation: { x: 0, y: 0, z: 0, order: 'YXZ' },
+  sourceCapturedAtSecs: 0,
+} as unknown as MirroredCameraState
+const ITEM_ICON_ATLAS_URL = new URL('../../src/assets/item-icons/atlas.png', import.meta.url).href
+const ITEM_ICON_PIXEL_THRESHOLD = 12
+const ITEM_ICON_TEST_ENTITIES = [
+  { id: 'bookshelf', itemId: 'bookshelf', x: -0.28 },
+  { id: 'diamond', itemId: 'diamond', x: 0.28 },
+] as const
 const ANIMATION_PROBE_UNOCCLUDED_COLOR = [255, 255, 255] as const
 const ANIMATION_PROBE_MIN_VISIBLE_ALPHA = 0
 const ANIMATION_PROBE_ALPHA_TEST_UNIFORM = 'uAlphaTest'
@@ -624,6 +645,176 @@ const reportChunkAnimationPixelProbe = async (): Promise<void> => {
   }
 }
 
+type ItemIconPixelProbeResult = Readonly<{
+  readonly animatedPixelChanges: number
+  readonly distinctIconPixels: number
+  readonly bookshelfVisiblePixels: number
+  readonly diamondVisiblePixels: number
+  readonly animationSeconds: readonly [number, number]
+}>
+
+const iconProbeRegion = (pixels: Uint8Array, centerX: number): Uint8Array => {
+  const samples: Array<number> = []
+  const left = Math.floor(centerX) - ITEM_ICON_PROBE_HALF_REGION
+  const right = Math.floor(centerX) + ITEM_ICON_PROBE_HALF_REGION
+  const top = ITEM_ICON_PROBE_CENTER_Y - ITEM_ICON_PROBE_HALF_REGION
+  const bottom = ITEM_ICON_PROBE_CENTER_Y + ITEM_ICON_PROBE_HALF_REGION
+  for (let y = top; y < bottom; y += 1) {
+    for (let x = left; x < right; x += 1) {
+      const offset = (y * ITEM_ICON_PROBE_WIDTH + x) * ANIMATION_PROBE_RGBA_CHANNELS
+      samples.push(
+        pixels[offset] ?? 0,
+        pixels[offset + 1] ?? 0,
+        pixels[offset + 2] ?? 0,
+        pixels[offset + 3] ?? 0,
+      )
+    }
+  }
+  return Uint8Array.from(samples)
+}
+
+const visibleIconPixels = (pixels: Uint8Array): number => {
+  let visible = 0
+  for (let offset = 0; offset < pixels.length; offset += ANIMATION_PROBE_RGBA_CHANNELS) {
+    if ((pixels[offset] ?? 0) + (pixels[offset + 1] ?? 0) + (pixels[offset + 2] ?? 0) > ITEM_ICON_PIXEL_THRESHOLD) {
+      visible += 1
+    }
+  }
+  return visible
+}
+
+const differentPixelCount = (left: Uint8Array, right: Uint8Array): number => {
+  let different = 0
+  for (let offset = 0; offset < left.length; offset += ANIMATION_PROBE_RGBA_CHANNELS) {
+    const changed = [0, 1, 2].some((channel) =>
+      Math.abs((left[offset + channel] ?? 0) - (right[offset + channel] ?? 0)) > ITEM_ICON_PIXEL_THRESHOLD,
+    )
+    if (changed) {
+      different += 1
+    }
+  }
+  return different
+}
+
+const readItemIconProbePixels = (canvas: HTMLCanvasElement): Uint8Array => {
+  const gl = canvas.getContext('webgl2')
+  if (gl === null) {
+    throw new Error('item icon probe WebGL2 context is unavailable')
+  }
+  const pixels = new Uint8Array(ITEM_ICON_PROBE_WIDTH * ITEM_ICON_PROBE_HEIGHT * ANIMATION_PROBE_RGBA_CHANNELS)
+  gl.readPixels(0, 0, ITEM_ICON_PROBE_WIDTH, ITEM_ICON_PROBE_HEIGHT, gl.RGBA, gl.UNSIGNED_BYTE, pixels)
+  if (gl.getError() !== gl.NO_ERROR) {
+    throw new Error('item icon probe pixel readback failed')
+  }
+  return pixels
+}
+
+const probeItemIconPixels = async (): Promise<ItemIconPixelProbeResult> => {
+  const atlasTexture = await new THREE.TextureLoader().loadAsync(ITEM_ICON_ATLAS_URL)
+  atlasTexture.flipY = true
+  atlasTexture.colorSpace = THREE.SRGBColorSpace
+  atlasTexture.magFilter = THREE.NearestFilter
+  atlasTexture.minFilter = THREE.NearestMipmapLinearFilter
+  atlasTexture.generateMipmaps = true
+  atlasTexture.needsUpdate = true
+
+  const canvas = document.createElement('canvas')
+  canvas.width = ITEM_ICON_PROBE_WIDTH
+  canvas.height = ITEM_ICON_PROBE_HEIGHT
+  canvas.style.width = `${String(ITEM_ICON_PROBE_WIDTH)}px`
+  canvas.style.height = `${String(ITEM_ICON_PROBE_HEIGHT)}px`
+  canvas.setAttribute('data-item-icon-canvas', 'true')
+  document.body.append(canvas)
+
+  let renderer: WorldRenderer | undefined = undefined
+  try {
+    const activeRenderer = await Effect.runPromise(makeWorldRenderer<
+      HTMLCanvasElement,
+      THREE.BufferGeometry,
+      THREE.MeshBasicMaterial
+    >(THREE, canvas, { width: ITEM_ICON_PROBE_WIDTH, height: ITEM_ICON_PROBE_HEIGHT }, {
+      clearColor: 0x000000,
+      itemIconAtlasTexture: atlasTexture,
+    }))
+    renderer = activeRenderer
+    let result: ItemIconPixelProbeResult | undefined = undefined
+    const errors = await captureErrors(async () => {
+      const cameraScale = ITEM_ICON_PROBE_WIDTH /
+        (2 * ITEM_ICON_PROBE_DISTANCE * ITEM_ICON_PROBE_HALF_VIEW_ANGLE_TANGENT *
+          (ITEM_ICON_PROBE_WIDTH / ITEM_ICON_PROBE_HEIGHT))
+      await Effect.runPromise(activeRenderer.syncEntities(ITEM_ICON_TEST_ENTITIES.map((item) => ({
+        category: 'item' as const,
+        feetPosition: { x: item.x, y: 0, z: 0 },
+        id: item.id,
+        itemId: item.itemId,
+        kind: 'dropped_item',
+      }))))
+      const atZero = Result.getOrThrow(animationTimeSeconds({
+        partialTick: 0,
+        simulationTick: 0,
+        timeOfDayTicks: 0,
+      }))
+      await Effect.runPromise(activeRenderer.setEntityAnimationTimeSeconds(atZero))
+      await Effect.runPromise(activeRenderer.draw(ITEM_ICON_PROBE_CAMERA))
+      const initialPixels = readItemIconProbePixels(canvas)
+      const screenOffset = ITEM_ICON_TEST_ENTITIES[1].x * cameraScale
+      const bookshelfRegion = iconProbeRegion(initialPixels, ITEM_ICON_PROBE_CENTER_X - screenOffset)
+      const diamondRegion = iconProbeRegion(initialPixels, ITEM_ICON_PROBE_CENTER_X + screenOffset)
+      const animatedTime = Result.getOrThrow(animationTimeSeconds({
+        partialTick: 0,
+        simulationTick: 5,
+        timeOfDayTicks: 0,
+      }))
+      await Effect.runPromise(activeRenderer.setEntityAnimationTimeSeconds(animatedTime))
+      await Effect.runPromise(activeRenderer.draw(ITEM_ICON_PROBE_CAMERA))
+      const animatedPixels = readItemIconProbePixels(canvas)
+      const animatedBookshelfRegion = iconProbeRegion(animatedPixels, ITEM_ICON_PROBE_CENTER_X - screenOffset)
+      const animatedDiamondRegion = iconProbeRegion(animatedPixels, ITEM_ICON_PROBE_CENTER_X + screenOffset)
+      const probeResult = {
+        animatedPixelChanges: differentPixelCount(bookshelfRegion, animatedBookshelfRegion) +
+          differentPixelCount(diamondRegion, animatedDiamondRegion),
+        animationSeconds: [atZero, animatedTime] as const,
+        bookshelfVisiblePixels: visibleIconPixels(bookshelfRegion),
+        diamondVisiblePixels: visibleIconPixels(diamondRegion),
+        distinctIconPixels: differentPixelCount(bookshelfRegion, diamondRegion),
+      }
+      if (probeResult.bookshelfVisiblePixels === 0 || probeResult.diamondVisiblePixels === 0 ||
+        probeResult.distinctIconPixels === 0 || probeResult.animatedPixelChanges === 0) {
+        throw new Error(`item icon pixels did not prove distinct and animated cards: ${JSON.stringify(probeResult)}`)
+      }
+      result = probeResult
+    })
+    if (errors.length > 0) {
+      throw new Error(errors.join('\n'))
+    }
+    if (result === undefined) {
+      throw new Error('item icon pixel probe completed without a result')
+    }
+    return result
+  } finally {
+    if (renderer !== undefined) {
+      await Effect.runPromise(renderer.dispose)
+    }
+    atlasTexture.dispose()
+  }
+}
+
+const reportItemIconPixelProbe = async (): Promise<void> => {
+  const report = document.createElement('pre')
+  report.id = 'item-icon-probe-report'
+  document.body.append(report)
+  document.body.setAttribute('data-item-icon-probe', 'running')
+  try {
+    const result = await probeItemIconPixels()
+    report.textContent = JSON.stringify(result, null, 2)
+    document.body.setAttribute('data-item-icon-probe-result', JSON.stringify(result))
+    document.body.setAttribute('data-item-icon-probe', 'passed')
+  } catch (error) {
+    report.textContent = String(error)
+    document.body.setAttribute('data-item-icon-probe', 'failed')
+  }
+}
+
 const probeWaterShader = async (canvas: HTMLCanvasElement): Promise<ProbeResult> => {
   const errors = await captureErrors(() => {
     const renderer = new THREE.WebGLRenderer({ canvas })
@@ -761,6 +952,9 @@ const main = async (): Promise<void> => {
   document.body.setAttribute('data-shader-probe-total', String(results.length))
   if (new URLSearchParams(location.search).has(ANIMATION_PROBE_QUERY)) {
     await reportChunkAnimationPixelProbe()
+  }
+  if (new URLSearchParams(location.search).has(ITEM_ICON_PROBE_QUERY)) {
+    await reportItemIconPixelProbe()
   }
 }
 

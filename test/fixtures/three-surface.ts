@@ -42,6 +42,7 @@ import type {
   ThreeBufferAttribute,
   ThreeBufferGeometry,
   ThreeMaterial,
+  ThreeMaterialTexture,
   ThreeMesh,
   ThreePerspectiveCamera,
   ThreeScene,
@@ -113,6 +114,18 @@ export const indexAttribute: ThreeBufferAttribute = new THREE.BufferAttribute(
 
 export const material: ThreeMaterial = new THREE.MeshBasicMaterial({
   vertexColors: true,
+  wireframe: false,
+})
+
+export const itemIconTexture: ThreeMaterialTexture<THREE.MeshBasicMaterial> = new THREE.Texture()
+export const itemIconMaterial: THREE.MeshBasicMaterial = new THREE.MeshBasicMaterial({
+  alphaTest: 0.05,
+  depthWrite: false,
+  forceSinglePass: true,
+  map: itemIconTexture,
+  side: THREE.DoubleSide,
+  transparent: true,
+  vertexColors: false,
   wireframe: false,
 })
 

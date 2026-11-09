@@ -46,6 +46,7 @@
 // --- Domain: pure values, policies and orderings ---------------------------
 // Block-name keyed per-face texture assignments and animation frames.
 export * from './domain/block-texture-map.js'
+export * from './domain/item-icon-map.js'
 export {
   AnimationClockInputSchema,
   AnimationClockInputErrorSchema,

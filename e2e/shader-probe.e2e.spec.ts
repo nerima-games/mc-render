@@ -25,6 +25,7 @@ const ENTITY_GALLERY_PIXEL_CONSTANTS = {
   verticalTopInset: ENTITY_GALLERY_CELL_VERTICAL_TOP_INSET,
   zero: ZERO,
 }
+const ITEM_ICON_ANIMATION_SECONDS = 0.25
 const WINDOW_SIZE = 8
 const LUMA_RANGE = 255
 const LUMA_RED = 0.299
@@ -700,4 +701,30 @@ const verifyAnimationProbeResults = (
 test('chunk animation pixels follow simulation tick boundaries in WebGL', async ({ page }) => {
   const probe = await readAnimationProbe(page)
   verifyAnimationProbeResults(probe.results, probe.manifest)
+})
+
+type ItemIconProbeResult = Readonly<{
+  animatedPixelChanges: number
+  animationSeconds: readonly [number, number]
+  bookshelfVisiblePixels: number
+  diamondVisiblePixels: number
+  distinctIconPixels: number
+}>
+
+const expectItemIconProbeResult = (result: ItemIconProbeResult): void => {
+  expect(result.animationSeconds).toStrictEqual([ZERO, ITEM_ICON_ANIMATION_SECONDS])
+  expect(result.bookshelfVisiblePixels).toBeGreaterThan(ZERO)
+  expect(result.diamondVisiblePixels).toBeGreaterThan(ZERO)
+  expect(result.distinctIconPixels).toBeGreaterThan(ZERO)
+  expect(result.animatedPixelChanges).toBeGreaterThan(ZERO)
+}
+
+test('dropped-item icon pixels differ by item and animate in WebGL', async ({ page }) => {
+  await page.goto(`${WEB_ORIGIN}/apps/shader-probe/?item-icon-pixels`)
+  const body = page.locator('body')
+  await expect.poll(async () => body.getAttribute('data-item-icon-probe'), { timeout: 30_000 }).toBe('passed')
+  const encodedResult = await body.getAttribute('data-item-icon-probe-result')
+  expect(encodedResult).not.toBeNull()
+  const result = JSON.parse(encodedResult ?? 'null') as ItemIconProbeResult
+  expectItemIconProbeResult(result)
 })

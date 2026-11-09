@@ -21,7 +21,10 @@ import {
   type MobVisualPartPlan,
   planMobVisual,
 } from '../domain/mob-visual.js'
+import type { ItemType } from '@nerima-games/mc-kernel'
 import { Result, Schema } from 'effect'
+import type { TileUvBounds } from '../domain/texture-atlas.js'
+import { itemIconUvForItemId } from '../domain/item-icon-map.js'
 import {
   type WitherSkullVisualInput,
   type WitherVisualPartDescriptor,
@@ -35,9 +38,11 @@ import {
 export type EntityRenderCategory = 'hostile' | 'passive' | 'item'
 
 /** The renderer-owned entity projection consumed by compose. */
-type RenderEntity = {
+export type RenderEntity = {
   readonly id: string
   readonly kind: string
+  /** Stable item identity for generic dropped-item entities. */
+  readonly itemId?: ItemType
   readonly feetPosition: {
     readonly x: number
     readonly y: number
@@ -135,11 +140,19 @@ const copiedWitherSkullProjectile = (entity: RenderEntity): Pick<RenderEntity, '
   }
 }
 
+const copiedItemId = (entity: RenderEntity): Pick<RenderEntity, 'itemId'> => {
+  if (typeof entity.itemId === 'undefined') {
+    return {}
+  }
+  return { itemId: entity.itemId }
+}
+
 /** Detach mutable source projections before the renderer stores them for reconciliation. */
 export const copyRenderEntity = (entity: RenderEntity): RenderEntity => ({
   feetPosition: { ...entity.feetPosition },
   id: entity.id,
   kind: entity.kind,
+  ...copiedItemId(entity),
   ...copiedCategory(entity),
   ...copiedBodyYawRadians(entity),
   ...copiedHeadYawRadians(entity),
@@ -159,7 +172,9 @@ export type EntityModelPartPlan = Readonly<{
   readonly rotation: MobVisualPartPlan['rotation']
 }>
 
-export type EntityVisualPartPlan = MobVisualPartPlan | WitherVisualPartDescriptor | EntityModelPartPlan
+export type ItemIconVisualPartPlan = MobVisualPartPlan & Readonly<{ iconUv: TileUvBounds }>
+
+export type EntityVisualPartPlan = MobVisualPartPlan | WitherVisualPartDescriptor | EntityModelPartPlan | ItemIconVisualPartPlan
 
 export type EntityVisualPlan = Readonly<{
   position: WitherVisualPosition
@@ -201,6 +216,42 @@ const ITEM_VISUAL_PARTS: ReadonlyArray<EntityVisualPartPlan> = [
   },
 ]
 
+const ITEM_ICON_CENTER_Y = 0.2
+const ITEM_ICON_SIZE = 0.34
+const ITEM_ICON_DEPTH = 0.01
+const ITEM_ICON_COLOR_CHANNEL_MAX = 255
+const ITEM_ICON_COLOR = [ITEM_ICON_COLOR_CHANNEL_MAX, ITEM_ICON_COLOR_CHANNEL_MAX, ITEM_ICON_COLOR_CHANNEL_MAX] as const
+
+const itemTypeForEntity = (entity: RenderEntity): string | undefined => {
+  if (entity.itemId !== undefined) {
+    return entity.itemId
+  }
+  if (entity.kind === 'dropped_item') {
+    return undefined
+  }
+  return entity.kind
+}
+
+const itemIconParts = (entity: RenderEntity): ReadonlyArray<EntityVisualPartPlan> | undefined => {
+  const itemId = itemTypeForEntity(entity)
+  if (itemId === undefined) {
+    return undefined
+  }
+  const lookup = itemIconUvForItemId(itemId)
+  if (Result.isFailure(lookup)) {
+    return undefined
+  }
+  return [{
+    center: [ITEM_CENTER_X, ITEM_ICON_CENTER_Y, ITEM_CENTER_Z],
+    color: ITEM_ICON_COLOR,
+    iconUv: lookup.success,
+    id: 'item-icon',
+    role: 'body',
+    rotation: [ITEM_ROTATION_X, ITEM_ROTATION_Y, ITEM_ROTATION_Z],
+    size: [ITEM_ICON_SIZE, ITEM_ICON_SIZE, ITEM_ICON_DEPTH],
+  }]
+}
+
 /** The facing this repository assumes for an entity that reports none. */
 const DEFAULT_FACING_RADIANS = 0
 const NO_ROTATION = 0
@@ -233,9 +284,9 @@ const facingDirection = (facingRadians: number): WitherVisualPosition => ({
   z: -Math.cos(facingRadians),
 })
 
-const planItemVisual = (entity: RenderEntity, facingRadians: number): UntexturedEntityVisualPlan => ({
+const planItemVisual = (entity: RenderEntity, facingRadians: number, itemIconsAvailable: boolean): UntexturedEntityVisualPlan => ({
   facingRadians,
-  parts: ITEM_VISUAL_PARTS,
+  parts: itemIconsAvailable ? itemIconParts(entity) ?? ITEM_VISUAL_PARTS : ITEM_VISUAL_PARTS,
   position: entity.feetPosition,
 })
 
@@ -509,9 +560,10 @@ const planDefaultEntityVisual = (
 const planDedicatedEntityVisual = (
   entity: RenderEntity,
   facingRadians: number,
+  itemIconsAvailable: boolean,
 ): Result.Result<UntexturedEntityVisualPlan, Schema.SchemaError> | undefined => {
   if (entity.category === 'item') {
-    return Result.succeed(planItemVisual(entity, facingRadians))
+    return Result.succeed(planItemVisual(entity, facingRadians, itemIconsAvailable))
   }
   if (entity.kind === 'wither') {
     return planWitherEntityVisual(entity, facingRadians)
@@ -532,9 +584,10 @@ const modelKindInputFor = (entity: RenderEntity): string => {
 const untexturedVisualFor = (
   entity: RenderEntity,
   kind: EntityModelKind,
+  itemIconsAvailable: boolean,
 ): Result.Result<UntexturedEntityVisualPlan, EntityModelResolutionIssue | Schema.SchemaError> => {
   const facingRadians = entityFacing(entity)
-  const dedicatedVisual = planDedicatedEntityVisual(entity, facingRadians)
+  const dedicatedVisual = planDedicatedEntityVisual(entity, facingRadians, itemIconsAvailable)
   if (dedicatedVisual !== undefined) {
     return dedicatedVisual
   }
@@ -549,12 +602,13 @@ const withEntityTextureCoordinates = (
 
 export const planEntityVisual = (
   entity: RenderEntity,
+  itemIconsAvailable = false,
 ): Result.Result<EntityVisualPlan, EntityModelResolutionIssue | EntityTextureResolutionIssue | Schema.SchemaError> => {
   const decodedKind = decodeEntityModelKind(modelKindInputFor(entity))
   if (Result.isFailure(decodedKind)) {
     return Result.fail(decodedKind.failure)
   }
-  const visual = untexturedVisualFor(entity, decodedKind.success)
+  const visual = untexturedVisualFor(entity, decodedKind.success, itemIconsAvailable)
   if (Result.isFailure(visual)) {
     return Result.fail(visual.failure)
   }

@@ -110,6 +110,8 @@ import {
   type MobAnimationInput,
   MobAnimationInputSchema,
 } from '../domain/mob-visual.js'
+import { itemIconUvForItemId } from '../domain/item-icon-map.js'
+import type { TileUvBounds } from '../domain/texture-atlas.js'
 import {
   type ParticlePool,
   type ParticlePoolInputError,
@@ -118,23 +120,27 @@ import {
   makeParticlePool,
 } from '../domain/particle-pool.js'
 import { type ParticleSystem, makeParticleSystem } from './particle-system.js'
-import type {
-  ThreeBufferGeometry,
-  ThreeCamera,
-  ThreeDynamicBufferAttribute,
-  ThreeEuler,
-  ThreeInstancedBufferGeometry,
-  ThreeInstancedSurface,
-  ThreeMaterial,
-  ThreeMesh,
-  ThreeObject3D,
-  ThreePerspectiveCamera,
-  ThreeScene,
-  ThreeShaderSurface,
-  ThreeSurface,
-  ThreeUniform,
-  ThreeVector3,
-  ThreeWebGLRenderer,
+import {
+  type ThreeBufferGeometry,
+  type ThreeDynamicBufferAttribute,
+  type ThreeCamera,
+  type ThreeEuler,
+  type ThreeInstancedBufferGeometry,
+  type ThreeInstancedSurface,
+  type ThreeMaterial,
+  type ThreeMaterialTexture,
+  type ThreeMaterialSide,
+  type ThreeMesh,
+  type ThreeObject3D,
+  type ThreePerspectiveCamera,
+  type ThreeScene,
+  type ThreeShaderSurface,
+  type ThreeTexture,
+  type ThreeSurface,
+  type ThreeUniform,
+  type ThreeVector3,
+  type ThreeWebGLRenderer,
+  THREE_DOUBLE_SIDE,
 } from './three-surface.js'
 import { WATER_MATERIAL_SPEC, WATER_WRITES_DEPTH } from '../domain/water-surface.js'
 import { type WeatherFrameOptions, decodeWeatherFrameOptions } from '../domain/weather-rendering.js'
@@ -827,6 +833,8 @@ export type RenderEntity = {
   readonly id: EntityRenderIdentifier
   readonly kind: string
   readonly dimension?: Dimension
+  /** Stable item identity for generic dropped-item entities. */
+  readonly itemId?: string
   readonly feetPosition: {
     readonly x: number
     readonly y: number
@@ -860,6 +868,7 @@ type RenderEntityEncoded = Readonly<{
   readonly facingRadians?: number
   readonly headYawRadians?: number
   readonly id: string
+  readonly itemId?: string
   readonly kind: string
   readonly pitchRadians?: number
   readonly skyLight?: number
@@ -887,6 +896,7 @@ export const RenderEntitySchema: Schema.Codec<RenderEntity, RenderEntityEncoded>
   feetPosition: RenderEntityPositionSchema,
   headYawRadians: Schema.optionalKey(EntityRenderYawRadiansSchema),
   id: EntityRenderIdentifierSchema,
+  itemId: Schema.optionalKey(Schema.String),
   kind: Schema.String,
   pitchRadians: Schema.optionalKey(EntityRenderPitchRadiansSchema),
   skyLight: Schema.optionalKey(EntityRenderLightLevelSchema),
@@ -925,6 +935,8 @@ export type WorldRenderer = DrawPort & {
   readonly weather: WeatherRenderer
   /** Apply a precomputed sky, sun and fog state without recreating GPU resources. */
   readonly setEnvironment: (environment: RenderEnvironmentPlan) => Effect.Effect<void>
+  /** Update time derived from the production frame for dropped-item motion. */
+  readonly setEntityAnimationTimeSeconds: (seconds: number) => Effect.Effect<void>
   /**
    * Put a chunk's geometry in the scene, replacing whatever was there.
    *
@@ -1002,6 +1014,7 @@ export type MaterialFactory<TMaterial extends ThreeMaterial> = () => TMaterial
 export type WorldRendererOptions<
   TMaterial extends ThreeMaterial = ThreeMaterial,
   TEntityMaterial extends ThreeMaterial = TMaterial,
+  TItemIconTexture extends ThreeTexture = ThreeMaterialTexture<TMaterial>,
 > = {
   readonly fovDegrees?: number
   readonly nearPlane?: number
@@ -1044,6 +1057,8 @@ export type WorldRendererOptions<
   /** Optional host-owned compositor; absent in headless and preview renders. */
   readonly postProcessing?: PostProcessingRendererFactory
   readonly beforeDraw?: ((camera: MirroredCameraState) => Effect.Effect<void, unknown>) | undefined
+  /** Texture atlas used to draw dropped-item billboards when item IDs are available. */
+  readonly itemIconAtlasTexture?: TItemIconTexture
 }
 
 const weatherFrameOptionsWithFarPlane = (
@@ -1227,6 +1242,7 @@ type EntityPartEntry = {
   readonly color: readonly [number, number, number]
   readonly brightnessFactor: number
   readonly geometry: ThreeBufferGeometry
+  readonly iconUv: TileUvBounds | undefined
   readonly mesh: TransformableThreeMesh
 }
 
@@ -1249,6 +1265,23 @@ type ReconcileContext = {
 }
 
 const NO_ENTITY_ROTATION = 0
+const ITEM_CENTER_X = 0
+const ITEM_CENTER_Z = 0
+const ITEM_ROTATION_X = 0
+const ITEM_ICON_CENTER_Y = 0.2
+const ITEM_ICON_UV_COMPONENTS = 2
+const ITEM_ICON_QUAD_VERTEX_0 = 0
+const ITEM_ICON_QUAD_VERTEX_1 = 1
+const ITEM_ICON_QUAD_VERTEX_2 = 2
+const ITEM_ICON_QUAD_VERTEX_3 = 3
+const ITEM_ICON_MATERIAL_SIDE: ThreeMaterialSide = THREE_DOUBLE_SIDE
+const ITEM_ICON_ALPHA_TEST = 0.05
+const INITIAL_ENTITY_ANIMATION_TIME_SECONDS = 0
+const HALF_TURN_DIVISOR = 2
+const DROPPED_ITEM_SPIN_RADIANS_PER_SECOND = Math.PI / HALF_TURN_DIVISOR
+const DROPPED_ITEM_BOB_RADIANS_PER_SECOND = Math.PI * HALF_TURN_DIVISOR
+const DROPPED_ITEM_BOB_AMPLITUDE = 0.035
+
 
 const isHeadPart = (part: EntityVisualPartPlan): boolean =>
   part.role === 'head' || part.role === 'eye' || part.role === 'beak' || part.role === 'snout'
@@ -1285,6 +1318,18 @@ const entityPartPitchAndYaw = (
   return [entity.pitchRadians ?? NO_ENTITY_ROTATION, entity.headYawRadians ?? facing]
 }
 
+const hasMatchingIconUv = (previous: EntityPartEntry | undefined, plan: EntityVisualPartPlan): boolean => {
+  const planIconUv = 'iconUv' in plan ? plan.iconUv : undefined
+  if (previous?.iconUv === undefined) {
+    return planIconUv === undefined
+  }
+  if (planIconUv === undefined) {
+    return false
+  }
+  return previous.iconUv.u0 === planIconUv.u0 && previous.iconUv.v0 === planIconUv.v0 &&
+    previous.iconUv.u1 === planIconUv.u1 && previous.iconUv.v1 === planIconUv.v1
+}
+
 const matchingEntityParts = (
   entry: EntityEntry,
   plans: EntityVisualPlan['parts'],
@@ -1294,7 +1339,10 @@ const matchingEntityParts = (
   const pairs: Array<readonly [EntityPartEntry, EntityVisualPartPlan]> = []
   for (const [index, plan] of plans.entries()) {
     const previous = entry.parts[index]
-    if (previous === undefined || plan.id !== previous.id || previous.brightnessFactor !== brightnessFactor ||
+    if (previous === undefined || plan.id !== previous.id || previous.brightnessFactor !== (
+      'iconUv' in plan ? FULL_ENTITY_BRIGHTNESS_FACTOR : brightnessFactor
+    ) || !hasMatchingIconUv(previous, plan) ||
+      plan.color.some((component, colorIndex) => component !== previous.color[colorIndex])) { return undefined }
       plan.color.some((component, colorIndex) => component !== previous.color[colorIndex])) { return undefined }
     pairs.push([previous, plan])
   }
@@ -1329,6 +1377,15 @@ const CUBE_FACE_TRIANGLE_CORNER_INDICES = [
 
 /** Each face needs its own four vertices so all six faces can use the complete atlas tile. */
 const UNIT_CUBE_VERTEX_COUNT = 24
+const ITEM_ICON_QUAD_INDICES = [
+  ITEM_ICON_QUAD_VERTEX_0,
+  ITEM_ICON_QUAD_VERTEX_1,
+  ITEM_ICON_QUAD_VERTEX_2,
+  ITEM_ICON_QUAD_VERTEX_0,
+  ITEM_ICON_QUAD_VERTEX_2,
+  ITEM_ICON_QUAD_VERTEX_3,
+] as const
+
 const UNIT_CUBE_FACE_VERTEX_COUNT = 4
 const UNIT_CUBE_FACE_COUNT = 6
 const UNIT_CUBE_FACE_TRIANGLE_INDEX_COUNT = 6
@@ -1458,12 +1515,35 @@ const unitCubeBuffers = (
   return { colors, indices, positions, uvs }
 }
 
+const itemIconBuffers = (bounds: TileUvBounds) => ({
+  indices: new Uint32Array(ITEM_ICON_QUAD_INDICES),
+  positions: new Float32Array([
+    CUBE_MIN, CUBE_MIN, ITEM_CENTER_Z,
+    CUBE_MAX, CUBE_MIN, ITEM_CENTER_Z,
+    CUBE_MAX, CUBE_MAX, ITEM_CENTER_Z,
+    CUBE_MIN, CUBE_MAX, ITEM_CENTER_Z,
+  ]),
+  uvs: new Float32Array([
+    bounds.u0, bounds.v0,
+    bounds.u1, bounds.v0,
+    bounds.u1, bounds.v1,
+    bounds.u0, bounds.v1,
+  ]),
+})
+
 /** `entity.category`, present only when the source entity has one. */
 const copiedCategory = (entity: RenderEntity): Pick<RenderEntity, 'category'> => {
   if (typeof entity.category === 'undefined') {
     return {}
   }
   return { category: entity.category }
+}
+
+const copiedItemId = (entity: RenderEntity): Pick<RenderEntity, 'itemId'> => {
+  if (typeof entity.itemId === 'undefined') {
+    return {}
+  }
+  return { itemId: entity.itemId }
 }
 
 /** `entity.facingRadians`, present only when the source entity has one. */
@@ -1527,6 +1607,7 @@ const copyEntity = (entity: RenderEntity): RenderEntity => ({
   feetPosition: { ...entity.feetPosition },
   id: entity.id,
   kind: entity.kind,
+  ...copiedItemId(entity),
   ...copiedCategory(entity),
   ...copiedFacingRadians(entity),
   ...copiedEntityFrameFields(entity),
@@ -1545,8 +1626,9 @@ const appendIncomingEntityPlan = (
   entity: RenderEntity,
   desired: Map<string, PlannedEntity>,
   diagnostics: Array<WorldRendererEntityModelDiagnostic>,
+  itemIconsAvailable: boolean,
 ): Result.Result<void, Schema.SchemaError> => {
-  const visual = planEntityVisual(entity)
+  const visual = planEntityVisual(entity, itemIconsAvailable)
   if (Result.isFailure(visual)) {
     if (Schema.isSchemaError(visual.failure)) {
       return Result.fail(visual.failure)
@@ -1560,6 +1642,7 @@ const appendIncomingEntityPlan = (
 
 const planIncomingEntities = (
   incoming: ReadonlyArray<RenderEntity>,
+  itemIconsAvailable: boolean,
 ): Result.Result<IncomingEntityPlans, Schema.SchemaError> => {
   const incomingById = new Map<EntityRenderIdentifier, RenderEntity>(
     incoming.map((entity): readonly [EntityRenderIdentifier, RenderEntity] => [entity.id, copyEntity(entity)]),
@@ -1567,7 +1650,7 @@ const planIncomingEntities = (
   const desired = new Map<string, PlannedEntity>()
   const diagnostics: Array<WorldRendererEntityModelDiagnostic> = []
   for (const [id, entity] of incomingById) {
-    const result = appendIncomingEntityPlan(id, entity, desired, diagnostics)
+    const result = appendIncomingEntityPlan(id, entity, desired, diagnostics, itemIconsAvailable)
     if (Result.isFailure(result)) {
       return Result.fail(result.failure)
     }
@@ -1614,6 +1697,7 @@ export const makeWorldRenderer = <
    */
   TUsedMaterial extends ThreeMaterial = TMaterial,
   TEntityMaterial extends ThreeMaterial = TMaterial,
+  TItemIconTexture extends ThreeTexture = ThreeMaterialTexture<TMaterial>,
 >(
   three: Omit<ThreeSurface<TCanvas, TGeometry, TMaterial>, 'Mesh'> & {
     readonly Mesh: new (
@@ -1623,7 +1707,7 @@ export const makeWorldRenderer = <
   },
   canvas: TCanvas,
   viewport: Viewport,
-  options: WorldRendererOptions<TUsedMaterial, TEntityMaterial> = {},
+  options: WorldRendererOptions<TUsedMaterial, TEntityMaterial, TItemIconTexture> = {},
 ): Effect.Effect<WorldRenderer, Schema.SchemaError> => {
   const createChunkMaterials = () => {
     const opaque = options.material?.() ??
@@ -1703,17 +1787,25 @@ export const makeWorldRenderer = <
      */
     const materials = createChunkMaterials()
 
-    const [chunks, viewportAspect, entities, entityModelDiagnostics, framesRendered, postProcessingChain] = yield* Effect.all([
+    const [chunks, viewportAspect, entities, entityModelDiagnostics, framesRendered, postProcessingChain, entityAnimationTimeSecs] = yield* Effect.all([
       Ref.make(new Map<ChunkKey, ChunkEntry<TGeometry>>()),
       Ref.make(initialAspect),
       Ref.make(new Map<string, EntityEntry>()),
       Ref.make<ReadonlyArray<WorldRendererEntityModelDiagnostic>>([]),
       Ref.make(INITIAL_FRAMES_RENDERED),
       Ref.make<ReadonlyArray<PostProcessingStep>>([]),
+      Ref.make(INITIAL_ENTITY_ANIMATION_TIME_SECONDS),
     ])
-    const entityAssets: { readonly entityGeometries: Map<string, TGeometry>; entityMaterial: TEntityMaterial | TMaterial | null } = {
+    const entityAssets: {
+      readonly entityGeometries: Map<string, TGeometry>
+      entityMaterial: TEntityMaterial | TMaterial | null
+      readonly itemIconGeometries: Map<string, TGeometry>
+      itemIconMaterial: TMaterial | null
+    } = {
       entityGeometries: new Map<string, TGeometry>(),
       entityMaterial: null,
+      itemIconGeometries: new Map<string, TGeometry>(),
+      itemIconMaterial: null,
     }
     /**
      * Every operation `makeWorldRenderer` needs, bundled as one namespace
@@ -1861,11 +1953,23 @@ export const makeWorldRenderer = <
       buildEntity: (entity: RenderEntity, visual: EntityVisualPlan): EntityEntry => {
         const brightnessFactor = entityBrightnessFactor(entity, ops.entityFrameState.sunIntensity)
         const parts = visual.parts.map((part): EntityPartEntry => {
+          if ('iconUv' in part) {
+            return ops.buildEntityPartEntry(
+              visual,
+              part,
+              part.iconUv,
+              ops.buildItemIconGeometry(part.iconUv),
+              ops.getItemIconMaterial(),
+            )
+          }
           const geometry = ops.buildEntityGeometry(entity.kind, part.color, brightnessFactor, visual.textureCoordinates)
           const mesh = new three.Mesh(geometry, ops.getEntityMaterial())
           ops.applyEntityPartTransform(mesh, visual, part, entity)
           scene.add(mesh)
-          return { brightnessFactor, color: part.color, geometry, id: part.id, mesh }
+          return { brightnessFactor, color: part.color, geometry, iconUv: undefined, id: part.id, mesh }
+        })
+        return { entity, parts, visual }
+      },
         })
         return { entity, parts, visual }
       },
@@ -1905,6 +2009,19 @@ export const makeWorldRenderer = <
         return geometry
       },
 
+      buildEntityPartEntry: (
+        visual: EntityVisualPlan,
+        part: EntityVisualPartPlan,
+        iconUv: TileUvBounds | undefined,
+        geometry: TGeometry,
+        material: TMaterial,
+      ): EntityPartEntry => {
+        const mesh = new three.Mesh(geometry, material)
+        ops.applyEntityPartTransform(mesh, visual, part)
+        scene.add(mesh)
+        return { brightnessFactor: FULL_ENTITY_BRIGHTNESS_FACTOR, color: part.color, geometry, iconUv, id: part.id, mesh }
+      },
+
       buildGeometry: (
         buffers: ChunkLayerBuffers,
         indexAttribute?: ThreeDynamicBufferAttribute,
@@ -1915,6 +2032,31 @@ export const makeWorldRenderer = <
         /* Before the first render, not lazily. See `ThreeBufferGeometry`: three
            computes this on demand and warns on an empty position attribute, and
            an empty chunk is the normal case at the edge of the loaded world. */
+        geometry.computeBoundingSphere()
+        return geometry
+      },
+
+      buildItemIconGeometry: (bounds: TileUvBounds): TGeometry => {
+        const key = [bounds.u0, bounds.v0, bounds.u1, bounds.v1].join(',')
+        const cached = entityAssets.itemIconGeometries.get(key)
+        if (cached) {return cached}
+        const geometry = ops.createItemIconGeometry(bounds)
+        entityAssets.itemIconGeometries.set(key, geometry)
+        return geometry
+      },
+
+      createItemIconGeometry: (bounds: TileUvBounds): TGeometry => {
+        const buffers = itemIconBuffers(bounds)
+        const geometry = new three.BufferGeometry()
+        geometry.setAttribute(
+          'position',
+          new three.BufferAttribute(buffers.positions, POSITION_COMPONENTS, false),
+        )
+        geometry.setAttribute(
+          'uv',
+          new three.BufferAttribute(buffers.uvs, ITEM_ICON_UV_COMPONENTS, false),
+        )
+        geometry.setIndex(new three.BufferAttribute(buffers.indices, INDEX_ITEM_SIZE, false))
         geometry.computeBoundingSphere()
         return geometry
       },
@@ -1931,11 +2073,15 @@ export const makeWorldRenderer = <
         }
         for (const geometry of entityAssets.entityGeometries.values()) {geometry.dispose()}
         entityAssets.entityGeometries.clear()
+        for (const geometry of entityAssets.itemIconGeometries.values()) {geometry.dispose()}
+        entityAssets.itemIconGeometries.clear()
       },
 
       disposeSharedMaterials: (): void => {
         entityAssets.entityMaterial?.dispose()
         entityAssets.entityMaterial = null
+        entityAssets.itemIconMaterial?.dispose()
+        entityAssets.itemIconMaterial = null
         for (const sharedMaterial of new Set([
           materials.opaque,
           materials.cutout,
@@ -1967,7 +2113,7 @@ export const makeWorldRenderer = <
         const syncEntities = (input: unknown): Effect.Effect<void, Schema.SchemaError> =>
           Effect.gen(function* reconcileEntities() {
             const incoming = yield* Effect.fromResult(decodeRenderEntities(input))
-            const { desired, diagnostics } = yield* Effect.fromResult(planIncomingEntities(incoming))
+            const { desired, diagnostics } = yield* Effect.fromResult(planIncomingEntities(incoming, options.itemIconAtlasTexture !== undefined && options.itemIconAtlasTexture !== null))
             yield* Ref.update(entities, (current) => {
               const next = new Map<string, EntityEntry>()
               const context: ReconcileContext = { current, next }
@@ -2015,10 +2161,46 @@ export const makeWorldRenderer = <
         return { syncEntities, syncEntityFrame }
       })(),
 
+      faceItemIconBillboards: (
+        currentEntities: ReadonlyMap<string, EntityEntry>,
+        cameraYawRadians: number,
+        animationTime: number,
+      ): void => {
+        for (const entry of currentEntities.values()) {
+          for (const part of entry.parts) {
+            if (part.iconUv !== undefined) {
+              const spinRadians = animationTime * DROPPED_ITEM_SPIN_RADIANS_PER_SECOND
+              const bobOffset = Math.sin(animationTime * DROPPED_ITEM_BOB_RADIANS_PER_SECOND) *
+                DROPPED_ITEM_BOB_AMPLITUDE
+              part.mesh.position.set(
+                entry.entity.feetPosition.x,
+                entry.entity.feetPosition.y + ITEM_ICON_CENTER_Y + bobOffset,
+                entry.entity.feetPosition.z,
+              )
+              part.mesh.rotation.set(ITEM_ROTATION_X, cameraYawRadians, spinRadians, 'YXZ')
+            }
+          }
+        }
+      },
+
       getEntityMaterial: (): TEntityMaterial | TMaterial => {
         entityAssets.entityMaterial ??= options.entityMaterial?.() ??
           new three.MeshBasicMaterial({ vertexColors: true, wireframe: false })
         return entityAssets.entityMaterial
+      },
+
+      getItemIconMaterial: (): TMaterial => {
+        entityAssets.itemIconMaterial ??= new three.MeshBasicMaterial({
+          alphaTest: ITEM_ICON_ALPHA_TEST,
+          depthWrite: false,
+          forceSinglePass: true,
+          map: options.itemIconAtlasTexture ?? null,
+          side: ITEM_ICON_MATERIAL_SIDE,
+          transparent: true,
+          vertexColors: false,
+          wireframe: false,
+        })
+        return entityAssets.itemIconMaterial
       },
 
       reconcileEntity: (context: ReconcileContext, id: string, entity: RenderEntity, visual: EntityVisualPlan): void => {
@@ -2180,9 +2362,11 @@ export const makeWorldRenderer = <
         Effect.gen(function* drawFrame() {
           ops.applyCameraPose(mirrored)
           yield* (options.beforeDraw?.(mirrored) ?? Effect.void)
-          const [currentChunks, aspect] = yield* Effect.all([
+          const [currentChunks, aspect, animationTime, currentEntities] = yield* Effect.all([
             Ref.get(chunks),
             Ref.get(viewportAspect),
+            Ref.get(entityAnimationTimeSecs),
+            Ref.get(entities),
           ])
           const frustum = preparePerspectiveFrustum({
             aspect,
@@ -2193,6 +2377,7 @@ export const makeWorldRenderer = <
           })
           yield* Effect.fromResult(ops.updateChunkVisibility(currentChunks, frustum, mirrored))
           ops.updateTransparentSort(currentChunks, mirrored)
+          ops.faceItemIconBillboards(currentEntities, mirrored.rotation.y, animationTime)
           const chain = yield* Ref.get(postProcessingChain)
           ops.renderFrame(chain)
           yield* Ref.update(framesRendered, (drawn) => drawn + FRAME_STEP)
@@ -2229,6 +2414,7 @@ export const makeWorldRenderer = <
         }),
       setChunk: (key, buffers) => ops.setChunks([{ buffers, key }]),
       setChunks: ops.setChunks,
+      setEntityAnimationTimeSeconds: (seconds: number) => Ref.set(entityAnimationTimeSecs, seconds),
       setEnvironment: ops.setEnvironment,
       setPostProcessingChain: (chain) => Ref.set(postProcessingChain, chain),
       syncEntities: ops.entitySync.syncEntities,
@@ -2293,8 +2479,11 @@ export type ProductionWorldRenderer<TShaderMaterial extends ThreeMaterial> = Wor
   readonly advanceFrame: (frame: ProductionFrame) => Effect.Effect<void, ParticlePoolInputError | AnimationClockInputError>
 }
 
-export type ProductionWorldRendererOptions<TEntityMaterial extends ThreeMaterial = ThreeMaterial> = Omit<
-  WorldRendererOptions<ThreeMaterial, TEntityMaterial>,
+export type ProductionWorldRendererOptions<
+  TEntityMaterial extends ThreeMaterial = ThreeMaterial,
+  TItemIconTexture extends ThreeTexture = ThreeTexture,
+> = Omit<
+  WorldRendererOptions<ThreeMaterial, TEntityMaterial, TItemIconTexture>,
   'material' | 'cutoutMaterial' | 'transparentMaterial' | 'applyMaterialEnvironment'
 > & {
   readonly particles?: ParticlePoolOptions
@@ -2318,7 +2507,7 @@ export const makeProductionWorldRenderer = <
   canvas: TCanvas,
   viewport: Viewport,
   atlasTexture: unknown,
-  options: ProductionWorldRendererOptions<TMaterial> = {},
+  options: ProductionWorldRendererOptions<TMaterial, ThreeMaterialTexture<TMaterial>> = {},
 ): Effect.Effect<ProductionWorldRenderer<TShaderMaterial>, ParticlePoolInputError | Schema.SchemaError> =>
   Effect.gen(function* buildProductionRenderer() {
     const particlePool = yield* Effect.fromResult(makeParticlePool(options.particles))
@@ -2348,6 +2537,7 @@ export const makeProductionWorldRenderer = <
       advanceFrame: (frame) => Effect.gen(function* advanceProductionFrame() {
         const animationSecs = yield* Effect.fromResult(animationTimeSeconds(frame))
         yield* Effect.fromResult(advanceParticles(particlePool, frame.deltaSecs))
+        yield* renderer.setEntityAnimationTimeSeconds(animationSecs)
         applyChunkShaderTime([chunk, cutout, transparentSolid], animationSecs)
         applyWaterFrameUniforms(water.uniforms, animationSecs, frame.cameraPosition)
         applyWaterFrameUniforms(transparentSolid.uniforms, animationSecs, frame.cameraPosition)
