@@ -364,7 +364,6 @@ export type ThreeSurface<
     readonly transparent?: boolean
     readonly depthWrite?: boolean
     readonly forceSinglePass?: boolean
-    readonly alphaTest?: number
     readonly side?: ThreeMaterialSide
   }) => TMaterial
 }

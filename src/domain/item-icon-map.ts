@@ -27,7 +27,7 @@ export type ItemIconLookupError = Readonly<{
 
 type ItemIconManifestError = Readonly<{
   readonly _tag: 'ItemIconManifestError'
-  readonly reason: 'coverage' | 'layout' | 'tile-count' | 'tile-order'
+  readonly reason: 'layout' | 'tile-count' | 'tile-order'
 }>
 
 type ItemIconManifestLayout = Readonly<{
@@ -71,10 +71,6 @@ const ItemIconManifestSchema = Schema.Struct({
 const manifest = Schema.decodeUnknownSync(ItemIconManifestSchema)(itemIconManifest)
 const itemNames = new Set<string>(ITEM_TYPES)
 
-const hasCompleteItemCoverage = (map: Readonly<Record<ItemType, AtlasTileIndex>>): boolean =>
-  Object.keys(map).length === ITEM_TYPES.length &&
-  ITEM_TYPES.every((itemId) => Object.hasOwn(map, itemId))
-
 const layoutMatchesAtlas = (layout: ItemIconManifestLayout): boolean =>
   layout.width === ATLAS_PIXELS &&
   layout.height === ATLAS_PIXELS &&
@@ -98,9 +94,6 @@ const hasExpectedTileOrder = (map: Readonly<Record<ItemType, AtlasTileIndex>>): 
 const validateManifest = (value: ItemIconManifest): Result.Result<ItemIconManifest, ItemIconManifestError> => {
   if (!layoutMatchesAtlas(value.layout)) {
     return Result.fail({ _tag: 'ItemIconManifestError', reason: 'layout' })
-  }
-  if (!hasCompleteItemCoverage(value.itemIcons)) {
-    return Result.fail({ _tag: 'ItemIconManifestError', reason: 'coverage' })
   }
   if (value.tileCount !== ITEM_TYPES.length) {
     return Result.fail({ _tag: 'ItemIconManifestError', reason: 'tile-count' })

@@ -222,6 +222,61 @@ const ITEM_ICON_DEPTH = 0.01
 const ITEM_ICON_COLOR_CHANNEL_MAX = 255
 const ITEM_ICON_COLOR = [ITEM_ICON_COLOR_CHANNEL_MAX, ITEM_ICON_COLOR_CHANNEL_MAX, ITEM_ICON_COLOR_CHANNEL_MAX] as const
 
+const PROJECTILE_CENTER_Y = 0.16
+const ARROW_SHAFT_COLOR_RED = 126
+const ARROW_SHAFT_COLOR_GREEN = 86
+const ARROW_SHAFT_COLOR_BLUE = 51
+const ARROW_SHAFT_COLOR = [ARROW_SHAFT_COLOR_RED, ARROW_SHAFT_COLOR_GREEN, ARROW_SHAFT_COLOR_BLUE] as const
+const ARROW_SHAFT_WIDTH = 0.045
+const ARROW_SHAFT_LENGTH = 0.48
+const ARROW_SHAFT_SIZE = [ARROW_SHAFT_WIDTH, ARROW_SHAFT_WIDTH, ARROW_SHAFT_LENGTH] as const
+const ARROW_HEAD_CENTER_Z = -0.3
+const ARROW_HEAD_COLOR_RED = 184
+const ARROW_HEAD_COLOR_GREEN = 190
+const ARROW_HEAD_COLOR_BLUE = 191
+const ARROW_HEAD_COLOR = [ARROW_HEAD_COLOR_RED, ARROW_HEAD_COLOR_GREEN, ARROW_HEAD_COLOR_BLUE] as const
+const ARROW_HEAD_WIDTH = 0.13
+const ARROW_HEAD_DEPTH = 0.12
+const ARROW_HEAD_SIZE = [ARROW_HEAD_WIDTH, ARROW_HEAD_WIDTH, ARROW_HEAD_DEPTH] as const
+const ARROW_FLETCHING_CENTER_Z = 0.23
+const ARROW_FLETCHING_COLOR_RED = 208
+const ARROW_FLETCHING_COLOR_GREEN = 191
+const ARROW_FLETCHING_COLOR_BLUE = 153
+const ARROW_FLETCHING_COLOR = [
+  ARROW_FLETCHING_COLOR_RED,
+  ARROW_FLETCHING_COLOR_GREEN,
+  ARROW_FLETCHING_COLOR_BLUE,
+] as const
+const ARROW_FLETCHING_WIDTH = 0.12
+const ARROW_FLETCHING_HEIGHT = 0.07
+const ARROW_FLETCHING_DEPTH = 0.08
+const ARROW_FLETCHING_SIZE = [ARROW_FLETCHING_WIDTH, ARROW_FLETCHING_HEIGHT, ARROW_FLETCHING_DEPTH] as const
+
+const EYE_CENTER_Y = 0.18
+const EYE_SHELL_COLOR_RED = 14
+const EYE_SHELL_COLOR_GREEN = 40
+const EYE_SHELL_COLOR_BLUE = 29
+const EYE_SHELL_COLOR = [EYE_SHELL_COLOR_RED, EYE_SHELL_COLOR_GREEN, EYE_SHELL_COLOR_BLUE] as const
+const EYE_SHELL_WIDTH = 0.28
+const EYE_SHELL_DEPTH = 0.2
+const EYE_SHELL_SIZE = [EYE_SHELL_WIDTH, EYE_SHELL_WIDTH, EYE_SHELL_DEPTH] as const
+const EYE_IRIS_CENTER_Z = -0.11
+const EYE_IRIS_COLOR_RED = 72
+const EYE_IRIS_COLOR_GREEN = 190
+const EYE_IRIS_COLOR_BLUE = 126
+const EYE_IRIS_COLOR = [EYE_IRIS_COLOR_RED, EYE_IRIS_COLOR_GREEN, EYE_IRIS_COLOR_BLUE] as const
+const EYE_IRIS_WIDTH = 0.19
+const EYE_IRIS_DEPTH = 0.06
+const EYE_IRIS_SIZE = [EYE_IRIS_WIDTH, EYE_IRIS_WIDTH, EYE_IRIS_DEPTH] as const
+const EYE_PUPIL_CENTER_Z = -0.15
+const EYE_PUPIL_COLOR_RED = 14
+const EYE_PUPIL_COLOR_GREEN = 27
+const EYE_PUPIL_COLOR_BLUE = 31
+const EYE_PUPIL_COLOR = [EYE_PUPIL_COLOR_RED, EYE_PUPIL_COLOR_GREEN, EYE_PUPIL_COLOR_BLUE] as const
+const EYE_PUPIL_WIDTH = 0.075
+const EYE_PUPIL_DEPTH = 0.025
+const EYE_PUPIL_SIZE = [EYE_PUPIL_WIDTH, EYE_PUPIL_WIDTH, EYE_PUPIL_DEPTH] as const
+
 const itemTypeForEntity = (entity: RenderEntity): string | undefined => {
   if (entity.itemId !== undefined) {
     return entity.itemId
@@ -252,6 +307,66 @@ const itemIconParts = (entity: RenderEntity): ReadonlyArray<EntityVisualPartPlan
   }]
 }
 
+const ARROW_VISUAL_PARTS: ReadonlyArray<EntityVisualPartPlan> = [
+  {
+    center: [ITEM_CENTER_X, PROJECTILE_CENTER_Y, ITEM_CENTER_Z],
+    color: ARROW_SHAFT_COLOR,
+    id: 'arrow-shaft',
+    role: 'body',
+    rotation: [ITEM_ROTATION_X, ITEM_ROTATION_Y, ITEM_ROTATION_Z],
+    size: ARROW_SHAFT_SIZE,
+  },
+  {
+    center: [ITEM_CENTER_X, PROJECTILE_CENTER_Y, ARROW_HEAD_CENTER_Z],
+    color: ARROW_HEAD_COLOR,
+    id: 'arrow-head',
+    role: 'body',
+    rotation: [ITEM_ROTATION_X, ITEM_ROTATION_Y, ITEM_ROTATION_Z],
+    size: ARROW_HEAD_SIZE,
+  },
+  {
+    center: [ITEM_CENTER_X, PROJECTILE_CENTER_Y, ARROW_FLETCHING_CENTER_Z],
+    color: ARROW_FLETCHING_COLOR,
+    id: 'arrow-fletching',
+    role: 'body',
+    rotation: [ITEM_ROTATION_X, ITEM_ROTATION_Y, ITEM_ROTATION_Z],
+    size: ARROW_FLETCHING_SIZE,
+  },
+]
+
+const EYE_OF_ENDER_VISUAL_PARTS: ReadonlyArray<EntityVisualPartPlan> = [
+  {
+    center: [ITEM_CENTER_X, EYE_CENTER_Y, ITEM_CENTER_Z],
+    color: EYE_SHELL_COLOR,
+    id: 'eye-shell',
+    role: 'body',
+    rotation: [ITEM_ROTATION_X, ITEM_ROTATION_Y, ITEM_ROTATION_Z],
+    size: EYE_SHELL_SIZE,
+  },
+  {
+    center: [ITEM_CENTER_X, EYE_CENTER_Y, EYE_IRIS_CENTER_Z],
+    color: EYE_IRIS_COLOR,
+    id: 'eye-iris',
+    role: 'body',
+    rotation: [ITEM_ROTATION_X, ITEM_ROTATION_Y, ITEM_ROTATION_Z],
+    size: EYE_IRIS_SIZE,
+  },
+  {
+    center: [ITEM_CENTER_X, EYE_CENTER_Y, EYE_PUPIL_CENTER_Z],
+    color: EYE_PUPIL_COLOR,
+    id: 'eye-pupil',
+    role: 'body',
+    rotation: [ITEM_ROTATION_X, ITEM_ROTATION_Y, ITEM_ROTATION_Z],
+    size: EYE_PUPIL_SIZE,
+  },
+]
+
+const PROJECTILE_VISUAL_PARTS_BY_KIND: Readonly<Record<string, ReadonlyArray<EntityVisualPartPlan>>> = {
+  arrow: ARROW_VISUAL_PARTS,
+  eye_of_ender: EYE_OF_ENDER_VISUAL_PARTS,
+}
+
+/** The facing this repository assumes for an entity that reports none. */
 /** The facing this repository assumes for an entity that reports none. */
 const DEFAULT_FACING_RADIANS = 0
 const NO_ROTATION = 0
@@ -287,6 +402,16 @@ const facingDirection = (facingRadians: number): WitherVisualPosition => ({
 const planItemVisual = (entity: RenderEntity, facingRadians: number, itemIconsAvailable: boolean): UntexturedEntityVisualPlan => ({
   facingRadians,
   parts: itemIconsAvailable ? itemIconParts(entity) ?? ITEM_VISUAL_PARTS : ITEM_VISUAL_PARTS,
+  position: entity.feetPosition,
+})
+
+const planProjectileItemVisual = (
+  entity: RenderEntity,
+  facingRadians: number,
+  parts: ReadonlyArray<EntityVisualPartPlan>,
+): UntexturedEntityVisualPlan => ({
+  facingRadians,
+  parts,
   position: entity.feetPosition,
 })
 
@@ -562,6 +687,10 @@ const planDedicatedEntityVisual = (
   facingRadians: number,
   itemIconsAvailable: boolean,
 ): Result.Result<UntexturedEntityVisualPlan, Schema.SchemaError> | undefined => {
+  const projectileParts = PROJECTILE_VISUAL_PARTS_BY_KIND[entity.kind]
+  if (projectileParts !== undefined) {
+    return Result.succeed(planProjectileItemVisual(entity, facingRadians, projectileParts))
+  }
   if (entity.category === 'item') {
     return Result.succeed(planItemVisual(entity, facingRadians, itemIconsAvailable))
   }

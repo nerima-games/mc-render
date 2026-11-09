@@ -1,7 +1,8 @@
 import { ITEM_TYPES, type ItemType } from '@nerima-games/mc-kernel'
 import { Result } from 'effect'
 import * as FastCheck from 'fast-check'
-import { describe, expect, it } from 'vitest'
+import itemIconManifest from '../src/assets/item-icons/manifest.json' with { type: 'json' }
+import { describe, expect, it, vi } from 'vitest'
 import {
   ITEM_ICON_TILE_BY_ITEM_ID,
   itemIconUvForItemId,
@@ -15,6 +16,17 @@ import {
 } from '../src/domain/texture-atlas.js'
 
 const HALF_TEXEL = 0.5
+
+const expectRejectedManifest = async (manifest: unknown): Promise<void> => {
+  vi.resetModules()
+  vi.doMock('../src/assets/item-icons/manifest.json', () => ({ default: manifest }))
+  try {
+    await expect(import('../src/domain/item-icon-map.js')).rejects.toThrow()
+  } finally {
+    vi.doUnmock('../src/assets/item-icons/manifest.json')
+    vi.resetModules()
+  }
+}
 
 const expectedUvBounds = (tileIndex: number) => {
   const column = tileIndex % ATLAS_COLUMNS
@@ -135,5 +147,65 @@ describe('item icon map', () => {
     const bookshelf: ItemType = 'bookshelf'
     expect(ITEM_TYPES.includes(bookshelf)).toBe(true)
     expect(Result.isSuccess(itemIconUvForItemId(bookshelf))).toBe(true)
+  })
+
+  it('rejects manifests with incomplete coverage or mismatched layout, count, or item order', async () => {
+    const OMITTED_ENTRY_COUNT = 1
+    const LAYOUT_WIDTH_DELTA = 1
+    const invalidLayout = {
+      ...itemIconManifest.layout,
+      width: itemIconManifest.layout.width - LAYOUT_WIDTH_DELTA,
+    }
+    const incompleteItemIcons = Object.fromEntries(Object.entries(itemIconManifest.itemIcons).slice(OMITTED_ENTRY_COUNT))
+    const [firstEntry, secondEntry, ...remainingEntries] = Object.entries(itemIconManifest.itemIcons)
+    if (firstEntry === undefined || secondEntry === undefined) {
+      throw new Error('the item icon manifest must contain more than one entry')
+    }
+    const reorderedItemIcons = Object.fromEntries([
+      [firstEntry[0], secondEntry[1]],
+      [secondEntry[0], firstEntry[1]],
+      ...remainingEntries,
+    ])
+
+    await expectRejectedManifest({ ...itemIconManifest, layout: invalidLayout })
+    await expectRejectedManifest({ ...itemIconManifest, itemIcons: incompleteItemIcons })
+    await expectRejectedManifest({
+      ...itemIconManifest,
+      tileCount: itemIconManifest.tileCount + OMITTED_ENTRY_COUNT,
+    })
+    await expectRejectedManifest({ ...itemIconManifest, itemIcons: reorderedItemIcons })
+  })
+
+  it('returns a tagged lookup failure if a validated atlas tile cannot produce UV bounds', async () => {
+    const atlasFailure = {
+      _tag: 'AtlasCoordinateError',
+      input: -1,
+      operation: 'tile-index',
+      reason: 'out-of-range',
+    } as const
+    vi.resetModules()
+    vi.doMock('../src/domain/texture-atlas.js', async (importOriginal) => {
+      const original = await importOriginal<typeof import('../src/domain/texture-atlas.js')>()
+      return { ...original, tileUvBounds: () => Result.fail(atlasFailure) }
+    })
+    try {
+      const itemIconMap = await import('../src/domain/item-icon-map.js')
+      const itemId = ITEM_TYPES.at(0)
+      if (itemId === undefined) {
+        throw new Error('the kernel item roster must be nonempty')
+      }
+      const lookup = itemIconMap.itemIconUvForItemId(itemId)
+      expect(Result.isFailure(lookup)).toBe(true)
+      if (Result.isFailure(lookup)) {
+        expect(lookup.failure).toStrictEqual({
+          _tag: 'ItemIconLookupError',
+          itemId,
+          reason: 'invalid-atlas-tile',
+        })
+      }
+    } finally {
+      vi.doUnmock('../src/domain/texture-atlas.js')
+      vi.resetModules()
+    }
   })
 })

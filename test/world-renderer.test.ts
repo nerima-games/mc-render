@@ -1694,6 +1694,94 @@ describe('entity meshes in the scene', () => {
     }),
   )
 
+  it.effect('reconciles item icon UV changes and transitions to and from non-icon items', () =>
+    Effect.gen(function* () {
+      const three = makeFakeThree()
+      const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT, { itemIconAtlasTexture: {} })
+      const feetPosition = { x: 0, y: 2, z: 0 }
+      const activeMeshes = () => {
+        const sceneMembers = three.scene().members()
+        return three.meshes().filter((mesh) => sceneMembers.includes(mesh))
+      }
+      const syncDroppedItem = (itemId?: 'bookshelf' | 'diamond'): Effect.Effect<void> => {
+        const entity = {
+          category: 'item' as const,
+          feetPosition,
+          id: 'reconciled-drop',
+          kind: 'dropped_item' as const,
+        }
+        if (itemId === undefined) {
+          return renderer.syncEntities([entity])
+        }
+        return renderer.syncEntities([{ ...entity, itemId }])
+      }
+
+      yield* syncDroppedItem('bookshelf')
+      const [bookshelfMesh] = activeMeshes()
+      if (bookshelfMesh === undefined) {
+        throw new Error('bookshelf item icon mesh was not created')
+      }
+      yield* syncDroppedItem('bookshelf')
+      expect(activeMeshes()[0]).toBe(bookshelfMesh)
+
+      yield* syncDroppedItem('diamond')
+      const [diamondMesh] = activeMeshes()
+      if (diamondMesh === undefined) {
+        throw new Error('diamond item icon mesh was not created')
+      }
+      expect(diamondMesh).not.toBe(bookshelfMesh)
+      expect(diamondMesh.geometry.attributes.get('uv')?.array).not.toStrictEqual(
+        bookshelfMesh.geometry.attributes.get('uv')?.array,
+      )
+
+      yield* syncDroppedItem()
+      const [fallbackMesh] = activeMeshes()
+      if (fallbackMesh === undefined) {
+        throw new Error('fallback item mesh was not created')
+      }
+      expect(fallbackMesh).not.toBe(diamondMesh)
+
+      yield* syncDroppedItem('bookshelf')
+      const [restoredMesh] = activeMeshes()
+      expect(restoredMesh).not.toBe(fallbackMesh)
+      expect(restoredMesh?.geometry.attributes.get('uv')?.array).toBeDefined()
+    }),
+  )
+
+  it.effect('falls back to the ordinary item cube when an entity kind is not a registered item', () =>
+    Effect.gen(function* () {
+      const three = makeFakeThree()
+      const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT, { itemIconAtlasTexture: {} })
+      yield* renderer.syncEntities([{
+        category: 'item',
+        feetPosition: { x: 0, y: 0, z: 0 },
+        id: 'unregistered-item-kind',
+        kind: 'not-a-registered-item',
+      }])
+
+      const [mesh] = three.meshes()
+      expect(mesh?.geometry.attributes.get('uv')).toBeUndefined()
+      expect(mesh?.geometry.attributes.get('color')).toBeDefined()
+      yield* renderer.draw(mirroredCameraState(poseAt(0, 0, 4, 0, 0)))
+    }),
+  )
+
+  it.effect('passes null through when an icon atlas texture is explicitly absent', () =>
+    Effect.gen(function* () {
+      const three = makeFakeThree()
+      const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT, { itemIconAtlasTexture: null })
+      yield* renderer.syncEntities([{
+        category: 'item',
+        feetPosition: { x: 0, y: 0, z: 0 },
+        id: 'null-atlas-drop',
+        itemId: 'bookshelf',
+        kind: 'dropped_item',
+      }])
+
+      expect(three.meshes()[0]?.material).toMatchObject({ map: null })
+    }),
+  )
+
   it.effect('builds separate visible parts for arrow and eye-of-ender entities', () =>
     Effect.gen(function* () {
       const three = makeFakeThree()

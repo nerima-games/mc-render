@@ -136,7 +136,7 @@ import { createSsimAdaptiveQualityState } from './domain/ssim-adaptive-quality.j
 import { measureWaterVisibility } from './browser-water-visibility.js'
 
 export const DEFAULT_BLOCK_TEXTURE_ATLAS_URL: string = new URL('./assets/block-textures/atlas.png', import.meta.url).href
-export const DEFAULT_ITEM_ICON_ATLAS_URL: string = new URL('./assets/item-icons/atlas.png', import.meta.url).href
+export const DEFAULT_ITEM_ICON_ATLAS_URL: URL = new URL('./assets/item-icons/atlas.png', import.meta.url)
 
 const requireRenderer = (value: unknown): THREE.WebGLRenderer => {
   if (value instanceof THREE.WebGLRenderer) {
@@ -383,7 +383,7 @@ export type BrowserFrame = {
 export type BrowserWorldRuntimeOptions = {
   readonly canvas: HTMLCanvasElement
   readonly atlas?: THREE.Texture | RgbaAtlas | string
-  readonly itemIconAtlas?: THREE.Texture | string
+  readonly itemIconAtlas?: THREE.Texture | URL
   readonly quality?: QualityPreset | GraphicsQuality
   readonly colorVisionCorrection?: ColorVisionCorrection
   readonly maxPixelRatio?: number
@@ -511,7 +511,7 @@ const resolveItemIconAtlas = (
   }
   return Effect.tryPromise({
     catch: (cause) => browserRuntimeError('initialization', 'operation-failed', cause),
-    try: () => new THREE.TextureLoader().loadAsync(resolvedSource),
+    try: () => new THREE.TextureLoader().loadAsync(resolvedSource.href),
   }).pipe(
     Effect.map((texture) => {
       configureAtlasTexture(texture)

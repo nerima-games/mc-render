@@ -60,6 +60,7 @@ import {
 import {
   type AnimationClockInput,
   type AnimationClockInputError,
+  type AnimationSeconds,
   animationTimeSeconds,
 } from '../domain/animation-clock.js'
 import {
@@ -83,6 +84,8 @@ import {
 import {
   type DeltaTimeSecs,
   type Dimension,
+  ITEM_TYPES,
+  type ItemType,
   type ChunkKey as KernelChunkKey,
   MonotonicTimeSecs,
   type Position,
@@ -834,7 +837,7 @@ export type RenderEntity = {
   readonly kind: string
   readonly dimension?: Dimension
   /** Stable item identity for generic dropped-item entities. */
-  readonly itemId?: string
+  readonly itemId?: ItemType
   readonly feetPosition: {
     readonly x: number
     readonly y: number
@@ -868,7 +871,7 @@ type RenderEntityEncoded = Readonly<{
   readonly facingRadians?: number
   readonly headYawRadians?: number
   readonly id: string
-  readonly itemId?: string
+  readonly itemId?: ItemType
   readonly kind: string
   readonly pitchRadians?: number
   readonly skyLight?: number
@@ -896,7 +899,7 @@ export const RenderEntitySchema: Schema.Codec<RenderEntity, RenderEntityEncoded>
   feetPosition: RenderEntityPositionSchema,
   headYawRadians: Schema.optionalKey(EntityRenderYawRadiansSchema),
   id: EntityRenderIdentifierSchema,
-  itemId: Schema.optionalKey(Schema.String),
+  itemId: Schema.optionalKey(Schema.Literals(ITEM_TYPES)),
   kind: Schema.String,
   pitchRadians: Schema.optionalKey(EntityRenderPitchRadiansSchema),
   skyLight: Schema.optionalKey(EntityRenderLightLevelSchema),
@@ -936,7 +939,7 @@ export type WorldRenderer = DrawPort & {
   /** Apply a precomputed sky, sun and fog state without recreating GPU resources. */
   readonly setEnvironment: (environment: RenderEnvironmentPlan) => Effect.Effect<void>
   /** Update time derived from the production frame for dropped-item motion. */
-  readonly setEntityAnimationTimeSeconds: (seconds: number) => Effect.Effect<void>
+  readonly setEntityAnimationTimeSeconds: (seconds: AnimationSeconds) => Effect.Effect<void>
   /**
    * Put a chunk's geometry in the scene, replacing whatever was there.
    *
@@ -1057,8 +1060,8 @@ export type WorldRendererOptions<
   /** Optional host-owned compositor; absent in headless and preview renders. */
   readonly postProcessing?: PostProcessingRendererFactory
   readonly beforeDraw?: ((camera: MirroredCameraState) => Effect.Effect<void, unknown>) | undefined
-  /** Texture atlas used to draw dropped-item billboards when item IDs are available. */
-  readonly itemIconAtlasTexture?: TItemIconTexture
+  /** Texture atlas used to draw dropped-item billboards; `null` leaves icon planes untextured. */
+  readonly itemIconAtlasTexture?: TItemIconTexture | null
 }
 
 const weatherFrameOptionsWithFarPlane = (
@@ -1275,7 +1278,6 @@ const ITEM_ICON_QUAD_VERTEX_1 = 1
 const ITEM_ICON_QUAD_VERTEX_2 = 2
 const ITEM_ICON_QUAD_VERTEX_3 = 3
 const ITEM_ICON_MATERIAL_SIDE: ThreeMaterialSide = THREE_DOUBLE_SIDE
-const ITEM_ICON_ALPHA_TEST = 0.05
 const INITIAL_ENTITY_ANIMATION_TIME_SECONDS = 0
 const HALF_TURN_DIVISOR = 2
 const DROPPED_ITEM_SPIN_RADIANS_PER_SECOND = Math.PI / HALF_TURN_DIVISOR
@@ -2191,7 +2193,6 @@ export const makeWorldRenderer = <
 
       getItemIconMaterial: (): TMaterial => {
         entityAssets.itemIconMaterial ??= new three.MeshBasicMaterial({
-          alphaTest: ITEM_ICON_ALPHA_TEST,
           depthWrite: false,
           forceSinglePass: true,
           map: options.itemIconAtlasTexture ?? null,
@@ -2414,7 +2415,7 @@ export const makeWorldRenderer = <
         }),
       setChunk: (key, buffers) => ops.setChunks([{ buffers, key }]),
       setChunks: ops.setChunks,
-      setEntityAnimationTimeSeconds: (seconds: number) => Ref.set(entityAnimationTimeSecs, seconds),
+      setEntityAnimationTimeSeconds: (seconds: AnimationSeconds) => Ref.set(entityAnimationTimeSecs, seconds),
       setEnvironment: ops.setEnvironment,
       setPostProcessingChain: (chain) => Ref.set(postProcessingChain, chain),
       syncEntities: ops.entitySync.syncEntities,

@@ -85,6 +85,20 @@ describe('entity visual planning', () => {
     })
   })
 
+  it('plans arrows and ender eyes with distinct multi-part geometry', () => {
+    const arrow = planEntityVisual(entity({ category: 'item', kind: 'arrow' }))
+    const eye = planEntityVisual(entity({ category: 'item', kind: 'eye_of_ender' }))
+
+    expect(Result.isSuccess(arrow)).toBe(true)
+    expect(Result.isSuccess(eye)).toBe(true)
+    if (Result.isFailure(arrow) || Result.isFailure(eye)) {
+      return
+    }
+    expect(arrow.success.parts.map(({ id }) => id)).toStrictEqual(['arrow-shaft', 'arrow-head', 'arrow-fletching'])
+    expect(eye.success.parts.map(({ id }) => id)).toStrictEqual(['eye-shell', 'eye-iris', 'eye-pupil'])
+    expect(arrow.success.parts).not.toStrictEqual(eye.success.parts)
+  })
+
   it('adapts the wither domain plan without duplicating its state rules', () => {
     const witherState = {
       chargeRemainingSecs: 0,
