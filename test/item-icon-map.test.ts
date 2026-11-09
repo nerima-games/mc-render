@@ -281,4 +281,33 @@ describe('item icon map', () => {
       vi.resetModules()
     }
   })
+
+  it('returns the UI1 unavailable failure if a validated atlas tile has no pixel origin', async () => {
+    const atlasFailure = {
+      _tag: 'AtlasCoordinateError',
+      input: -1,
+      operation: 'tile-index',
+      reason: 'out-of-range',
+    } as const
+    vi.resetModules()
+    vi.doMock('../src/domain/texture-atlas.js', async (importOriginal) => {
+      const original = await importOriginal<typeof import('../src/domain/texture-atlas.js')>()
+      return { ...original, tileImageOriginPixels: () => Result.fail(atlasFailure) }
+    })
+    try {
+      const itemIconMap = await import('../src/domain/item-icon-map.js')
+      const itemId = ITEM_TYPES.at(0)
+      if (itemId === undefined) {
+        throw new Error('the kernel item roster must be nonempty')
+      }
+      const lookup = itemIconMap.itemIconAtlasForItemId(itemId)
+      expect(Result.isFailure(lookup)).toBe(true)
+      if (Result.isFailure(lookup)) {
+        expect(lookup.failure).toStrictEqual({ _tag: 'ItemIconUnavailable' })
+      }
+    } finally {
+      vi.doUnmock('../src/domain/texture-atlas.js')
+      vi.resetModules()
+    }
+  })
 })
