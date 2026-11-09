@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto'
 import { ITEM_TYPES } from '@nerima-games/mc-kernel'
 import { beforeAll, describe, expect, it } from 'vitest'
 import {
@@ -59,15 +58,27 @@ const iconPixels = (rgba: Uint8Array, tileIndex: number): ReadonlyArray<Readonly
   return colors
 }
 
-const iconFingerprint = (rgba: Uint8Array, tileIndex: number): string => {
+const NEAR_DUPLICATE_PIXEL_THRESHOLD = 8
+
+const iconRaster = (rgba: Uint8Array, tileIndex: number): Uint8Array => {
   const left = (tileIndex % ATLAS_COLUMNS) * TILE_CELL_PIXELS + TILE_GUTTER_PIXELS
   const top = Math.floor(tileIndex / ATLAS_COLUMNS) * TILE_CELL_PIXELS + TILE_GUTTER_PIXELS
-  const hash = createHash('sha256')
+  const raster = new Uint8Array(TILE_PIXELS * TILE_PIXELS * CHANNELS)
   for (let y = 0; y < TILE_PIXELS; y += 1) {
-    const offset = ((top + y) * ATLAS_PIXELS + left) * CHANNELS
-    hash.update(rgba.subarray(offset, offset + TILE_PIXELS * CHANNELS))
+    const sourceOffset = ((top + y) * ATLAS_PIXELS + left) * CHANNELS
+    raster.set(rgba.subarray(sourceOffset, sourceOffset + TILE_PIXELS * CHANNELS), y * TILE_PIXELS * CHANNELS)
   }
-  return hash.digest('hex')
+  return raster
+}
+
+const differentPixelCount = (left: Uint8Array, right: Uint8Array): number => {
+  let different = 0
+  for (let pixelOffset = 0; pixelOffset < left.length; pixelOffset += CHANNELS) {
+    if ([0, 1, 2, 3].some((channel) => left[pixelOffset + channel] !== right[pixelOffset + channel])) {
+      different += 1
+    }
+  }
+  return different
 }
 
 describe('item icon generation', () => {
@@ -92,23 +103,29 @@ describe('item icon generation', () => {
     }
   })
 
-  it('keeps every registered item icon raster distinguishable', () => {
+  it('keeps registered item icons visually distinct and lists duplicate or near-duplicate pairs', () => {
     const artifacts = generatedItemIcons(generateItemIconArtifacts(generatedBlockTextures()))
-    const itemByFingerprint = new Map<string, string>()
-    const duplicates: Array<string> = []
+    const rasters: Array<Readonly<{ itemId: string; pixels: Uint8Array }>> = []
     for (let index = 0; index < ITEM_TYPES.length; index += 1) {
       const itemId = ITEM_TYPES[index]
       if (itemId !== undefined) {
-        const fingerprint = iconFingerprint(artifacts.rgba, index)
-        const duplicate = itemByFingerprint.get(fingerprint)
-        if (duplicate !== undefined) {
-          duplicates.push(`${itemId} duplicates ${duplicate}`)
-        }
-        itemByFingerprint.set(fingerprint, itemId)
+        rasters.push({ itemId, pixels: iconRaster(artifacts.rgba, index) })
       }
     }
-    expect(duplicates).toStrictEqual([])
-    expect(itemByFingerprint.size).toBe(ITEM_TYPES.length)
+    const tooSimilar: Array<string> = []
+    for (const [leftIndex, left] of rasters.entries()) {
+      for (const right of rasters.slice(leftIndex + 1)) {
+        const differentPixels = differentPixelCount(left.pixels, right.pixels)
+        if (differentPixels <= NEAR_DUPLICATE_PIXEL_THRESHOLD) {
+          tooSimilar.push(`${left.itemId}/${right.itemId}: ${differentPixels} differing pixels`)
+        }
+      }
+    }
+    expect(
+      tooSimilar,
+      `duplicate or near-duplicate icons (threshold ${NEAR_DUPLICATE_PIXEL_THRESHOLD} pixels):\n${tooSimilar.join('\n')}`,
+    ).toStrictEqual([])
+    expect(rasters).toHaveLength(ITEM_TYPES.length)
   })
 
   it('renders a multicolor bookshelf cube from the bookshelf face textures', () => {

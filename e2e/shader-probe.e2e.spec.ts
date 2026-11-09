@@ -26,6 +26,8 @@ const ENTITY_GALLERY_PIXEL_CONSTANTS = {
   zero: ZERO,
 }
 const ITEM_ICON_ANIMATION_SECONDS = 0.25
+const ITEM_ICON_BOB_END_SECONDS = 0.75
+const ARROW_MIN_ASPECT_RATIO = 1.5
 const WINDOW_SIZE = 8
 const LUMA_RANGE = 255
 const LUMA_RED = 0.299
@@ -704,25 +706,74 @@ test('chunk animation pixels follow simulation tick boundaries in WebGL', async 
 })
 
 type ItemIconProbeResult = Readonly<{
-  animatedPixelChanges: number
-  animationSeconds: readonly [number, number]
-  bookshelfVisiblePixels: number
-  diamondVisiblePixels: number
-  distinctIconPixels: number
+  readonly distinctIconPixels: number
+  readonly bookshelfVisiblePixels: number
+  readonly diamondVisiblePixels: number
+  readonly rotationOnlyPixelChanges: number
+  readonly rotationOnlyHeightDeltaPixels: number
+  readonly bobOnlyCenterYDeltaPixels: number
+  readonly arrowVisiblePixels: number
+  readonly arrowWarmPixels: number
+  readonly arrowNeutralPixels: number
+  readonly arrowWidthPixels: number
+  readonly arrowHeightPixels: number
+  readonly enderEyeVisiblePixels: number
+  readonly enderEyeGreenPixels: number
+  readonly enderEyePupilPixels: number
+  readonly animationSeconds: readonly [number, number, number, number]
 }>
 
-const expectItemIconProbeResult = (result: ItemIconProbeResult): void => {
-  expect(result.animationSeconds).toStrictEqual([ZERO, ITEM_ICON_ANIMATION_SECONDS])
-  expect(result.bookshelfVisiblePixels).toBeGreaterThan(ZERO)
-  expect(result.diamondVisiblePixels).toBeGreaterThan(ZERO)
-  expect(result.distinctIconPixels).toBeGreaterThan(ZERO)
-  expect(result.animatedPixelChanges).toBeGreaterThan(ZERO)
+const expectIconPixels = (result: ItemIconProbeResult, diagnostic: string): void => {
+  expect(result.bookshelfVisiblePixels, diagnostic).toBeGreaterThan(ZERO)
+  expect(result.diamondVisiblePixels, diagnostic).toBeGreaterThan(ZERO)
+  expect(result.distinctIconPixels, diagnostic).toBeGreaterThan(ZERO)
 }
 
-test('dropped-item icon pixels differ by item and animate in WebGL', async ({ page }) => {
+const expectItemMotionPixels = (result: ItemIconProbeResult, diagnostic: string): void => {
+  expect(result.rotationOnlyPixelChanges, diagnostic).toBeGreaterThan(ZERO)
+  expect(result.rotationOnlyHeightDeltaPixels, diagnostic).toBeLessThanOrEqual(ONE)
+  expect(result.bobOnlyCenterYDeltaPixels, diagnostic).toBeGreaterThanOrEqual(TWO)
+}
+
+const expectArrowPixels = (result: ItemIconProbeResult, diagnostic: string): void => {
+  expect(result.arrowVisiblePixels, diagnostic).toBeGreaterThan(ZERO)
+  expect(result.arrowWarmPixels, diagnostic).toBeGreaterThan(ZERO)
+  expect(result.arrowNeutralPixels, diagnostic).toBeGreaterThan(ZERO)
+  expect(result.arrowHeightPixels, diagnostic).toBeGreaterThan(ZERO)
+  expect(result.arrowWidthPixels / result.arrowHeightPixels, diagnostic).toBeGreaterThanOrEqual(
+    ARROW_MIN_ASPECT_RATIO,
+  )
+}
+
+const expectEnderEyePixels = (result: ItemIconProbeResult, diagnostic: string): void => {
+  expect(result.enderEyeVisiblePixels, diagnostic).toBeGreaterThan(ZERO)
+  expect(result.enderEyeGreenPixels, diagnostic).toBeGreaterThan(ZERO)
+  expect(result.enderEyePupilPixels, diagnostic).toBeGreaterThan(ZERO)
+}
+
+const expectItemIconProbeResult = (result: ItemIconProbeResult): void => {
+  const diagnostic = `item-icon WebGL probe metrics: ${JSON.stringify(result)}`
+  expect(result.animationSeconds, diagnostic).toStrictEqual([
+    ZERO,
+    TWO,
+    ITEM_ICON_ANIMATION_SECONDS,
+    ITEM_ICON_BOB_END_SECONDS,
+  ])
+  expectIconPixels(result, diagnostic)
+  expectItemMotionPixels(result, diagnostic)
+  expectArrowPixels(result, diagnostic)
+  expectEnderEyePixels(result, diagnostic)
+}
+
+test('item icons, arrows, and ender eyes render distinct animated pixels in WebGL', async ({ page }) => {
   await page.goto(`${WEB_ORIGIN}/apps/shader-probe/?item-icon-pixels`)
   const body = page.locator('body')
-  await expect.poll(async () => body.getAttribute('data-item-icon-probe'), { timeout: 30_000 }).toBe('passed')
+  await expect.poll(async () => {
+    const state = await body.getAttribute('data-item-icon-probe')
+    return state === 'passed' || state === 'failed'
+  }, { timeout: 30_000 }).toBe(true)
+  const probeState = await body.getAttribute('data-item-icon-probe')
+  expect(probeState, await body.innerText()).toBe('passed')
   const encodedResult = await body.getAttribute('data-item-icon-probe-result')
   expect(encodedResult).not.toBeNull()
   const result = JSON.parse(encodedResult ?? 'null') as ItemIconProbeResult

@@ -4,7 +4,9 @@ import * as FastCheck from 'fast-check'
 import itemIconManifest from '../src/assets/item-icons/manifest.json' with { type: 'json' }
 import { describe, expect, it, vi } from 'vitest'
 import {
+  ITEM_ICON_ATLAS_URL,
   ITEM_ICON_TILE_BY_ITEM_ID,
+  itemIconAtlasForItemId,
   itemIconUvForItemId,
 } from '../src/domain/item-icon-map.js'
 import {
@@ -16,6 +18,9 @@ import {
 } from '../src/domain/texture-atlas.js'
 
 const HALF_TEXEL = 0.5
+const EXPECTED_ITEM_ICON_ATLAS_URL = new URL('../src/assets/item-icons/atlas.png', import.meta.url).href
+type Ui1ItemIconResolverFailure = Readonly<{ readonly _tag: 'ItemIconUnavailable' }>
+type Ui1ItemIconResolver = (itemType: ItemType) => Result.Result<unknown, Ui1ItemIconResolverFailure>
 
 const expectRejectedManifest = async (manifest: unknown): Promise<void> => {
   vi.resetModules()
@@ -147,6 +152,74 @@ describe('item icon map', () => {
     const bookshelf: ItemType = 'bookshelf'
     expect(ITEM_TYPES.includes(bookshelf)).toBe(true)
     expect(Result.isSuccess(itemIconUvForItemId(bookshelf))).toBe(true)
+  })
+
+  it('matches the UI1 resolver contract with an atlas URL and pixel rectangle', () => {
+    const resolver: Ui1ItemIconResolver = itemIconAtlasForItemId
+    const itemId: ItemType = 'bookshelf'
+    const resolved = resolver(itemId)
+    const tileIndex = ITEM_ICON_TILE_BY_ITEM_ID[itemId]
+    const tileColumn = tileIndex % ATLAS_COLUMNS
+    const tileRow = Math.floor(tileIndex / ATLAS_COLUMNS)
+
+    expect(Result.isSuccess(resolved)).toBe(true)
+    expect(new URL(ITEM_ICON_ATLAS_URL).href).toBe(EXPECTED_ITEM_ICON_ATLAS_URL)
+    if (Result.isSuccess(resolved)) {
+      expect(resolved.success).toStrictEqual({
+        atlasHeight: ATLAS_PIXELS,
+        atlasWidth: ATLAS_PIXELS,
+        height: TILE_PIXELS,
+        kind: 'atlas',
+        url: ITEM_ICON_ATLAS_URL,
+        width: TILE_PIXELS,
+        x: tileColumn * TILE_CELL_PIXELS + TILE_GUTTER_PIXELS,
+        y: tileRow * TILE_CELL_PIXELS + TILE_GUTTER_PIXELS,
+      })
+    }
+  })
+
+  it('returns a typed UI1 unavailable failure for an unknown item ID', () => {
+    const itemId: unknown = 'unregistered_item'
+    const resolved = itemIconAtlasForItemId(itemId)
+
+    expect(Result.isFailure(resolved)).toBe(true)
+    if (Result.isFailure(resolved)) {
+      expect(resolved.failure).toStrictEqual({ _tag: 'ItemIconUnavailable' })
+    }
+  })
+
+  it('returns a typed UI1 Result for arbitrary item IDs without throwing', () => {
+    FastCheck.assert(
+      FastCheck.property(FastCheck.anything(), (itemId) => {
+        const resolved = itemIconAtlasForItemId(itemId)
+        let registeredItem: ItemType | undefined = undefined
+        if (typeof itemId === 'string') {
+          registeredItem = ITEM_TYPES.find((itemType) => itemType === itemId)
+        }
+        expect(Result.isSuccess(resolved)).toBe(registeredItem !== undefined)
+        if (Result.isFailure(resolved)) {
+          expect(resolved.failure._tag).toBe('ItemIconUnavailable')
+          return
+        }
+        if (registeredItem === undefined) {
+          return
+        }
+
+        const tileIndex = ITEM_ICON_TILE_BY_ITEM_ID[registeredItem]
+        const tileColumn = tileIndex % ATLAS_COLUMNS
+        const tileRow = Math.floor(tileIndex / ATLAS_COLUMNS)
+        expect(resolved.success).toStrictEqual({
+          atlasHeight: ATLAS_PIXELS,
+          atlasWidth: ATLAS_PIXELS,
+          height: TILE_PIXELS,
+          kind: 'atlas',
+          url: ITEM_ICON_ATLAS_URL,
+          width: TILE_PIXELS,
+          x: tileColumn * TILE_CELL_PIXELS + TILE_GUTTER_PIXELS,
+          y: tileRow * TILE_CELL_PIXELS + TILE_GUTTER_PIXELS,
+        })
+      }),
+    )
   })
 
   it('rejects manifests with incomplete coverage or mismatched layout, count, or item order', async () => {

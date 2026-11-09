@@ -17,13 +17,35 @@ import { ITEM_TYPES, type ItemType } from '@nerima-games/mc-kernel'
 import { Result, Schema } from 'effect'
 import itemIconManifest from '../assets/item-icons/manifest.json' with { type: 'json' }
 
+declare global {
+  interface ImportMeta {
+    url: string
+  }
+}
+
 const MANIFEST_SCHEMA_VERSION = 1
+const ITEM_ICON_URL_PATH_SEPARATOR = '/'
+const ITEM_ICON_URL_PATH_SEPARATOR_LENGTH = 1
+const URL_SLICE_START = 0
 
 export type ItemIconLookupError = Readonly<{
   readonly _tag: 'ItemIconLookupError'
   readonly itemId: unknown
   readonly reason: 'invalid-item-id' | 'unknown-item' | 'invalid-atlas-tile'
 }>
+
+export type ItemIconAtlasResolution = Readonly<{
+  readonly kind: 'atlas'
+  readonly url: string
+  readonly x: number
+  readonly y: number
+  readonly width: number
+  readonly height: number
+  readonly atlasWidth: number
+  readonly atlasHeight: number
+}>
+
+export type ItemIconAtlasResolutionFailure = Readonly<{ readonly _tag: 'ItemIconUnavailable' }>
 
 type ItemIconManifestError = Readonly<{
   readonly _tag: 'ItemIconManifestError'
@@ -105,6 +127,12 @@ const validateManifest = (value: ItemIconManifest): Result.Result<ItemIconManife
 }
 
 const decodedManifest = Result.getOrThrow(validateManifest(manifest))
+const itemIconModuleUrl = import.meta.url
+const itemIconModuleDirectory = itemIconModuleUrl.slice(
+  URL_SLICE_START,
+  itemIconModuleUrl.lastIndexOf(ITEM_ICON_URL_PATH_SEPARATOR) + ITEM_ICON_URL_PATH_SEPARATOR_LENGTH,
+)
+export const ITEM_ICON_ATLAS_URL: string = `${itemIconModuleDirectory}../assets/item-icons/atlas.png`
 
 export const ITEM_ICON_TILE_BY_ITEM_ID: Readonly<Record<ItemType, AtlasTileIndex>> = Object.freeze(
   decodedManifest.itemIcons,
@@ -118,8 +146,9 @@ const lookupFailure = (
 
 const isItemType = (itemId: string): itemId is ItemType => itemNames.has(itemId)
 
-/** Return the inset atlas UV bounds for a registered item name. */
-export const itemIconUvForItemId = (itemId: unknown): Result.Result<TileUvBounds, ItemIconLookupError> => {
+const itemIconTileForItemId = (
+  itemId: unknown,
+): Result.Result<Readonly<{ readonly bounds: TileUvBounds; readonly tileIndex: AtlasTileIndex }>, ItemIconLookupError> => {
   if (typeof itemId !== 'string') {
     return lookupFailure(itemId, 'invalid-item-id')
   }
@@ -130,5 +159,35 @@ export const itemIconUvForItemId = (itemId: unknown): Result.Result<TileUvBounds
   if (Result.isFailure(bounds)) {
     return lookupFailure(itemId, 'invalid-atlas-tile')
   }
-  return Result.succeed(bounds.success)
+  return Result.succeed({ bounds: bounds.success, tileIndex: decodedManifest.itemIcons[itemId] })
+}
+
+/** Return the inset atlas UV bounds for a registered item name. */
+export const itemIconUvForItemId = (itemId: unknown): Result.Result<TileUvBounds, ItemIconLookupError> => {
+  const tile = itemIconTileForItemId(itemId)
+  if (Result.isFailure(tile)) {
+    return Result.fail(tile.failure)
+  }
+  return Result.succeed(tile.success.bounds)
+}
+
+/** Resolve an item ID to its image URL and pixel rectangle for atlas consumers. */
+export const itemIconAtlasForItemId = (
+  itemId: unknown,
+): Result.Result<ItemIconAtlasResolution, ItemIconAtlasResolutionFailure> => {
+  const tile = itemIconTileForItemId(itemId)
+  if (Result.isFailure(tile)) {
+    return Result.fail({ _tag: 'ItemIconUnavailable' })
+  }
+  const { tileIndex } = tile.success
+  return Result.succeed({
+    atlasHeight: ATLAS_PIXELS,
+    atlasWidth: ATLAS_PIXELS,
+    height: TILE_PIXELS,
+    kind: 'atlas',
+    url: ITEM_ICON_ATLAS_URL,
+    width: TILE_PIXELS,
+    x: (tileIndex % ATLAS_COLUMNS) * TILE_CELL_PIXELS + TILE_GUTTER_PIXELS,
+    y: Math.floor(tileIndex / ATLAS_COLUMNS) * TILE_CELL_PIXELS + TILE_GUTTER_PIXELS,
+  })
 }

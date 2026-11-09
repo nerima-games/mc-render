@@ -51,6 +51,7 @@ import {
   type RendererMaterialPolicyError,
   RendererMaterialPolicyErrorSchema,
 } from './application/world-renderer-materials.js'
+import { ITEM_ICON_ATLAS_URL } from './domain/item-icon-map.js'
 
 export type BrowserRuntimeError = {
   readonly _tag: 'BrowserRuntimeError'
@@ -136,7 +137,7 @@ import { createSsimAdaptiveQualityState } from './domain/ssim-adaptive-quality.j
 import { measureWaterVisibility } from './browser-water-visibility.js'
 
 export const DEFAULT_BLOCK_TEXTURE_ATLAS_URL: string = new URL('./assets/block-textures/atlas.png', import.meta.url).href
-export const DEFAULT_ITEM_ICON_ATLAS_URL: URL = new URL('./assets/item-icons/atlas.png', import.meta.url)
+export const DEFAULT_ITEM_ICON_ATLAS_URL: URL = new URL(ITEM_ICON_ATLAS_URL)
 
 const requireRenderer = (value: unknown): THREE.WebGLRenderer => {
   if (value instanceof THREE.WebGLRenderer) {
