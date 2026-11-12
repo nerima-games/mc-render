@@ -1061,6 +1061,30 @@ describe('browser world runtime', () => {
     Effect.runSync(runtime.dispose())
   })
 
+  it('rejects null runtime options instead of applying their defaults', () => {
+    const invalidOptions: ReadonlyArray<Readonly<{ option: Record<string, unknown> }>> = [
+      { option: { atlas: null } },
+      { option: { itemIconAtlas: null } },
+      { option: { preserveDrawingBuffer: null } },
+    ]
+    for (const { option } of invalidOptions) {
+      const failure = browserRuntimeFailure(makeBrowserWorldRuntimeEffect({
+        autoResize: false,
+        canvas: new HTMLCanvasElement(),
+        ...option,
+      } as unknown as Parameters<typeof makeBrowserWorldRuntimeEffect>[0]))
+      expect(failure).toStrictEqual({
+        _tag: 'BrowserRuntimeError',
+        cause: null,
+        operation: 'initialization',
+        reason: 'invalid-input',
+      })
+    }
+    expect(browserMocks.settings.lastAtlasUrl).toBeUndefined()
+    expect(browserMocks.settings.lastItemIconAtlasUrl).toBeUndefined()
+    expect(browserMocks.worldFactory).not.toHaveBeenCalled()
+  })
+
   it('property: invalid custom pixel caps fail the public runtime Effect with tagged details', () => {
     FastCheck.assert(
       FastCheck.property(FastCheck.constantFrom(Number.NaN, Number.POSITIVE_INFINITY, 0.25, 3), (pixelRatioCap) => {

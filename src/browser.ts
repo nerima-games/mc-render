@@ -398,6 +398,31 @@ export type BrowserWorldRuntimeOptions = {
   >
 }
 
+const validateBrowserWorldRuntimeOptionValues = (
+  options: BrowserWorldRuntimeOptions,
+): Result.Result<void, BrowserRuntimeError> => {
+  const atlas: unknown = options.atlas
+  if (atlas === null) {
+    return Result.fail(browserRuntimeError('initialization', 'invalid-input', atlas))
+  }
+  const itemIconAtlas: unknown = options.itemIconAtlas
+  if (itemIconAtlas === null) {
+    return Result.fail(browserRuntimeError('initialization', 'invalid-input', itemIconAtlas))
+  }
+  const preserveDrawingBuffer: unknown = options.preserveDrawingBuffer
+  if (preserveDrawingBuffer !== undefined && typeof preserveDrawingBuffer !== 'boolean') {
+    return Result.fail(browserRuntimeError('initialization', 'invalid-input', preserveDrawingBuffer))
+  }
+  return Result.succeed(undefined)
+}
+
+const defaultIfUndefined = <Value>(value: Value | undefined, fallback: Value): Value => {
+  if (value === undefined) {
+    return fallback
+  }
+  return value
+}
+
 export type BrowserWorldRuntime = {
   readonly quality: GraphicsQuality
   readonly qualityPreset: QualityPreset | undefined
@@ -475,7 +500,7 @@ const makeAtlasTexture = (atlas: RgbaAtlas): THREE.DataTexture => {
 const resolveAtlas = (
   source: BrowserWorldRuntimeOptions['atlas'],
 ): Effect.Effect<AtlasResource, BrowserRuntimeError> => {
-  const resolvedSource = source ?? DEFAULT_BLOCK_TEXTURE_ATLAS_URL
+  const resolvedSource = defaultIfUndefined(source, DEFAULT_BLOCK_TEXTURE_ATLAS_URL)
   if (resolvedSource instanceof THREE.Texture) {
     return Effect.succeed({ owned: false, texture: resolvedSource })
   }
@@ -506,7 +531,7 @@ const resolveAtlas = (
 const resolveItemIconAtlas = (
   source: BrowserWorldRuntimeOptions['itemIconAtlas'],
 ): Effect.Effect<AtlasResource, BrowserRuntimeError> => {
-  const resolvedSource = source ?? DEFAULT_ITEM_ICON_ATLAS_URL
+  const resolvedSource = defaultIfUndefined(source, DEFAULT_ITEM_ICON_ATLAS_URL)
   if (resolvedSource instanceof THREE.Texture) {
     return Effect.succeed({ owned: false, texture: resolvedSource })
   }
@@ -2060,7 +2085,7 @@ const createBrowserRuntimeOperations = ({
     activity,
     canvas: options.canvas,
     getLastFrame: () => resources.state.lastPresentedFrame,
-    preserveDrawingBuffer: options.preserveDrawingBuffer ?? true,
+    preserveDrawingBuffer: defaultIfUndefined(options.preserveDrawingBuffer, true),
   })
   const resize = (): Effect.Effect<void, BrowserRuntimeFailure> =>
     browserRuntimeOperation('runtime', resizeSync, activity)
@@ -2205,6 +2230,7 @@ export const makeBrowserWorldRuntime = (
   options: BrowserWorldRuntimeOptions,
 ): Effect.Effect<BrowserWorldRuntime, BrowserRuntimeFailure> =>
   Effect.gen(function* makeBrowserWorldRuntimeEffect() {
+    yield* Effect.fromResult(validateBrowserWorldRuntimeOptionValues(options))
     const { quality, preset: qualityPreset } = yield* Effect.fromResult(resolveBrowserQuality(options.quality))
     const colorFilter = yield* Effect.fromResult(resolveBrowserColorFilterInput({
       colorVisionCorrection: colorVisionCorrectionOrDefault(options.colorVisionCorrection),
