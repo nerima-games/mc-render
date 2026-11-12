@@ -88,7 +88,7 @@ const mappedEvents: ReadonlyArray<Readonly<{
   {
     name: 'world block change',
     value: { _tag: 'BlockChangedByWorld', tick: 1, address: { dimension: 'overworld', position: { x: 1, y: 2, z: 3 } }, cause: 'fire' },
-    kind: 'block-break',
+    kind: 'fire',
     position: expectedWorldPosition(1.5, 2.5, 3.5),
   },
   {

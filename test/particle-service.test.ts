@@ -15,6 +15,7 @@ import {
   ParticleService,
   ParticleServiceLive,
   ParticleServicePoolAccess,
+  PARTICLE_KINDS,
   type ParticleRequest,
   type ParticleKindDefaults,
   PARTICLE_KIND_DEFAULTS,
@@ -96,6 +97,41 @@ const particleRequest = (overrides: Partial<ParticleRequest> = {}): ParticleRequ
   ...overrides,
 })
 
+const expectedParticleKinds = [
+  'block-break',
+  'entity-hit',
+  'explosion',
+  'fire',
+  'level-up',
+  'smoke',
+  'water-splash',
+] as const
+
+describe('ParticleKindSchema', () => {
+  it.effect('accepts the host effect kinds and rejects a near-miss tag', () =>
+    Effect.sync(() => {
+      const decode = Schema.decodeUnknownResult(ParticleKindSchema)
+      expect(PARTICLE_KINDS).toStrictEqual(expectedParticleKinds)
+      for (const kind of ['smoke', 'fire', 'water-splash'] as const) {
+        expect(Result.isSuccess(decode(kind))).toBe(true)
+      }
+      expect(Result.isFailure(decode('water-splashes'))).toBe(true)
+    }),
+  )
+
+  it.effect('property: decodes exactly the finite particle kind vocabulary', () =>
+    Effect.sync(() => {
+      const decode = Schema.decodeUnknownResult(ParticleKindSchema)
+      FastCheck.assert(
+        FastCheck.property(FastCheck.string(), (kind) =>
+          Result.isSuccess(decode(kind)) === expectedParticleKinds.includes(kind as typeof expectedParticleKinds[number])
+        ),
+        FAST_CHECK_OPTIONS,
+      )
+    }),
+  )
+})
+
 describe('ParticleRequestSchema', () => {
   it.effect('accepts finite render-space request values and rejects invalid values', () =>
     Effect.sync(() => {
@@ -106,7 +142,10 @@ describe('ParticleRequestSchema', () => {
       const decodeRequest = decodeParticleRequest
 
       expect(Result.isSuccess(decodeKind('explosion'))).toBe(true)
-      expect(Result.isFailure(decodeKind('smoke'))).toBe(true)
+      expect(Result.isSuccess(decodeKind('smoke'))).toBe(true)
+      expect(Result.isSuccess(decodeKind('fire'))).toBe(true)
+      expect(Result.isSuccess(decodeKind('water-splash'))).toBe(true)
+      expect(Result.isFailure(decodeKind('spark'))).toBe(true)
       expect(Result.isSuccess(decodeColor({ red: 0, green: 0.5, blue: 1 }))).toBe(true)
       expect(Result.isFailure(decodeColor({ red: 1.1, green: 0.5, blue: 1 }))).toBe(true)
       expect(Result.isSuccess(decodeDirection({ x: 0, y: -2, z: 1 }))).toBe(true)
@@ -310,10 +349,28 @@ describe('ParticleServiceLive', () => {
           lifetimeSeconds: 0.5,
           particleCount: 16,
         },
+        fire: {
+          baseSpeedMPerSecond: 1.2,
+          color: { blue: 0.05, green: 0.36, red: 1 },
+          lifetimeSeconds: 0.45,
+          particleCount: 4,
+        },
         'level-up': {
           baseSpeedMPerSecond: 1,
           color: { blue: 0.4, green: 1, red: 0.45 },
           lifetimeSeconds: 0.5,
+          particleCount: 8,
+        },
+        smoke: {
+          baseSpeedMPerSecond: 0.2,
+          color: { blue: 0.55, green: 0.55, red: 0.55 },
+          lifetimeSeconds: 0.9,
+          particleCount: 3,
+        },
+        'water-splash': {
+          baseSpeedMPerSecond: 2,
+          color: { blue: 1, green: 0.75, red: 0.35 },
+          lifetimeSeconds: 0.35,
           particleCount: 8,
         },
       } satisfies Readonly<Record<Schema.Schema.Type<typeof ParticleKindSchema>, ParticleKindDefaults>>)
@@ -342,6 +399,30 @@ describe('ParticleServiceLive', () => {
       expect(readSlot(pool, 0)?.remainingSecs).toBeCloseTo(0.3, 8)
       expect(readSlot(pool, 0)?.scale).toBeCloseTo(0.75, 8)
     }).pipe(Effect.provide(ParticleServiceLive({ pool: { capacity: 32 } }))),
+  )
+
+  it.effect('host-triggered smoke, fire, and water requests use render-time lifetime and the fixed pool', () =>
+    Effect.gen(function* () {
+      const service = yield* ParticleService
+      const pool = yield* ParticleServicePoolAccess
+      const lifetimeSeconds = Schema.decodeUnknownSync(ParticleLifetimeSecondsSchema)(0.25)
+
+      for (const kind of ['smoke', 'fire', 'water-splash'] as const) {
+        expect(yield* service.spawn(particleRequest({ kind, lifetimeSeconds }))).toBe(1)
+      }
+      expect(pool.activeCount()).toBe(15)
+      expect(pool.capacity).toBe(15)
+
+      for (let frame = 0; frame < 4; frame += 1) {
+        advanceParticles(pool, 0.05)
+      }
+      expect(pool.activeCount()).toBe(15)
+      expect(readSlot(pool, 0)?.remainingSecs).toBeCloseTo(0.05, 8)
+
+      advanceParticles(pool, 0.051)
+      expect(pool.activeCount()).toBe(0)
+      expect(pool.evictionCount()).toBe(0)
+    }).pipe(Effect.provide(ParticleServiceLive({ pool: { capacity: 15 } }))),
   )
 
   it.effect('returns zero for dimension mismatch or a missing followed entity', () =>

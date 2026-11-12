@@ -20,7 +20,18 @@ import {
   spawnParticle,
 } from '../domain/particle-pool.js'
 
-export type ParticleKind = 'block-break' | 'entity-hit' | 'explosion' | 'level-up'
+/** Supported host-triggered presentation effects. */
+export const PARTICLE_KINDS = [
+  'block-break',
+  'entity-hit',
+  'explosion',
+  'fire',
+  'level-up',
+  'smoke',
+  'water-splash',
+] as const
+
+export type ParticleKind = (typeof PARTICLE_KINDS)[number]
 
 const PARTICLE_REQUEST_REJECTED = 0
 const PARTICLE_REQUEST_ACCEPTED = 1
@@ -33,12 +44,7 @@ const isParticleSpeed = (x: number, y: number, z: number): boolean =>
   Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(z) &&
   Math.hypot(x, y, z) <= MAX_PARTICLE_SPEED_M_PER_SECOND
 
-export const ParticleKindSchema: Schema.Codec<ParticleKind> = Schema.Literals([
-  'block-break',
-  'entity-hit',
-  'explosion',
-  'level-up',
-])
+export const ParticleKindSchema: Schema.Codec<ParticleKind> = Schema.Literals(PARTICLE_KINDS)
 
 export type ParticleColorChannel = Brand.Branded<number, 'ParticleColorChannel'>
 
@@ -128,10 +134,28 @@ export const PARTICLE_KIND_DEFAULTS: Readonly<Record<ParticleKind, ParticleKindD
     lifetimeSeconds: PARTICLE_LIFETIME_SECS,
     particleCount: 16,
   },
+  fire: {
+    baseSpeedMPerSecond: 1.2,
+    color: { blue: 0.05, green: 0.36, red: 1 },
+    lifetimeSeconds: 0.45,
+    particleCount: 4,
+  },
   'level-up': {
     baseSpeedMPerSecond: 1,
     color: { blue: 0.4, green: 1, red: 0.45 },
     lifetimeSeconds: PARTICLE_LIFETIME_SECS,
+    particleCount: 8,
+  },
+  smoke: {
+    baseSpeedMPerSecond: 0.2,
+    color: { blue: 0.55, green: 0.55, red: 0.55 },
+    lifetimeSeconds: 0.9,
+    particleCount: 3,
+  },
+  'water-splash': {
+    baseSpeedMPerSecond: 2,
+    color: { blue: 1, green: 0.75, red: 0.35 },
+    lifetimeSeconds: 0.35,
     particleCount: 8,
   },
 }
