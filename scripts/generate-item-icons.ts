@@ -92,8 +92,20 @@ type ItemIconManifest = Readonly<{
   schemaVersion: 1
   layout: typeof ATLAS_LAYOUT
   tileCount: number
+  provenance: Readonly<{
+    generator: 'scripts/generate-item-icons.ts'
+    source: string
+    license: 'CC0-1.0'
+  }>
   itemIcons: Readonly<Record<string, number>>
 }>
+
+const ARTWORK_PROVENANCE = Object.freeze({
+  generator: 'scripts/generate-item-icons.ts',
+  source:
+    "Original pixel art drawn by this repository's deterministic generator. Placeable item icons use this repository's generated block texture atlas; all other icons are drawn in code. No third-party or upstream assets are used.",
+  license: 'CC0-1.0',
+})
 
 export type ItemIconGeneratorError = Readonly<{
   _tag: 'AtlasCapacityExceeded' | 'BlockTextureGenerationFailed' | 'ArtifactReadError' | 'ArtifactWriteError'
@@ -1355,6 +1367,7 @@ export const generateItemIconArtifacts = (
     schemaVersion: 1,
     layout: ATLAS_LAYOUT,
     tileCount: ITEM_TYPES.length,
+    provenance: ARTWORK_PROVENANCE,
     itemIcons,
   }
   const manifest = `${JSON.stringify(manifestData, null, 2)}\n`
