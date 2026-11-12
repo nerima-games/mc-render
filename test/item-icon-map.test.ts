@@ -1,6 +1,7 @@
 import { ITEM_TYPES, type ItemType } from '@nerima-games/mc-kernel'
 import { Result } from 'effect'
 import * as FastCheck from 'fast-check'
+import type { ItemIconResolver } from '../src/index.js'
 import itemIconManifest from '../src/assets/item-icons/manifest.json' with { type: 'json' }
 import { describe, expect, it, vi } from 'vitest'
 import {
@@ -19,8 +20,6 @@ import {
 
 const HALF_TEXEL = 0.5
 const EXPECTED_ITEM_ICON_ATLAS_URL = new URL('../src/assets/item-icons/atlas.png', import.meta.url).href
-type Ui1ItemIconResolverFailure = Readonly<{ readonly _tag: 'ItemIconUnavailable' }>
-type Ui1ItemIconResolver = (itemType: ItemType) => Result.Result<unknown, Ui1ItemIconResolverFailure>
 
 const expectRejectedManifest = async (manifest: unknown): Promise<void> => {
   vi.resetModules()
@@ -155,7 +154,7 @@ describe('item icon map', () => {
   })
 
   it('matches the UI1 resolver contract with an atlas URL and pixel rectangle', () => {
-    const resolver: Ui1ItemIconResolver = itemIconAtlasForItemId
+    const resolver: ItemIconResolver = itemIconAtlasForItemId
     const itemId: ItemType = 'bookshelf'
     const resolved = resolver(itemId)
     const tileIndex = ITEM_ICON_TILE_BY_ITEM_ID[itemId]

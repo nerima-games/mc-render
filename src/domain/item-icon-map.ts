@@ -54,6 +54,10 @@ export type ItemIconAtlasUrl = Brand.Branded<string, 'ItemIconAtlasUrl'>
 
 export type ItemIconAtlasResolutionFailure = Readonly<{ readonly _tag: 'ItemIconUnavailable' }>
 
+export type ItemIconResolver = (
+  itemType: ItemType,
+) => Result.Result<unknown, ItemIconAtlasResolutionFailure>
+
 type ItemIconManifestError = Readonly<{
   readonly _tag: 'ItemIconManifestError'
   readonly reason: 'layout' | 'tile-count' | 'tile-order'
