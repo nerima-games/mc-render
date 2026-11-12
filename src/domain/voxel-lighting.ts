@@ -89,8 +89,10 @@
 import {
   type FaceDirection,
   type QuadCorners,
+  aoForGeometryQuad,
   isBlockShapeQuad,
   isCrossPlantQuad,
+  isSpecialBlockQuad,
 } from './meshing-vocabulary.js'
 import {
   type GeometryQuad,
@@ -388,7 +390,7 @@ const explicitQuadCenter = (vertices: QuadCorners): readonly [number, number, nu
 
 /** Explicit-vertex shapes and plants have no cube-face origin, so sample their centre. */
 export const lightSampleForGeometryQuad = (quad: GeometryQuad): GeometryLightSample => {
-  if (isBlockShapeQuad(quad)) {
+  if (isBlockShapeQuad(quad) || isSpecialBlockQuad(quad)) {
     return { direction: quad.direction, point: explicitQuadCenter(quad.vertices) }
   }
   if (isCrossPlantQuad(quad)) {
@@ -457,7 +459,8 @@ export const litShade = (
   const skyIntensity = options.skyIntensity ?? SKY_INTENSITY_MAX
   return (quad) => {
     const sample = lightSampleForGeometryQuad(quad)
-    return combinedShadeByte(sampler(...sample.point), quad.ao, { direction: sample.direction, skyIntensity })
+    const ao = aoForGeometryQuad(quad)
+    return combinedShadeByte(sampler(...sample.point), ao, { direction: sample.direction, skyIntensity })
   }
 }
 
@@ -515,12 +518,13 @@ export const packedLightColor =
   (quad) => {
     const sample = lightSampleForGeometryQuad(quad)
     const light = sampler(...sample.point)
+    const ao = aoForGeometryQuad(quad)
     return [
       /* R: the AO table's own byte, NOT the level. The shader's `0.8 + 0.2 * R`
          expects a 0..1 fraction, and `normalized: true` on the attribute divides
          by 255 — so the byte that must be here is the one an unlit material
          would have shown. */
-      aoShade(quad.ao),
+      aoShade(ao),
       /* G, B: levels scaled onto the byte range, so the shader's `max(sky *
          uSunIntensity, block)` operates on 0..1 fractions. */
       Math.round((clampLightLevel(light.sky) / LIGHT_LEVEL_MAX) * MAX_SHADE_BYTE),

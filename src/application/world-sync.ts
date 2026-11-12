@@ -41,6 +41,7 @@ import {
   type MeshQuad,
   type QuadColor,
   type QuadTile,
+  type SpecialBlockQuad,
   buildBlockShapeGeometry,
   buildChunkGeometry,
   buildCrossPlantGeometry,
@@ -116,6 +117,7 @@ export type ChunkMesh = ReadonlyArray<MeshQuad> & {
   }
   readonly blockShapes?: ReadonlyArray<BlockShapeQuad>
   readonly crossPlants?: ReadonlyArray<CrossPlantQuad>
+  readonly specialBlocks?: ReadonlyArray<SpecialBlockQuad>
   readonly fluids?: ReadonlyArray<FluidQuad>
 }
 export type ChunkMesherError = ReturnType<typeof meshChunk> extends Result.Result<unknown, infer Failure>
@@ -183,6 +185,7 @@ const buildChunkLayerGeometryBuffers = ({
   chunk,
   color,
   crossPlants,
+  specialBlocks,
   renderLayers,
   tile,
   transparentFluids,
@@ -192,6 +195,7 @@ const buildChunkLayerGeometryBuffers = ({
   readonly chunk: ChunkRef
   readonly color: QuadColor | undefined
   readonly crossPlants: ReadonlyArray<CrossPlantQuad>
+  readonly specialBlocks: ReadonlyArray<SpecialBlockQuad>
   readonly renderLayers: NonNullable<ChunkMesh['renderLayers']>
   readonly tile: QuadTile | undefined
   readonly transparentFluids: ReadonlyArray<FluidQuad>
@@ -201,7 +205,7 @@ const buildChunkLayerGeometryBuffers = ({
   return {
     buffers: combineChunkGeometry(
       buildChunkGeometry(renderLayers.opaque, originX, originZ, color, tile),
-      buildBlockShapeGeometry(blockShapes, originX, originZ, color, tile),
+      buildBlockShapeGeometry([...blockShapes, ...specialBlocks], originX, originZ, color, tile),
     ),
     cutoutBuffers: combineChunkGeometry(
       buildChunkGeometry(renderLayers.cutout, originX, originZ, color, tile),
@@ -291,12 +295,30 @@ const colorQuadsForMesh = (
   quads: ReadonlyArray<MeshQuad>,
   blockShapes: ReadonlyArray<BlockShapeQuad>,
   crossPlants: ReadonlyArray<CrossPlantQuad>,
+  specialBlocks: ReadonlyArray<SpecialBlockQuad>,
 ): ReadonlyArray<GeometryQuad> => {
-  if (crossPlants.length === EMPTY_GEOMETRY_COUNT && blockShapes.length === EMPTY_GEOMETRY_COUNT) {
+  if (
+    crossPlants.length === EMPTY_GEOMETRY_COUNT &&
+    blockShapes.length === EMPTY_GEOMETRY_COUNT &&
+    specialBlocks.length === EMPTY_GEOMETRY_COUNT
+  ) {
     return quads
   }
-  return [...quads, ...crossPlants, ...blockShapes]
+  return [...quads, ...crossPlants, ...blockShapes, ...specialBlocks]
 }
+
+const geometryInputForMesh = (mesh: ChunkMesh) => ({
+  blockShapes: mesh.blockShapes ?? [],
+  crossPlants: mesh.crossPlants ?? [],
+  fluids: mesh.fluids ?? [],
+  renderLayers: mesh.renderLayers ?? {
+    cutout: [],
+    opaque: mesh,
+    transparentSolid: [],
+    water: [],
+  },
+  specialBlocks: mesh.specialBlocks ?? [],
+})
 
 /** Resolve one changed chunk's mesh, if the mesher has it ready. */
 const meshChangedChunk = (
@@ -309,24 +331,21 @@ const meshChangedChunk = (
     if (mesh === undefined) {
       return undefined
     }
-    const blockShapes = mesh.blockShapes ?? []
-    const crossPlants = mesh.crossPlants ?? []
-    const fluids = mesh.fluids ?? []
-    const renderLayers = mesh.renderLayers ?? {
-      cutout: [],
-      opaque: mesh,
-      transparentSolid: [],
-      water: [],
-    }
-    const fluidLayers = splitFluidsByKind(fluids)
-    const color = yield* resolveChunkColor(options, chunk, colorQuadsForMesh(mesh, blockShapes, crossPlants))
+    const geometryInput = geometryInputForMesh(mesh)
+    const fluidLayers = splitFluidsByKind(geometryInput.fluids)
+    const color = yield* resolveChunkColor(
+      options,
+      chunk,
+      colorQuadsForMesh(mesh, geometryInput.blockShapes, geometryInput.crossPlants, geometryInput.specialBlocks),
+    )
     return {
       ...buildChunkLayerGeometryBuffers({
-        blockShapes,
+        blockShapes: geometryInput.blockShapes,
         chunk,
         color,
-        crossPlants,
-        renderLayers,
+        crossPlants: geometryInput.crossPlants,
+        renderLayers: geometryInput.renderLayers,
+        specialBlocks: geometryInput.specialBlocks,
         tile: options.tile,
         transparentFluids: fluidLayers.transparent,
         waterFluids: fluidLayers.water,

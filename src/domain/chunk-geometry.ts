@@ -13,8 +13,11 @@ import {
   type QuadCorners,
   type QuadVertex,
   VERTICES_PER_QUAD,
+  aoForGeometryQuad,
+  isSpecialBlockQuad,
   tangentAxes,
 } from './meshing-vocabulary.js'
+import type { SpecialBlockQuad } from '@nerima-games/mc-meshing'
 import { chunkAnimationKindForBlockId } from './chunk-animation-kind.js'
 
 export { INDICES_PER_QUAD, VERTICES_PER_QUAD, tangentAxes }
@@ -30,6 +33,7 @@ export type {
   QuadCorners,
   QuadVertex,
 }
+export type { SpecialBlockQuad } from '@nerima-games/mc-meshing'
 
 /** Components per vertex, per attribute. */
 export const POSITION_COMPONENTS = 3
@@ -424,7 +428,7 @@ export const greyQuadColor =
  * unmodified — which is what makes them evidence about the light change rather
  * than a casualty of it.
  */
-export const AO_ONLY_SHADE: QuadShade = (quad) => aoShade(quad.ao)
+export const AO_ONLY_SHADE: QuadShade = (quad) => aoShade(aoForGeometryQuad(quad))
 
 /** `AO_ONLY_SHADE` as a `QuadColor`. The builder's default. */
 export const AO_ONLY_COLOR: QuadColor = greyQuadColor(AO_ONLY_SHADE)
@@ -752,6 +756,49 @@ const translateQuadCorners = (vertices: QuadCorners, originX: number, originZ: n
   ]
 }
 
+const componentForAxis = (vertex: QuadVertex, axis: QuadAxis): number => {
+  const [x, y, z] = vertex
+  switch (axis) {
+    case 'x':
+      return x
+    case 'y':
+      return y
+    default:
+      return z
+  }
+}
+
+const specialQuadExtentForAxis = (quad: SpecialBlockQuad, axis: QuadAxis): number => {
+  let minimum = Number.POSITIVE_INFINITY
+  let maximum = Number.NEGATIVE_INFINITY
+  for (const vertex of quad.vertices) {
+    const component = componentForAxis(vertex, axis)
+    minimum = Math.min(minimum, component)
+    maximum = Math.max(maximum, component)
+  }
+  return maximum - minimum
+}
+
+const specialQuadUvExtent = (quad: SpecialBlockQuad): readonly [number, number] => {
+  const [widthAxis, heightAxis] = tangentAxes(quad.direction)
+  const width = specialQuadExtentForAxis(quad, widthAxis)
+  const height = specialQuadExtentForAxis(quad, heightAxis)
+  switch (quad.direction) {
+    case 'xPos':
+    case 'xNeg':
+      return [height, width]
+    default:
+      return [width, height]
+  }
+}
+
+const geometryQuadUvExtent = (quad: BlockShapeQuad | SpecialBlockQuad): readonly [number, number] => {
+  if (isSpecialBlockQuad(quad)) {
+    return specialQuadUvExtent(quad)
+  }
+  return quadUvExtent(quad)
+}
+
 const processCrossPlantQuad = (context: ChunkBuildContext, quad: CrossPlantQuad, quadIndex: number): void => {
   const corners = translateQuadCorners(quad.vertices, context.originX, context.originZ)
   const normal: QuadVertex = [quad.nx, quad.ny, quad.nz]
@@ -769,7 +816,11 @@ const processCrossPlantQuad = (context: ChunkBuildContext, quad: CrossPlantQuad,
   writeReverseQuadIndices(context.buffers.indices, indexOffset + INDICES_PER_QUAD, base)
 }
 
-const processBlockShapeQuad = (context: ChunkBuildContext, quad: BlockShapeQuad, quadIndex: number): void => {
+const processBlockShapeQuad = (
+  context: ChunkBuildContext,
+  quad: BlockShapeQuad | SpecialBlockQuad,
+  quadIndex: number,
+): void => {
   const corners = translateQuadCorners(quad.vertices, context.originX, context.originZ)
   const base = quadIndex * VERTICES_PER_QUAD
   writeQuadCorners(context.buffers, base, {
@@ -779,13 +830,13 @@ const processBlockShapeQuad = (context: ChunkBuildContext, quad: BlockShapeQuad,
     normal: faceNormal(quad.direction),
     tileIndex: context.tile(quad),
   })
-  writeQuadUVs(context.buffers.uvs, base * UV_COMPONENTS, quadUvExtent(quad))
+  writeQuadUVs(context.buffers.uvs, base * UV_COMPONENTS, geometryQuadUvExtent(quad))
   writeQuadIndices(context.buffers.indices, quadIndex * INDICES_PER_QUAD, base)
 }
 
-/** Build the single-sided face geometry emitted for slabs, rails and other block shapes. */
+/** Build single-sided geometry for legacy shapes and mc-meshing special blocks. */
 export const buildBlockShapeGeometry = (
-  quads: ReadonlyArray<BlockShapeQuad>,
+  quads: ReadonlyArray<BlockShapeQuad | SpecialBlockQuad>,
   originX: number = DEFAULT_CHUNK_ORIGIN,
   originZ: number = DEFAULT_CHUNK_ORIGIN,
   color: QuadColor = AO_ONLY_COLOR,

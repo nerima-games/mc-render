@@ -105,7 +105,8 @@ const blockShapeFor = (blockId: BlockId): BlockShapeKind | undefined => {
     case 'lilyPad':
       return 'lilyPad'
     case 'rail':
-      return 'rail'
+      // Rails are emitted in their state-selected shape by the package.
+      return undefined
     default:
       break
   }
@@ -176,7 +177,7 @@ export const KERNEL_MESH_CONFIG: RenderMeshConfig = {
   waterBlockIds: kernelBlockIdsWithFluid('water'),
 }
 
-/** The chunk-store fields this adapter consumes until #66 adds state-driven model selection. */
+/** The chunk-store fields this adapter consumes for meshing. */
 export type MeshingChunkStore = {
   readonly peek: (coord: ChunkCoord) => Effect.Effect<ReadonlyChunk | undefined>
   readonly neighbours: (coord: ChunkCoord) => Effect.Effect<ReadonlyWorldgenChunkNeighbours>
@@ -274,8 +275,8 @@ export const makeChunkStoreLightColor = (
  * pin-alignment work in mc-worldgen, not something to invent here.
  */
 const toChunkView = (chunk: ReadonlyChunk): ChunkView => ({
-  // #66 owns passing block state into model selection.
   // Worldgen exposes live read-only buffers, so meshing receives detached storage.
+  blockStates: chunk.blockStates,
   blocks: new Uint16Array(chunk.blocks),
   coord: chunk.coord,
   height: CHUNK_HEIGHT,
@@ -344,6 +345,9 @@ const assembleWorldgenMesh = (
   layers: MeshLayers,
 ): ChunkMesh => {
     const blockShapeKinds = config.blockShapeKinds ?? EMPTY_BLOCK_SHAPE_KINDS
+    // Preserve existing local shapes except rails.
+    // Package-emitted special blocks with the same ID are filtered to avoid duplicates.
+    const specialBlocks = layers.specialBlocks.filter(({ blockId }) => !blockShapeKinds.has(blockId))
     const opaque = withoutBlockShapes(layers.opaque, blockShapeKinds)
     const water = withoutBlockShapes(layers.water, blockShapeKinds)
     const transparentSolid = withoutBlockShapes(layers.transparentSolid, blockShapeKinds)
@@ -362,6 +366,7 @@ const assembleWorldgenMesh = (
         transparentSolid: blended,
         water,
       },
+      specialBlocks,
     })
 }
 

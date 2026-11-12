@@ -252,6 +252,11 @@ describe('block texture generation', () => {
         }
       }
     }
+    expect(result.manifestData.blockAlphaModes['copper_ore']).toBe('opaque')
+    expect(result.manifestData.blockAlphaModes['deepslate_copper_ore']).toBe('opaque')
+    expect(result.manifestData.blockAlphaModes['bookshelf']).toBe('opaque')
+    expect(result.manifestData.blockAlphaModes['sticky_piston']).toBe('opaque')
+    expect(result.manifestData.blockAlphaModes['redstone_wall_torch']).toBe('cutout')
     for (const stages of Object.values(result.manifestData.variants)) {
       for (const tile of stages) {
         allocated.add(tile)

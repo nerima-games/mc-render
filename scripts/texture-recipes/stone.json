@@ -209,6 +209,16 @@
         "bottom": "machine-panel"
       }
     },
+    "sticky_piston": {
+      "palette": "machine-steel",
+      "pattern": "machine-panel",
+      "alpha": "opaque",
+      "faces": {
+        "top": "strata",
+        "side": "machine-panel",
+        "bottom": "machine-panel"
+      }
+    },
     "pressure_plate": {
       "palette": "machine-steel",
       "pattern": "pressure-plate",

@@ -1,4 +1,5 @@
 import type { BlockId } from '@nerima-games/mc-kernel'
+import type { SpecialBlockQuad } from '@nerima-games/mc-meshing'
 
 /** A direction and normal for one axis-aligned cube face. */
 export type FaceDirection = 'xPos' | 'xNeg' | 'yPos' | 'yNeg' | 'zPos' | 'zNeg'
@@ -75,13 +76,25 @@ export type BlockShapeQuad = {
   readonly ao: number
 }
 
-export type GeometryQuad = MeshQuad | CrossPlantQuad | BlockShapeQuad
+export type GeometryQuad = MeshQuad | CrossPlantQuad | BlockShapeQuad | SpecialBlockQuad
 
 export const isCrossPlantQuad = (quad: GeometryQuad): quad is CrossPlantQuad =>
-  'nx' in quad
+  'nx' in quad && !('direction' in quad)
 
 export const isBlockShapeQuad = (quad: GeometryQuad): quad is BlockShapeQuad =>
   'shape' in quad
+
+export const isSpecialBlockQuad = (quad: GeometryQuad): quad is SpecialBlockQuad =>
+  'kind' in quad
+
+const SPECIAL_BLOCK_AO = 0
+
+export const aoForGeometryQuad = (quad: GeometryQuad): number => {
+  if (isSpecialBlockQuad(quad)) {
+    return SPECIAL_BLOCK_AO
+  }
+  return quad.ao
+}
 
 /** A fluid vertex with a possibly fractional height. */
 export type FluidVertex = readonly [number, number, number]

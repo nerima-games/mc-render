@@ -5,12 +5,17 @@ import {
   BlockId,
   LocalAxis,
   RenderDistanceChunks,
+  blockIdOf,
+  encodeBlockState,
   propertyOfBlockId,
+  type BlockStateValues,
+  type BlockType,
   type ChunkCoord,
 } from '@nerima-games/mc-kernel'
+import { blockIndex, type FluidQuad, type SpecialBlockQuad } from '@nerima-games/mc-meshing'
 import { LightQueueUnderflowError, type Chunk, type ReadonlyChunk } from '@nerima-games/mc-worldgen'
-import { emptyBlocks, setBlockAt } from '@nerima-games/mc-worldgen/testing'
-import { Effect, Ref, Result, Schema } from 'effect'
+import { emptyBlocks, setBlockAt, type SubscriberId } from '@nerima-games/mc-worldgen/testing'
+import { Effect, Option, Ref, Result, Schema } from 'effect'
 import {
   ChunkMeshingWorkerFailureSchema,
   decodeChunkMeshingWorkerRequest,
@@ -21,6 +26,7 @@ import {
 import {
   attachChunkStoreRenderer,
   blockNameFromKernel,
+  KERNEL_BLOCK_SHAPE_KINDS,
   KERNEL_MESH_CONFIG,
   makeChunkStoreLightColor,
   makeChunkStoreMesher,
@@ -45,6 +51,7 @@ import { LodInputErrorSchema, type LodInputError } from '../src/domain/level-of-
 import { FAKE_CANVAS, makeFakeThree } from './support/fake-three'
 import { chunkCoord } from './support/kernel-brands'
 
+const INVALID_ENCODED_BLOCK_STATE = 0xffff_ffff
 const VIEWPORT = { width: 640, height: 360 }
 const workerCount = Schema.decodeUnknownSync(WorkerCountSchema)
 const emptyLayers = {
@@ -81,6 +88,62 @@ const chunk = (cx: number, cz: number, blocks: ReadonlyArray<readonly [number, n
     biomes: Array.from({ length: 16 * 16 }, () => 'PLAINS' as const),
   }
 }
+
+type StatefulBlockEntry = {
+  readonly blockType: BlockType
+  readonly position: readonly [lx: number, y: number, lz: number]
+  readonly state: BlockStateValues
+}
+
+const blockIdForType = (blockType: BlockType) => Option.getOrThrow(blockIdOf(blockType))
+
+const encodedStateFor = (blockType: BlockType, state: BlockStateValues): number =>
+  Result.getOrThrow(encodeBlockState(blockIdForType(blockType), state))
+
+const chunkWithStates = (
+  cx: number,
+  cz: number,
+  entries: ReadonlyArray<StatefulBlockEntry>,
+): Chunk & { readonly blockStates: Uint32Array } => {
+  const blocks: Array<readonly [number, number, number, number]> = []
+  for (const { blockType, position } of entries) {
+    const [lx, y, lz] = position
+    blocks.push([lx, y, lz, blockIdForType(blockType)])
+  }
+  const resident = chunk(cx, cz, blocks)
+  const blockStates = new Uint32Array(resident.blocks.length)
+  blockStates.fill(encodedStateFor('air', {}))
+  for (const { blockType, position, state } of entries) {
+    const [lx, y, lz] = position
+    blockStates[blockIndex(lx, y, lz)] = encodedStateFor(blockType, state)
+  }
+  return { ...resident, blockStates }
+}
+
+const boundsOfExplicitVertices = (
+  quads: ReadonlyArray<{ readonly vertices: ReadonlyArray<readonly [number, number, number]> }>,
+) => {
+  const vertices = quads.flatMap(({ vertices: quadVertices }) => quadVertices)
+  const [first] = vertices
+  if (first === undefined) {
+    throw new Error('expected explicit mesh vertices')
+  }
+  let [minX, minY, minZ] = first
+  let [maxX, maxY, maxZ] = first
+  for (const [x, y, z] of vertices) {
+    minX = Math.min(minX, x)
+    minY = Math.min(minY, y)
+    minZ = Math.min(minZ, z)
+    maxX = Math.max(maxX, x)
+    maxY = Math.max(maxY, y)
+    maxZ = Math.max(maxZ, z)
+  }
+  return { maxX, maxY, maxZ, minX, minY, minZ }
+}
+
+const specialBounds = (quads: ReadonlyArray<SpecialBlockQuad>) => boundsOfExplicitVertices(quads)
+
+const fluidBounds = (quads: ReadonlyArray<FluidQuad>) => boundsOfExplicitVertices(quads)
 
 const neighboursFor = (xPos?: ReadonlyChunk): { xPos?: ReadonlyChunk } => {
   if (xPos === undefined) {
@@ -491,6 +554,186 @@ describe('makeChunkStoreMesher', () => {
 
       expect(quads).toHaveLength(6)
       expect(quads?.blockShapes).toStrictEqual([])
+    }),
+  )
+
+  it.effect('uses encoded door states for closed and open panel geometry', () =>
+    Effect.gen(function* () {
+      const closedChunk = chunkWithStates(0, 0, [
+        {
+          blockType: 'door',
+          position: [2, 20, 3],
+          state: { facing: 'north', half: 'lower', hinge: 'left', open: false },
+        },
+      ])
+      const openChunk = chunkWithStates(0, 0, [
+        {
+          blockType: 'door',
+          position: [2, 20, 3],
+          state: { facing: 'north', half: 'lower', hinge: 'left', open: true },
+        },
+      ])
+      const closedMesh = yield* makeChunkStoreMesher(storeOf(closedChunk))(chunkCoord(0, 0))
+      const openMesh = yield* makeChunkStoreMesher(storeOf(openChunk))(chunkCoord(0, 0))
+      const closedDoor = closedMesh?.specialBlocks?.filter(({ kind }) => kind === 'door') ?? []
+      const openDoor = openMesh?.specialBlocks?.filter(({ kind }) => kind === 'door') ?? []
+
+      expect(closedDoor.length).toBeGreaterThan(0)
+      expect(openDoor.length).toBeGreaterThan(0)
+      expect(specialBounds(closedDoor)).toStrictEqual({
+        maxX: 3,
+        maxY: 21,
+        maxZ: 4,
+        minX: 2,
+        minY: 20,
+        minZ: 3 + 13 / 16,
+      })
+      expect(specialBounds(openDoor)).toStrictEqual({
+        maxX: 2 + 3 / 16,
+        maxY: 21,
+        maxZ: 4,
+        minX: 2,
+        minY: 20,
+        minZ: 3,
+      })
+
+      const three = makeFakeThree()
+      const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT)
+      const batches = yield* Ref.make<ReadonlyArray<{
+        readonly changed: ReadonlyArray<ChunkCoord>
+        readonly removed: ReadonlyArray<ChunkCoord>
+      }>>([{ changed: [chunkCoord(0, 0)], removed: [] }])
+      const store: RendererChunkStore = {
+        peek: () => Effect.succeed(closedChunk),
+        neighbours: () => Effect.succeed({}),
+        subscribeDirty: Effect.succeed({
+          id: 0 as SubscriberId,
+          drain: Ref.modify(batches, ([next, ...rest]) => [next ?? { changed: [], removed: [] }, rest]),
+          unsubscribe: Effect.void,
+        }),
+        getLight: () => Effect.succeed({ _tag: 'Light' as const, block: 15, sky: 15 }),
+      }
+      const attachment = yield* attachChunkStoreRenderer(renderer, store)
+      yield* attachment.update
+      const uploadedPositions = three.geometries().flatMap((geometry) => {
+        const position = geometry.attributes.get('position')
+        if (position === undefined || !(position.array instanceof Float32Array)) {
+          return []
+        }
+        return [position.array]
+      })
+      expect(uploadedPositions.some((positions) => Array.from(positions).includes(3 + 13 / 16))).toBe(true)
+    }),
+  )
+
+  it.effect('uses stair direction and corner shape in the published special geometry', () =>
+    Effect.gen(function* () {
+      const straightChunk = chunkWithStates(0, 0, [
+        {
+          blockType: 'oak_stairs',
+          position: [4, 20, 4],
+          state: { facing: 'east', half: 'bottom', shape: 'straight' },
+        },
+      ])
+      const outerCornerChunk = chunkWithStates(0, 0, [
+        {
+          blockType: 'oak_stairs',
+          position: [4, 20, 4],
+          state: { facing: 'north', half: 'bottom', shape: 'outer_right' },
+        },
+      ])
+      const straightMesh = yield* makeChunkStoreMesher(storeOf(straightChunk))(chunkCoord(0, 0))
+      const outerCornerMesh = yield* makeChunkStoreMesher(storeOf(outerCornerChunk))(chunkCoord(0, 0))
+      const straightStairs = straightMesh?.specialBlocks?.filter(({ kind }) => kind === 'stairs') ?? []
+      const outerCornerStairs = outerCornerMesh?.specialBlocks?.filter(({ kind }) => kind === 'stairs') ?? []
+      const topFaces = (quads: ReadonlyArray<SpecialBlockQuad>) =>
+        quads.filter(({ direction, vertices }) => direction === 'yPos' && vertices.every(([, y]) => y === 21))
+
+      expect(straightStairs.length).toBeGreaterThan(0)
+      expect(outerCornerStairs.length).toBeGreaterThan(0)
+      expect(straightStairs.every(({ blockState }) => blockState?.facing === 'east' && blockState.shape === 'straight')).toBe(true)
+      expect(outerCornerStairs.every(({ blockState }) => blockState?.facing === 'north' && blockState.shape === 'outer_right')).toBe(true)
+      expect(specialBounds(topFaces(straightStairs))).toStrictEqual({
+        maxX: 5,
+        maxY: 21,
+        maxZ: 5,
+        minX: 4.5,
+        minY: 21,
+        minZ: 4,
+      })
+      expect(specialBounds(topFaces(outerCornerStairs))).toStrictEqual({
+        maxX: 5,
+        maxY: 21,
+        maxZ: 4.5,
+        minX: 4.5,
+        minY: 21,
+        minZ: 4,
+      })
+    }),
+  )
+
+  it.effect('computes water surface height and flow from encoded neighbour states', () =>
+    Effect.gen(function* () {
+      const resident = chunkWithStates(0, 0, [
+        { blockType: 'water', position: [8, 20, 8], state: { level: 7 } },
+        { blockType: 'water', position: [3, 20, 3], state: { level: 0 } },
+        { blockType: 'water', position: [4, 20, 3], state: { level: 7 } },
+      ])
+      const mesh = yield* makeChunkStoreMesher(storeOf(resident))(chunkCoord(0, 0))
+      const fluids = mesh?.fluids ?? []
+      const tops = fluids.filter(({ direction }) => direction === 'yPos')
+      const isolatedFlow = tops.find(({ vertices }) =>
+        vertices.every(([x, , z]) => x >= 8 && x <= 9 && z >= 8 && z <= 9),
+      )
+      const directedFlow = tops.find(({ vertices }) =>
+        vertices.every(([x, , z]) => x >= 4 && x <= 5 && z >= 3 && z <= 4),
+      )
+
+      expect(isolatedFlow).toBeDefined()
+      expect(directedFlow).toBeDefined()
+      expect(fluidBounds([isolatedFlow!]).maxY).toBe(20.125)
+      expect(directedFlow?.flow).toStrictEqual({ direction: [1, 0], falling: false })
+    }),
+  )
+
+  it.effect('routes rail state geometry through mc-meshing without a second local rail shape', () =>
+    Effect.gen(function* () {
+      const resident = chunkWithStates(0, 0, [
+        { blockType: 'rail', position: [10, 20, 10], state: { shape: 'north_south' } },
+      ])
+      const mesh = yield* makeChunkStoreMesher(storeOf(resident))(chunkCoord(0, 0))
+      const rails = mesh?.specialBlocks?.filter(({ kind }) => kind === 'rail') ?? []
+
+      expect(KERNEL_BLOCK_SHAPE_KINDS.has(blockIdForType('rail'))).toBe(false)
+      expect(mesh?.blockShapes?.some(({ blockId }) => blockId === blockIdForType('rail'))).toBe(false)
+      expect(rails.length).toBeGreaterThan(0)
+      expect(rails.every(({ blockState }) => blockState?.shape === 'north_south')).toBe(true)
+      expect(specialBounds(rails)).toStrictEqual({
+        maxX: 11,
+        maxY: 20 + 1 / 16,
+        maxZ: 11,
+        minX: 10,
+        minY: 20 + 1 / 16,
+        minZ: 10,
+      })
+    }),
+  )
+
+  it.effect('keeps explicit block-state codec failures in the Effect error channel', () =>
+    Effect.gen(function* () {
+      const resident = chunk(0, 0, [[1, 20, 1, blockIdForType('door')]])
+      const blockStates = new Uint32Array(resident.blocks.length)
+      blockStates.fill(encodedStateFor('air', {}))
+      blockStates[blockIndex(1, 20, 1)] = INVALID_ENCODED_BLOCK_STATE
+      const chunkWithInvalidBlockState = { ...resident, blockStates }
+      const result = yield* Effect.result(
+        makeChunkStoreMesher(storeOf(chunkWithInvalidBlockState))(chunkCoord(0, 0)),
+      )
+
+      expect(Result.isFailure(result)).toBe(true)
+      if (Result.isFailure(result)) {
+        expect(result.failure._tag).toBe('ChunkBlockStateCodecFailure')
+      }
     }),
   )
 })
