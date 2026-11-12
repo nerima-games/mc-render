@@ -1,4 +1,6 @@
 /** Renderer-independent mob silhouettes and deterministic animation planning. */
+import { Brand } from 'effect'
+import type { EntityRenderProgress } from './entity-render-input.js'
 
 export const MOB_VISUAL_KINDS = [
   'zombie',
@@ -64,10 +66,10 @@ export type MobAnimationInput = {
   readonly state: MobAnimationState
   readonly phaseRadians?: number
   readonly progress?: number
-  readonly walkAmount?: number
-  readonly attackProgress?: number
-  readonly hurtProgress?: number
-  readonly deathProgress?: number
+  readonly walkAmount?: EntityRenderProgress
+  readonly attackProgress?: EntityRenderProgress
+  readonly hurtProgress?: EntityRenderProgress
+  readonly deathProgress?: EntityRenderProgress
 }
 
 export type MobVisualPartPlan = {
@@ -1030,21 +1032,30 @@ const progressForState = (state: MobAnimationState, activeState: MobAnimationSta
   return NO_PROGRESS
 }
 
-type AnimationSample = Readonly<Required<MobAnimationInput>>
+type AnimationSample = Readonly<Omit<Required<MobAnimationInput>,
+  'walkAmount' | 'attackProgress' | 'hurtProgress' | 'deathProgress'
+> & {
+  readonly walkAmount: EntityRenderProgress
+  readonly attackProgress: EntityRenderProgress
+  readonly hurtProgress: EntityRenderProgress
+  readonly deathProgress: EntityRenderProgress
+}>
+
+const makeEntityRenderProgress = Brand.nominal<EntityRenderProgress>()
 
 const resolveAnimationSample = (input: MobAnimationInput): AnimationSample => {
   const phaseRadians = finiteOr(input.phaseRadians, DEFAULT_PHASE_RADIANS)
   const progress = clamp01(finiteOr(input.progress, resolveDefaultProgress(input.state)))
-  const walkAmount = clamp01(finiteOr(input.walkAmount, defaultWalkAmountFor(input.state)))
-  const attackProgress = clamp01(finiteOr(input.attackProgress, NO_PROGRESS))
-  const hurtProgress = clamp01(finiteOr(
+  const walkAmount = makeEntityRenderProgress(clamp01(finiteOr(input.walkAmount, defaultWalkAmountFor(input.state))))
+  const attackProgress = makeEntityRenderProgress(clamp01(finiteOr(input.attackProgress, NO_PROGRESS)))
+  const hurtProgress = makeEntityRenderProgress(clamp01(finiteOr(
     input.hurtProgress,
     progressForState(input.state, 'hurt', progress),
-  ))
-  const deathProgress = clamp01(finiteOr(
+  )))
+  const deathProgress = makeEntityRenderProgress(clamp01(finiteOr(
     input.deathProgress,
     progressForState(input.state, 'death', progress),
-  ))
+  )))
   return { attackProgress, deathProgress, hurtProgress, phaseRadians, progress, state: input.state, walkAmount }
 }
 
