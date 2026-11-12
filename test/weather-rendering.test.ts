@@ -1,5 +1,12 @@
 import { describe, expect, it } from '@effect/vitest'
-import { Effect } from 'effect'
+import { Effect, Result, Schema } from 'effect'
+import * as FastCheck from 'fast-check'
+import {
+  decodeLightningBoltInput,
+  LightningBoltInputSchema,
+  planLightningBolt,
+  type LightningBoltInput,
+} from '../src/domain/lightning-bolt'
 import {
   INITIAL_WEATHER_RENDER_STATE,
   planWeatherFrame,
@@ -23,6 +30,40 @@ describe('weather frame planning', () => {
         planWeatherFrame({ camera, previous: INITIAL_WEATHER_RENDER_STATE, snapshot: rain }),
       ).toStrictEqual(first)
       expect(first.plan.particles).toHaveLength(48)
+    }),
+  )
+
+  it.effect('computes particle density as floor(capacity multiplied by clamped intensity)', () =>
+    Effect.sync(() => {
+      FastCheck.assert(
+        FastCheck.property(
+          FastCheck.integer({ min: 0, max: 200 }),
+          FastCheck.double({ min: 0, max: 1, noNaN: true }),
+          (capacity, intensity) => {
+            const planned = planWeatherFrame({
+              camera,
+              options: { particleCapacity: capacity },
+              snapshot: { ...rain, intensity },
+            })
+            return planned.plan.particles.length === Math.floor(capacity * intensity)
+          },
+        ),
+        { numRuns: 300 },
+      )
+    }),
+  )
+
+  it.effect('uses exact density boundaries and the value just below full intensity', () =>
+    Effect.sync(() => {
+      const density = (capacity: number, intensity: number): number =>
+        planWeatherFrame({ camera, options: { particleCapacity: capacity }, snapshot: { ...rain, intensity } })
+          .plan.particles.length
+      expect(density(0, 1)).toBe(0)
+      expect(density(4, 0)).toBe(0)
+      expect(density(4, 0.249999)).toBe(Math.floor(4 * 0.249999))
+      expect(density(4, 0.25)).toBe(1)
+      expect(density(8, 0.999999)).toBe(7)
+      expect(density(8, 1)).toBe(8)
     }),
   )
 
@@ -191,13 +232,52 @@ describe('weather frame planning', () => {
         snapshot: strike,
       })
       expect(first.plan.lightningFlash).toBe(1)
+      expect(first.plan.lightningBolt?.strands).toHaveLength(3)
+      expect(first.plan.lightningBolt?.strands.every((strand) => strand.length === 9)).toBe(true)
+      expect(first.plan.lightningBolt).toStrictEqual(restored.plan.lightningBolt)
       expect(restored.plan.lightningFlash).toBeCloseTo(2 / 3)
       expect(last.plan.lightningFlash).toBeCloseTo(1 / 3)
       expect(expired.plan.lightningFlash).toBe(0)
+      expect(expired.plan.lightningBolt).toBeUndefined()
       expect(
-        planWeatherFrame({ camera, previous: first.state, snapshot: { ...strike, mode: 'clear' } })
-          .plan.lightningFlash,
-      ).toBe(0)
+        planWeatherFrame({ camera, previous: first.state, snapshot: { ...strike, mode: 'clear' } }).plan,
+      ).toMatchObject({ lightningBolt: undefined, lightningFlash: 0 })
+    }),
+  )
+
+  it.effect('retains lightning geometry for a thunder snapshot that resolves to snow', () =>
+    Effect.sync(() => {
+      const planned = planWeatherFrame({
+        camera,
+        snapshot: { ...rain, mode: 'thunder', temperature: 0.1, lightningSequence: 4 },
+      })
+      expect(planned.plan.precipitation).toBe('snow')
+      expect(planned.plan.lightningBolt?.sequence).toBe(4)
+    }),
+  )
+
+  it.effect('anchors one strike across camera movement and re-anchors when the sequence changes', () =>
+    Effect.sync(() => {
+      const strike = { ...rain, mode: 'thunder' as const, lightningSequence: 19 }
+      const first = planWeatherFrame({ camera, snapshot: strike })
+      const movedCamera = { x: camera.x + 37, y: camera.y + 8, z: camera.z - 11 }
+      const sameSequence = planWeatherFrame({ camera: movedCamera, previous: first.state, snapshot: strike })
+      const originalBottom = first.plan.lightningBolt?.strands[0]?.at(-1)
+      const stableBottom = sameSequence.plan.lightningBolt?.strands[0]?.at(-1)
+
+      expect(stableBottom).toStrictEqual(originalBottom)
+      expect(sameSequence.state.lightningOrigin).toStrictEqual(first.state.lightningOrigin)
+
+      const nextSequence = planWeatherFrame({
+        camera: movedCamera,
+        previous: sameSequence.state,
+        snapshot: { ...strike, lightningSequence: 20 },
+      })
+      const reanchoredBottom = nextSequence.plan.lightningBolt?.strands[0]?.at(-1)
+      expect(reanchoredBottom?.x).toBeCloseTo((originalBottom?.x ?? 0) + 37, 10)
+      expect(reanchoredBottom?.y).toBe((originalBottom?.y ?? 0) + 8)
+      expect(reanchoredBottom?.z).toBeCloseTo((originalBottom?.z ?? 0) - 11, 10)
+      expect(nextSequence.state.lightningOrigin).not.toStrictEqual(first.state.lightningOrigin)
     }),
   )
 
@@ -215,6 +295,77 @@ describe('weather frame planning', () => {
           snapshot: { ...clear, dimension: 'end' },
         }).plan.environment.dimension,
       ).toBe('end')
+    }),
+  )
+})
+
+describe('lightning bolt geometry planning', () => {
+  const origin = { x: 6, y: 62, z: -9 }
+  const input: LightningBoltInput = { origin, seed: 147, sequence: 3 }
+
+  it.effect('builds three repeatable eight-segment strands from the strike sequence', () =>
+    Effect.sync(() => {
+      const first = planLightningBolt(input)
+      const second = planLightningBolt(input)
+      expect(first).toStrictEqual(second)
+      expect(first.sequence).toBe(3)
+      expect(first.strands).toHaveLength(3)
+      for (const strand of first.strands) {
+        expect(strand).toHaveLength(9)
+        expect(strand[0]?.y).toBe(origin.y + 32)
+        expect(strand.at(-1)?.y).toBe(origin.y)
+        expect(strand.flatMap(({ x, y, z }) => [x, y, z]).every(Number.isFinite)).toBe(true)
+      }
+      expect(first.strands[0]?.at(-1)).toStrictEqual(origin)
+    }),
+  )
+
+  it.effect('property: valid arbitrary strike inputs yield finite, fixed-shape geometry', () =>
+    Effect.sync(() => {
+      const coordinate = FastCheck.double({ min: -1000, max: 1000, noNaN: true })
+      FastCheck.assert(
+        FastCheck.property(
+          coordinate,
+          coordinate,
+          coordinate,
+          FastCheck.integer(),
+          FastCheck.integer(),
+          (x, y, z, seed, sequence) => {
+            const bolt = planLightningBolt({ origin: { x, y, z }, seed, sequence })
+            return bolt.sequence === sequence && bolt.strands.length === 3 && bolt.strands.every((strand) =>
+              strand.length === 9 && strand.every((point) =>
+                Number.isFinite(point.x) && Number.isFinite(point.y) && Number.isFinite(point.z),
+              ),
+            )
+          },
+        ),
+        { numRuns: 250 },
+      )
+    }),
+  )
+
+  it.effect('property: arbitrary decoded values fail with Result or satisfy the exported schema', () =>
+    Effect.sync(() => {
+      FastCheck.assert(
+        FastCheck.property(FastCheck.anything(), (candidate) => {
+          const decoded = decodeLightningBoltInput(candidate)
+          return Result.isFailure(decoded) || Result.isSuccess(Schema.decodeUnknownResult(
+            LightningBoltInputSchema,
+            { onExcessProperty: 'error' },
+          )(decoded.success))
+        }),
+        { numRuns: 500 },
+      )
+    }),
+  )
+
+  it.effect('boundary: finite coordinates and integer sequence values are accepted, just-outside values fail', () =>
+    Effect.sync(() => {
+      expect(Result.isSuccess(decodeLightningBoltInput(input))).toBe(true)
+      expect(Result.isFailure(decodeLightningBoltInput({ ...input, sequence: 3.5 }))).toBe(true)
+      expect(Result.isFailure(decodeLightningBoltInput({ ...input, seed: Number.POSITIVE_INFINITY }))).toBe(true)
+      expect(Result.isFailure(decodeLightningBoltInput({ ...input, origin: { ...origin, x: Number.NaN } }))).toBe(true)
+      expect(Result.isFailure(decodeLightningBoltInput({ ...input, extra: true }))).toBe(true)
     }),
   )
 })

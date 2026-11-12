@@ -82,9 +82,13 @@ import {
   type DeltaTimeSecs,
   type Dimension,
   type ChunkKey as KernelChunkKey,
+  MAX_RENDER_DISTANCE,
+  MIN_RENDER_DISTANCE,
   MonotonicTimeSecs,
+  type Position,
+  type RenderDistanceChunks,
+  decodeChunkKey,
 } from '@nerima-games/mc-kernel'
-export type ChunkKey = KernelChunkKey
 import { Effect, Ref, Result, Schema } from 'effect'
 import {
   type MobAnimationInput,
@@ -101,8 +105,8 @@ import {
 import { type ParticleSystem, makeParticleSystem } from './particle-system.js'
 import type {
   ThreeBufferGeometry,
-  ThreeDynamicBufferAttribute,
   ThreeCamera,
+  ThreeDynamicBufferAttribute,
   ThreeEuler,
   ThreeInstancedBufferGeometry,
   ThreeInstancedSurface,
@@ -127,17 +131,21 @@ import {
   planWitherSkullVisual,
   planWitherVisual,
 } from '../domain/wither-visual.js'
+import {
+  applyWaterFrameUniforms,
+  makeTranslucentChunkMaterial,
+} from './world-renderer-materials.js'
+import { CHUNK_HEIGHT } from '@nerima-games/mc-worldgen'
+import { CHUNK_SIZE } from '@nerima-games/mc-meshing'
 import type { MirroredCameraState } from '../domain/camera-mirror.js'
 import type { PostProcessingStep } from '../domain/post-processing.js'
 import type { WeatherFrameOptions } from '../domain/weather-rendering.js'
 import { makeThreeWeatherPrecipitation } from './three-weather-runtime.js'
 import { waterShaderSource } from '../domain/water-shader.js'
-import {
-  applyWaterFrameUniforms,
-  makeTranslucentChunkMaterial,
-} from './world-renderer-materials.js'
 // oxlint-disable-next-line sort-imports
 import { requiresForceSinglePass } from '../domain/material-policy.js'
+
+export type ChunkKey = KernelChunkKey
 
 /**
  * Vertical field of view, in degrees.
@@ -176,20 +184,58 @@ export const CAMERA_NEAR_PLANE = 0.1
  *
  *   far: Math.max(initialSettings.renderDistance * CHUNK_SIZE * 1.5 + CHUNK_HEIGHT, 300)
  *
- * and 300 is the FLOOR of that expression, not the value it usually takes. This
- * repository uses the floor, and says so rather than transcribing the formula,
- * because two of the formula's three inputs are unreachable from here:
- * `renderDistance` is a setting owned by mc-sim, and `CHUNK_SIZE`/`CHUNK_HEIGHT`
- * are mc-meshing's — neither is published (see `domain/chunk-geometry.ts`'s
- * header). Restating the formula with mirrored constants would produce a number
- * that looks derived and is not, which is the failure mode this project has
- * eight recorded instances of.
- *
- * So: 300 is a FLOOR STANDING IN FOR A COMPUTATION, and it is wrong in the safe
- * direction — a far plane that is too near clips distant terrain, which is
- * visible immediately, rather than costing depth precision, which is not.
+ * and 300 is the FLOOR of that expression, not the value it usually takes.
+ * Without a host render-distance input this repository still uses that floor.
+ * When the host supplies the mc-sim-owned setting, the computation uses the
+ * published kernel setting type and the chunk dimensions from mc-meshing and
+ * mc-worldgen instead of mirroring their values.
  */
 export const CAMERA_FAR_PLANE = 300
+const RENDER_DISTANCE_FAR_PLANE_MULTIPLIER = 1.5
+
+export type RenderDistanceCullingError = {
+  readonly _tag: 'RenderDistanceCullingError'
+  readonly reason: 'invalid-camera-position' | 'invalid-chunk-key' | 'invalid-render-distance'
+}
+
+export const RenderDistanceCullingErrorSchema: Schema.Codec<RenderDistanceCullingError> = Schema.Struct({
+  _tag: Schema.Literal('RenderDistanceCullingError'),
+  reason: Schema.Literals(['invalid-camera-position', 'invalid-chunk-key', 'invalid-render-distance']),
+})
+
+/** Whether a canonical chunk key lies inside the host setting's square radius. */
+export const chunkWithinRenderDistance = (
+  key: ChunkKey,
+  cameraPosition: Position,
+  renderDistance: number,
+): Result.Result<boolean, RenderDistanceCullingError> => {
+  if (!Number.isSafeInteger(renderDistance) || renderDistance < MIN_RENDER_DISTANCE || renderDistance > MAX_RENDER_DISTANCE) {
+    return Result.fail({ _tag: 'RenderDistanceCullingError', reason: 'invalid-render-distance' })
+  }
+  const cameraChunkX = Math.floor(cameraPosition.x / CHUNK_SIZE)
+  const cameraChunkZ = Math.floor(cameraPosition.z / CHUNK_SIZE)
+  if (!Number.isSafeInteger(cameraChunkX) || !Number.isSafeInteger(cameraChunkZ)) {
+    return Result.fail({ _tag: 'RenderDistanceCullingError', reason: 'invalid-camera-position' })
+  }
+  const coord = decodeChunkKey(key)
+  if (coord === undefined) {
+    return Result.fail({ _tag: 'RenderDistanceCullingError', reason: 'invalid-chunk-key' })
+  }
+  return Result.succeed(
+    Math.max(Math.abs(coord.cx - cameraChunkX), Math.abs(coord.cz - cameraChunkZ)) <= renderDistance,
+  )
+}
+
+const distanceVisibility = (
+  key: ChunkKey,
+  cameraPosition: Position,
+  renderDistance: RenderDistanceChunks | undefined,
+): Result.Result<boolean, RenderDistanceCullingError> => {
+  if (renderDistance === undefined) {
+    return Result.succeed(true)
+  }
+  return chunkWithinRenderDistance(key, cameraPosition, renderDistance)
+}
 
 /** The fewest weather particles a capacity is ever clamped down to: none. */
 const MIN_WEATHER_CAPACITY = 0
@@ -871,6 +917,8 @@ export type WorldRendererOptions<TMaterial extends ThreeMaterial = ThreeMaterial
   readonly fovDegrees?: number
   readonly nearPlane?: number
   readonly farPlane?: number
+  /** Host-owned mc-sim setting. When supplied, chunks beyond this Chebyshev radius are hidden. */
+  readonly renderDistance?: RenderDistanceChunks
   readonly clearColor?: number
   /** Initial daylight in the inclusive 0..1 range; invalid values are clamped by the planner. */
   readonly daylight?: number
@@ -1328,7 +1376,14 @@ export const makeWorldRenderer = <
       readonly weatherCapacity: number
       readonly initialAspect: number
     } => {
-      const farPlane = options.farPlane ?? CAMERA_FAR_PLANE
+      let derivedFarPlane = CAMERA_FAR_PLANE
+      if (options.renderDistance !== undefined) {
+        derivedFarPlane = Math.max(
+          CAMERA_FAR_PLANE,
+          options.renderDistance * CHUNK_SIZE * RENDER_DISTANCE_FAR_PLANE_MULTIPLIER + CHUNK_HEIGHT,
+        )
+      }
+      const farPlane = options.farPlane ?? derivedFarPlane
       const weatherCapacity = Math.max(
         MIN_WEATHER_CAPACITY,
         Math.trunc(options.weather?.particleCapacity ?? DEFAULT_WEATHER_CAPACITY),
@@ -1715,13 +1770,20 @@ export const makeWorldRenderer = <
       updateChunkVisibility: (
         currentChunks: ReadonlyMap<ChunkKey, ChunkEntry<TGeometry>>,
         frustum: ReturnType<typeof preparePerspectiveFrustum>,
-      ): void => {
-        for (const entry of currentChunks.values()) {
-          const visible = isBoundsVisible(entry.bounds, frustum)
+        mirrored: MirroredCameraState,
+      ): Result.Result<void, RenderDistanceCullingError> => {
+        const { renderDistance } = options
+        for (const [key, entry] of currentChunks) {
+          const withinDistance = distanceVisibility(key, mirrored.position, renderDistance)
+          if (Result.isFailure(withinDistance)) {
+            return Result.fail(withinDistance.failure)
+          }
+          const visible = withinDistance.success && isBoundsVisible(entry.bounds, frustum)
           for (const mesh of entry.meshes) {
             mesh.visible = visible
           }
         }
+        return Result.succeed(undefined)
       },
 
       updateEntity: (entry: EntityEntry, entity: RenderEntity): EntityEntry => {
@@ -1802,7 +1864,7 @@ export const makeWorldRenderer = <
             nearPlane,
             verticalFovDegrees: fovDegrees,
           })
-          ops.updateChunkVisibility(currentChunks, frustum)
+          yield* Effect.fromResult(ops.updateChunkVisibility(currentChunks, frustum, mirrored))
           ops.updateTransparentSort(currentChunks, mirrored)
           const chain = yield* Ref.get(postProcessingChain)
           ops.renderFrame(chain)

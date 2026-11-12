@@ -16,9 +16,11 @@ import {
   planRenderEnvironment,
 } from '../domain/render-environment.js'
 import type { Dimension } from '@nerima-games/mc-kernel'
+import type { LightningBoltPlan } from '../domain/lightning-bolt.js'
 
 export type WeatherPrecipitationResource = {
   readonly update: (particles: ReadonlyArray<PrecipitationParticle>) => Effect.Effect<void>
+  readonly updateLightning?: (bolt: LightningBoltPlan | undefined, flash: number) => Effect.Effect<void>
   readonly resize: (viewport: Viewport) => Effect.Effect<void>
   readonly dispose: Effect.Effect<void>
 }
@@ -104,6 +106,20 @@ export const makeWeatherRenderer = (
         return yield* refreshPrecipitationResource(kind)
       })
 
+    const updateWeatherResource = (plan: WeatherRenderPlan): Effect.Effect<void> =>
+      Effect.gen(function* updateWeatherResourceEffect() {
+        if (typeof plan.precipitation === 'undefined' && typeof plan.lightningBolt === 'undefined') {
+          yield* releaseEffect
+          return
+        }
+        const resourceKind = plan.precipitation ?? 'rain'
+        const resource = yield* ensurePrecipitationResource(resourceKind)
+        yield* resource.update(plan.particles)
+        if (resource.updateLightning) {
+          yield* resource.updateLightning(plan.lightningBolt, plan.lightningFlash)
+        }
+      })
+
     return {
       dispose: stop(),
 
@@ -112,14 +128,7 @@ export const makeWeatherRenderer = (
           const next = planWeatherFrame({ camera, options, previous: renderState, snapshot })
           renderState = next.state
           yield* ports.setEnvironment(next.plan.environment)
-
-          if (typeof next.plan.precipitation === 'undefined') {
-            yield* releaseEffect
-            return next.plan
-          }
-
-          const resource = yield* ensurePrecipitationResource(next.plan.precipitation)
-          yield* resource.update(next.plan.particles)
+          yield* updateWeatherResource(next.plan)
           return next.plan
         }),
 

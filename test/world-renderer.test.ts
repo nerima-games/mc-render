@@ -64,9 +64,31 @@ import { planMobVisual } from '../src/domain/mob-visual'
 import { buildPostProcessingChain, QUALITY_PRESETS } from '../src/domain/post-processing'
 import { planWitherSkullVisual, planWitherVisual } from '../src/domain/wither-visual'
 import { makeThreeWeatherPrecipitation } from '../src/application/three-weather-runtime'
-import type { ThreeScene } from '../src/application/three-surface'
+import type { ThreeObject3D, ThreeScene } from '../src/application/three-surface'
 import { angleRadians, blockId, chunkCoord, position } from './support/kernel-brands'
 import { makeAnimationClockInput } from './support/animation-clock'
+
+const requiredWeatherValue = <Value>(value: Value | undefined): Value => {
+  if (typeof value === 'undefined') {
+    throw new Error('expected a weather resource to exist')
+  }
+  return value
+}
+
+const readWeatherResources = (three: ReturnType<typeof makeFakeThree>) => {
+  const [particleGeometry, lightningGeometry] = three.geometries()
+  const [particleMesh, lightningMesh] = three.meshes()
+  const particlePositionAttribute = requiredWeatherValue(particleGeometry?.attributes.get('position'))
+  const lightningPositionAttribute = requiredWeatherValue(lightningGeometry?.attributes.get('position'))
+  return {
+    lightningGeometry: requiredWeatherValue(lightningGeometry),
+    lightningMesh: requiredWeatherValue(lightningMesh),
+    lightningPositionAttribute,
+    particleGeometry: requiredWeatherValue(particleGeometry),
+    particleMesh: requiredWeatherValue(particleMesh),
+    particlePositionAttribute,
+  }
+}
 
 const VIEWPORT = { width: 1280, height: 720 }
 const decodePosition = Schema.decodeUnknownSync(ParticleWorldCoordinateSchema)
@@ -1220,28 +1242,47 @@ describe('canvas weather', () => {
 
       const first = yield* renderer.weather.frame(rain, { x: 10, y: 64, z: -5 })
       expect(first.particles).toHaveLength(2)
-      expect(three.geometries()).toHaveLength(1)
+      // The resource owns a particle buffer and a separately preallocated
+      // lightning buffer; rain keeps the latter attached but hidden.
+      expect(three.geometries()).toHaveLength(2)
       expect(three.materials()).toHaveLength(2)
-      expect(three.scene().members()).toHaveLength(1)
-      const [geometry] = three.geometries()
-      const positionAttribute = geometry?.attributes.get('position')
-      expect(geometry?.drawRanges()).toStrictEqual([
+      expect(three.scene().members()).toHaveLength(2)
+      const {
+        lightningGeometry,
+        lightningMesh,
+        lightningPositionAttribute,
+        particleGeometry,
+        particleMesh,
+        particlePositionAttribute,
+      } = readWeatherResources(three)
+      expect(particlePositionAttribute.array).toHaveLength(2 * 12 * 3)
+      expect(lightningPositionAttribute.array).toHaveLength(3 * 8 * 2 * 12 * 3)
+      expect(particleMesh.visible).toBe(true)
+      expect(lightningMesh.visible).toBe(false)
+      expect(particleGeometry.drawRanges()).toStrictEqual([
         [0, 0],
         [0, 24],
       ])
-      expect(positionAttribute?.needsUpdate).toBe(true)
+      expect(lightningGeometry.drawRanges()).toStrictEqual([
+        [0, 0],
+        [0, 0],
+      ])
+      expect(particlePositionAttribute.needsUpdate).toBe(true)
 
       yield* renderer.weather.frame(rain, { x: 10, y: 64, z: -5 })
-      expect(three.geometries()).toHaveLength(1)
-      expect(geometry?.attributes.get('position')?.array).toBe(positionAttribute?.array)
-      expect(geometry?.drawRanges().at(-1)).toStrictEqual([0, 24])
+      expect(three.geometries()).toHaveLength(2)
+      expect(particleGeometry.attributes.get('position')?.array).toBe(particlePositionAttribute.array)
+      expect(lightningGeometry.attributes.get('position')?.array).toBe(lightningPositionAttribute.array)
+      expect(particleGeometry.drawRanges().at(-1)).toStrictEqual([0, 24])
+      expect(lightningGeometry.drawRanges().at(-1)).toStrictEqual([0, 0])
 
       yield* renderer.resize(800, 600)
       yield* renderer.weather.frame(
         { ...rain, mode: 'clear' as const },
         { x: 10, y: 64, z: -5 },
       )
-      expect(geometry?.disposed()).toBe(true)
+      expect(particleGeometry.disposed()).toBe(true)
+      expect(lightningGeometry.disposed()).toBe(true)
       expect(three.materials()[1]?.disposed()).toBe(true)
       expect(three.scene().members()).toStrictEqual([])
     }),
@@ -1264,7 +1305,7 @@ describe('canvas weather', () => {
       )
 
       yield* renderer.dispose
-      expect(three.geometries()[0]?.disposed()).toBe(true)
+      expect(three.geometries().map((geometry) => geometry.disposed())).toStrictEqual([true, true])
       expect(three.scene().members()).toStrictEqual([])
     }),
   )
@@ -1369,18 +1410,18 @@ describe('three-weather-runtime: direct precipitation resource construction', ()
   it.effect('dispose is idempotent: a second dispose does not re-release the scene', () =>
     Effect.gen(function* () {
       // Guards `three-weather-runtime.ts`'s `if (disposed) {return}` in
-      // `dispose`. Without it, a second dispose would call `scene.remove`
-      // again -- harmless on the real fake (which already tolerates removing
-      // an absent member), so the count on `remove` itself, not `members()`,
-      // is what actually distinguishes "guarded" from "not".
+      // `dispose`. The resource owns both the particle mesh and the lightning
+      // mesh, so the first dispose removes two distinct objects exactly once.
       const three = makeFakeThree()
       const scene = new three.Scene()
       let removeCalls = 0
+      const removedObjects: Array<ThreeObject3D> = []
       const originalRemove = scene.remove
       const countingScene: ThreeScene = {
         add: scene.add,
         remove: (object) => {
           removeCalls += 1
+          removedObjects.push(object)
           originalRemove(object)
         },
       }
@@ -1390,12 +1431,18 @@ describe('three-weather-runtime: direct precipitation resource construction', ()
         scene: countingScene,
         three,
       })
+      const ownedMeshes = [...three.meshes()]
+      expect(ownedMeshes).toHaveLength(2)
+      expect(three.scene().members()).toHaveLength(2)
 
       yield* resource.dispose
-      expect(removeCalls).toBe(1)
+      expect(removeCalls).toBe(2)
+      expect(removedObjects).toStrictEqual(ownedMeshes)
+      expect(three.geometries().map((geometry) => geometry.disposed())).toStrictEqual([true, true])
+      expect(three.scene().members()).toStrictEqual([])
 
       yield* resource.dispose
-      expect(removeCalls).toBe(1)
+      expect(removeCalls).toBe(2)
     }),
   )
 

@@ -29,6 +29,7 @@ import {
   measureBrowserStage,
   restoreBrowserWaterVisibility,
   resolveBrowserBloomStrength,
+  resolveBrowserColorFilterInput,
   resolveBrowserGodRaySamples,
   resolveBrowserMaxPixelRatio,
   resolveBrowserPixelRatio,
@@ -327,6 +328,34 @@ describe('browser render policy', () => {
     expect(browserPostProcessingChain(QUALITY_PRESETS.medium).map((step) => step.pass)).not.toContain('composite')
     expect(browserPostProcessingChain(QUALITY_PRESETS.high).map((step) => step.pass)).toContain('composite')
     expect(browserPostProcessingChain(QUALITY_PRESETS.ultra).map((step) => step.pass)).toContain('composite')
+  })
+
+  it('adds color correction only for an active filter and rejects malformed inputs', () => {
+    const disabled = browserPostProcessingChain(QUALITY_PRESETS.low).map(({ pass }) => pass)
+    const active = browserPostProcessingChain(QUALITY_PRESETS.low, {
+      colorVisionCorrection: 'tritanopia',
+      underwater: false,
+    }).map(({ pass }) => pass)
+    expect(disabled).not.toContain('colorCorrection')
+    expect(active.indexOf('colorCorrection')).toBeGreaterThan(active.indexOf('composite'))
+    expect(active.indexOf('colorCorrection')).toBeLessThan(active.indexOf('output'))
+    expect(expectSuccess(resolveBrowserColorFilterInput({
+      colorVisionCorrection: 'protanopia',
+      underwater: true,
+    }))).toStrictEqual({ colorVisionCorrection: 'protanopia', underwater: true })
+    expect(expectFailure(resolveBrowserColorFilterInput({
+      colorVisionCorrection: 'invalid',
+      underwater: false,
+    }))).toStrictEqual({
+      _tag: 'BrowserRenderPolicyError',
+      operation: 'color-filter',
+      reason: 'invalid-input',
+    })
+    expect(expectFailure(resolveBrowserColorFilterInput({
+      colorVisionCorrection: 'off',
+      underwater: 1,
+      extra: true,
+    }))).toMatchObject({ operation: 'color-filter', reason: 'invalid-input' })
   })
 
   it('builds valid shader descriptors and selects enabled composite effects', () => {

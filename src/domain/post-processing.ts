@@ -76,6 +76,11 @@
  * So a chain is a list of `PostProcessingStep`, and every step says what it
  * DOES as well as where it goes.
  */
+import {
+  type ColorFilterInput,
+  DEFAULT_COLOR_FILTER_INPUT,
+  isColorFilterActive,
+} from './color-correction.js'
 
 /**
  * Every pass the chain can contain, in canonical order.
@@ -91,6 +96,7 @@ export const POST_PROCESSING_PASS_ORDER = [
   'bloom',
   'bokeh',
   'composite',
+  'colorCorrection',
   'smaa',
   'output',
 ] as const
@@ -201,9 +207,9 @@ export type ComposerRenderTarget = 'ldr' | 'hdr'
  * The reference's real preset table also carries shadow and sky settings.
  * The post-FX fields, refraction scheduling and browser pixel-ratio cap are
  * reproduced here because this package owns those execution paths. Shadow
- * resolution and view distance stay outside this package until a renderer
- * owner exists for them. Two omitted fields are worth recording because they
- * are ordering-adjacent rather than cosmetic:
+ * resolution stays outside this package until a renderer owner exists for it.
+ * View distance is handled by chunk culling. Two omitted fields are worth
+ * recording because they are ordering-adjacent rather than cosmetic:
  *
  *   - `composerRtType` flips from THREE.UnsignedByteType (1009) on low/medium
  *     to THREE.HalfFloatType (1016) on high/ultra, because bloom needs an HDR
@@ -419,10 +425,14 @@ const OPTIONAL_INDIVIDUAL_PASSES: ReadonlyArray<{
 
 /** The composite pass, then SMAA — both single steps gated on their own flag. */
 const TRAILING_PASSES: ReadonlyArray<{
-  readonly isEnabled: (quality: GraphicsQuality, composite: boolean) => boolean
+  readonly isEnabled: (quality: GraphicsQuality, composite: boolean, colorFilter: ColorFilterInput) => boolean
   readonly toStep: (quality: GraphicsQuality) => PostProcessingStep
 }> = [
   { isEnabled: (_quality, composite) => composite, toStep: buildCompositeStep },
+  {
+    isEnabled: (_quality, _composite, colorFilter) => isColorFilterActive(colorFilter),
+    toStep: () => step('colorCorrection'),
+  },
   { isEnabled: (quality) => quality.smaaEnabled, toStep: () => step('smaa') },
 ]
 
@@ -438,13 +448,14 @@ const TRAILING_PASSES: ReadonlyArray<{
  */
 export const buildPostProcessingChain = (
   quality: GraphicsQuality,
+  colorFilter: ColorFilterInput = DEFAULT_COLOR_FILTER_INPUT,
 ): ReadonlyArray<PostProcessingStep> => {
   const composite = isCompositeActive(quality)
   const optionalSteps = OPTIONAL_INDIVIDUAL_PASSES.filter((optional) =>
     optional.isEnabled(quality, composite),
   ).map((optional) => step(optional.pass))
   const trailingSteps = TRAILING_PASSES.filter((trailing) =>
-    trailing.isEnabled(quality, composite),
+    trailing.isEnabled(quality, composite, colorFilter),
   ).map((trailing) => trailing.toStep(quality))
 
   return [step('render'), ...optionalSteps, ...trailingSteps, step('output')]

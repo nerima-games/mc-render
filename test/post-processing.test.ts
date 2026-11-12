@@ -15,6 +15,8 @@
  */
 import { describe, expect, it } from '@effect/vitest'
 import { Effect } from 'effect'
+import * as FastCheck from 'fast-check'
+import { COLOR_VISION_CORRECTIONS } from '../src/domain/color-correction'
 import {
   buildPostProcessingChain,
   chainEffects,
@@ -60,6 +62,7 @@ describe('the canonical order', () => {
         'bloom',
         'bokeh',
         'composite',
+        'colorCorrection',
         'smaa',
         'output',
       ])
@@ -101,7 +104,7 @@ describe('the canonical order', () => {
 
   it.effect('GTAO runs before every colour effect, while depth and normals are still raw', () =>
     Effect.sync(() => {
-      for (const later of ['godRays', 'bloom', 'bokeh', 'composite', 'smaa', 'output'] as const) {
+      for (const later of ['godRays', 'bloom', 'bokeh', 'composite', 'colorCorrection', 'smaa', 'output'] as const) {
         expect(passOrderIndex('gtao')).toBeLessThan(passOrderIndex(later))
       }
     }),
@@ -113,6 +116,7 @@ describe('the canonical order', () => {
       // "Inserted AFTER the individual passes ... and BEFORE SMAA so
       // anti-aliasing operates on the final composited image."
       expect(passOrderIndex('composite')).toBeLessThan(passOrderIndex('smaa'))
+      expect(passOrderIndex('colorCorrection')).toBeLessThan(passOrderIndex('smaa'))
       expect(passOrderIndex('smaa')).toBe(passOrderIndex('output') - 1)
     }),
   )
@@ -185,6 +189,43 @@ describe('buildPostProcessingChain', () => {
         const effects = chainEffects(chain)
         expect(new Set(effects).size, `mask ${String(mask)}`).toBe(effects.length)
       }
+    }),
+  )
+
+  it.effect('places the enabled color correction before SMAA and after the other color passes', () =>
+    Effect.sync(() => {
+      const chain = buildPostProcessingChain(QUALITY_PRESETS.ultra, {
+        colorVisionCorrection: 'deuteranopia',
+        underwater: true,
+      })
+      expect(chainPasses(chain)).toStrictEqual([
+        'render',
+        'gtao',
+        'composite',
+        'colorCorrection',
+        'smaa',
+        'output',
+      ])
+      expect(validatePostProcessingChain(chainPasses(chain))).toStrictEqual([])
+    }),
+  )
+
+  it.effect('property: emits color correction exactly when an input filter is active', () =>
+    Effect.sync(() => {
+      FastCheck.assert(
+        FastCheck.property(
+          FastCheck.constantFrom(...COLOR_VISION_CORRECTIONS),
+          FastCheck.boolean(),
+          FastCheck.constantFrom(...Object.values(QUALITY_PRESETS)),
+          (colorVisionCorrection, underwater, quality) => {
+            const passes = chainPasses(buildPostProcessingChain(quality, { colorVisionCorrection, underwater }))
+            const expectedActive = underwater || colorVisionCorrection !== 'off'
+            return passes.includes('colorCorrection') === expectedActive &&
+              validatePostProcessingChain(passes).length === 0
+          },
+        ),
+        { numRuns: 200 },
+      )
     }),
   )
 })
@@ -364,7 +405,7 @@ describe('validatePostProcessingChain', () => {
       // Any subset of the optional passes, kept in order and wrapped in
       // render/output, must be legal — otherwise a future quality preset would
       // be unable to express itself.
-      const optional: ReadonlyArray<PostProcessingPass> = ['gtao', 'godRays', 'bloom', 'bokeh', 'smaa']
+      const optional: ReadonlyArray<PostProcessingPass> = ['gtao', 'godRays', 'bloom', 'bokeh', 'colorCorrection', 'smaa']
       for (let mask = 0; mask < 1 << optional.length; mask += 1) {
         const middle = optional.filter((_, index) => (mask & (1 << index)) !== 0)
         expect(isCanonicalChain(['render', ...middle, 'output']), `mask ${String(mask)}`).toBe(true)

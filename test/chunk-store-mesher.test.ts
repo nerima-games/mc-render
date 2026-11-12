@@ -1,5 +1,13 @@
 import { describe, expect, it } from '@effect/vitest'
-import { BLOCK_IDS, BlockAxis, BlockId, LocalAxis, propertyOfBlockId, type ChunkCoord } from '@nerima-games/mc-kernel'
+import {
+  BLOCK_IDS,
+  BlockAxis,
+  BlockId,
+  LocalAxis,
+  RenderDistanceChunks,
+  propertyOfBlockId,
+  type ChunkCoord,
+} from '@nerima-games/mc-kernel'
 import type { Chunk, ReadonlyChunk } from '@nerima-games/mc-worldgen'
 import { emptyBlocks, setBlockAt, type SubscriberId } from '@nerima-games/mc-worldgen/testing'
 import { Effect, Ref, Result } from 'effect'
@@ -12,6 +20,8 @@ import {
   type MeshingChunkStore,
   type RendererChunkStore,
 } from '../src/application/chunk-store-mesher'
+import type { ChunkMeshingWorkerPayload, ChunkMeshingWorkerResult } from '../src/application/chunk-meshing-worker'
+import type { WorkerPool } from '../src/application/worker-pool'
 import { makeWorldRenderer } from '../src/application/world-renderer'
 import { aoShade } from '../src/domain/chunk-geometry'
 import { FAKE_CANVAS, makeFakeThree } from './support/fake-three'
@@ -78,6 +88,45 @@ describe('makeChunkStoreMesher', () => {
       expect(quads).toHaveLength(12)
       expect(quads?.fluids?.length).toBeGreaterThan(0)
       expect(new Set(quads?.fluids?.map(({ blockId }) => blockId))).toEqual(new Set([6]))
+    }),
+  )
+
+  it.effect('selects worker LOD from host distance at the thresholds and their near sides', () =>
+    Effect.gen(function* () {
+      let requested = chunkCoord(0, 0)
+      const store: MeshingChunkStore = {
+        peek: () => Effect.succeed(chunk(requested.cx, requested.cz, [])),
+        neighbours: () => Effect.succeed({}),
+      }
+      const observedLods: Array<number> = []
+      const layers = {
+        crossPlants: [],
+        fluids: [],
+        opaque: [],
+        specialBlocks: [],
+        transparentSolid: [],
+        water: [],
+      }
+      const workerPool: Pick<WorkerPool<ChunkMeshingWorkerPayload, ChunkMeshingWorkerResult>, 'cancel' | 'concurrency' | 'submit'> = {
+        cancel: () => Effect.succeed(0),
+        concurrency: 1,
+        submit: (_key, payload) => {
+          observedLods.push(payload.lod)
+          return Effect.succeed({ _tag: 'completed', result: { _tag: 'meshed', layers } })
+        },
+      }
+      const mesher = makeChunkStoreMesher(store, KERNEL_MESH_CONFIG, {
+        cameraChunk: () => chunkCoord(0, 0),
+        renderDistance: RenderDistanceChunks(4),
+        workerPool,
+      })
+
+      for (const distance of [1, 2, 3, 4]) {
+        requested = chunkCoord(distance, 0)
+        yield* mesher(requested)
+      }
+
+      expect(observedLods).toStrictEqual([0, 1, 1, 2])
     }),
   )
 

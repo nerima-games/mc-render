@@ -13,7 +13,7 @@
  * as nothing, and so reads as "the world generator only made one chunk".
  */
 import { describe, expect, it } from '@effect/vitest'
-import { Effect, Ref, Result, Schema } from 'effect'
+import { Effect, Fiber, Ref, Result, Schema } from 'effect'
 import * as FastCheck from 'fast-check'
 import { BLOCK_IDS, BlockAxis, LocalAxis } from '@nerima-games/mc-kernel'
 import type { Chunk } from '@nerima-games/mc-worldgen'
@@ -122,6 +122,60 @@ describe('chunkOrigin', () => {
 })
 
 describe('syncWorld', () => {
+  it.effect('runs worker-backed meshers concurrently up to their advertised pool width', () =>
+    Effect.gen(function* () {
+      const three = makeFakeThree()
+      const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT)
+      const source = yield* scriptedSource([{ changed: [chunkCoord(0, 0), chunkCoord(1, 0), chunkCoord(2, 0)], removed: [] }])
+      const started: Array<number> = []
+      const releases: Array<() => void> = []
+      const mesher = Object.assign(
+        (chunk: ChunkRef) => Effect.callback<ReadonlyArray<MeshQuad>>((resume) => {
+          started.push(chunk.cx)
+          releases.push(() => resume(Effect.succeed([quad()])))
+        }),
+        { concurrency: 2 },
+      )
+
+      const syncing = yield* Effect.forkChild(syncWorld(renderer, source, mesher))
+      yield* Effect.yieldNow
+      expect(started).toStrictEqual([0, 1])
+
+      const [releaseFirst] = releases
+      if (releaseFirst === undefined) {
+        throw new Error('expected the first worker task to have a release callback')
+      }
+      releaseFirst()
+      yield* Effect.yieldNow
+      expect(started).toStrictEqual([0, 1, 2])
+
+      for (const release of releases.slice(1)) {
+        release()
+      }
+      yield* Fiber.join(syncing)
+    }),
+  )
+
+  it.effect('cancels work for unloaded chunks before removing their scene entry', () =>
+    Effect.gen(function* () {
+      const three = makeFakeThree()
+      const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT)
+      const chunk = chunkCoord(4, -2)
+      const cancelled: Array<string> = []
+      const mesher = Object.assign(
+        () => Effect.succeed([quad()]),
+        { cancel: (removed: ChunkRef) => Effect.sync(() => { cancelled.push(`${removed.cx},${removed.cz}`) }) },
+      )
+      const source = yield* scriptedSource([{ changed: [], removed: [chunk] }])
+
+      const report = yield* syncWorld(renderer, source, mesher)
+
+      expect(cancelled).toStrictEqual(['4,-2'])
+      expect(report.removed).toBe(1)
+      expect(yield* renderer.chunkKeys).toStrictEqual([])
+    }),
+  )
+
   for (const count of [81, 289, 1089] as const) {
     it.effect(`keeps ${String(count)} changed chunks within one registry commit`, () =>
       Effect.gen(function* () {

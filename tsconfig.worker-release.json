@@ -1,0 +1,14 @@
+{
+  // The worker entry gets WebWorker globals without adding them to the package's
+  // DOM-free shared project.
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2024", "WebWorker"],
+    "types": [],
+    "noEmit": false,
+    "rootDir": "src",
+    "outDir": "dist"
+  },
+  "include": ["src/workers/chunk-meshing.worker.mts"],
+  "exclude": ["node_modules", "coverage", "dist", "test/**", "scripts/**"]
+}

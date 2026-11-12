@@ -14,10 +14,11 @@
  * is returned to the idle set even when its result was discarded.
  */
 import { describe, expect, it } from '@effect/vitest'
-import { Effect, Fiber } from 'effect'
+import { Effect, Fiber, Result, Schema } from 'effect'
 import {
   DEFAULT_MAX_QUEUED,
   makeWorkerPool as makeWorkerPoolWithRunner,
+  WorkerPoolFailureSchema,
   type WorkerPoolOptions,
   type WorkerPort,
   type WorkerRequest,
@@ -144,6 +145,21 @@ describe('dispatch', () => {
       expect(stats.busy).toBe(3)
       expect(stats.queued).toBe(1)
       expect(pool_workers.map((worker) => worker.received().length)).toStrictEqual([1, 1, 1])
+    }),
+  )
+
+  it.effect('keeps simultaneous work at the configured worker count', () =>
+    Effect.gen(function* () {
+      const pool_workers = workers(2)
+      const pool = yield* makeWorkerPool(pool_workers)
+      for (const key of ['a', 'b', 'c', 'd', 'e']) {
+        yield* Effect.forkChild(pool.submit(key, { chunk: key }))
+      }
+      yield* settle
+
+      expect(pool.concurrency).toBe(2)
+      expect((yield* pool.stats)).toMatchObject({ busy: 2, queued: 3 })
+      expect(pool_workers.map((worker) => worker.received().length)).toStrictEqual([1, 1])
     }),
   )
 
@@ -347,6 +363,27 @@ describe('backpressure', () => {
   )
 })
 
+describe('pool input failures', () => {
+  it.effect('returns typed failures for no workers and invalid queue bounds', () =>
+    Effect.gen(function* () {
+      const noWorkers = yield* Effect.result(makeWorkerPool<Payload, Result>([]))
+      const invalidQueue = yield* Effect.result(makeWorkerPool(workers(1), { maxQueued: 0 }))
+
+      expect(noWorkers).toStrictEqual(Result.fail({
+        _tag: 'WorkerPoolFailure',
+        reason: 'no-worker-ports',
+      }))
+      expect(invalidQueue).toStrictEqual(Result.fail({
+        _tag: 'WorkerPoolFailure',
+        reason: 'invalid-max-queued',
+      }))
+      if (Result.isFailure(noWorkers)) {
+        expect(Result.isSuccess(Schema.decodeUnknownResult(WorkerPoolFailureSchema)(noWorkers.failure))).toBe(true)
+      }
+    }),
+  )
+})
+
 describe('worker failure', () => {
   it.effect('fails the current job and replaces the failed worker', () =>
     Effect.gen(function* () {
@@ -365,7 +402,7 @@ describe('worker failure', () => {
 
       expect(yield* Fiber.join(failed)).toStrictEqual({
         _tag: 'failed',
-        error: expect.any(Error),
+        error: { _tag: 'WorkerPoolFailure', reason: 'worker-failed', workerIndex: 0, message: 'worker exited' },
       })
       expect(failedWorker.terminated()).toBe(true)
       expect(yield* pool.stats).toMatchObject({ failed: 1, restarted: 1, deadWorkers: 0 })
@@ -397,7 +434,10 @@ describe('worker failure', () => {
       worker.fail(new Error('replacement is the failed worker'))
       yield* settle
 
-      expect(yield* Fiber.join(failed)).toStrictEqual({ _tag: 'failed', error: expect.any(Error) })
+      expect(yield* Fiber.join(failed)).toMatchObject({
+        _tag: 'failed',
+        error: { _tag: 'WorkerPoolFailure', reason: 'worker-failed', workerIndex: 0 },
+      })
       expect(yield* pool.stats).toMatchObject({ failed: 1, restarted: 0, deadWorkers: 1 })
     }),
   )
@@ -423,8 +463,14 @@ describe('worker failure', () => {
       worker.fail(workerFailure)
       yield* settle
 
-      expect(yield* Fiber.join(running)).toStrictEqual({ _tag: 'failed', error: workerFailure })
-      expect(yield* Fiber.join(queued)).toStrictEqual({ _tag: 'failed', error: replacementFailure })
+      expect(yield* Fiber.join(running)).toMatchObject({
+        _tag: 'failed',
+        error: { _tag: 'WorkerPoolFailure', reason: 'worker-failed', workerIndex: 0, message: workerFailure.message },
+      })
+      expect(yield* Fiber.join(queued)).toMatchObject({
+        _tag: 'failed',
+        error: { _tag: 'WorkerPoolFailure', reason: 'replacement-failed', workerIndex: 0, message: replacementFailure.message },
+      })
       expect(yield* pool.stats).toMatchObject({ failed: 2, restarted: 0, deadWorkers: 1, queued: 0 })
     }),
   )
@@ -443,8 +489,14 @@ describe('worker failure', () => {
       worker.fail(new Error('worker exited'))
       yield* settle
 
-      expect(yield* Fiber.join(running)).toStrictEqual({ _tag: 'failed', error: expect.any(Error) })
-      expect(yield* Fiber.join(queued)).toStrictEqual({ _tag: 'failed', error: expect.any(Error) })
+      expect(yield* Fiber.join(running)).toMatchObject({
+        _tag: 'failed',
+        error: { _tag: 'WorkerPoolFailure', reason: 'worker-failed', workerIndex: 0 },
+      })
+      expect(yield* Fiber.join(queued)).toMatchObject({
+        _tag: 'failed',
+        error: { _tag: 'WorkerPoolFailure', reason: 'worker-failed', workerIndex: 0 },
+      })
       expect(yield* pool.stats).toMatchObject({ failed: 2, restarted: 0, deadWorkers: 1, queued: 0 })
     }),
   )
@@ -473,7 +525,7 @@ describe('worker failure', () => {
 
       expect(yield* Fiber.join(onFailedWorker)).toStrictEqual({
         _tag: 'failed',
-        error: expect.any(Error),
+        error: { _tag: 'WorkerPoolFailure', reason: 'worker-failed', workerIndex: 0, message: 'worker exited' },
       })
       expect(yield* pool.stats).toMatchObject({ failed: 1, restarted: 1, busy: 1 })
 

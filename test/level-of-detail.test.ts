@@ -41,7 +41,13 @@ import {
   type LodThresholds,
 } from '../src/domain/level-of-detail'
 import { CHUNK_SIZE, LOD_LEVELS, STEP_FOR_LOD, type LodLevel } from '@nerima-games/mc-meshing'
-import { CAMERA_FOV_DEGREES } from '../src/application/world-renderer'
+import { chunkKeyOf, MAX_RENDER_DISTANCE, MIN_RENDER_DISTANCE } from '@nerima-games/mc-kernel'
+import {
+  CAMERA_FOV_DEGREES,
+  chunkWithinRenderDistance,
+  RenderDistanceCullingErrorSchema,
+} from '../src/application/world-renderer'
+import { position } from './support/kernel-brands'
 
 const arbitraryLevel: FastCheck.Arbitrary<LodLevel> = FastCheck.constantFrom(...LOD_LEVELS)
 
@@ -299,6 +305,19 @@ describe('lodForDistance', () => {
     }),
   )
 
+  it.effect('switches the ratio thresholds inclusively and one chunk outside them', () =>
+    Effect.sync(() => {
+      const thresholds = thresholdsFor(6)
+      expect(thresholds).toStrictEqual({ lod1: 3, lod2: 6 })
+      expect([lod(2, thresholds), lod(3, thresholds), lod(5, thresholds), lod(6, thresholds)]).toStrictEqual([
+        0,
+        1,
+        1,
+        2,
+      ])
+    }),
+  )
+
   it.effect('returns a strict schema-valid failure for invalid distances', () =>
     Effect.sync(() => {
       FastCheck.assert(
@@ -381,6 +400,58 @@ describe('lodForDistance', () => {
         ),
         { seed: 0, numRuns: 300 },
       )
+    }),
+  )
+})
+
+describe('chunkWithinRenderDistance', () => {
+  it.effect('includes the square edge and excludes the first chunk beyond it', () =>
+    Effect.sync(() => {
+      const camera = position(0, 64, 0)
+      expect(chunkWithinRenderDistance(chunkKeyOf(chunk(2, -2)), camera, 2)).toStrictEqual(Result.succeed(true))
+      expect(chunkWithinRenderDistance(chunkKeyOf(chunk(3, -2)), camera, 2)).toStrictEqual(Result.succeed(false))
+    }),
+  )
+
+  it.effect('matches Chebyshev chunk distance for generated positions', () =>
+    Effect.sync(() => {
+      FastCheck.assert(
+        FastCheck.property(
+          FastCheck.integer({ min: -32, max: 32 }),
+          FastCheck.integer({ min: -32, max: 32 }),
+          FastCheck.integer({ min: MIN_RENDER_DISTANCE, max: MAX_RENDER_DISTANCE }),
+          FastCheck.integer({ min: -32, max: 32 }),
+          FastCheck.integer({ min: -32, max: 32 }),
+          (cameraCx, cameraCz, renderDistance, chunkCx, chunkCz) => {
+            const cameraPosition = position(
+              cameraCx * CHUNK_SIZE + CHUNK_SIZE / 2,
+              64,
+              cameraCz * CHUNK_SIZE + CHUNK_SIZE / 2,
+            )
+            const result = chunkWithinRenderDistance(
+              chunkKeyOf(chunk(chunkCx, chunkCz)),
+              cameraPosition,
+              renderDistance,
+            )
+            expectSuccess(result)
+            expect(result.success).toBe(
+              Math.max(Math.abs(chunkCx - cameraCx), Math.abs(chunkCz - cameraCz)) <= renderDistance,
+            )
+          },
+        ),
+        { seed: 0, numRuns: 200 },
+      )
+    }),
+  )
+
+  it.effect('returns a schema-valid typed failure just outside the setting bounds', () =>
+    Effect.sync(() => {
+      for (const renderDistance of [MIN_RENDER_DISTANCE - 1, MAX_RENDER_DISTANCE + 1]) {
+        const result = chunkWithinRenderDistance(chunkKeyOf(chunk(0, 0)), position(0, 64, 0), renderDistance)
+        expectFailure(result)
+        expect(result.failure.reason).toBe('invalid-render-distance')
+        expectSuccess(Schema.decodeUnknownResult(RenderDistanceCullingErrorSchema)(result.failure))
+      }
     }),
   )
 })

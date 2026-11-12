@@ -195,6 +195,16 @@ describe('the vertex stage', () => {
       expect(waterFragmentShader()).toContain('gl_FrontFacing')
     }),
   )
+
+  it.effect('tints the underwater-facing water surface through the existing fragment path', () =>
+    Effect.sync(() => {
+      const source = waterFragmentShader()
+      expect(source).toContain('vec3 underwaterBody = body * vec3(0.62, 0.82, 1.0)')
+      expect(source).toContain('float underwaterSurface = gl_FrontFacing ? 0.0 : 1.0')
+      expect(source).toContain('vec3 filteredBody = mix(body, underwaterBody, underwaterSurface)')
+      expect(source).toContain('return vec4(filteredBody * sun')
+    }),
+  )
 })
 
 describe('the CPU functions the shader mirrors', () => {

@@ -3,6 +3,7 @@ import {
   type RenderEnvironmentPlan,
   planRenderEnvironment,
 } from './render-environment.js'
+import { type LightningBoltPlan, planLightningBolt } from './lightning-bolt.js'
 import type { Dimension } from '@nerima-games/mc-kernel'
 
 export type WeatherMode = 'clear' | 'rain' | 'thunder' | 'snow'
@@ -49,6 +50,7 @@ export type WeatherRenderState = {
   readonly frame: number
   readonly lightningFramesRemaining: number
   readonly lastLightningSequence?: number | undefined
+  readonly lightningOrigin: WeatherCameraPosition | undefined
 }
 
 export type WeatherRenderPlan = {
@@ -58,6 +60,7 @@ export type WeatherRenderPlan = {
   readonly environment: RenderEnvironmentPlan
   readonly brightness: number
   readonly lightningFlash: number
+  readonly lightningBolt: LightningBoltPlan | undefined
 }
 
 export type WeatherFrameOptions = {
@@ -77,6 +80,7 @@ export type PlannedWeatherFrame = {
 export const INITIAL_WEATHER_RENDER_STATE: WeatherRenderState = {
   frame: 0,
   lightningFramesRemaining: 0,
+  lightningOrigin: undefined,
 }
 
 /** The `[0, 1]` range `clamp01` clamps into. */
@@ -348,6 +352,26 @@ type PlanWeatherFrameInput = {
   readonly snapshot: WorldWeatherSnapshot
 }
 
+type WeatherFrameEnvironmentInput = Readonly<{
+  readonly options: WeatherFrameOptions
+  readonly intensity: number
+  readonly lightningFlash: number
+  readonly snapshot: WorldWeatherSnapshot
+}>
+
+const weatherFrameEnvironment = ({
+  options,
+  intensity,
+  lightningFlash,
+  snapshot,
+}: WeatherFrameEnvironmentInput): RenderEnvironmentPlan =>
+  weatherEnvironment({
+    farPlane: options.farPlane ?? DEFAULT_ENVIRONMENT_FAR_PLANE,
+    intensity,
+    lightningFlash,
+    snapshot,
+  })
+
 const lightningSequenceChanged = (snapshot: WorldWeatherSnapshot, previous: WeatherRenderState): boolean =>
   snapshot.mode === 'thunder' &&
   typeof snapshot.lightningSequence !== 'undefined' &&
@@ -379,6 +403,32 @@ const DEFAULT_PARTICLE_CAPACITY = 96
 const DEFAULT_PRECIPITATION_RADIUS = 12
 const DEFAULT_PRECIPITATION_HEIGHT = 18
 const FRAME_STEP = 1
+const LIGHTNING_TARGET_BELOW_CAMERA = 2
+const LIGHTNING_X_SEED_SALT = 0x35a8f4d
+const LIGHTNING_Z_SEED_SALT = 0x4c13b27
+
+type LightningOriginInput = {
+  readonly camera: WeatherCameraPosition
+  readonly previous: WeatherRenderState
+  readonly radius: number
+  readonly snapshot: WorldWeatherSnapshot
+}
+
+const resolveLightningOrigin = ({ camera, previous, radius, snapshot }: LightningOriginInput):
+  WeatherCameraPosition | undefined => {
+  if (snapshot.mode !== 'thunder' || typeof snapshot.lightningSequence === 'undefined') {
+    return previous.lightningOrigin
+  }
+  if (!lightningSequenceChanged(snapshot, previous) && typeof previous.lightningOrigin !== 'undefined') {
+    return previous.lightningOrigin
+  }
+  const seed = safeInteger(snapshot.seed)
+  return worldPosition(
+    camera.x + (random01(seed ^ LIGHTNING_X_SEED_SALT) * BIPOLAR_SCALE - UNIT_INTERVAL_MAX) * radius,
+    camera.y - LIGHTNING_TARGET_BELOW_CAMERA,
+    camera.z + (random01(seed ^ LIGHTNING_Z_SEED_SALT) * BIPOLAR_SCALE - UNIT_INTERVAL_MAX) * radius,
+  )
+}
 
 type ParticleSizing = {
   readonly capacity: number
@@ -391,6 +441,28 @@ const resolveParticleSizing = (options: WeatherFrameOptions): ParticleSizing => 
   height: Math.max(MIN_NONNEGATIVE, options.precipitationHeight ?? DEFAULT_PRECIPITATION_HEIGHT),
   radius: Math.max(MIN_NONNEGATIVE, options.precipitationRadius ?? DEFAULT_PRECIPITATION_RADIUS),
 })
+
+type LightningBoltForFrameInput = Readonly<{
+  readonly origin: WeatherCameraPosition | undefined
+  readonly snapshot: WorldWeatherSnapshot
+  readonly lightningFlash: number
+}>
+
+const lightningBoltForFrame = ({
+  lightningFlash,
+  origin,
+  snapshot,
+}: LightningBoltForFrameInput): LightningBoltPlan | undefined => {
+  if (snapshot.mode !== 'thunder' || lightningFlash <= NO_LIGHTNING_FRAMES ||
+    typeof snapshot.lightningSequence === 'undefined' || typeof origin === 'undefined') {
+    return undefined
+  }
+  return planLightningBolt({
+    origin,
+    seed: snapshot.seed,
+    sequence: snapshot.lightningSequence,
+  })
+}
 
 /** Plan one deterministic weather frame without touching THREE, DOM, or WebGL. */
 export const planWeatherFrame = ({
@@ -408,12 +480,14 @@ export const planWeatherFrame = ({
   const lightningFlash = framesRemaining / duration
   const precipitation = precipitationFor(snapshot, options.snowTemperature ?? DEFAULT_SNOW_TEMPERATURE)
   const { capacity, radius, height } = resolveParticleSizing(options)
-  const farPlane = options.farPlane ?? DEFAULT_ENVIRONMENT_FAR_PLANE
-  const environment = weatherEnvironment({ farPlane, intensity, lightningFlash, snapshot })
+  const environment = weatherFrameEnvironment({ intensity, lightningFlash, options, snapshot })
+  const lightningOrigin = resolveLightningOrigin({ camera, previous, radius, snapshot })
+  const lightningBolt = lightningBoltForFrame({ lightningFlash, origin: lightningOrigin, snapshot })
   return {
     plan: {
       brightness: environment.sunIntensity,
       environment,
+      lightningBolt,
       lightningFlash,
       mode: snapshot.mode,
       particles: precipitationParticles({
@@ -432,6 +506,7 @@ export const planWeatherFrame = ({
       frame: previous.frame + FRAME_STEP,
       lastLightningSequence: snapshot.lightningSequence ?? previous.lastLightningSequence,
       lightningFramesRemaining: framesRemaining,
+      lightningOrigin,
     },
   }
 }

@@ -63,6 +63,37 @@ describe('weather renderer resource lifecycle', () => {
     }),
   )
 
+  it.effect('forwards active strikes and hides their geometry after the flash expires', () =>
+    Effect.gen(function* () {
+      const boltSequences: Array<number | undefined> = []
+      const flashes: Array<number> = []
+      const renderer = yield* makeWeatherRenderer({
+        setEnvironment: () => Effect.void,
+        createPrecipitation: () => Effect.succeed({
+          update: () => Effect.void,
+          updateLightning: (bolt, flash) => Effect.sync(() => {
+            boltSequences.push(bolt?.sequence)
+            flashes.push(flash)
+          }),
+          resize: () => Effect.void,
+          dispose: Effect.void,
+        }),
+      }, { lightningDurationFrames: 1 })
+      const thunder = { ...snapshot('thunder'), lightningSequence: 11 }
+
+      const activePlan = yield* renderer.frame(thunder, camera)
+      const expiredPlan = yield* renderer.frame(thunder, camera)
+      expect(activePlan.lightningBolt?.sequence).toBe(11)
+      expect(expiredPlan.lightningBolt).toBeUndefined()
+      expect(boltSequences).toStrictEqual([11, undefined])
+      expect(flashes).toStrictEqual([1, 0])
+
+      yield* renderer.frame(snapshot('clear'), camera)
+      expect(boltSequences).toStrictEqual([11, undefined])
+      yield* renderer.dispose
+    }),
+  )
+
   it.effect('disposes rain before acquiring snow and restores initial state on stop', () =>
     Effect.gen(function* () {
       const events: Array<string> = []
