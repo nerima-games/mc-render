@@ -61,6 +61,7 @@ export type {
   PartialTick,
   TimeOfDayTicks,
 } from './domain/animation-clock.js'
+export * from './domain/entity-render-input.js'
 export type { ChunkAnimationKind } from './domain/chunk-animation-kind.js'
 export * from './domain/block-shapes.js'
 export * from './domain/camera-mirror.js'

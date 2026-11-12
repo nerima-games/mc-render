@@ -64,6 +64,10 @@ export type MobAnimationInput = {
   readonly state: MobAnimationState
   readonly phaseRadians?: number
   readonly progress?: number
+  readonly walkAmount?: number
+  readonly attackProgress?: number
+  readonly hurtProgress?: number
+  readonly deathProgress?: number
 }
 
 export type MobVisualPartPlan = {
@@ -1001,6 +1005,7 @@ const WING_ROTATION_Z_SWING = 0.65
 const BLAZE_ORBIT_PHASE_SCALE = 0.55
 const BLAZE_ORBIT_BOB_INDEX_SCALE = 0.7
 const BLAZE_ORBIT_BOB_AMPLITUDE = 0.08
+const ATTACK_ARM_SWING_AMPLITUDE = Math.PI / QUARTER_TURN_DIVISOR
 
 const DEFAULT_ANIMATION_INPUT: MobAnimationInput = { state: 'idle' }
 
@@ -1011,17 +1016,41 @@ const resolveDefaultProgress = (state: MobAnimationState): number => {
   return NO_PROGRESS
 }
 
+const defaultWalkAmountFor = (state: MobAnimationState): number => {
+  if (state === 'walk') {
+    return FULL_PROGRESS
+  }
+  return NO_PROGRESS
+}
+
+const progressForState = (state: MobAnimationState, activeState: MobAnimationState, progress: number): number => {
+  if (state === activeState) {
+    return progress
+  }
+  return NO_PROGRESS
+}
+
 type AnimationSample = Readonly<Required<MobAnimationInput>>
 
 const resolveAnimationSample = (input: MobAnimationInput): AnimationSample => {
   const phaseRadians = finiteOr(input.phaseRadians, DEFAULT_PHASE_RADIANS)
   const progress = clamp01(finiteOr(input.progress, resolveDefaultProgress(input.state)))
-  return { phaseRadians, progress, state: input.state }
+  const walkAmount = clamp01(finiteOr(input.walkAmount, defaultWalkAmountFor(input.state)))
+  const attackProgress = clamp01(finiteOr(input.attackProgress, NO_PROGRESS))
+  const hurtProgress = clamp01(finiteOr(
+    input.hurtProgress,
+    progressForState(input.state, 'hurt', progress),
+  ))
+  const deathProgress = clamp01(finiteOr(
+    input.deathProgress,
+    progressForState(input.state, 'death', progress),
+  ))
+  return { attackProgress, deathProgress, hurtProgress, phaseRadians, progress, state: input.state, walkAmount }
 }
 
-const strideFor = (state: MobAnimationState, phaseRadians: number): number => {
+const strideFor = (state: MobAnimationState, phaseRadians: number, walkAmount: number): number => {
   if (state === 'walk') {
-    return Math.sin(phaseRadians) * WALK_STRIDE_SCALE
+    return Math.sin(phaseRadians) * WALK_STRIDE_SCALE * walkAmount
   }
   return NO_ROTATION
 }
@@ -1033,19 +1062,9 @@ const idleBobFor = (state: MobAnimationState, phaseRadians: number): number => {
   return AXIS_ORIGIN
 }
 
-const hurtLeanFor = (state: MobAnimationState, progress: number): number => {
-  if (state === 'hurt') {
-    return HURT_LEAN_SCALE * progress
-  }
-  return NO_ROTATION
-}
+const hurtLeanFor = (progress: number): number => HURT_LEAN_SCALE * progress
 
-const deathLeanFor = (state: MobAnimationState, progress: number): number => {
-  if (state === 'death') {
-    return DEATH_LEAN_AT_FULL_PROGRESS * progress
-  }
-  return NO_ROTATION
-}
+const deathLeanFor = (progress: number): number => DEATH_LEAN_AT_FULL_PROGRESS * progress
 
 type MotionOutput = {
   readonly positionX: number
@@ -1060,6 +1079,7 @@ type MotionInputs = {
   readonly phaseRadians: number
   readonly stride: number
   readonly idleBob: number
+  readonly attackSwing: number
 }
 
 type DirectionalMotionInputs = {
@@ -1102,15 +1122,22 @@ const applyBlazeOrbitMotion = (source: MobVisualPartDescriptor, base: MotionOutp
   }
 }
 
+const attackSwingForRole = (role: MobVisualPartRole, attackSwing: number): number => {
+  if (role === 'arm') {
+    return attackSwing
+  }
+  return NO_ROTATION
+}
+
 const applyPartMotion = (source: MobVisualPartDescriptor, base: MotionOutput, motionInputs: MotionInputs): MotionOutput => {
-  const { phaseRadians, stride, idleBob } = motionInputs
+  const { attackSwing, phaseRadians, stride, idleBob } = motionInputs
   switch (source.motion) {
     case 'body':
       return { ...base, positionY: base.positionY + idleBob }
     case 'left_limb':
-      return { ...base, rotationX: stride }
+      return { ...base, rotationX: stride + attackSwingForRole(source.role, attackSwing) }
     case 'right_limb':
-      return { ...base, rotationX: -stride }
+      return { ...base, rotationX: -stride - attackSwingForRole(source.role, attackSwing) }
     case 'left_spider_leg':
       return applySpiderLegMotion(source, base, { direction: LEFT_MOTION_DIRECTION, phaseRadians })
     case 'right_spider_leg':
@@ -1137,10 +1164,20 @@ const applyRootLean = (
 })
 
 type PartPlanContext = {
+  readonly attackSwing: number
   readonly idleBob: number
   readonly phaseRadians: number
   readonly rootLean: number
   readonly stride: number
+}
+
+const partPlanContextFor = (animation: AnimationSample): PartPlanContext => {
+  const { attackProgress, deathProgress, hurtProgress, phaseRadians, state, walkAmount } = animation
+  const stride = strideFor(state, phaseRadians, walkAmount)
+  const idleBob = idleBobFor(state, phaseRadians)
+  const attackSwing = Math.sin(attackProgress * Math.PI) * ATTACK_ARM_SWING_AMPLITUDE
+  const rootLean = hurtLeanFor(hurtProgress) + deathLeanFor(deathProgress)
+  return { attackSwing, idleBob, phaseRadians, rootLean, stride }
 }
 
 const buildPartPlan = (
@@ -1152,7 +1189,7 @@ const buildPartPlan = (
   const motion = applyPartMotion(
     source,
     { positionX: baseX, positionY: baseY, positionZ: baseZ, rotationX: NO_ROTATION, rotationY: NO_ROTATION, rotationZ: NO_ROTATION },
-    { idleBob: context.idleBob, phaseRadians: context.phaseRadians, stride: context.stride },
+    context,
   )
   const { leanedX, leanedY } = applyRootLean(motion.positionX, motion.positionY, context.rootLean)
   return {
@@ -1169,15 +1206,9 @@ const buildPartPlan = (
 export const planMobVisual = (kind: string, input: MobAnimationInput = DEFAULT_ANIMATION_INPUT): MobVisualPlan => {
   const descriptor = mobVisualDescriptor(kind)
   const animation = resolveAnimationSample(input)
-  const { phaseRadians, progress, state } = animation
-  const stride = strideFor(state, phaseRadians)
-  const idleBob = idleBobFor(state, phaseRadians)
-  const hurtLean = hurtLeanFor(state, progress)
-  const deathLean = deathLeanFor(state, progress)
-  const rootLean = hurtLean + deathLean
-
+  const context = partPlanContextFor(animation)
   const parts = descriptor.parts.map((source): MobVisualPartPlan =>
-    buildPartPlan(source, descriptor.scale, { idleBob, phaseRadians, rootLean, stride }),
+    buildPartPlan(source, descriptor.scale, context),
   )
 
   return { animation, descriptorKind: descriptor.kind, parts, temperament: descriptor.temperament }

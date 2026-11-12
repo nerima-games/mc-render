@@ -16,6 +16,7 @@
 import { describe, expect, it } from '@effect/vitest'
 import { Effect, Result, Schema } from 'effect'
 import * as FastCheck from 'fast-check'
+import { EntityRenderFrameInputSchema } from '../src/index'
 import { mirroredCameraState } from '../src/domain/camera-mirror'
 import type { AnimationClockInputError } from '../src/domain/animation-clock'
 import {
@@ -64,8 +65,8 @@ import {
   readSlot,
   spawnBurst as spawnBurstResult,
 } from '../src/domain/particle-pool'
-import { FAKE_CANVAS, makeFakeThree } from './support/fake-three'
-import { END_VOID_COLOR } from '../src/domain/render-environment'
+import { FAKE_CANVAS, makeFakeThree, type FakeMesh } from './support/fake-three'
+import { END_VOID_COLOR, planRenderEnvironment } from '../src/domain/render-environment'
 import { renderEnvironmentPlan } from './support/render-environment'
 import { planMobVisual } from '../src/domain/mob-visual'
 import { buildPostProcessingChain, QUALITY_PRESETS } from '../src/domain/post-processing'
@@ -98,6 +99,16 @@ const readWeatherResources = (three: ReturnType<typeof makeFakeThree>) => {
 }
 
 const VIEWPORT = { width: 1280, height: 720 }
+const entityColorBytes = (mesh: FakeMesh | undefined): ReadonlyArray<number> | undefined => {
+  if (mesh === undefined) {
+    return undefined
+  }
+  const attribute = mesh.geometry.attributes.get('color')
+  if (attribute === undefined || !(attribute.array instanceof Uint8Array)) {
+    return undefined
+  }
+  return Array.from(attribute.array.slice(0, 3))
+}
 const decodePosition = Schema.decodeUnknownSync(ParticleWorldCoordinateSchema)
 const decodeUv = Schema.decodeUnknownSync(ParticleUvCoordinateSchema)
 const decodeCount = Schema.decodeUnknownSync(ParticleBurstCountSchema)
@@ -857,6 +868,172 @@ describe('entity meshes in the scene', () => {
           animation: { state: 'walk', phaseRadians: Math.PI / 2 },
         },
       ])
+    }),
+  )
+
+  it.effect('syncs a validated frame into dimension-filtered body and head pose and attack gait', () =>
+    Effect.gen(function* () {
+      const three = makeFakeThree()
+      const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT)
+      const frame: Schema.Codec.Encoded<typeof EntityRenderFrameInputSchema> = {
+        simulationTick: 37,
+        partialTick: 0.25,
+        timeOfDayTicks: 6000,
+        entities: [
+          {
+            id: 'mob',
+            kind: 'zombie',
+            position: { dimension: 'overworld', x: 4, y: 10, z: -2 },
+            bodyYawRadians: Math.PI / 2,
+            headYawRadians: Math.PI / 4,
+            pitchRadians: Math.PI / 6,
+            blockLight: 7,
+            skyLight: 14,
+            walkPhaseRadians: Math.PI / 2,
+            walkAmount: 0.5,
+            attackProgress: 0.5,
+            hurtProgress: 0,
+            deathProgress: 0,
+          },
+          {
+            id: 'other-dimension',
+            kind: 'cow',
+            position: { dimension: 'nether', x: 80, y: 10, z: -2 },
+            bodyYawRadians: 0,
+            headYawRadians: 0,
+            pitchRadians: 0,
+            blockLight: 0,
+            skyLight: 0,
+            walkPhaseRadians: 0,
+            walkAmount: 0,
+            attackProgress: 0,
+            hurtProgress: 0,
+            deathProgress: 0,
+          },
+        ],
+      }
+
+      yield* renderer.syncEntityFrame(frame)
+
+      expect(yield* renderer.entityCount).toBe(1)
+      expect(yield* renderer.entitySnapshot).toMatchObject([
+        {
+          id: 'mob',
+          kind: 'zombie',
+          dimension: 'overworld',
+          feetPosition: { x: 4, y: 10, z: -2 },
+          bodyYawRadians: Math.PI / 2,
+          headYawRadians: Math.PI / 4,
+          pitchRadians: Math.PI / 6,
+          blockLight: 7,
+          skyLight: 14,
+          animation: {
+            phaseRadians: Math.PI / 2,
+            walkAmount: 0.5,
+            attackProgress: 0.5,
+            hurtProgress: 0,
+            deathProgress: 0,
+          },
+        },
+      ])
+
+      const [head, body, leftArm, rightArm] = three.meshes()
+      expect(head?.positions()[0]).toStrictEqual([4, 11.55, -2])
+      expect(head?.rotations()[0]).toStrictEqual([Math.PI / 6, Math.PI / 4, 0, 'YXZ'])
+      expect(body?.positions()[0]).toStrictEqual([4, 10.95, -2])
+      expect(body?.rotations()[0]).toStrictEqual([0, Math.PI / 2, 0, 'YXZ'])
+      expect(leftArm?.positions()[0]).toStrictEqual([4, 10.95, -1.6])
+      expect(rightArm?.positions()[0]).toStrictEqual([4, 10.95, -2.4])
+      expect(leftArm?.rotations()[0]?.[0]).toBeCloseTo(0.325 + Math.PI / 2, 12)
+      expect(rightArm?.rotations()[0]?.[0]).toBeCloseTo(-0.325 - Math.PI / 2, 12)
+
+      const [mob, otherDimension] = frame.entities
+      if (mob === undefined || otherDimension === undefined) {
+        throw new Error('entity frame fixture is incomplete')
+      }
+      yield* renderer.syncEntityFrame({
+        ...frame,
+        entities: [{ ...mob, hurtProgress: 0.5, deathProgress: 0.25 }, otherDimension],
+      })
+      const expectedHurtAndDeathLean = 0.24 * 0.5 + Math.PI / 2 * 0.25
+      expect(body?.rotations().at(-1)?.[2]).toBeCloseTo(expectedHurtAndDeathLean, 12)
+
+      const invalidClock = yield* Effect.result(renderer.syncEntityFrame({ ...frame, partialTick: 1 }))
+      expect(Result.isFailure(invalidClock)).toBe(true)
+      if (Result.isFailure(invalidClock)) {
+        expect(invalidClock.failure).toStrictEqual({
+          _tag: 'AnimationClockInputError',
+          reason: 'invalid-partial-tick',
+        })
+      }
+      expect(yield* renderer.entityCount).toBe(1)
+      yield* renderer.dispose
+    }),
+  )
+
+  it.effect('applies separate block and sky light to vertex colors and refreshes them with the environment', () =>
+    Effect.gen(function* () {
+      const three = makeFakeThree()
+      const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT, { daylight: 0.5 })
+      const frame: Schema.Codec.Encoded<typeof EntityRenderFrameInputSchema> = {
+        simulationTick: 0,
+        partialTick: 0,
+        timeOfDayTicks: 0,
+        entities: [
+          {
+            id: 'sky-lit',
+            kind: 'zombie',
+            position: { dimension: 'overworld', x: 1, y: 10, z: 1 },
+            bodyYawRadians: 0,
+            headYawRadians: 0,
+            pitchRadians: 0,
+            blockLight: 3,
+            skyLight: 12,
+            walkPhaseRadians: 0,
+            walkAmount: 0,
+            attackProgress: 0,
+            hurtProgress: 0,
+            deathProgress: 0,
+          },
+          {
+            id: 'block-lit',
+            kind: 'zombie',
+            position: { dimension: 'overworld', x: 2, y: 10, z: 1 },
+            bodyYawRadians: 0,
+            headYawRadians: 0,
+            pitchRadians: 0,
+            blockLight: 12,
+            skyLight: 3,
+            walkPhaseRadians: 0,
+            walkAmount: 0,
+            attackProgress: 0,
+            hurtProgress: 0,
+            deathProgress: 0,
+          },
+        ],
+      }
+
+      yield* renderer.syncEntityFrame(frame)
+
+      // At sun intensity 0.5, the effective levels are max(12/15 * 0.5, 3/15) = 0.4
+      // and max(3/15 * 0.5, 12/15) = 0.8. The corresponding red/green/blue bytes
+      // for the zombie head (95, 155, 85) round to (64, 104, 57) and (85, 138, 76).
+      expect(entityColorBytes(three.meshes()[0])).toStrictEqual([64, 104, 57])
+      expect(entityColorBytes(three.meshes()[6])).toStrictEqual([85, 138, 76])
+
+      yield* renderer.setEnvironment(planRenderEnvironment(1, CAMERA_FAR_PLANE, 'overworld'))
+      const liveMeshes = three.meshes().filter((mesh) => three.scene().members().includes(mesh))
+      const skyHead = liveMeshes.find((mesh) => {
+        const meshPosition = mesh.positions().at(-1)
+        return meshPosition?.[0] === 1 && meshPosition[1] === 11.55
+      })
+      const blockHead = liveMeshes.find((mesh) => {
+        const meshPosition = mesh.positions().at(-1)
+        return meshPosition?.[0] === 2 && meshPosition[1] === 11.55
+      })
+      expect(entityColorBytes(skyHead)).toStrictEqual([85, 138, 76])
+      expect(entityColorBytes(blockHead)).toStrictEqual([85, 138, 76])
+      yield* renderer.dispose
     }),
   )
 

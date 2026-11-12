@@ -181,6 +181,13 @@ casts ([`docs/design-notes.md`](./docs/design-notes.md) DN-15). The published
   AO / 天空光 / ブロック光を頂点カラーの R / G / B に格納するため、チャンク境界も
   隣接チャンク側の光を参照できる。未ロード・範囲外は暗さ 0 とし、光レベルは 0..15 に
   クランプする。既存の `color` または `colorForChunk` を指定すれば、この既定動作を上書きできる。
+- **エンティティの描画入力。** フレーム入力を使うホストは `WorldRenderer.syncEntityFrame(input)` に
+  位置と次元、体と頭の yaw、pitch、ブロック光と天空光、歩行位相と量、攻撃・被ダメージ・死亡の進行度を渡す。
+  `syncEntityFrame` は入力を検証し、設定された次元のエンティティだけを `syncEntities` に渡して描画を同期する。
+  現行の `mc-host-web` は `playerSessionRuntime.syncRenderedEntities` から
+  `worldRenderer.syncEntities` を呼ぶ。`sampleEntityRenderFrame` はアニメーション秒を
+  `(simulationTick + partialTick) / 20` で返し、描画アニメーションには入力の歩行位相と進行度を使う。
+  型と入力例は [`docs/public-api.md`](./docs/public-api.md) §3.6 を参照。
 - **空・日照・地形フォグは同じ決定的 plan で同期する。**
   `planRenderEnvironment(daylight, farPlane, dimension)` は Schema で入力を検証し、
   有効なら空色、日照強度、フォグ色と距離を `Result` で返す。不正な値は

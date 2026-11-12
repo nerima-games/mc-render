@@ -1157,6 +1157,62 @@ The renderer hides chunks outside the same Chebyshev radius in
 `src/application/world-renderer.ts:1772-1776`. The browser runtime forwards
 `world` options in `src/browser.ts:1513-1532`.
 
+### 3.6 エンティティ描画の入力
+
+`EntityRenderFrameInputSchema` は入力フレームの検証に使う。ホストは
+`WorldRenderer.syncEntityFrame(input)` に入力を渡す。このAPIは `unknown` を受け取り、
+`sampleEntityRenderFrame` で厳密にデコードしてから、既存の `syncEntities` に渡して
+エンティティを同期する。デコードまたはフレーム時計の検証に失敗すると、Effectは
+`Schema.SchemaError | AnimationClockInputError` で失敗する。
+
+```ts
+decodeEntityRenderFrameInput(input: unknown): Result.Result<EntityRenderFrameInput, Schema.SchemaError>
+sampleEntityRenderFrame(input: unknown): Result.Result<SampledEntityRenderFrame, Schema.SchemaError | AnimationClockInputError>
+WorldRenderer.syncEntityFrame(input: unknown): Effect.Effect<void, Schema.SchemaError | AnimationClockInputError>
+```
+
+```ts
+yield* renderer.syncEntityFrame({
+  simulationTick: 320,
+  partialTick: 0.5,
+  timeOfDayTicks: 7500,
+  entities: [{
+    id: 'zombie-1',
+    kind: 'zombie',
+    position: { dimension: 'overworld', x: 4, y: 64, z: -2 },
+    bodyYawRadians: 0,
+    headYawRadians: Math.PI / 4,
+    pitchRadians: 0,
+    blockLight: 0,
+    skyLight: 15,
+    walkPhaseRadians: Math.PI / 2,
+    walkAmount: 1,
+    attackProgress: 0,
+    hurtProgress: 0,
+    deathProgress: 0,
+  }],
+})
+```
+
+各位置は `@nerima-games/mc-kernel` の `WorldPosition` と同じく次元を持つ。
+レンダラーは `WorldRendererOptions.dimension` と一致するエンティティだけを表示する。
+体と頭のyawはラジアンの `[-π, π]`、pitchはラジアンの `[-π/2, π/2]` で指定する。
+体のyawはモデル全体の向きを、頭のyawは頭パーツの向きを決め、pitchはモデルの姿勢に使う。
+光レベルはブロック光と天空光を別々の整数 `[0, 15]` で受け取る。
+歩行位相は `[0, 2π)`、歩行量と攻撃・被ダメージ・死亡の進行度は `[0, 1]` である。
+フレームには `simulationTick`、`partialTick`、`timeOfDayTicks` を含める。
+`sampleEntityRenderFrame` は `{ frame, animationSeconds }` を返し、
+`animationSeconds` は `(simulationTick + partialTick) / 20` で求める。
+`syncEntityFrame` はフレーム内の `walkPhaseRadians` と進行度を描画アニメーションに使う。
+
+`syncEntityFrame` はホストのフレーム入力を受け取る公開APIである。現行の
+`mc-host-web` は `playerSessionRuntime.syncRenderedEntities` から
+`worldRenderer.syncEntities` を呼ぶ。`syncEntities(entities)` はrenderer DTOへ
+変換済みの値を渡すAPIとして残り、既存のホスト呼び出しとの互換性を保つ。
+パッケージrootは `EntityRenderFrameInputSchema`、`EntityRenderEntityInputSchema`、
+`decodeEntityRenderFrameInput`、`decodeEntityRenderEntityInput`、`sampleEntityRenderFrame`、
+`EntityRenderFrameInput`、`EntityRenderEntityInput`、`SampledEntityRenderFrame` をexportする。
+
 ## 4. マテリアル方針
 
 ```typescript
