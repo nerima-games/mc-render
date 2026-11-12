@@ -318,7 +318,7 @@ export const makeProductionWorldRenderer = <
   >,
 ): Effect.Effect<
   ProductionWorldRenderer<TShaderMaterial>,
-  RendererMaterialPolicyError | ParticlePoolInputError
+  RendererMaterialPolicyError | ParticlePoolInputError | Schema.SchemaError
 > => {
   const frameState: {
     activeDimension: Dimension

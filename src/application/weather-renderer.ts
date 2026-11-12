@@ -8,6 +8,7 @@ import {
   type WeatherRenderPlan,
   type WeatherRenderState,
   type WorldWeatherSnapshot,
+  decodeWeatherFrameOptions,
   planWeatherFrame,
 } from '../domain/weather-rendering.js'
 import type { LightningBoltPlan, LightningFlash } from '../domain/lightning-bolt.js'
@@ -61,8 +62,9 @@ type ActivePrecipitation = {
 export const makeWeatherRenderer = (
   ports: WeatherRendererPorts,
   options: WeatherFrameOptions = {},
-): Effect.Effect<WeatherRenderer> =>
-  Effect.sync(() => {
+): Effect.Effect<WeatherRenderer, Schema.SchemaError> =>
+  Effect.gen(function* makeWeatherRendererEffect() {
+    const validatedOptions = yield* Effect.fromResult(decodeWeatherFrameOptions(options))
     let renderState = INITIAL_WEATHER_RENDER_STATE
     let activePrecipitation: Option.Option<ActivePrecipitation> = Option.none()
     let viewport: Option.Option<Viewport> = Option.none()
@@ -78,7 +80,7 @@ export const makeWeatherRenderer = (
       Effect.gen(function* stopWeatherRendererEffect() {
         yield* releaseEffect
         renderState = INITIAL_WEATHER_RENDER_STATE
-        yield* ports.setEnvironment(planRenderEnvironment(daylight, options.farPlane, dimension))
+        yield* ports.setEnvironment(planRenderEnvironment(daylight, validatedOptions.farPlane, dimension))
       })
 
     /** Build a fresh resource for `kind`, releasing whatever was active first. */
@@ -122,16 +124,18 @@ export const makeWeatherRenderer = (
     return {
       dispose: stop(),
 
-      frame: (snapshot, camera) =>
+      frame: (snapshot: WorldWeatherSnapshot, camera: WeatherCameraPosition) =>
         Effect.gen(function* frameWeatherEffect() {
-          const next = yield* Effect.fromResult(planWeatherFrame({ camera, options, previous: renderState, snapshot }))
+          const next = yield* Effect.fromResult(
+            planWeatherFrame({ camera, options: validatedOptions, previous: renderState, snapshot }),
+          )
           renderState = next.state
           yield* ports.setEnvironment(next.plan.environment)
           yield* updateWeatherResource(next.plan)
           return next.plan
         }),
 
-      resize: (nextViewport) =>
+      resize: (nextViewport: Viewport) =>
         Effect.gen(function* resizeWeatherEffect() {
           viewport = Option.some(nextViewport)
           if (Option.isSome(activePrecipitation)) {

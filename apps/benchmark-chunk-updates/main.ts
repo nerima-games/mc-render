@@ -1,5 +1,5 @@
 import { performance } from 'node:perf_hooks'
-import { Effect } from 'effect'
+import { Effect, Schema } from 'effect'
 import { BlockId, ChunkAxis, chunkCoord, chunkKeyOf } from '@nerima-games/mc-kernel'
 import { makeWorldRenderer, type ChunkGeometryUpdate } from '../../src/application/world-renderer'
 import { buildChunkGeometry, type MeshQuad } from '../../src/domain/chunk-geometry'
@@ -28,7 +28,7 @@ const median = (samples: ReadonlyArray<number>): number => {
   return ordered[Math.floor(ordered.length / 2)] ?? Number.NaN
 }
 
-const measureSequential = (count: number): Effect.Effect<number> =>
+const measureSequential = (count: number): Effect.Effect<number, Schema.SchemaError> =>
   Effect.gen(function* () {
     const renderer = yield* makeWorldRenderer(makeFakeThree(), FAKE_CANVAS, VIEWPORT)
     const started = performance.now()
@@ -40,7 +40,7 @@ const measureSequential = (count: number): Effect.Effect<number> =>
     return elapsed
   })
 
-const measureBatch = (count: number): Effect.Effect<number> =>
+const measureBatch = (count: number): Effect.Effect<number, Schema.SchemaError> =>
   Effect.gen(function* () {
     const renderer = yield* makeWorldRenderer(makeFakeThree(), FAKE_CANVAS, VIEWPORT)
     const updates: Array<ChunkGeometryUpdate> = []

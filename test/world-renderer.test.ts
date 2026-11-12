@@ -1288,6 +1288,23 @@ describe('drawing', () => {
 })
 
 describe('canvas weather', () => {
+  it.effect('rejects invalid weather options before acquiring a renderer', () =>
+    Effect.gen(function* () {
+      for (const weather of [
+        { particleCapacity: Number.NaN },
+        { particleCapacity: null },
+        null,
+      ]) {
+        const three = makeFakeThree()
+        const result = yield* Effect.result(makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT, {
+          weather: weather as never,
+        }))
+        expect(Result.isFailure(result)).toBe(true)
+        expect(three.renderers()).toHaveLength(0)
+      }
+    }),
+  )
+
   it.effect('reuses a bounded GPU buffer and clears it without residue', () =>
     Effect.gen(function* () {
       const three = makeFakeThree()

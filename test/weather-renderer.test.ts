@@ -27,6 +27,19 @@ const snapshot = (mode: WorldWeatherSnapshot['mode'], temperature: number = 1): 
 })
 
 describe('weather renderer resource lifecycle', () => {
+  it.effect('rejects invalid options before invoking renderer ports', () =>
+    Effect.gen(function* () {
+      let environmentCalls = 0
+      const result = yield* Effect.result(makeWeatherRenderer({
+        setEnvironment: () => Effect.sync(() => { environmentCalls += 1 }),
+        createPrecipitation: () => Effect.die('invalid options must fail before creating precipitation'),
+      }, { farPlane: Number.NaN }))
+
+      expect(Result.isFailure(result)).toBe(true)
+      expect(environmentCalls).toBe(0)
+    }),
+  )
+
   it.effect('reuses resources, forwards resize, and releases on clear and dispose', () =>
     Effect.gen(function* () {
       const created: Array<PrecipitationKind> = []

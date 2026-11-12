@@ -120,6 +120,7 @@ import type {
   ThreeWebGLRenderer,
 } from './three-surface.js'
 import { WATER_MATERIAL_SPEC, WATER_WRITES_DEPTH } from '../domain/water-surface.js'
+import { type WeatherFrameOptions, decodeWeatherFrameOptions } from '../domain/weather-rendering.js'
 import { type WeatherRenderer, makeWeatherRenderer } from './weather-renderer.js'
 import {
   type WitherSkullVisualInput,
@@ -137,7 +138,6 @@ import { CHUNK_HEIGHT } from '@nerima-games/mc-worldgen'
 import { CHUNK_SIZE } from '@nerima-games/mc-meshing'
 import type { MirroredCameraState } from '../domain/camera-mirror.js'
 import type { PostProcessingStep } from '../domain/post-processing.js'
-import type { WeatherFrameOptions } from '../domain/weather-rendering.js'
 import { makeThreeWeatherPrecipitation } from './three-weather-runtime.js'
 import { waterShaderSource } from '../domain/water-shader.js'
 // oxlint-disable-next-line sort-imports
@@ -233,8 +233,6 @@ const distanceVisibility = (
 }
 
 /** The fewest weather particles a capacity is ever clamped down to: none. */
-const MIN_WEATHER_CAPACITY = 0
-
 /** The weather particle capacity used when a host does not specify one. */
 const DEFAULT_WEATHER_CAPACITY = 96
 
@@ -950,6 +948,33 @@ export type WorldRendererOptions<TMaterial extends ThreeMaterial = ThreeMaterial
   readonly beforeDraw?: ((camera: MirroredCameraState) => Effect.Effect<void, unknown>) | undefined
 }
 
+const weatherFrameOptionsWithFarPlane = (
+  options: WeatherFrameOptions,
+  farPlane: number | undefined,
+): unknown => {
+  if (typeof farPlane === 'undefined') {
+    return options
+  }
+  return { ...options, farPlane }
+}
+
+const resolveWorldRendererWeatherOptions = (
+  options: WorldRendererOptions,
+): Result.Result<WeatherFrameOptions, Schema.SchemaError> => {
+  const supplied = decodeWeatherFrameOptions(options.weather)
+  if (Result.isFailure(supplied)) {
+    return Result.fail(supplied.failure)
+  }
+  return decodeWeatherFrameOptions(weatherFrameOptionsWithFarPlane(supplied.success, options.farPlane))
+}
+
+const weatherParticleCapacity = (options: WeatherFrameOptions): number => {
+  if (typeof options.particleCapacity !== 'undefined') {
+    return options.particleCapacity
+  }
+  return DEFAULT_WEATHER_CAPACITY
+}
+
 export type PostProcessingRenderer = {
   readonly render: (chain: ReadonlyArray<PostProcessingStep>) => void
   readonly resize: (width: number, height: number) => void
@@ -1000,6 +1025,36 @@ const safeAspect = (viewport: Viewport): number => {
     return viewport.width / viewport.height
   }
   return IDENTITY_ASPECT
+}
+
+type ResolvedWorldRendererSettings = Readonly<{
+  readonly fovDegrees: number
+  readonly nearPlane: number
+  readonly farPlane: number
+  readonly weatherCapacity: number
+  readonly initialAspect: number
+}>
+
+const resolveWorldRendererSettings = (
+  options: Pick<WorldRendererOptions, 'farPlane' | 'fovDegrees' | 'nearPlane' | 'renderDistance'>,
+  viewport: Viewport,
+  weatherOptions: WeatherFrameOptions,
+): ResolvedWorldRendererSettings => {
+  let derivedFarPlane = CAMERA_FAR_PLANE
+  if (options.renderDistance !== undefined) {
+    derivedFarPlane = Math.max(
+      CAMERA_FAR_PLANE,
+      options.renderDistance * CHUNK_SIZE * RENDER_DISTANCE_FAR_PLANE_MULTIPLIER + CHUNK_HEIGHT,
+    )
+  }
+  const farPlane = options.farPlane ?? derivedFarPlane
+  return {
+    farPlane,
+    fovDegrees: options.fovDegrees ?? CAMERA_FOV_DEGREES,
+    initialAspect: safeAspect(viewport),
+    nearPlane: options.nearPlane ?? CAMERA_NEAR_PLANE,
+    weatherCapacity: weatherParticleCapacity(weatherOptions),
+  }
 }
 
 /** One frame's advance on the submitted-frame counter. */
@@ -1348,7 +1403,7 @@ export const makeWorldRenderer = <
   canvas: TCanvas,
   viewport: Viewport,
   options: WorldRendererOptions<TUsedMaterial> = {},
-): Effect.Effect<WorldRenderer> => {
+): Effect.Effect<WorldRenderer, Schema.SchemaError> => {
   const createChunkMaterials = () => {
     const opaque = options.material?.() ??
       new three.MeshBasicMaterial({
@@ -1363,34 +1418,7 @@ export const makeWorldRenderer = <
   }
 
   return Effect.gen(function* buildRenderer() {
-    /** The camera and weather settings resolved from `options`, before any GPU resource exists. */
-    const resolveRenderSettings = (): {
-      readonly fovDegrees: number
-      readonly nearPlane: number
-      readonly farPlane: number
-      readonly weatherCapacity: number
-      readonly initialAspect: number
-    } => {
-      let derivedFarPlane = CAMERA_FAR_PLANE
-      if (options.renderDistance !== undefined) {
-        derivedFarPlane = Math.max(
-          CAMERA_FAR_PLANE,
-          options.renderDistance * CHUNK_SIZE * RENDER_DISTANCE_FAR_PLANE_MULTIPLIER + CHUNK_HEIGHT,
-        )
-      }
-      const farPlane = options.farPlane ?? derivedFarPlane
-      const weatherCapacity = Math.max(
-        MIN_WEATHER_CAPACITY,
-        Math.trunc(options.weather?.particleCapacity ?? DEFAULT_WEATHER_CAPACITY),
-      )
-      return {
-        farPlane,
-        fovDegrees: options.fovDegrees ?? CAMERA_FOV_DEGREES,
-        initialAspect: safeAspect(viewport),
-        nearPlane: options.nearPlane ?? CAMERA_NEAR_PLANE,
-        weatherCapacity,
-      }
-    }
+    const weatherOptions = yield* Effect.fromResult(resolveWorldRendererWeatherOptions(options))
 
     /**
      * The GPU-owning surface: a sized, cleared renderer plus the scene and
@@ -1408,7 +1436,7 @@ export const makeWorldRenderer = <
       readonly weatherCapacity: number
       readonly initialAspect: number
     } => {
-      const settings = resolveRenderSettings()
+      const settings = resolveWorldRendererSettings(options, viewport, weatherOptions)
       const renderer: ThreeWebGLRenderer = new three.WebGLRenderer({
         antialias: false,
         canvas,
@@ -1820,7 +1848,7 @@ export const makeWorldRenderer = <
           ),
         setEnvironment: ops.setEnvironment,
       },
-      { ...options.weather, farPlane },
+      { ...weatherOptions, farPlane },
     )
     yield* weather.resize(viewport)
 
@@ -1995,7 +2023,7 @@ export const makeProductionWorldRenderer = <
   viewport: Viewport,
   atlasTexture: unknown,
   options: ProductionWorldRendererOptions = {},
-): Effect.Effect<ProductionWorldRenderer<TShaderMaterial>, ParticlePoolInputError> =>
+): Effect.Effect<ProductionWorldRenderer<TShaderMaterial>, ParticlePoolInputError | Schema.SchemaError> =>
   Effect.gen(function* buildProductionRenderer() {
     const particlePool = yield* Effect.fromResult(makeParticlePool(options.particles))
     const chunk = makeChunkShaderMaterial(three, atlasTexture)

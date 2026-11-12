@@ -12,6 +12,8 @@ import {
 } from '../src/domain/lightning-bolt'
 import {
   INITIAL_WEATHER_RENDER_STATE,
+  MAX_WEATHER_PARTICLE_CAPACITY,
+  PlannedWeatherFrameSchema,
   planWeatherFrame as planWeatherFrameResult,
   type WorldWeatherSnapshot,
 } from '../src/domain/weather-rendering'
@@ -28,6 +30,12 @@ const rain: WorldWeatherSnapshot = {
 const planWeatherFrame = (input: Parameters<typeof planWeatherFrameResult>[0]) =>
   Result.getOrThrow(planWeatherFrameResult(input))
 
+const planUnknownWeatherFrame = (input: unknown) =>
+  planWeatherFrameResult(input as Parameters<typeof planWeatherFrameResult>[0])
+
+const weatherFrameFails = (input: unknown): boolean =>
+  Result.isFailure(planUnknownWeatherFrame(input))
+
 describe('weather frame planning', () => {
   it.effect('is deterministic for the same snapshot, camera, and state', () =>
     Effect.sync(() => {
@@ -39,21 +47,44 @@ describe('weather frame planning', () => {
     }),
   )
 
-  it.effect('computes particle density as floor(capacity multiplied by clamped intensity)', () =>
+  it.effect('computes particle density as floor(capacity multiplied by validated intensity)', () =>
     Effect.sync(() => {
       FastCheck.assert(
         FastCheck.property(
           FastCheck.integer({ min: 0, max: 200 }),
           FastCheck.double({ min: 0, max: 1, noNaN: true }),
           (capacity, intensity) => {
-            const planned = planWeatherFrame({
+            const planned = planWeatherFrameResult({
               camera,
               options: { particleCapacity: capacity },
               snapshot: { ...rain, intensity },
             })
-            return planned.plan.particles.length === Math.floor(capacity * intensity)
+            if (Result.isFailure(planned)) {
+              return false
+            }
+            const decoded = Schema.decodeUnknownResult(PlannedWeatherFrameSchema, { onExcessProperty: 'error' })(
+              planned.success,
+            )
+            return Result.isSuccess(decoded) && decoded.success.plan.particles.length === Math.floor(capacity * intensity)
           },
         ),
+        { numRuns: 300 },
+      )
+    }),
+  )
+
+  it.effect('property: arbitrary inputs return a typed failure or a schema-valid plan without throwing', () =>
+    Effect.sync(() => {
+      FastCheck.assert(
+        FastCheck.property(FastCheck.anything(), (input) => {
+          const result = planUnknownWeatherFrame(input)
+          if (Result.isFailure(result)) {
+            return true
+          }
+          return Result.isSuccess(
+            Schema.decodeUnknownResult(PlannedWeatherFrameSchema, { onExcessProperty: 'error' })(result.success),
+          )
+        }),
         { numRuns: 300 },
       )
     }),
@@ -101,13 +132,13 @@ describe('weather frame planning', () => {
     }),
   )
 
-  it.effect('clamps intensity and keeps every particle inside the camera volume', () =>
+  it.effect('accepts the full intensity boundary and keeps every particle inside the camera volume', () =>
     Effect.sync(() => {
       const planned = planWeatherFrame({
         camera,
         options: { particleCapacity: 8, precipitationHeight: 7, precipitationRadius: 3 },
         previous: INITIAL_WEATHER_RENDER_STATE,
-        snapshot: { ...rain, intensity: 4 },
+        snapshot: { ...rain, intensity: 1 },
       })
       expect(planned.plan.particles).toHaveLength(8)
       for (const particle of planned.plan.particles) {
@@ -116,49 +147,64 @@ describe('weather frame planning', () => {
         expect(particle.y).toBeGreaterThanOrEqual(camera.y)
         expect(particle.y).toBeLessThanOrEqual(camera.y + 7)
       }
-      expect(
-        planWeatherFrame({ camera, snapshot: { ...rain, intensity: -1 } }).plan.particles,
-      ).toHaveLength(0)
+      expect(planWeatherFrame({ camera, snapshot: { ...rain, intensity: 0 } }).plan.particles).toHaveLength(0)
     }),
   )
 
-  it.effect('a non-finite intensity clamps to zero rather than propagating NaN through the plan', () =>
+  it.effect('rejects weather intensity and daylight just outside the unit interval', () =>
     Effect.sync(() => {
-      // `clamp01`'s `Number.isFinite` guard is what stands between a NaN
-      // snapshot (a corrupt save, a sensor glitch upstream) and a NaN
-      // `intensity` poisoning `count = Math.floor(capacity * intensity)`
-      // below. Without it this reads as zero rain, which is the same
-      // conservative answer `-1` gets above.
-      const planned = planWeatherFrame({
-        camera,
-        options: { particleCapacity: 8 },
-        previous: INITIAL_WEATHER_RENDER_STATE,
-        snapshot: { ...rain, intensity: Number.NaN },
-      })
-      expect(planned.plan.particles).toHaveLength(0)
+      for (const value of [-Number.EPSILON, 1 + Number.EPSILON]) {
+        expect(weatherFrameFails({ camera, snapshot: { ...rain, intensity: value } })).toBe(true)
+        expect(weatherFrameFails({ camera, snapshot: { ...rain, daylight: value } })).toBe(true)
+      }
     }),
   )
 
-  it.effect('a non-finite particle capacity is treated as zero, not as NaN or Infinity particles', () =>
+  it.effect('rejects non-finite snapshot numbers with a typed schema failure', () =>
     Effect.sync(() => {
-      // `safeInteger`'s non-finite branch is what keeps `resolveParticleSizing`
-      // from handing `Array.from` a NaN/Infinity length. Distinct from the
-      // intensity guard above: this exercises `options.particleCapacity`,
-      // read through the same `safeInteger` helper but a different call site.
-      const nan = planWeatherFrame({
-        camera,
-        options: { particleCapacity: Number.NaN },
-        previous: INITIAL_WEATHER_RENDER_STATE,
-        snapshot: { ...rain, intensity: 1 },
-      })
-      const infinite = planWeatherFrame({
-        camera,
-        options: { particleCapacity: Number.POSITIVE_INFINITY },
-        previous: INITIAL_WEATHER_RENDER_STATE,
-        snapshot: { ...rain, intensity: 1 },
-      })
-      expect(nan.plan.particles).toHaveLength(0)
-      expect(infinite.plan.particles).toHaveLength(0)
+      for (const value of [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) {
+        expect(weatherFrameFails({ camera, snapshot: { ...rain, intensity: value } })).toBe(true)
+        expect(weatherFrameFails({ camera, snapshot: { ...rain, daylight: value } })).toBe(true)
+        expect(weatherFrameFails({ camera, snapshot: { ...rain, temperature: value } })).toBe(true)
+      }
+    }),
+  )
+
+  it.effect('rejects invalid particle capacities instead of planning an empty field', () =>
+    Effect.sync(() => {
+      for (const particleCapacity of [
+        Number.NaN,
+        Number.POSITIVE_INFINITY,
+        Number.NEGATIVE_INFINITY,
+        -1,
+        1.5,
+        MAX_WEATHER_PARTICLE_CAPACITY + 1,
+      ]) {
+        expect(weatherFrameFails({ camera, options: { particleCapacity }, snapshot: rain })).toBe(true)
+      }
+    }),
+  )
+
+  it.effect('rejects invalid numerical options and malformed snapshots, camera, and state', () =>
+    Effect.sync(() => {
+      const invalidInputs: ReadonlyArray<unknown> = [
+        { camera, options: null, snapshot: rain },
+        { camera, options: { precipitationRadius: -1 }, snapshot: rain },
+        { camera, options: { precipitationHeight: Number.POSITIVE_INFINITY }, snapshot: rain },
+        { camera, options: { snowTemperature: Number.NaN }, snapshot: rain },
+        { camera, options: { lightningDurationFrames: 0 }, snapshot: rain },
+        { camera, options: { lightningDurationFrames: 1.5 }, snapshot: rain },
+        { camera, options: { lightningDurationFrames: Number.MAX_SAFE_INTEGER + 1 }, snapshot: rain },
+        { camera, options: { farPlane: 0 }, snapshot: rain },
+        { camera: { ...camera, x: Number.NaN }, snapshot: rain },
+        { camera, previous: { ...INITIAL_WEATHER_RENDER_STATE, frame: -1 }, snapshot: rain },
+        { camera, snapshot: { ...rain, mode: 'fog' } },
+        { camera, snapshot: null },
+        null,
+      ]
+      for (const input of invalidInputs) {
+        expect(weatherFrameFails(input)).toBe(true)
+      }
     }),
   )
 
