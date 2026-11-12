@@ -633,6 +633,20 @@ describe('ParticleServiceLive', () => {
     }))),
   )
 
+  it.effect('does not replace a null render-context callback with the empty frame', () =>
+    Effect.gen(function* () {
+      const service = yield* ParticleService
+      const result = yield* Effect.result(service.spawn(particleRequest()))
+      expect(Result.isFailure(result)).toBe(true)
+      if (Result.isFailure(result)) {
+        expect(isParticlePoolInputFailure(result.failure, 'render-context', 'render-context-failed')).toBe(true)
+      }
+    }).pipe(Effect.provide(ParticleServiceLive({
+      pool: { capacity: 4 },
+      renderContext: null as unknown as () => ParticleFrameSnapshot,
+    }))),
+  )
+
   it.effect('fails invalid request positions and computed velocities before writing buffers', () =>
     Effect.gen(function* () {
       const service = yield* ParticleService

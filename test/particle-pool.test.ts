@@ -379,6 +379,11 @@ describe('spawning', () => {
       expect(isDecodedParticleInputFailure(spawnBurstResult(pool, 0, 0, 0, 0, 0, 0), 'burst', 'invalid-count')).toBe(true)
       expect(isDecodedParticleInputFailure(spawnBurstResult(pool, 0, 0, 0, 0, 0, -3), 'burst', 'invalid-count')).toBe(true)
       expect(isDecodedParticleInputFailure(spawnBurstResult(pool, 0, 0, 0, 0, 0, Number.NaN), 'burst', 'invalid-count')).toBe(true)
+      expect(isDecodedParticleInputFailure(
+        spawnBurstResult(pool, 0, 0, 0, 0, 0, null as unknown as number),
+        'burst',
+        'invalid-count',
+      )).toBe(true)
       expect(pool.activeCount()).toBe(0)
     }),
   )

@@ -1035,10 +1035,18 @@ const particleBurstFailureReason = (
   if (!Number.isSafeInteger(count) || count < ONE_SLOT) {
     return 'invalid-count'
   }
+
   if (!isParticleWorldCoordinateVector(positionX, positionY, positionZ)) {
     return 'invalid-position'
   }
   return 'invalid-uv'
+}
+
+const burstCountOrDefault = (count: ParticleBurstCount | undefined): number => {
+  if (typeof count === 'undefined') {
+    return DEFAULT_BURST_PARTICLES
+  }
+  return count
 }
 
 export const spawnParticle = (
@@ -1118,7 +1126,7 @@ export const spawnBurst = (
     return Result.fail(particlePoolInputError('burst', 'invalid-pool'))
   }
 
-  const countValue = count ?? DEFAULT_BURST_PARTICLES
+  const countValue = burstCountOrDefault(count)
   const decoded = Schema.decodeUnknownResult(ParticleBurstInputSchema, {
     onExcessProperty: 'error',
   })({

@@ -213,6 +213,15 @@ export const ParticleRequestSchema: Schema.Codec<ParticleRequest, ParticleReques
 ))
 
 const EMPTY_RENDER_CONTEXT: ParticleFrameSnapshot = { dimension: 'overworld', entities: [] }
+const renderContextOrDefault = (
+  readContext: (() => ParticleFrameSnapshot) | undefined,
+): (() => ParticleFrameSnapshot) => {
+  if (typeof readContext !== 'undefined') {
+    return readContext
+  }
+  return () => EMPTY_RENDER_CONTEXT
+}
+
 const decodeParticleFrameSnapshot = Schema.decodeUnknownResult(ParticleFrameSnapshotSchema, {
   onExcessProperty: 'error',
 })
@@ -360,7 +369,7 @@ export const ParticleServiceLive = (
     const pool = yield* Effect.fromResult(makeParticlePool(options.pool))
     const service = makeParticleService(
       pool,
-      options.renderContext ?? (() => EMPTY_RENDER_CONTEXT),
+      renderContextOrDefault(options.renderContext),
     )
     return Context.make(ParticleService, service).pipe(
       Context.add(ParticleServicePoolAccess, pool),
