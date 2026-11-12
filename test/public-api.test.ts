@@ -3,7 +3,18 @@ import * as FastCheck from 'fast-check'
 import { Effect, Result, Schema } from 'effect'
 import { DomainEventSchema, WorldPositionSchema } from '@nerima-games/mc-kernel'
 import {
+  COLOR_VISION_CORRECTIONS,
+  DEFAULT_COLOR_FILTER_INPUT,
+  ChunkMeshingWorkerFailureSchema,
+  ChunkMeshingWorkerResponseSchema,
+  ColorFilterInputSchema,
+  ColorVisionCorrectionSchema,
   PARTICLE_KIND_DEFAULTS,
+  PARTICLE_KINDS,
+  LightningBoltInputSchema,
+  MeshingWorkerPoolFactoryOptionsSchema,
+  MeshingWorkerPoolStartupError,
+  WorkerParallelismErrorSchema,
   AnimationSecondsSchema,
   AnimationClockInputErrorSchema,
   animationTimeSeconds,
@@ -14,7 +25,17 @@ import {
   ParticleRequestSchema,
   ParticleService,
   ParticleServiceLive,
+  decodeColorFilterInput,
+  decodeLightningBoltInput,
+  isColorFilterActive,
+  makeColorCorrectionPass,
+  makeColorCorrectionShader,
+  planColorCorrection,
+  planLightningBolt,
   particleRequestForDomainEvent,
+  resolveWorkerParallelism,
+  startMeshingWorkerPool,
+  updateColorCorrectionPass,
   focusNavigationDirectionForCode,
   type BrowserInputOptions,
   type ClickLandingForTarget,
@@ -30,6 +51,11 @@ import {
   type ParticleEventResult,
   type ParticleServiceApi,
   type ParticleServiceLiveOptions,
+  type ColorCorrectionShader,
+  type ColorFilterInput,
+  type LightningBoltInput,
+  type MeshingWorkerPool,
+  type MeshingWorkerPoolFactoryOptions,
   type ParticleEventContext,
 } from '../src/index.js'
 
@@ -108,6 +134,9 @@ describe('public particle request API', () => {
     )
 
     expect(PARTICLE_KIND_DEFAULTS[kind].particleCount).toBeGreaterThan(0)
+    expect(PARTICLE_KINDS).toContain('fire')
+    expect(PARTICLE_KINDS).toContain('smoke')
+    expect(PARTICLE_KINDS).toContain('water-splash')
     expect(Effect.runSync(api.spawn(request))).toBe(1)
     expect(accepted).toBe(1)
   })
@@ -136,5 +165,126 @@ describe('public particle request API', () => {
       position,
       followEntity: 'player-1',
     })
+  })
+})
+
+describe('public color correction and lightning APIs', () => {
+  it('decodes color settings strictly, plans the transform, and refreshes shader uniforms', () => {
+    FastCheck.assert(FastCheck.property(
+      FastCheck.constantFrom(...COLOR_VISION_CORRECTIONS),
+      FastCheck.boolean(),
+      (colorVisionCorrection, underwater) => {
+        const input: ColorFilterInput = { colorVisionCorrection, underwater }
+        const decoded = decodeColorFilterInput(input)
+        return Result.isSuccess(decoded) &&
+          isColorFilterActive(decoded.success) === (underwater || colorVisionCorrection !== 'off') &&
+          planColorCorrection(decoded.success).underwaterStrength === Number(underwater)
+      },
+    ))
+
+    expect(Schema.decodeUnknownSync(ColorVisionCorrectionSchema)('off')).toBe('off')
+    expect(Result.isFailure(Schema.decodeUnknownResult(ColorVisionCorrectionSchema)('achromatopsia'))).toBe(true)
+    expect(Result.isFailure(Schema.decodeUnknownResult(ColorFilterInputSchema, { onExcessProperty: 'error' })(
+      { ...DEFAULT_COLOR_FILTER_INPUT, extra: true },
+    ))).toBe(true)
+
+    const input = { colorVisionCorrection: 'protanopia', underwater: true } as const
+    const shader = makeColorCorrectionShader(input)
+    class FakeShaderPass {
+      readonly uniforms: ColorCorrectionShader['uniforms']
+      constructor(value: ColorCorrectionShader) {
+        this.uniforms = value.uniforms
+      }
+    }
+    const pass = makeColorCorrectionPass(FakeShaderPass, input)
+    updateColorCorrectionPass(pass, DEFAULT_COLOR_FILTER_INPUT)
+    expect(shader.uniforms.uUnderwaterStrength.value).toBe(1)
+    expect(pass.uniforms.uColorVisionRow0.value).toStrictEqual([1, 0, 0])
+    expect(pass.uniforms.uUnderwaterStrength.value).toBe(0)
+  })
+
+  it('validates lightning input boundaries and preserves deterministic bolt endpoints', () => {
+    const input: LightningBoltInput = {
+      origin: { x: Number.MAX_VALUE, y: 0, z: -Number.MAX_VALUE },
+      seed: 0,
+      sequence: 1,
+    }
+    expect(Result.isSuccess(decodeLightningBoltInput(input))).toBe(true)
+    expect(Result.isFailure(decodeLightningBoltInput({ ...input, origin: { ...input.origin, x: Infinity } }))).toBe(true)
+    expect(Result.isFailure(decodeLightningBoltInput({ ...input, seed: 1.5 }))).toBe(true)
+    expect(Result.isFailure(Schema.decodeUnknownResult(LightningBoltInputSchema, { onExcessProperty: 'error' })(
+      { ...input, unexpected: true },
+    ))).toBe(true)
+
+    FastCheck.assert(FastCheck.property(FastCheck.integer(), FastCheck.integer(), (seed, sequence) => {
+      const plan = planLightningBolt({ origin: { x: 0, y: 0, z: 0 }, seed, sequence })
+      const [mainStrand] = plan.strands
+      const mainStrandEnd = mainStrand?.[8]
+      return plan.sequence === sequence &&
+        plan.strands.length === 3 &&
+        plan.strands.every((strand) => {
+          const [first, ...tail] = strand
+          const last = tail.at(-1)
+          return strand.length === 9 &&
+            first !== undefined && last !== undefined &&
+            first.y === 32 && last.y === 0 &&
+            strand.every((point) => Number.isFinite(point.x) && Number.isFinite(point.y) && Number.isFinite(point.z))
+        }) &&
+        mainStrandEnd !== undefined &&
+        mainStrandEnd.x === 0 && mainStrandEnd.y === 0 && mainStrandEnd.z === 0
+    }))
+  })
+})
+
+describe('public meshing worker APIs', () => {
+  it('exports strict worker schemas and resolves parallelism at its boundaries', () => {
+    expect(Result.isSuccess(Schema.decodeUnknownResult(MeshingWorkerPoolFactoryOptionsSchema, {
+      onExcessProperty: 'error',
+    })({ workerCount: 1, maxQueued: 1 }))).toBe(true)
+    expect(Result.isFailure(Schema.decodeUnknownResult(MeshingWorkerPoolFactoryOptionsSchema)(
+      { workerCount: 0 },
+    ))).toBe(true)
+    expect(Result.isSuccess(Schema.decodeUnknownResult(ChunkMeshingWorkerFailureSchema)({
+      _tag: 'ChunkMeshingWorkerFailure',
+      reason: 'mesh-failed',
+    }))).toBe(true)
+    expect(Result.isSuccess(Schema.decodeUnknownResult(ChunkMeshingWorkerResponseSchema)({
+      id: 1,
+      result: {
+        _tag: 'meshed',
+        layers: { opaque: [], water: [], transparentSolid: [], crossPlants: [], fluids: [], specialBlocks: [] },
+      },
+    }))).toBe(true)
+    expect(Result.isSuccess(Schema.decodeUnknownResult(WorkerParallelismErrorSchema)({
+      _tag: 'WorkerParallelismError',
+      reason: 'missing-hardware-concurrency',
+    }))).toBe(true)
+
+    FastCheck.assert(FastCheck.property(FastCheck.integer({ min: 1, max: 64 }), (workerCount) => {
+      const result = resolveWorkerParallelism({ workerCount })
+      return Result.isSuccess(result) && result.success === workerCount
+    }))
+    expect(resolveWorkerParallelism({ hardwareConcurrency: 1 })).toMatchObject({ _tag: 'Success', success: 1 })
+    expect(resolveWorkerParallelism({ workerCount: 0 })).toMatchObject({
+      _tag: 'Failure', failure: { _tag: 'WorkerParallelismError', reason: 'invalid-worker-count' },
+    })
+    expect(MeshingWorkerPoolStartupError.name).toBe('MeshingWorkerPoolStartupError')
+    expect(typeof startMeshingWorkerPool).toBe('function')
+  })
+
+  it('starts a host-provided pool without requiring browser globals in the root entry', () => {
+    let terminated = false
+    const options: MeshingWorkerPoolFactoryOptions = {
+      workerCount: 1,
+      createWorker: () => ({
+        addEventListener: () => undefined,
+        postMessage: () => undefined,
+        terminate: () => { terminated = true },
+      }),
+    }
+    const pool: MeshingWorkerPool = Effect.runSync(startMeshingWorkerPool(options))
+    expect(pool.concurrency).toBe(1)
+    Effect.runSync(pool.shutdown)
+    expect(terminated).toBe(true)
   })
 })

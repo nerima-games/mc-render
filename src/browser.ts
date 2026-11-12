@@ -19,6 +19,7 @@ import {
   millisecondsFromGpuNanoseconds,
   requireBrowserRuntimeValue,
   resolveBrowserBloomStrength,
+  resolveBrowserColorFilterInput,
   resolveBrowserDrawingBufferSize,
   resolveBrowserLatestGpuTime,
   resolveBrowserMaxPixelRatio,
@@ -33,6 +34,14 @@ import {
   shouldCaptureBrowserRefraction,
   structuralSimilarity,
 } from './domain/browser-render-policy.js'
+import {
+  type ColorCorrectionUniforms,
+  type ColorFilterInput,
+  type ColorVisionCorrection,
+  DEFAULT_COLOR_FILTER_INPUT,
+  makeColorCorrectionPass,
+  updateColorCorrectionPass,
+} from './domain/color-correction.js'
 import { Context, Effect, Layer, Result, Schema } from 'effect'
 import {
   type ParticlePoolInputError,
@@ -374,6 +383,7 @@ export type BrowserWorldRuntimeOptions = {
   readonly canvas: HTMLCanvasElement
   readonly atlas?: THREE.Texture | RgbaAtlas | string
   readonly quality?: QualityPreset | GraphicsQuality
+  readonly colorVisionCorrection?: ColorVisionCorrection
   readonly maxPixelRatio?: number
   readonly autoResize?: boolean
   /** Defaults to true so `captureScreenshot` remains valid after rendering. */
@@ -398,6 +408,8 @@ export type BrowserWorldRuntime = {
   readonly resize: () => Effect.Effect<void, BrowserRuntimeFailure>
   readonly render: (camera: MirroredCameraState) => Effect.Effect<void, BrowserRuntimeFailure>
   readonly advanceFrame: (frame: ProductionFrame) => Effect.Effect<void, BrowserRuntimeFailure>
+  readonly setColorVisionCorrection: (value: ColorVisionCorrection) => Effect.Effect<void, BrowserRuntimeFailure>
+  readonly setUnderwater: (underwater: boolean) => Effect.Effect<void, BrowserRuntimeFailure>
   readonly captureScreenshot: () => Effect.Effect<Blob, BrowserRuntimeFailure>
   readonly start: (readFrame: () => BrowserFrame | undefined) => Effect.Effect<void, BrowserRuntimeFailure>
   readonly stop: () => Effect.Effect<void, BrowserRuntimeFailure>
@@ -621,6 +633,7 @@ const createCompositePass = (
 type BrowserPostProcessingSurfaceInput = Parameters<PostProcessingRendererFactory>[number]
 
 type BrowserPostProcessingFactoryOptions = Omit<ComposerOptions, 'quality' | 'renderer'> & {
+  readonly getColorFilter: () => ColorFilterInput
   readonly getQuality: () => GraphicsQuality
   readonly onSurface: (surface: BrowserSurface) => void
   readonly captureRefraction: (surface: BrowserSurface) => void
@@ -638,11 +651,34 @@ type BrowserPostProcessingState = {
   composerQuality: GraphicsQuality
   readonly copyMaterial: THREE.ShaderMaterial
   readonly copyQuad: FullScreenQuad
+  colorCorrectionPass: BrowserColorCorrectionPass | undefined
   currentKey: string
   readbackTarget: THREE.WebGLRenderTarget | undefined
   readonly referenceComposer: EffectComposer
   referenceKey: string
   readonly referenceQuality: GraphicsQuality
+}
+
+type BrowserColorCorrectionPass = ShaderPass & { readonly uniforms: ColorCorrectionUniforms }
+
+const hasColorCorrectionUniforms = (pass: ShaderPass): pass is BrowserColorCorrectionPass => {
+  const { uniforms } = pass
+  return 'uColorVisionRow0' in uniforms &&
+    'uColorVisionRow1' in uniforms &&
+    'uColorVisionRow2' in uniforms &&
+    'uUnderwaterStrength' in uniforms
+}
+
+const requireBrowserColorCorrectionPass = (
+  pass: ShaderPass,
+): Result.Result<BrowserColorCorrectionPass, BrowserRuntimeError> => {
+  if (!hasColorCorrectionUniforms(pass)) {
+    return Result.fail(browserRuntimeError('runtime', 'invalid-input', {
+      actualUniforms: Object.keys(pass.uniforms),
+      expectedUniforms: ['uColorVisionRow0', 'uColorVisionRow1', 'uColorVisionRow2', 'uUnderwaterStrength'],
+    }))
+  }
+  return Result.succeed(pass)
 }
 
 const requireBrowserPostProcessingSurface = ({
@@ -728,6 +764,7 @@ const createBrowserPostProcessingState = ({
   referenceComposer.renderToScreen = false
   const { copyMaterial, copyQuad } = createReferenceCopyResources()
   return {
+    colorCorrectionPass: undefined,
     composer,
     composerQuality,
     copyMaterial,
@@ -742,13 +779,17 @@ const createBrowserPostProcessingState = ({
 
 const createBrowserPostProcessingPass = ({
   camera,
+  getColorFilter,
   getPixelRatio,
   getViewport,
+  onColorCorrectionPass,
   scene,
 }: {
   readonly camera: THREE.PerspectiveCamera
+  readonly getColorFilter: () => ColorFilterInput
   readonly getPixelRatio: () => number
   readonly getViewport: () => Viewport
+  readonly onColorCorrectionPass: (pass: BrowserColorCorrectionPass) => void
   readonly scene: THREE.Scene
 }) => (step: PostProcessingStep, quality: GraphicsQuality): Pass => {
   switch (step.pass) {
@@ -764,6 +805,12 @@ const createBrowserPostProcessingPass = ({
       )
     case 'composite':
       return createCompositePass(step.effects, { camera, getPixelRatio, getViewport, quality })
+    case 'colorCorrection': {
+      const pass = makeColorCorrectionPass(ShaderPass, getColorFilter())
+      const colorCorrectionPass = browserResultValue(requireBrowserColorCorrectionPass(pass))
+      onColorCorrectionPass(colorCorrectionPass)
+      return colorCorrectionPass
+    }
     case 'smaa':
       return new SMAAPass()
     case 'output':
@@ -936,6 +983,7 @@ const readBrowserReferenceImage = ({
 const ensureBrowserPostProcessingChains = ({
   chain,
   createPass,
+  getColorFilter,
   getPixelRatio,
   getQuality,
   getViewport,
@@ -944,6 +992,7 @@ const ensureBrowserPostProcessingChains = ({
 }: {
   readonly chain: ReadonlyArray<PostProcessingStep>
   readonly createPass: (step: PostProcessingStep, quality: GraphicsQuality) => Pass
+  readonly getColorFilter: () => ColorFilterInput
   readonly getPixelRatio: () => number
   readonly getQuality: () => GraphicsQuality
   readonly getViewport: () => Viewport
@@ -958,6 +1007,12 @@ const ensureBrowserPostProcessingChains = ({
     quality: state.composerQuality,
     target: state.composer,
   })
+  if (!chain.some(({ pass }) => pass === 'colorCorrection')) {
+    state.colorCorrectionPass = undefined
+  }
+  if (state.colorCorrectionPass) {
+    updateColorCorrectionPass(state.colorCorrectionPass, getColorFilter())
+  }
   state.referenceKey = installBrowserPostProcessingChain({
     chain: browserPostProcessingChain(state.referenceQuality),
     createPass,
@@ -1063,8 +1118,12 @@ const createPostProcessingSession = ({
   })
   const createPass = createBrowserPostProcessingPass({
     camera: surface.camera,
+    getColorFilter: options.getColorFilter,
     getPixelRatio: options.getPixelRatio,
     getViewport: options.getViewport,
+    onColorCorrectionPass: (pass) => {
+      state.colorCorrectionPass = pass
+    },
     scene: surface.scene,
   })
   const draw = (chain: ReadonlyArray<PostProcessingStep>): void => {
@@ -1073,6 +1132,7 @@ const createPostProcessingSession = ({
     ensureBrowserPostProcessingChains({
       chain,
       createPass,
+      getColorFilter: options.getColorFilter,
       getPixelRatio: options.getPixelRatio,
       getQuality: options.getQuality,
       getViewport: options.getViewport,
@@ -1129,6 +1189,7 @@ type AtlasResource = { readonly owned: boolean; readonly texture: THREE.Texture 
 
 type BrowserRuntimeState = {
   adaptiveQualityState: ReturnType<typeof createAdaptiveQualityState>
+  colorFilter: ColorFilterInput
   maxPixelRatio: number
   pixelRatio: number
   quality: GraphicsQuality
@@ -1190,8 +1251,9 @@ type BrowserRuntimeResources = {
 }
 
 const makeRuntimeState = (
-  { canvas, quality, qualityPreset, maxPixelRatio }: {
+  { canvas, colorFilter, quality, qualityPreset, maxPixelRatio }: {
     readonly canvas: HTMLCanvasElement
+    readonly colorFilter: ColorFilterInput
     readonly maxPixelRatio: number
     readonly quality: GraphicsQuality
     readonly qualityPreset: QualityPreset | undefined
@@ -1207,6 +1269,7 @@ const makeRuntimeState = (
   }
   return Result.succeed({
     adaptiveQualityState: createAdaptiveQualityState(),
+    colorFilter,
     lastPresentedFrame: undefined,
     latestSsim: undefined,
     maxPixelRatio,
@@ -1392,11 +1455,12 @@ const createBrowserWorldCallbacks = ({
     state.pixelRatio = browserResultValue(resolveBrowserPixelRatio(state.maxPixelRatio, globalThis.devicePixelRatio))
     buildState.surface?.renderer.setPixelRatio(state.pixelRatio)
     refraction.resize()
-    Effect.runSync(activeWorld.setPostProcessingChain(browserPostProcessingChain(state.quality)))
+    Effect.runSync(activeWorld.setPostProcessingChain(browserPostProcessingChain(state.quality, state.colorFilter)))
     Effect.runSync(activeWorld.resize(state.viewport.width, state.viewport.height))
   }
   const postProcessing = createPostProcessingFactory({
     captureRefraction: refraction.capture,
+    getColorFilter: () => state.colorFilter,
     getPixelRatio: () => state.pixelRatio,
     getQuality: () => state.quality,
     getViewport: () => state.viewport,
@@ -1467,7 +1531,7 @@ const initializeBrowserWorld = ({
       THREE.PointsMaterial
     >(THREE, options.canvas, state.viewport, atlas.texture, setup.worldOptions, presentationSurface)
     setup.buildState.world = initializedWorld
-    yield* initializedWorld.setPostProcessingChain(browserPostProcessingChain(state.quality))
+    yield* initializedWorld.setPostProcessingChain(browserPostProcessingChain(state.quality, state.colorFilter))
     const surface = yield* Effect.fromResult(requireBrowserRuntimeValue(
       setup.buildState.surface,
       'browser world did not expose its Three surface',
@@ -1827,6 +1891,42 @@ const installRuntime = ({
   }
 }
 
+const resolveRuntimeColorFilter = (
+  activity: BrowserRuntimeActivity,
+  input: unknown,
+): Effect.Effect<ColorFilterInput, BrowserRuntimeFailure> =>
+  Effect.gen(function* resolveRuntimeColorFilterEffect() {
+    yield* Effect.fromResult(assertBrowserRuntimeActive(activity.disposed))
+    return yield* Effect.fromResult(resolveBrowserColorFilterInput(input))
+  })
+
+const applyRuntimeColorFilter = (
+  resources: BrowserRuntimeResources,
+  colorFilter: ColorFilterInput,
+): Effect.Effect<void, BrowserRuntimeFailure> =>
+  Effect.try({
+    catch: (cause) => browserRuntimeError('runtime', 'operation-failed', cause),
+    try: () => {
+      resources.state.colorFilter = colorFilter
+      Effect.runSync(resources.world.setPostProcessingChain(
+        browserPostProcessingChain(resources.state.quality, colorFilter),
+      ))
+    },
+  })
+
+const createColorFilterSetters = (activity: BrowserRuntimeActivity, resources: BrowserRuntimeResources) => {
+  const setColorFilter = (input: unknown): Effect.Effect<void, BrowserRuntimeFailure> =>
+    Effect.flatMap(resolveRuntimeColorFilter(activity, input), (colorFilter) =>
+      applyRuntimeColorFilter(resources, colorFilter),
+    )
+  return {
+    setColorVisionCorrection: (value: ColorVisionCorrection) =>
+      setColorFilter({ ...resources.state.colorFilter, colorVisionCorrection: value }),
+    setUnderwater: (underwater: boolean) =>
+      setColorFilter({ ...resources.state.colorFilter, underwater }),
+  }
+}
+
 const createBrowserRuntimeOperations = ({
   activity,
   animationHandlers,
@@ -1856,6 +1956,7 @@ const createBrowserRuntimeOperations = ({
     browserRuntimeOperation('runtime', () => frameHandlers.render(camera), activity)
   const advanceFrame = (frame: ProductionFrame): Effect.Effect<void, BrowserRuntimeFailure> =>
     browserRuntimeOperation('runtime', () => frameHandlers.advanceFrame(frame), activity)
+  const colorFilterSetters = createColorFilterSetters(activity, resources)
   const attachWaterSurface = (geometry: THREE.BufferGeometry): Effect.Effect<THREE.Mesh, BrowserRuntimeFailure> => {
     if (!(geometry instanceof THREE.BufferGeometry)) {
       return Effect.fail(browserRuntimeError('runtime', 'invalid-input', geometry))
@@ -1872,7 +1973,17 @@ const createBrowserRuntimeOperations = ({
     browserRuntimeOperation('runtime', () => animationHandlers.start(readFrame), activity)
   const stop = (): Effect.Effect<void, BrowserRuntimeFailure> =>
     browserRuntimeOperation('runtime', animationHandlers.stop)
-  return { advanceFrame, attachWaterSurface, captureScreenshot, detachWaterSurface, render, resize, start, stop }
+  return {
+    advanceFrame,
+    attachWaterSurface,
+    captureScreenshot,
+    detachWaterSurface,
+    render,
+    resize,
+    ...colorFilterSetters,
+    start,
+    stop,
+  }
 }
 
 const installBrowserRuntimeAndCreateDispose = ({
@@ -1958,6 +2069,8 @@ const createBrowserWorldRuntime = (
         render: operations.render,
         resize: operations.resize,
         scene: resources.surface.scene,
+        setColorVisionCorrection: operations.setColorVisionCorrection,
+        setUnderwater: operations.setUnderwater,
         start: operations.start,
         stop: operations.stop,
         threeRenderer: resources.surface.renderer,
@@ -1974,12 +2087,16 @@ export const makeBrowserWorldRuntime = (
 ): Effect.Effect<BrowserWorldRuntime, BrowserRuntimeFailure> =>
   Effect.gen(function* makeBrowserWorldRuntimeEffect() {
     const { quality, preset: qualityPreset } = yield* Effect.fromResult(resolveBrowserQuality(options.quality))
+    const colorFilter = yield* Effect.fromResult(resolveBrowserColorFilterInput({
+      colorVisionCorrection: options.colorVisionCorrection ?? DEFAULT_COLOR_FILTER_INPUT.colorVisionCorrection,
+      underwater: DEFAULT_COLOR_FILTER_INPUT.underwater,
+    }))
     const maxPixelRatio = yield* Effect.fromResult(
       resolveBrowserMaxPixelRatio(options.maxPixelRatio, quality.pixelRatioCap),
     )
     const atlas = yield* resolveAtlas(options.atlas)
     const state = yield* Effect.fromResult(
-      makeRuntimeState({ canvas: options.canvas, maxPixelRatio, quality, qualityPreset }),
+      makeRuntimeState({ canvas: options.canvas, colorFilter, maxPixelRatio, quality, qualityPreset }),
     )
     const initialized = yield* initializeBrowserWorld({ atlas, options, state })
     const resources: BrowserRuntimeResources = {
@@ -1996,6 +2113,14 @@ export const makeBrowserWorldRuntime = (
 
 export * from './domain/sky-rendering.js'
 export * from './domain/interaction-visuals.js'
+export {
+  MeshingWorkerPoolStartupError,
+  startBrowserMeshingWorkerPool,
+} from './browser-meshing-workers.mjs'
+export type {
+  BrowserMeshingWorkerPoolOptions,
+  MeshingWorkerPool as BrowserMeshingWorkerPool,
+} from './browser-meshing-workers.mjs'
 export * from './application/render-presentation-assets.js'
 export * from './application/render-presentation-surface.js'
 export * from './application/sky-renderer.js'

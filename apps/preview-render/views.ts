@@ -253,6 +253,7 @@ const PASS_NOTE: Readonly<Record<PostProcessingPass, string>> = {
   bloom: 'threshold + blur. AFTER god rays, BEFORE depth of field',
   bokeh: 'depth of field. AFTER bloom, or the blur is re-sharpened',
   composite: 'bloom + godRays + bokeh in ONE shader. plan.md omits this pass',
+  colorCorrection: 'color and underwater correction. AFTER composite, BEFORE anti-aliasing',
   smaa: 'anti-aliasing. Must see the FINAL image, so nothing may follow it but output',
   output: 'tone mapping + colour space. Unconditional, and always last',
 }

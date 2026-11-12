@@ -169,7 +169,7 @@ casts ([`docs/design-notes.md`](./docs/design-notes.md) DN-15). The published
 各 DN の参照実装証跡（file:line）と書くべき回帰テスト一覧は
 [`docs/design-notes.md`](./docs/design-notes.md)。
 
-### 実装状況と残りの作業
+### 実装済みの機能と残作業
 
 - **対話型 terrain fixture viewer。** `apps/render-preview/` の固定 terrain fixture と
   screenshot comparison は `pnpm test:browser` で自動検証できるが、チャンクを
@@ -198,10 +198,48 @@ casts ([`docs/design-notes.md`](./docs/design-notes.md) DN-15). The published
   解放を実装する。タッチ入力も `browser-input-adapter.ts` と
   `test/touch-controls.test.ts` に実装済み。ブラウザの `GamepadList` 取得と毎フレームの
   `poll` 呼び出しはホストの責務で、DOM API は mc-render の型境界に入れない。
-- **グラフィックス品質プリセットは 6 項目中 4 項目が配線済み。** `composerRenderTarget`・
-  `bloomStrength`・`godRaysSamples`・レンダースケール（`pixelRatioCap`）は実装され、
-  ブラウザアダプタまで配線済み。残る影解像度と視界距離は「ノブが無い」のではなく
-  所有者が別にいるための保留である。詳細は [`docs/public-api.md`](./docs/public-api.md) §1.3。
+- **描画距離、LOD、worker pool、パーティクル、色補正、天候（実装済み）。**
+  描画距離はグラフィックス品質プリセットとは別に設定し、ホストは `WorldRenderer` と
+  `makeChunkStoreMesher` の双方に同じ `renderDistance` を渡す。
+  前者はチャンクの表示範囲を制限し、後者は `cameraChunk` との距離で LOD を選ぶ。
+  worker pool は browser entry から起動し、パーティクルは
+  `runtime.world.particleService.spawn` で要求する。色補正は生成時か
+  `setColorVisionCorrection` で設定し、水中状態は `setUnderwater` で更新する。
+  雨、雪、雷は `runtime.world.weather.frame` に天候スナップショットを渡して更新する。
+
+```typescript
+import { Effect } from 'effect'
+import { makeChunkStoreMesher } from '@nerima-games/mc-render'
+import { makeBrowserWorldRuntime, startBrowserMeshingWorkerPool } from '@nerima-games/mc-render/browser'
+
+const workers = await Effect.runPromise(startBrowserMeshingWorkerPool({ workerCount: settings.workerCount }))
+const mesher = makeChunkStoreMesher(store, config, {
+  cameraChunk: () => cameraChunk,
+  renderDistance: settings.renderDistance,
+  workerPool: workers,
+})
+const runtime = await Effect.runPromise(makeBrowserWorldRuntime({
+  canvas,
+  colorVisionCorrection: settings.colorVisionCorrection,
+  world: {
+    renderDistance: settings.renderDistance,
+    weather: { particleCapacity: weatherParticleCapacity },
+  },
+}))
+await Effect.runPromise(runtime.world.particleService.spawn({ kind: 'fire', position }))
+await Effect.runPromise(runtime.setColorVisionCorrection(settings.colorVisionCorrection))
+await Effect.runPromise(runtime.setUnderwater(isUnderwater))
+await Effect.runPromise(runtime.world.weather.frame(weatherSnapshot, cameraPosition))
+```
+
+`BrowserFrame` の形は変わらない。ホストは従来どおり `advanceFrame` または `start` でフレームを渡す。
+UI で色補正を変更したら `setColorVisionCorrection` を、水中状態が変わったら `setUnderwater` を呼ぶ。
+各実装経路は
+`src/application/world-renderer.ts:908,1761-1765`、`src/application/chunk-store-mesher.ts:368-376`、
+`src/browser-meshing-workers.mts:29-40`、`src/application/world-renderer-production.ts:113`、
+`src/application/world-renderer.ts:831-832`、`src/application/weather-renderer.ts:112-114`、
+`src/browser.ts:796,1001,1927-1930` にある。詳細と呼び出し例は
+[`docs/public-api.md`](./docs/public-api.md) を参照。
 - **ビルドは実装済みだが、publish はまだ運用していない。** `pnpm build` が `dist/index.js` と宣言ファイルを生成し、
   `package.json` の `exports` はその生成物を指す。`version` は `0.x` に留める（[`docs/versioning.md`](./docs/versioning.md)）。
 - **Node coverage 閾値は全指標 100% に設定済み。** `src/browser.ts` は Chromium 上で実行するため Vitest V8 の数値対象から除外し、Playwright の browser job で挙動を検査する。

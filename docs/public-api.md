@@ -30,7 +30,7 @@ Tag 名は `@nerima-games/mc-render/XxxService`。
 ```typescript
 // domain/post-processing.ts
 const POST_PROCESSING_PASS_ORDER: readonly [
-  'render', 'gtao', 'godRays', 'bloom', 'bokeh', 'composite', 'smaa', 'output',
+  'render', 'gtao', 'godRays', 'bloom', 'bokeh', 'composite', 'colorCorrection', 'smaa', 'output',
 ]
 type PostProcessingPass = (typeof POST_PROCESSING_PASS_ORDER)[number]
 
@@ -60,12 +60,26 @@ type PostProcessingStep = {
   readonly pass: PostProcessingPass
   readonly effects: ReadonlyArray<PostProcessingPass>
 }
-const buildPostProcessingChain: (quality: GraphicsQuality) => ReadonlyArray<PostProcessingStep>
+type ColorVisionCorrection = 'off' | 'protanopia' | 'deuteranopia' | 'tritanopia'
+type ColorFilterInput = {
+  readonly colorVisionCorrection: ColorVisionCorrection
+  readonly underwater: boolean
+}
+const buildPostProcessingChain: (quality: GraphicsQuality, colorFilter?: ColorFilterInput) => ReadonlyArray<PostProcessingStep>
 const chainPasses: (chain: ReadonlyArray<PostProcessingStep>) => ReadonlyArray<PostProcessingPass>
 const chainEffects: (chain: ReadonlyArray<PostProcessingStep>) => ReadonlyArray<PostProcessingPass>
 const validatePostProcessingChain: (chain: ReadonlyArray<PostProcessingPass>) => ReadonlyArray<ChainViolation>
 const isCanonicalChain: (chain: ReadonlyArray<PostProcessingPass>) => boolean
 ```
+
+`ColorVisionCorrection` uses the mc-sim setting values `off`, `protanopia`,
+`deuteranopia`, and `tritanopia`. `ColorVisionCorrectionSchema`,
+`ColorFilterInputSchema`, `decodeColorFilterInput`, `planColorCorrection`,
+`makeColorCorrectionShader`, `makeColorCorrectionPass`, and
+`updateColorCorrectionPass` are exported from the root entry. The browser entry
+installs the `colorCorrection` pass when the color or underwater filter is
+active (`src/domain/post-processing.ts:434`, `src/browser.ts:796`). Setters
+refresh the active pass uniforms for the next draw (`src/browser.ts:1001,1927-1930`).
 
 ### 1.2 参照実装との照合
 
@@ -74,40 +88,36 @@ const isCanonicalChain: (chain: ReadonlyArray<PostProcessingPass>) => boolean
 | 構築箇所 | `packages/app/application/main/session-post-processing.ts:33-154`（**mc-app にあった**） | mc-render 内。合成層に描画設定を置かない |
 | パス順序 | `addPass` の文の並び（:51, :63, :76, :94, :110, :127, :137, :142） | 配列 `POST_PROCESSING_PASS_ORDER` + 検証関数 |
 | 無効パス | 作って `enabled = false`（composite 有効時） | **作らない**。無効パスもレンダーターゲットは確保する（:53-56） |
-| プリセット解決 | `resolvePreset`（`packages/game/application/settings-service.config.ts`） | `QUALITY_PRESETS`。ポストFX・屈折間引き・DPR上限は転写済み、影解像度・視界距離は所有者違いで対象外（§1.3） |
+| プリセット解決 | `resolvePreset`（`packages/game/application/settings-service.config.ts`） | `QUALITY_PRESETS`。ポストFX・屈折間引き・DPR上限は転写済み |
 | 定数 | `packages/app/application/main.config.ts:30-32` `GTAO_BLEND_INTENSITY = 0.8`、`BLOOM_*`、`BOKEH_*` | 未移植 |
 
 ### 1.3 プリセット項目の現況
 
-`GraphicsQuality` は当初ポストFXの有無しか持たなかったが、現在は 12 フィールドに
-拡張済みである（`domain/post-processing.ts:135-160`）。参照実装の `resolvePreset`
-が返す値のうち、次の 4 つは本実装に転写され、ブラウザアダプタまで配線済み:
+`GraphicsQuality` は 12 フィールドを持ち、各プリセットを `QUALITY_PRESETS` に定義する
+（`src/domain/post-processing.ts:141-165,241-298`）。次の品質項目はブラウザ経路で使う:
 
-- `composerRenderTarget`（参照実装の `composerRtType` に相当。`WebGLRenderTarget` の
-  `type` を LDR/HDR で切り替える。`domain/post-processing.ts:137,163`、値は
-  `:221,235,249,263`）。`src/browser.ts:285-288` の `qualityUsesHdrRenderTarget` が
-  `THREE.HalfFloatType` / `THREE.UnsignedByteType` へ写像する
-- `bloomStrength`（プリセットごとに違う。`domain/post-processing.ts:141`、値は
-  `:220,234,248,262`）。`src/browser.ts:257-259` が `UnrealBloomPass` へ渡す
-- `godRaysSamples`（`domain/post-processing.ts:139`、値は `:224,238,252,266`）。
-  `src/browser.ts:338` が `createGodRaysShader` へ渡す
-- レンダースケール（`pixelRatioCap`。DPR の上限で、レンダーバッファのサイズを
-  `viewport size × pixelRatio` として直接決める。`domain/post-processing.ts:147`、
-  値は各プリセット）。`src/browser.ts:180-193`（`resolveMaxPixelRatio`/
-  `resolvePixelRatio`）・`:893`（呼び出し）・`:309,373,683`（`setPixelRatio`）で配線済み
+- `composerRenderTarget` は描画先の LDR/HDR を選び、Three.js の texture type に写す
+  （`src/domain/browser-render-policy.ts:795-810`、`src/browser.ts:569`）
+- `bloomStrength` は `UnrealBloomPass` に渡す
+  （`src/browser.ts:515-522`）
+- `godRaysSamples` は God rays shader のサンプル数に使う
+  （`src/browser.ts:787-794`）
+- `pixelRatioCap` は browser DPR の上限を決める
+  （`src/domain/browser-render-policy.ts:747-784`、`src/browser.ts:1444-1446,2067`）
 
-残るのは 2 項目で、どちらも「ノブが無い」のではなく「所有者が別にいる」という
-理由で止まっている（`domain/post-processing.ts:201-206`）:
+影解像度は未対応である。実時間の影を描く THREE ライトがないためである。
 
-- **影解像度** — このリポジトリに実時間の影を落とす THREE ライトが 1 つも無い
-  （`DirectionalLight` 等は未使用）。既存の焼き込み voxel-lighting モデルの隣に
-  もう 1 つの照明モデルを足す製品判断であり、ノブの追加では済まない。保留は
-  意図であって漏れではない（`domain/post-processing.ts:201-206`）
-- **視界距離** — `WorldRendererOptions` に `renderDistance` は無い
-  （`application/world-renderer.ts:526-557`）。生の `farPlane`（世界単位、既定
-  300、`:529`,`:166`）が逃げ道として既にあるが、参照実装のチャンク基準の
-  `renderDistance` は mc-sim 所有で未公開であり、本パッケージから届かない
-  （`application/world-renderer.ts:145-166`）
+視界距離はプリセットと独立したホスト入力である。mc-sim の `renderDistance` は
+`WorldRendererOptions` にホスト入力として公開し、チャンク範囲制限とメッシュ LOD に使う。
+`world.renderDistance` と LOD 用 `renderDistance` はホストが同じ値を渡す
+（`src/application/world-renderer.ts:908,1761-1765`、
+`src/application/chunk-store-mesher.ts:368-376`）。
+
+`ColorVisionCorrection` は mc-sim の `Settings['colorVisionCorrection']` を参照し、
+`off | protanopia | deuteranopia | tritanopia` を受け付ける。
+`ColorFilterInputSchema` は色補正と水中状態を余剰プロパティも拒否して検証する。
+ブラウザ runtime は `colorVisionCorrection` を初期値として受け取り、
+`setColorVisionCorrection` と `setUnderwater` で動作中のパスを更新する。
 
 ### 1.4 THREE.js アダプタへの契約
 
@@ -123,18 +133,19 @@ const isCanonicalChain: (chain: ReadonlyArray<PostProcessingPass>) => boolean
 
 ## 1.5 Particle requests and pools
 
-`ParticleService` accepts render-space requests through
+`ParticleService` accepts requests with dimension-aware world positions through
 `spawn(request): Effect.Effect<0 | 1, ParticlePoolInputError>`. It validates the
-kind, dimension-aware world position, optional RGB color, lifetime, direction,
+kind, world position, optional RGB color, lifetime, direction,
 and followed entity with `ParticleRequestSchema` and the decode option
 `onExcessProperty: 'error'`. Color channels must be finite values in `[0, 1]`,
 and lifetime must be finite and positive. Invalid requests fail with
 `ParticlePoolInputError` tagged `request` and reason `invalid-request`. Hosts
 should also decode untrusted serialized data at their input boundary.
 
-The supported kinds are `block-break`, `entity-hit`, `explosion`, and
-`level-up`. Provide `ParticleService` with `ParticleServiceLive`; each layer
-instance creates one `ParticlePool`. A request returns `1` when accepted and `0`
+The supported kinds are `block-break`, `entity-hit`, `explosion`, `fire`,
+`level-up`, `smoke`, and `water-splash`. Provide `ParticleService` with
+`ParticleServiceLive`; each layer instance creates one `ParticlePool`. A request
+returns `1` when accepted and `0`
 when its dimension does not match the active render dimension or its followed
 entity is unavailable.
 When the pool is full, it evicts the oldest live particles and still accepts the
@@ -1117,6 +1128,27 @@ LOD functions decode thresholds with `LodThresholdsSchema` and excess-property
 rejection. The corresponding Result schemas validate success values and
 `LodInputError` failures.
 
+`makeChunkStoreMesher` applies these functions while meshing when the host passes
+both `renderDistance` and `cameraChunk`. The browser world renderer accepts the
+same host-owned distance for visibility culling and far-plane sizing:
+
+```typescript
+const mesher = makeChunkStoreMesher(store, config, {
+  cameraChunk: () => cameraChunk,
+  renderDistance: settings.renderDistance,
+  workerPool,
+})
+const runtime = await Effect.runPromise(makeBrowserWorldRuntime({
+  canvas,
+  world: { renderDistance: settings.renderDistance },
+}))
+```
+
+LOD selection runs in `src/application/chunk-store-mesher.ts:368-376`; the
+renderer hides chunks outside the same Chebyshev radius in
+`src/application/world-renderer.ts:1761-1765`. The browser runtime forwards
+`world` options in `src/browser.ts:1420-1425`.
+
 ## 4. マテリアル方針
 
 ```typescript
@@ -1324,16 +1356,26 @@ This entry depends on Three.js and is built with DOM types; the root entry stays
 portable and DOM-free.
 
 ```typescript
+import { Effect } from 'effect'
+import {
+  PARTICLE_KINDS,
+  makeChunkStoreMesher,
+  type ColorVisionCorrection,
+} from '@nerima-games/mc-render'
 import {
   GpuTimerService,
   GpuTimerServiceLayer,
   makeBrowserWorldRuntime,
   makeGpuTimerService,
+  startBrowserMeshingWorkerPool,
   type BrowserFrame,
+  type BrowserMeshingWorkerPool,
+  type BrowserMeshingWorkerPoolOptions,
   type BrowserWorldRuntime,
   type BrowserWorldRuntimeOptions,
   type GpuTimerServiceApi,
   type GpuTimerServiceFailure,
+  type MeshingWorkerPoolStartupError,
 } from '@nerima-games/mc-render/browser'
 ```
 
@@ -1346,9 +1388,61 @@ quality changes; `latestGpuTimeMs`, `gpuTimingSupported`, and `latestSsim`
 expose the most recent measurements.
 
 `BrowserWorldRuntimeOptions` accepts an optional texture atlas, quality preset
-or custom quality, pixel ratio limit, resize behavior, water geometry, and world
-renderer options. `BrowserFrame` combines mirrored camera state with an
-optional production frame.
+or custom quality, pixel ratio limit, resize behavior, water geometry, initial
+`colorVisionCorrection`, and world renderer options. `BrowserFrame` combines
+mirrored camera state with an optional production frame; its shape is unchanged.
+The setters return `Effect<void, BrowserRuntimeFailure>` and reject invalid
+runtime values with `BrowserRenderPolicyError` (`operation: 'color-filter'`).
+
+```typescript
+const workerOptions: BrowserMeshingWorkerPoolOptions = { workerCount: settings.workerCount }
+const workerPool: BrowserMeshingWorkerPool = await Effect.runPromise(startBrowserMeshingWorkerPool(workerOptions))
+const chunkMesher = makeChunkStoreMesher(store, meshConfig, {
+  cameraChunk: () => currentCameraChunk,
+  renderDistance: settings.renderDistance,
+  workerPool,
+})
+const colorVisionCorrection: ColorVisionCorrection = settings.colorVisionCorrection
+const runtimeOptions: BrowserWorldRuntimeOptions = {
+  canvas,
+  colorVisionCorrection,
+  world: {
+    renderDistance: settings.renderDistance,
+    weather: { particleCapacity: weatherParticleCapacity },
+  },
+}
+const runtime: BrowserWorldRuntime = await Effect.runPromise(makeBrowserWorldRuntime(runtimeOptions))
+
+await Effect.runPromise(runtime.world.particleService.spawn({ kind: 'water-splash', position }))
+await Effect.runPromise(runtime.setColorVisionCorrection(settings.colorVisionCorrection))
+await Effect.runPromise(runtime.setUnderwater(isUnderwater))
+await Effect.runPromise(runtime.world.weather.frame(weatherSnapshot, cameraPosition))
+await Effect.runPromise(runtime.advanceFrame(frame))
+await Effect.runPromise(runtime.dispose())
+await Effect.runPromise(workerPool.shutdown)
+```
+
+この例の `settings`、`store`、`meshConfig`、`currentCameraChunk`、`position`、
+`weatherSnapshot`、`cameraPosition` はホストが持つ値です。
+
+`PARTICLE_KINDS` exports all seven supported kinds. The browser runtime exposes
+`particleService` through `world` (`src/application/world-renderer-production.ts:113`).
+`particleRequestForDomainEvent` maps supported domain events, including fire-caused
+block changes; hosts can request `smoke` and `water-splash` directly.
+`startBrowserMeshingWorkerPool` creates the browser worker slots
+(`src/browser-meshing-workers.mts:29-40`), and the root
+`startMeshingWorkerPool` accepts a host-provided worker factory. Worker startup
+effects can fail with `WorkerParallelismError`, `MeshingWorkerPoolStartupError`,
+or `WorkerPoolFailure`.
+
+`WorldRenderer.weather.frame(snapshot, camera)` advances precipitation, the
+environment, and lightning for a host snapshot. The browser world exposes that
+renderer at `src/application/world-renderer.ts:831-832`; weather runtime wiring
+is in `src/application/world-renderer.ts:1805-1820` and
+`src/application/world-renderer.ts:1894-1907`. The root also exports
+`LightningBoltInputSchema` and `planLightningBolt` for deterministic pure bolt
+plans. Runtime updates to correction or underwater state do not change the
+existing `advanceFrame` and `start` call shapes.
 
 `GpuTimerService` measures elapsed GPU time through the WebGL timer query
 extension. `GpuTimerServiceLayer(gl)` provides it as an Effect service, and
