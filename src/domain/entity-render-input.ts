@@ -164,14 +164,14 @@ export type SampledEntityRenderFrame = Readonly<{
 export const sampleEntityRenderFrame = (
   input: unknown,
 ): Result.Result<SampledEntityRenderFrame, Schema.SchemaError | AnimationClockInputError> => {
+  const animationSeconds = animationTimeSeconds(input)
+  if (Result.isFailure(animationSeconds)) {
+    return Result.fail(animationSeconds.failure)
+  }
+
   const frame = decodeEntityRenderFrameInput(input)
   if (Result.isFailure(frame)) {
     return Result.fail(frame.failure)
-  }
-
-  const animationSeconds = animationTimeSeconds(frame.success)
-  if (Result.isFailure(animationSeconds)) {
-    return Result.fail(animationSeconds.failure)
   }
 
   return Result.succeed({ animationSeconds: animationSeconds.success, frame: frame.success })

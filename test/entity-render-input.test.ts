@@ -275,7 +275,15 @@ describe('entity render frame clock', () => {
     expect(Result.isFailure(decodeEntityRenderFrameInput({ ...validFrame(), extra: true }))).toBe(true)
     expect(Result.isFailure(decodeEntityRenderFrameInput({ ...validFrame(), entities: [{ ...VALID_ENTITY, extra: true }] }))).toBe(true)
     expect(Result.isFailure(decodeEntityRenderFrameInput({ simulationTick: 37, partialTick: 0.25, entities: [] }))).toBe(true)
-    expect(Result.isFailure(sampleEntityRenderFrame(validFrame({ partialTick: 1 })))).toBe(true)
+    const sampled = sampleEntityRenderFrame(validFrame({ partialTick: 1 }))
+    expect(Result.isFailure(sampled)).toBe(true)
+    if (Result.isFailure(sampled)) {
+      expect(sampled.failure).toStrictEqual({
+        _tag: 'AnimationClockInputError',
+        reason: 'invalid-partial-tick',
+      })
+    }
+    expect(Result.isFailure(sampleEntityRenderFrame({ ...validFrame(), extra: true }))).toBe(true)
 
     expect(Result.isSuccess(Schema.decodeUnknownResult(EntityRenderEntityInputSchema, { onExcessProperty: 'error' })(VALID_ENTITY))).toBe(true)
     expect(Result.isSuccess(Schema.decodeUnknownResult(EntityRenderFrameInputSchema, { onExcessProperty: 'error' })(validFrame()))).toBe(true)
