@@ -1,4 +1,4 @@
-import { Brand, Result } from 'effect'
+import { Brand, Result, Schema } from 'effect'
 import {
   DEFAULT_ENVIRONMENT_FAR_PLANE,
   type RenderEnvironmentPlan,
@@ -7,6 +7,8 @@ import {
 import {
   type LightningBoltPlan,
   type LightningFlash,
+  LightningSeedSchema,
+  LightningSequenceSchema,
   decodeLightningBoltInput,
   planLightningBolt,
 } from './lightning-bolt.js'
@@ -358,6 +360,29 @@ type PlanWeatherFrameInput = {
   readonly snapshot: WorldWeatherSnapshot
 }
 
+type NormalizedPlanWeatherFrameInput = Readonly<{
+  readonly camera: WeatherCameraPosition
+  readonly options: WeatherFrameOptions
+  readonly previous: WeatherRenderState
+  readonly snapshot: WorldWeatherSnapshot
+}>
+
+type WeatherFrameTiming = Readonly<{
+  readonly framesRemaining: number
+  readonly intensity: number
+  readonly lightningFlash: LightningFlash
+  readonly precipitation: PrecipitationKind | undefined
+}>
+
+type WeatherFramePreparation = NormalizedPlanWeatherFrameInput & WeatherFrameTiming & Readonly<{
+  readonly capacity: number
+  readonly environment: RenderEnvironmentPlan
+  readonly height: number
+  readonly lightningBolt: LightningBoltPlan | undefined
+  readonly lightningOrigin: WeatherCameraPosition | undefined
+  readonly radius: number
+}>
+
 type WeatherFrameEnvironmentInput = Readonly<{
   readonly options: WeatherFrameOptions
   readonly intensity: number
@@ -459,10 +484,10 @@ const lightningBoltForFrame = ({
   lightningFlash,
   origin,
   snapshot,
-}: LightningBoltForFrameInput): LightningBoltPlan | undefined => {
+}: LightningBoltForFrameInput): Result.Result<LightningBoltPlan | undefined, Schema.SchemaError> => {
   if (snapshot.mode !== 'thunder' || lightningFlash <= NO_LIGHTNING_FRAMES ||
     typeof snapshot.lightningSequence === 'undefined' || typeof origin === 'undefined') {
-    return undefined
+    return Result.succeed(undefined)
   }
   const decoded = decodeLightningBoltInput({
     origin,
@@ -470,18 +495,28 @@ const lightningBoltForFrame = ({
     sequence: snapshot.lightningSequence,
   })
   if (Result.isFailure(decoded)) {
-    return undefined
+    return Result.fail(decoded.failure)
   }
-  return planLightningBolt(decoded.success)
+  return Result.succeed(planLightningBolt(decoded.success))
 }
 
-/** Plan one deterministic weather frame without touching THREE, DOM, or WebGL. */
-export const planWeatherFrame = ({
-  camera,
-  options = {},
-  previous = INITIAL_WEATHER_RENDER_STATE,
-  snapshot,
-}: PlanWeatherFrameInput): PlannedWeatherFrame => {
+const validateWeatherSnapshot = (snapshot: WorldWeatherSnapshot): Result.Result<WorldWeatherSnapshot, Schema.SchemaError> => {
+  const decodedSeed = Schema.decodeUnknownResult(LightningSeedSchema)(snapshot.seed)
+  if (Result.isFailure(decodedSeed)) {
+    return Result.fail(decodedSeed.failure)
+  }
+  let validatedSnapshot: WorldWeatherSnapshot = { ...snapshot, seed: decodedSeed.success }
+  if (typeof snapshot.lightningSequence !== 'undefined') {
+    const decodedSequence = Schema.decodeUnknownResult(LightningSequenceSchema)(snapshot.lightningSequence)
+    if (Result.isFailure(decodedSequence)) {
+      return Result.fail(decodedSequence.failure)
+    }
+    validatedSnapshot = { ...validatedSnapshot, lightningSequence: decodedSequence.success }
+  }
+  return Result.succeed(validatedSnapshot)
+}
+
+const resolveWeatherFrameTiming = ({ options, previous, snapshot }: NormalizedPlanWeatherFrameInput): WeatherFrameTiming => {
   const intensity = clamp01(snapshot.intensity)
   const duration = Math.max(
     MIN_LIGHTNING_DURATION_FRAMES,
@@ -489,12 +524,57 @@ export const planWeatherFrame = ({
   )
   const framesRemaining = nextLightningFramesRemaining(snapshot, previous, duration)
   const lightningFlash = makeLightningFlash(clamp01(framesRemaining / duration))
-  const precipitation = precipitationFor(snapshot, options.snowTemperature ?? DEFAULT_SNOW_TEMPERATURE)
-  const { capacity, radius, height } = resolveParticleSizing(options)
-  const environment = weatherFrameEnvironment({ intensity, lightningFlash, options, snapshot })
-  const lightningOrigin = resolveLightningOrigin({ camera, previous, radius, snapshot })
-  const lightningBolt = lightningBoltForFrame({ lightningFlash, origin: lightningOrigin, snapshot })
   return {
+    framesRemaining,
+    intensity,
+    lightningFlash,
+    precipitation: precipitationFor(snapshot, options.snowTemperature ?? DEFAULT_SNOW_TEMPERATURE),
+  }
+}
+
+const prepareWeatherFrame = (
+  input: NormalizedPlanWeatherFrameInput,
+): Result.Result<WeatherFramePreparation, Schema.SchemaError> => {
+  const timing = resolveWeatherFrameTiming(input)
+  const { camera, options, previous, snapshot } = input
+  const { capacity, radius, height } = resolveParticleSizing(options)
+  const environment = weatherFrameEnvironment({ ...timing, options, snapshot })
+  const lightningOrigin = resolveLightningOrigin({ camera, previous, radius, snapshot })
+  const lightningBolt = lightningBoltForFrame({
+    lightningFlash: timing.lightningFlash,
+    origin: lightningOrigin,
+    snapshot,
+  })
+  if (Result.isFailure(lightningBolt)) {
+    return Result.fail(lightningBolt.failure)
+  }
+  return Result.succeed({
+    ...input,
+    ...timing,
+    capacity,
+    environment,
+    height,
+    lightningBolt: lightningBolt.success,
+    lightningOrigin,
+    radius,
+  })
+}
+
+const assemblePlannedWeatherFrame = ({
+  camera,
+  capacity,
+  environment,
+  framesRemaining,
+  height,
+  intensity,
+  lightningBolt,
+  lightningFlash,
+  lightningOrigin,
+  precipitation,
+  previous,
+  radius,
+  snapshot,
+}: WeatherFramePreparation): PlannedWeatherFrame => ({
     plan: {
       brightness: environment.sunIntensity,
       environment,
@@ -519,5 +599,30 @@ export const planWeatherFrame = ({
       lightningFramesRemaining: framesRemaining,
       lightningOrigin,
     },
+  })
+
+const planValidatedWeatherFrame = (
+  input: NormalizedPlanWeatherFrameInput,
+): Result.Result<PlannedWeatherFrame, Schema.SchemaError> => {
+  const prepared = prepareWeatherFrame(input)
+  if (Result.isFailure(prepared)) {
+    return Result.fail(prepared.failure)
   }
+  return Result.succeed(assemblePlannedWeatherFrame(prepared.success))
+}
+
+/** Plan one deterministic weather frame without touching THREE, DOM, or WebGL. */
+export const planWeatherFrame = (
+  input: PlanWeatherFrameInput,
+): Result.Result<PlannedWeatherFrame, Schema.SchemaError> => {
+  const snapshot = validateWeatherSnapshot(input.snapshot)
+  if (Result.isFailure(snapshot)) {
+    return Result.fail(snapshot.failure)
+  }
+  return planValidatedWeatherFrame({
+    camera: input.camera,
+    options: input.options ?? {},
+    previous: input.previous ?? INITIAL_WEATHER_RENDER_STATE,
+    snapshot: snapshot.success,
+  })
 }

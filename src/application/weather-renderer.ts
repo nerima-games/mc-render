@@ -1,4 +1,4 @@
-import { Effect, Option } from 'effect'
+import { Effect, Option, Schema } from 'effect'
 import {
   INITIAL_WEATHER_RENDER_STATE,
   type PrecipitationKind,
@@ -36,7 +36,7 @@ export type WeatherRenderer = {
   readonly frame: (
     snapshot: WorldWeatherSnapshot,
     camera: WeatherCameraPosition,
-  ) => Effect.Effect<WeatherRenderPlan>
+  ) => Effect.Effect<WeatherRenderPlan, Schema.SchemaError>
   readonly resize: (viewport: Viewport) => Effect.Effect<void>
   /**
    * Stop precipitation and restore an ordinary clear environment. Idempotent.
@@ -108,12 +108,11 @@ export const makeWeatherRenderer = (
 
     const updateWeatherResource = (plan: WeatherRenderPlan): Effect.Effect<void> =>
       Effect.gen(function* updateWeatherResourceEffect() {
-        if (typeof plan.precipitation === 'undefined' && typeof plan.lightningBolt === 'undefined') {
+        if (typeof plan.precipitation === 'undefined') {
           yield* releaseEffect
           return
         }
-        const resourceKind = plan.precipitation ?? 'rain'
-        const resource = yield* ensurePrecipitationResource(resourceKind)
+        const resource = yield* ensurePrecipitationResource(plan.precipitation)
         yield* resource.update(plan.particles)
         if (resource.updateLightning) {
           yield* resource.updateLightning(plan.lightningBolt, plan.lightningFlash)
@@ -125,7 +124,7 @@ export const makeWeatherRenderer = (
 
       frame: (snapshot, camera) =>
         Effect.gen(function* frameWeatherEffect() {
-          const next = planWeatherFrame({ camera, options, previous: renderState, snapshot })
+          const next = yield* Effect.fromResult(planWeatherFrame({ camera, options, previous: renderState, snapshot }))
           renderState = next.state
           yield* ports.setEnvironment(next.plan.environment)
           yield* updateWeatherResource(next.plan)

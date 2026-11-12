@@ -22,6 +22,7 @@ import {
   buildChunkGeometry,
   buildFluidGeometry,
   combineChunkGeometry,
+  type ChunkGeometryBuffers,
   type FluidQuad,
   type MeshQuad,
 } from '../src/domain/chunk-geometry'
@@ -30,14 +31,18 @@ import {
   blockTypeOfId,
   chunkKeyOf,
   MonotonicTimeSecs,
+  RenderDistanceChunks,
   type BlockId,
   type CameraPoseSnapshot,
 } from '@nerima-games/mc-kernel'
+import { CHUNK_SIZE } from '@nerima-games/mc-meshing'
+import { CHUNK_HEIGHT } from '@nerima-games/mc-worldgen'
 import {
   applyChunkShaderEnvironment,
   CAMERA_FAR_PLANE,
   CAMERA_FOV_DEGREES,
   CAMERA_NEAR_PLANE,
+  RenderDistanceCullingErrorSchema,
   makeProductionWorldRenderer,
   makeWorldRenderer,
   NO_DRAW_TARGET,
@@ -47,6 +52,7 @@ import {
   SKY_CLEAR_ALPHA,
   SKY_CLEAR_COLOR,
   validateProductionFrameElapsedSecs,
+  type WorldRenderer,
 } from '../src/application/world-renderer'
 import {
   ParticleBurstCountSchema,
@@ -195,6 +201,12 @@ const poseAt = (x: number, y: number, z: number, yaw: number, pitch: number): Ca
   capturedAtSecs: MonotonicTimeSecs(1),
 })
 
+const setChunkWithRuntimeKey = (
+  renderer: WorldRenderer,
+  key: unknown,
+  buffers: ChunkGeometryBuffers,
+): Effect.Effect<void> => Function.prototype.apply.call(renderer.setChunk, renderer, [key, buffers])
+
 describe('acquiring the renderer', () => {
   it.effect('constructs exactly one renderer, scene, camera and material', () =>
     Effect.gen(function* () {
@@ -305,6 +317,19 @@ describe('acquiring the renderer', () => {
       expect(three.camera().far).toBe(CAMERA_FAR_PLANE)
       expect(three.camera().aspect).toBe(1280 / 720)
       expect([CAMERA_FOV_DEGREES, CAMERA_NEAR_PLANE, CAMERA_FAR_PLANE]).toStrictEqual([75, 0.1, 300])
+    }),
+  )
+
+  it.effect('extends the camera far plane from the host render distance', () =>
+    Effect.gen(function* () {
+      const three = makeFakeThree()
+      const renderDistance = RenderDistanceChunks(8)
+      yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT, { renderDistance })
+
+      expect(three.camera().far).toBe(Math.max(
+        CAMERA_FAR_PLANE,
+        renderDistance * CHUNK_SIZE * 1.5 + CHUNK_HEIGHT,
+      ))
     }),
   )
 
@@ -1135,6 +1160,43 @@ describe('drawing', () => {
       ])
       expect(three.meshes().map(({ visible }) => visible)).toStrictEqual([true, false, false])
       expect(three.renderer().renderCalls()).toBe(1)
+    }),
+  )
+
+  it.effect('uses the supplied host distance during every chunk visibility update', () =>
+    Effect.gen(function* () {
+      const three = makeFakeThree()
+      const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT, {
+        renderDistance: RenderDistanceChunks(2),
+      })
+      yield* renderer.setChunk(chunkKeyOf(chunkCoord(0, 0)), buildChunkGeometry([quad({ lz: -10 })]))
+      yield* renderer.draw(mirroredCameraState(poseAt(0, 0, 0, 0, 0)))
+
+      expect(three.meshes().map(({ visible }) => visible)).toStrictEqual([true])
+    }),
+  )
+
+  it.effect('propagates render-distance key failures through draw as typed results', () =>
+    Effect.gen(function* () {
+      const three = makeFakeThree()
+      const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT, {
+        renderDistance: RenderDistanceChunks(2),
+      })
+      const setMalformedChunk = setChunkWithRuntimeKey(renderer,
+        'not-a-chunk-key',
+        buildChunkGeometry([quad()]),
+      )
+      yield* setMalformedChunk
+
+      const drawResult = yield* Effect.result(renderer.draw(mirroredCameraState(poseAt(0, 64, 0, 0, 0))))
+      expect(Result.isFailure(drawResult)).toBe(true)
+      if (Result.isFailure(drawResult)) {
+        const decoded = Schema.decodeUnknownResult(RenderDistanceCullingErrorSchema)(drawResult.failure)
+        expect(Result.isSuccess(decoded)).toBe(true)
+        if (Result.isSuccess(decoded)) {
+          expect(decoded.success.reason).toBe('invalid-chunk-key')
+        }
+      }
     }),
   )
 

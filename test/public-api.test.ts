@@ -9,12 +9,25 @@ import {
   ChunkMeshingWorkerResponseSchema,
   ColorFilterInputSchema,
   ColorVisionCorrectionSchema,
+  ColorVisionCoefficientSchema,
+  UnderwaterColorStrengthSchema,
+  ColorCorrectionShaderSourceSchema,
   PARTICLE_KIND_DEFAULTS,
   PARTICLE_KINDS,
+  ChunkMeshingCauseTagSchema,
   LightningBoltInputSchema,
+  LightningFlashSchema,
+  LightningSeedSchema,
+  LightningSequenceSchema,
   MeshingWorkerPoolFactoryOptionsSchema,
   MeshingWorkerPoolStartupError,
+  HardwareConcurrencySchema,
   WorkerParallelismErrorSchema,
+  WorkerParallelismInputSchema,
+  WorkerCountSchema,
+  WorkerFailureMessageSchema,
+  WorkerIndexSchema,
+  WorkerQueueCapacitySchema,
   AnimationSecondsSchema,
   AnimationClockInputErrorSchema,
   animationTimeSeconds,
@@ -27,6 +40,9 @@ import {
   ParticleServiceLive,
   decodeColorFilterInput,
   decodeLightningBoltInput,
+  decodeLightningFlash,
+  makeHardwareConcurrency,
+  makeWorkerCount,
   isColorFilterActive,
   makeColorCorrectionPass,
   makeColorCorrectionShader,
@@ -52,10 +68,23 @@ import {
   type ParticleServiceApi,
   type ParticleServiceLiveOptions,
   type ColorCorrectionShader,
+  type ColorCorrectionShaderSource,
   type ColorFilterInput,
+  type ColorVisionCoefficient,
   type LightningBoltInput,
+  type LightningFlash,
+  type LightningSeed,
+  type LightningSequence,
+  type UnderwaterColorStrength,
   type MeshingWorkerPool,
   type MeshingWorkerPoolFactoryOptions,
+  type ChunkMeshingCauseTag,
+  type HardwareConcurrency,
+  type WorkerCount,
+  type WorkerFailureMessage,
+  type WorkerIndex,
+  type WorkerParallelismInput,
+  type WorkerQueueCapacity,
   type ParticleEventContext,
 } from '../src/index.js'
 
@@ -201,14 +230,21 @@ describe('public color correction and lightning APIs', () => {
     expect(shader.uniforms.uUnderwaterStrength.value).toBe(1)
     expect(pass.uniforms.uColorVisionRow0.value).toStrictEqual([1, 0, 0])
     expect(pass.uniforms.uUnderwaterStrength.value).toBe(0)
+
+    const coefficient: ColorVisionCoefficient = Schema.decodeUnknownSync(ColorVisionCoefficientSchema)(1.25)
+    const underwaterStrength: UnderwaterColorStrength = Schema.decodeUnknownSync(UnderwaterColorStrengthSchema)(1)
+    const shaderSource: ColorCorrectionShaderSource = Schema.decodeUnknownSync(ColorCorrectionShaderSourceSchema)('void main() {}')
+    expect(Number.isFinite(coefficient)).toBe(true)
+    expect(underwaterStrength).toBe(1)
+    expect(shaderSource).toContain('void main')
   })
 
   it('validates lightning input boundaries and preserves deterministic bolt endpoints', () => {
-    const input: LightningBoltInput = {
+    const input: LightningBoltInput = Schema.decodeUnknownSync(LightningBoltInputSchema)({
       origin: { x: Number.MAX_VALUE, y: 0, z: -Number.MAX_VALUE },
       seed: 0,
       sequence: 1,
-    }
+    })
     expect(Result.isSuccess(decodeLightningBoltInput(input))).toBe(true)
     expect(Result.isFailure(decodeLightningBoltInput({ ...input, origin: { ...input.origin, x: Infinity } }))).toBe(true)
     expect(Result.isFailure(decodeLightningBoltInput({ ...input, seed: 1.5 }))).toBe(true)
@@ -216,8 +252,12 @@ describe('public color correction and lightning APIs', () => {
       { ...input, unexpected: true },
     ))).toBe(true)
 
-    FastCheck.assert(FastCheck.property(FastCheck.integer(), FastCheck.integer(), (seed, sequence) => {
-      const plan = planLightningBolt({ origin: { x: 0, y: 0, z: 0 }, seed, sequence })
+    FastCheck.assert(FastCheck.property(FastCheck.integer(), FastCheck.nat(), (seed, sequence) => {
+      const decodedInput = decodeLightningBoltInput({ origin: { x: 0, y: 0, z: 0 }, seed, sequence })
+      if (Result.isFailure(decodedInput)) {
+        return false
+      }
+      const plan = planLightningBolt(decodedInput.success)
       const [mainStrand] = plan.strands
       const mainStrandEnd = mainStrand?.[8]
       return plan.sequence === sequence &&
@@ -233,11 +273,64 @@ describe('public color correction and lightning APIs', () => {
         mainStrandEnd !== undefined &&
         mainStrandEnd.x === 0 && mainStrandEnd.y === 0 && mainStrandEnd.z === 0
     }))
+
+    const seed: LightningSeed = Schema.decodeUnknownSync(LightningSeedSchema)(0)
+    const sequence: LightningSequence = Schema.decodeUnknownSync(LightningSequenceSchema)(0)
+    const flash: LightningFlash = Schema.decodeUnknownSync(LightningFlashSchema)(1)
+    expect(seed).toBe(0)
+    expect(sequence).toBe(0)
+    expect(Result.isSuccess(decodeLightningFlash(flash))).toBe(true)
   })
 })
 
 describe('public meshing worker APIs', () => {
+  const workerCount = Schema.decodeUnknownSync(WorkerCountSchema)
+  const hardwareConcurrency = Schema.decodeUnknownSync(HardwareConcurrencySchema)
+  const queueCapacity = Schema.decodeUnknownSync(WorkerQueueCapacitySchema)
+  const workerIndex = Schema.decodeUnknownSync(WorkerIndexSchema)
+
   it('exports strict worker schemas and resolves parallelism at its boundaries', () => {
+    const oneWorkerCount: WorkerCount = workerCount(1)
+    const concurrency: HardwareConcurrency = hardwareConcurrency(8)
+    const capacity: WorkerQueueCapacity = queueCapacity(1)
+    const index: WorkerIndex = workerIndex(0)
+    const input: WorkerParallelismInput = {
+      hardwareConcurrency: concurrency,
+      workerCount: oneWorkerCount,
+    }
+    const causeTag: ChunkMeshingCauseTag = Schema.decodeUnknownSync(ChunkMeshingCauseTagSchema)('FiberFailure')
+    const failureMessage: WorkerFailureMessage = Schema.decodeUnknownSync(WorkerFailureMessageSchema)('worker failed')
+
+    expect(Schema.decodeUnknownResult(WorkerParallelismInputSchema, { onExcessProperty: 'error' })(input)).toMatchObject({
+      _tag: 'Success',
+      success: input,
+    })
+    expect(Result.isFailure(Schema.decodeUnknownResult(WorkerParallelismInputSchema, { onExcessProperty: 'error' })(
+      { ...input, extra: true },
+    ))).toBe(true)
+    expect(Schema.decodeUnknownResult(ChunkMeshingCauseTagSchema)('FiberFailure')).toMatchObject({
+      _tag: 'Success',
+      success: causeTag,
+    })
+    expect(Result.isFailure(Schema.decodeUnknownResult(ChunkMeshingCauseTagSchema)(42))).toBe(true)
+    expect(Schema.decodeUnknownResult(WorkerFailureMessageSchema)('worker failed')).toMatchObject({
+      _tag: 'Success',
+      success: failureMessage,
+    })
+    expect(Result.isFailure(Schema.decodeUnknownResult(WorkerFailureMessageSchema)(42))).toBe(true)
+
+    expect(capacity).toBe(1)
+    expect(Result.isFailure(Schema.decodeUnknownResult(WorkerQueueCapacitySchema)(0))).toBe(true)
+    expect(index).toBe(0)
+    expect(Result.isFailure(Schema.decodeUnknownResult(WorkerIndexSchema)(-1))).toBe(true)
+
+    FastCheck.assert(FastCheck.property(FastCheck.integer({ min: 1, max: 64 }), (candidateCount) => {
+      const madeCount = makeWorkerCount(candidateCount)
+      const madeConcurrency = makeHardwareConcurrency(candidateCount)
+      return Result.isSuccess(madeCount) && madeCount.success === workerCount(candidateCount) &&
+        Result.isSuccess(madeConcurrency) && madeConcurrency.success === hardwareConcurrency(candidateCount)
+    }))
+
     expect(Result.isSuccess(Schema.decodeUnknownResult(MeshingWorkerPoolFactoryOptionsSchema, {
       onExcessProperty: 'error',
     })({ workerCount: 1, maxQueued: 1 }))).toBe(true)
@@ -260,14 +353,30 @@ describe('public meshing worker APIs', () => {
       reason: 'missing-hardware-concurrency',
     }))).toBe(true)
 
-    FastCheck.assert(FastCheck.property(FastCheck.integer({ min: 1, max: 64 }), (workerCount) => {
-      const result = resolveWorkerParallelism({ workerCount })
-      return Result.isSuccess(result) && result.success === workerCount
+    FastCheck.assert(FastCheck.property(FastCheck.integer({ min: 1, max: 64 }), (candidateCount) => {
+      const result = resolveWorkerParallelism({ workerCount: workerCount(candidateCount) })
+      return Result.isSuccess(result) && result.success === candidateCount
     }))
-    expect(resolveWorkerParallelism({ hardwareConcurrency: 1 })).toMatchObject({ _tag: 'Success', success: 1 })
-    expect(resolveWorkerParallelism({ workerCount: 0 })).toMatchObject({
+    expect(resolveWorkerParallelism({ hardwareConcurrency: hardwareConcurrency(1) })).toMatchObject({
+      _tag: 'Success', success: 1,
+    })
+    expect(makeWorkerCount(0)).toMatchObject({
       _tag: 'Failure', failure: { _tag: 'WorkerParallelismError', reason: 'invalid-worker-count' },
     })
+    expect(makeWorkerCount(1.5)).toMatchObject({
+      _tag: 'Failure', failure: { _tag: 'WorkerParallelismError', reason: 'invalid-worker-count' },
+    })
+    expect(makeHardwareConcurrency(0)).toMatchObject({
+      _tag: 'Failure', failure: { _tag: 'WorkerParallelismError', reason: 'invalid-hardware-concurrency' },
+    })
+    expect(makeHardwareConcurrency(1.5)).toMatchObject({
+      _tag: 'Failure', failure: { _tag: 'WorkerParallelismError', reason: 'invalid-hardware-concurrency' },
+    })
+    expect(Result.isSuccess(Schema.decodeUnknownResult(ChunkMeshingWorkerFailureSchema)({
+      _tag: 'ChunkMeshingWorkerFailure',
+      reason: 'mesh-failed',
+      causeTag,
+    }))).toBe(true)
     expect(MeshingWorkerPoolStartupError.name).toBe('MeshingWorkerPoolStartupError')
     expect(typeof startMeshingWorkerPool).toBe('function')
   })
@@ -275,7 +384,7 @@ describe('public meshing worker APIs', () => {
   it('starts a host-provided pool without requiring browser globals in the root entry', () => {
     let terminated = false
     const options: MeshingWorkerPoolFactoryOptions = {
-      workerCount: 1,
+      workerCount: workerCount(1),
       createWorker: () => ({
         addEventListener: () => undefined,
         postMessage: () => undefined,

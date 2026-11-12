@@ -82,8 +82,6 @@ import {
   type DeltaTimeSecs,
   type Dimension,
   type ChunkKey as KernelChunkKey,
-  MAX_RENDER_DISTANCE,
-  MIN_RENDER_DISTANCE,
   MonotonicTimeSecs,
   type Position,
   type RenderDistanceChunks,
@@ -195,23 +193,20 @@ const RENDER_DISTANCE_FAR_PLANE_MULTIPLIER = 1.5
 
 export type RenderDistanceCullingError = {
   readonly _tag: 'RenderDistanceCullingError'
-  readonly reason: 'invalid-camera-position' | 'invalid-chunk-key' | 'invalid-render-distance'
+  readonly reason: 'invalid-camera-position' | 'invalid-chunk-key'
 }
 
 export const RenderDistanceCullingErrorSchema: Schema.Codec<RenderDistanceCullingError> = Schema.Struct({
   _tag: Schema.Literal('RenderDistanceCullingError'),
-  reason: Schema.Literals(['invalid-camera-position', 'invalid-chunk-key', 'invalid-render-distance']),
+  reason: Schema.Literals(['invalid-camera-position', 'invalid-chunk-key']),
 })
 
 /** Whether a canonical chunk key lies inside the host setting's square radius. */
 export const chunkWithinRenderDistance = (
   key: ChunkKey,
   cameraPosition: Position,
-  renderDistance: number,
+  renderDistance: RenderDistanceChunks,
 ): Result.Result<boolean, RenderDistanceCullingError> => {
-  if (!Number.isSafeInteger(renderDistance) || renderDistance < MIN_RENDER_DISTANCE || renderDistance > MAX_RENDER_DISTANCE) {
-    return Result.fail({ _tag: 'RenderDistanceCullingError', reason: 'invalid-render-distance' })
-  }
   const cameraChunkX = Math.floor(cameraPosition.x / CHUNK_SIZE)
   const cameraChunkZ = Math.floor(cameraPosition.z / CHUNK_SIZE)
   if (!Number.isSafeInteger(cameraChunkX) || !Number.isSafeInteger(cameraChunkZ)) {

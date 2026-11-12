@@ -162,11 +162,13 @@ export type {
   MeshingWorkerPoolFactoryOptions,
 } from './application/meshing-worker-pool.js'
 export {
+  ChunkMeshingCauseTagSchema,
   ChunkMeshingWorkerFailureSchema,
   ChunkMeshingWorkerPayloadSchema,
   ChunkMeshingWorkerResponseSchema,
 } from './application/chunk-meshing-worker.js'
 export type {
+  ChunkMeshingCauseTag,
   ChunkMeshingWorkerFailure,
   ChunkMeshingWorkerPayload,
   ChunkMeshingWorkerResult,

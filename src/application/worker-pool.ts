@@ -55,7 +55,17 @@
  * decision `maxSpeedWithoutTunnelling` makes in mc-physics: prefer the rule
  * that cannot produce the pathological case over the rule that is tidier.
  */
-import { Effect, Ref, Result, Schema } from 'effect'
+import { Brand, Effect, Ref, Result, Schema } from 'effect'
+import {
+  type WorkerCount,
+  WorkerCountSchema,
+  type WorkerFailureMessage,
+  WorkerFailureMessageSchema,
+  type WorkerIndex,
+  WorkerIndexSchema,
+  type WorkerQueueCapacity,
+  WorkerQueueCapacitySchema,
+} from '../domain/worker-parallelism.js'
 
 /**
  * A worker, reduced to what this file calls.
@@ -101,7 +111,7 @@ type WorkerFailure<TPayload, TResult> = {
   readonly failedPort: PoolWorkerPort<TPayload, TResult>
   readonly generation: number
   readonly reason: unknown
-  readonly workerIndex: number
+  readonly workerIndex: WorkerIndex
 }
 
 /** Why a submitted job did not produce a result. */
@@ -112,18 +122,23 @@ export type JobOutcome<TResult> =
 
 export type WorkerPoolFailure = {
   readonly _tag: 'WorkerPoolFailure'
-  readonly reason: 'no-worker-ports' | 'invalid-max-queued' | 'worker-failed' | 'replacement-failed'
-  readonly workerIndex?: number | undefined
-  readonly message?: string | undefined
+  readonly reason: 'invalid-max-queued' | 'invalid-worker-count' | 'invalid-worker-index' | 'no-worker-ports' | 'replacement-failed' | 'worker-failed'
+  readonly workerIndex?: WorkerIndex | undefined
+  readonly message?: WorkerFailureMessage | undefined
 }
 
-const MIN_WORKER_INDEX = 0
+type WorkerPoolFailureEncoded = Readonly<{
+  readonly _tag: 'WorkerPoolFailure'
+  readonly message?: Schema.Codec.Encoded<typeof WorkerFailureMessageSchema> | undefined
+  readonly reason: WorkerPoolFailure['reason']
+  readonly workerIndex?: Schema.Codec.Encoded<typeof WorkerIndexSchema> | undefined
+}>
 
-export const WorkerPoolFailureSchema: Schema.Codec<WorkerPoolFailure> = Schema.Struct({
+export const WorkerPoolFailureSchema: Schema.Codec<WorkerPoolFailure, WorkerPoolFailureEncoded> = Schema.Struct({
   _tag: Schema.Literal('WorkerPoolFailure'),
-  message: Schema.optional(Schema.String),
-  reason: Schema.Literals(['no-worker-ports', 'invalid-max-queued', 'worker-failed', 'replacement-failed']),
-  workerIndex: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(MIN_WORKER_INDEX))),
+  message: Schema.optional(WorkerFailureMessageSchema),
+  reason: Schema.Literals(['invalid-max-queued', 'invalid-worker-count', 'invalid-worker-index', 'no-worker-ports', 'replacement-failed', 'worker-failed']),
+  workerIndex: Schema.optional(WorkerIndexSchema),
 })
 
 export type WorkerPoolOptions<TPayload = never, TResult = never> = {
@@ -141,7 +156,7 @@ export type WorkerPoolOptions<TPayload = never, TResult = never> = {
    * have been superseded, by the same reasoning `domain/particle-pool.ts` uses
    * to evict oldest rather than newest.
    */
-  readonly maxQueued?: number
+  readonly maxQueued?: WorkerQueueCapacity
   /**
    * Recreate one failed worker at the same pool slot. The host owns the
    * actual Worker constructor because this module intentionally has no DOM or
@@ -154,6 +169,15 @@ export type WorkerPoolOptions<TPayload = never, TResult = never> = {
 
 /** Default queue depth. Two screenfuls of chunks at a typical render distance. */
 export const DEFAULT_MAX_QUEUED = 64
+
+const decodeQueueCapacity = (
+  maxQueued: WorkerQueueCapacity | undefined,
+): Result.Result<WorkerQueueCapacity, Schema.SchemaError> => {
+  if (maxQueued !== undefined) {
+    return Schema.decodeUnknownResult(WorkerQueueCapacitySchema)(maxQueued)
+  }
+  return Schema.decodeUnknownResult(WorkerQueueCapacitySchema)(DEFAULT_MAX_QUEUED)
+}
 
 export type PoolStats = {
   readonly busy: number
@@ -176,7 +200,7 @@ export type PoolStats = {
 
 export type WorkerPool<TPayload, TResult> = {
   /** The fixed number of worker slots supplied to this pool. */
-  readonly concurrency: number
+  readonly concurrency: WorkerCount
   /**
    * Run one job. It always resolves with an explicit outcome: `completed`,
    * `cancelled`, or `failed` when the worker disappears before replying.
@@ -204,7 +228,7 @@ type Waiting<TPayload, TResult> = {
 
 type Running<TResult> = {
   readonly key: JobKey
-  readonly workerIndex: number
+  readonly workerIndex: WorkerIndex
   readonly resume: (outcome: JobOutcome<TResult>) => void
   /** Set by `cancel`. The reply still arrives; it is dropped on the floor. */
   discarded: boolean
@@ -214,7 +238,7 @@ type PoolState<TPayload, TResult> = {
   nextId: number
   readonly queue: Array<Waiting<TPayload, TResult>>
   readonly running: Map<number, Running<TResult>>
-  readonly idle: Array<number>
+  readonly idle: Array<WorkerIndex>
   completed: number
   cancelledBeforeStart: number
   discardedAfterStart: number
@@ -244,11 +268,12 @@ const ONE_AFFECTED_JOB = 1
 /** The first pool-assigned job id and the initial worker-port generation. */
 const INITIAL_COUNTER = 0
 const FIRST_JOB_ID = 1
+const makeWorkerIndexFromArrayPosition = Brand.nominal<WorkerIndex>()
 
 type DispatchJobArgs<TPayload, TResult> = {
   readonly current: PoolState<TPayload, TResult>
   readonly ports: ReadonlyArray<WorkerPort<WorkerRequest<TPayload>, WorkerResponse<TResult>> | undefined>
-  readonly workerIndex: number
+  readonly workerIndex: WorkerIndex
   readonly job: Waiting<TPayload, TResult>
 }
 
@@ -301,7 +326,7 @@ const failQueuedWithoutWorkers = <TPayload, TResult>(
   }
 }
 
-const removeIdleWorker = <TPayload, TResult>(current: PoolState<TPayload, TResult>, workerIndex: number): void => {
+const removeIdleWorker = <TPayload, TResult>(current: PoolState<TPayload, TResult>, workerIndex: WorkerIndex): void => {
   const idleAt = current.idle.indexOf(workerIndex)
   if (idleAt >= ARRAY_START_INDEX) {
     current.idle.splice(idleAt, REMOVE_COUNT_ONE)
@@ -310,7 +335,7 @@ const removeIdleWorker = <TPayload, TResult>(current: PoolState<TPayload, TResul
 
 const failRunningJobsOnWorkerFailure = <TPayload, TResult>(
   current: PoolState<TPayload, TResult>,
-  workerIndex: number,
+  workerIndex: WorkerIndex,
   reason: WorkerPoolFailure,
 ): void => {
   for (const [jobId, job] of current.running) {
@@ -342,7 +367,7 @@ const recordJobOutcome = <TPayload, TResult>(
  */
 const applyWorkerResponse = <TPayload, TResult>(
   current: PoolState<TPayload, TResult>,
-  workerIndex: number,
+  workerIndex: WorkerIndex,
   response: WorkerResponse<TResult>,
 ): PoolState<TPayload, TResult> => {
   const job = current.running.get(response.id)
@@ -427,7 +452,7 @@ type WorkerFailureHandlers<TPayload, TResult> = {
 
 type WorkerPortBinding<TPayload, TResult> = {
   readonly port: PoolWorkerPort<TPayload, TResult>
-  readonly workerIndex: number
+  readonly workerIndex: WorkerIndex
   readonly generation: number
 }
 
@@ -443,12 +468,16 @@ type WorkerFailureContext<TPayload, TResult> = {
 const makeWorkerPoolFailure = (
   cause: unknown,
   reason: WorkerPoolFailure['reason'],
-  workerIndex: number,
+  workerIndex: WorkerIndex,
 ): WorkerPoolFailure => {
   if (cause instanceof Error) {
+    const decodedMessage = Schema.decodeUnknownResult(WorkerFailureMessageSchema)(cause.message)
+    if (Result.isFailure(decodedMessage)) {
+      return { _tag: 'WorkerPoolFailure', reason, workerIndex }
+    }
     return {
       _tag: 'WorkerPoolFailure',
-      message: cause.message,
+      message: decodedMessage.success,
       reason,
       workerIndex,
     }
@@ -464,7 +493,7 @@ const makeWorkerFailureHandlers = <TPayload, TResult>({
 }: WorkerFailureContext<TPayload, TResult>): WorkerFailureHandlers<TPayload, TResult> => {
   const createReplacement = (
     failedPort: PoolWorkerPort<TPayload, TResult>,
-    workerIndex: number,
+    workerIndex: WorkerIndex,
   ): Result.Result<PoolWorkerPort<TPayload, TResult> | undefined, WorkerPoolFailure> => {
     const { replaceWorker } = options
     if (replaceWorker === undefined) {
@@ -532,7 +561,7 @@ const makeWorkerFailureHandlers = <TPayload, TResult>({
     readonly current: PoolState<TPayload, TResult>
     readonly restored: Result.Result<RestoredWorker<TPayload, TResult> | undefined, WorkerPoolFailure>
     readonly workerFailure: WorkerPoolFailure
-    readonly workerIndex: number
+    readonly workerIndex: WorkerIndex
   }): void => {
     if (Result.isFailure(restored)) {
       failWithoutRestoredWorker(current, restored.failure)
@@ -628,16 +657,22 @@ export const makeWorkerPool = <TPayload, TResult>(
   ports: ReadonlyArray<WorkerPort<WorkerRequest<TPayload>, WorkerResponse<TResult>>>,
   options: WorkerPoolOptions<TPayload, TResult>,
 ): Effect.Effect<WorkerPool<TPayload, TResult>, WorkerPoolFailure> => {
-  const maxQueued = options.maxQueued ?? DEFAULT_MAX_QUEUED
   if (ports.length === EMPTY_LENGTH) {
     return Effect.fail({ _tag: 'WorkerPoolFailure', reason: 'no-worker-ports' })
   }
-  if (!Number.isSafeInteger(maxQueued) || maxQueued < ONE_AFFECTED_JOB) {
+  const concurrency = Schema.decodeUnknownResult(WorkerCountSchema)(ports.length)
+  if (Result.isFailure(concurrency)) {
+    return Effect.fail({ _tag: 'WorkerPoolFailure', reason: 'invalid-worker-count' })
+  }
+  const maxQueuedResult = decodeQueueCapacity(options.maxQueued)
+  if (Result.isFailure(maxQueuedResult)) {
     return Effect.fail({ _tag: 'WorkerPoolFailure', reason: 'invalid-max-queued' })
   }
+  const maxQueued = maxQueuedResult.success
 
   return Effect.gen(function* () {
-    const activePorts: Array<PoolWorkerPort<TPayload, TResult> | undefined> = [...ports]
+    const portBindings = ports.map((port, index) => ({ port, workerIndex: makeWorkerIndexFromArrayPosition(index) }))
+    const activePorts: Array<PoolWorkerPort<TPayload, TResult> | undefined> = portBindings.map(({ port }) => port)
     const portGenerations = ports.map(() => INITIAL_COUNTER)
 
     const state = yield* Ref.make<PoolState<TPayload, TResult>>({
@@ -647,7 +682,7 @@ export const makeWorkerPool = <TPayload, TResult>(
       discardedAfterStart: 0,
       droppedForBackpressure: 0,
       failed: 0,
-      idle: ports.map((_port, index) => index),
+      idle: portBindings.map(({ workerIndex }) => workerIndex),
       nextId: FIRST_JOB_ID,
       queue: [],
       restarted: 0,
@@ -659,7 +694,7 @@ export const makeWorkerPool = <TPayload, TResult>(
 
     // Wired once, at construction. A handler installed per job would leak one
     // Closure per chunk meshed, which on a walked-across world is unbounded.
-    ports.forEach((port, workerIndex) => {
+    portBindings.forEach(({ port, workerIndex }) => {
       failureHandlers.attachPort({ generation: INITIAL_COUNTER, port, workerIndex })
     })
 
@@ -670,7 +705,7 @@ export const makeWorkerPool = <TPayload, TResult>(
           pump(current, activePorts)
           return [affected, current]
         }),
-      concurrency: ports.length,
+      concurrency: concurrency.success,
 
       shutdown: Ref.update(state, (current) => {
         current.shuttingDown = true

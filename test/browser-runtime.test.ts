@@ -16,6 +16,7 @@ import {
 } from '../src/browser.js'
 import { mirroredCameraState } from '../src/domain/camera-mirror.js'
 import { ParticleDeltaSecsSchema } from '../src/domain/particle-pool.js'
+import { WorkerCountSchema } from '../src/domain/worker-parallelism.js'
 import { QUALITY_PRESETS, type PostProcessingStep } from '../src/domain/post-processing.js'
 import { ATLAS_PIXELS, AtlasLayoutIntegerSchema } from '../src/domain/texture-atlas.js'
 import { makeAnimationClockInput } from './support/animation-clock.js'
@@ -23,6 +24,8 @@ import { makeAnimationClockInput } from './support/animation-clock.js'
 const testCamera = mirroredCameraState(undefined)
 const decodeDelta = Schema.decodeUnknownSync(ParticleDeltaSecsSchema)
 const decodeAtlasLayoutInteger = Schema.decodeUnknownSync(AtlasLayoutIntegerSchema)
+const decodeWorkerCount = Schema.decodeUnknownSync(WorkerCountSchema)
+const originalNavigator = Object.getOwnPropertyDescriptor(globalThis, 'navigator')
 
 const makeBrowserWorldRuntime = (options: Parameters<typeof makeBrowserWorldRuntimeEffect>[0]) =>
   Effect.runPromise(makeBrowserWorldRuntimeEffect(options))
@@ -856,13 +859,14 @@ afterEach(() => {
   restoreGlobal('requestAnimationFrame', originalAnimationFrame)
   restoreGlobal('cancelAnimationFrame', originalCancelAnimationFrame)
   restoreGlobal('URL', originalUrl)
+  restoreGlobal('navigator', originalNavigator)
 })
 
 describe('browser world runtime', () => {
   it('exports browser worker startup and accepts a host worker factory', async () => {
     let terminated = false
     const options: BrowserMeshingWorkerPoolOptions = {
-      workerCount: 1,
+      workerCount: decodeWorkerCount(1),
       createWorker: () => ({
         addEventListener: () => undefined,
         postMessage: () => undefined,
@@ -875,6 +879,24 @@ describe('browser world runtime', () => {
     expect(MeshingWorkerPoolStartupError.name).toBe('MeshingWorkerPoolStartupError')
     await Effect.runPromise(pool.shutdown)
     expect(terminated).toBe(true)
+  })
+
+  it('returns a typed failure when detected hardware concurrency is invalid', async () => {
+    Object.defineProperty(globalThis, 'navigator', { configurable: true, value: { hardwareConcurrency: 0 } })
+    let createdWorkers = 0
+
+    const outcome = await Effect.runPromise(Effect.result(startBrowserMeshingWorkerPool({
+      createWorker: () => {
+        createdWorkers += 1
+        throw new Error('invalid hardware concurrency must fail before worker creation')
+      },
+    })))
+
+    expect(outcome).toStrictEqual(Result.fail({
+      _tag: 'WorkerParallelismError',
+      reason: 'invalid-hardware-concurrency',
+    }))
+    expect(createdWorkers).toBe(0)
   })
 
   it('loads the checked-in atlas by default with nearest and mipmapped sampling', async () => {
@@ -903,20 +925,23 @@ describe('browser world runtime', () => {
     const { quality } = runtime
 
     Effect.runSync(runtime.render(testCamera))
-    const [firstPass] = browserMocks.settings.colorCorrectionPasses
-    if (!firstPass) {
+    const [firstPass, referencePass] = browserMocks.settings.colorCorrectionPasses
+    if (!firstPass || !referencePass) {
       throw new Error('color correction pass was not installed')
     }
     expect(firstPass.uniforms['uColorVisionRow0']?.value).toStrictEqual([0.152286, 1.052583, -0.204868])
+    expect(referencePass.uniforms['uColorVisionRow0']?.value).toStrictEqual([0.152286, 1.052583, -0.204868])
 
     Effect.runSync(runtime.setUnderwater(true))
     Effect.runSync(runtime.render(testCamera))
     expect(firstPass.uniforms['uUnderwaterStrength']?.value).toBe(1)
+    expect(referencePass.uniforms['uUnderwaterStrength']?.value).toBe(1)
 
     Effect.runSync(runtime.setColorVisionCorrection('deuteranopia'))
     Effect.runSync(runtime.render(testCamera))
     expect(firstPass.uniforms['uColorVisionRow0']?.value).toStrictEqual([0.367322, 0.860646, -0.227968])
-    expect(browserMocks.settings.colorCorrectionPasses).toHaveLength(1)
+    expect(referencePass.uniforms['uColorVisionRow0']?.value).toStrictEqual([0.367322, 0.860646, -0.227968])
+    expect(browserMocks.settings.colorCorrectionPasses).toHaveLength(2)
     expect(runtime.quality).toBe(quality)
 
     const invalidCorrection = browserRuntimeFailure(Reflect.apply(
@@ -936,11 +961,12 @@ describe('browser world runtime', () => {
     Effect.runSync(runtime.setUnderwater(false))
     Effect.runSync(runtime.render(testCamera))
     expect(firstPass.disposed).toBe(true)
+    expect(referencePass.disposed).toBe(true)
     expect(runtime.quality).toBe(quality)
 
     Effect.runSync(runtime.setUnderwater(true))
     Effect.runSync(runtime.render(testCamera))
-    expect(browserMocks.settings.colorCorrectionPasses).toHaveLength(2)
+    expect(browserMocks.settings.colorCorrectionPasses).toHaveLength(4)
     Effect.runSync(runtime.dispose())
   })
 
@@ -1063,6 +1089,32 @@ describe('browser world runtime', () => {
         reason: 'operation-failed',
       })
     } finally {
+      Effect.runSync(runtime.dispose())
+    }
+  })
+
+  it('preserves color settings when replacing the post-processing chain fails', async () => {
+    const runtime = await makeBrowserWorldRuntime({
+      atlas: new THREE.Texture(),
+      autoResize: false,
+      canvas: new HTMLCanvasElement(),
+    })
+    const setPostProcessingChain = vi.spyOn(runtime.world, 'setPostProcessingChain')
+    setPostProcessingChain.mockReturnValue(Effect.die(new Error('post-processing update defect')))
+
+    try {
+      expect(browserRuntimeFailure(runtime.setColorVisionCorrection('tritanopia'))).toMatchObject({
+        _tag: 'BrowserRuntimeError',
+        operation: 'runtime',
+        reason: 'operation-failed',
+      })
+      setPostProcessingChain.mockRestore()
+      Effect.runSync(runtime.setUnderwater(true))
+      Effect.runSync(runtime.render(testCamera))
+      const [colorCorrectionPass] = browserMocks.settings.colorCorrectionPasses
+      expect(colorCorrectionPass?.uniforms['uColorVisionRow0']?.value).toStrictEqual([1, 0, 0])
+    } finally {
+      setPostProcessingChain.mockRestore()
       Effect.runSync(runtime.dispose())
     }
   })

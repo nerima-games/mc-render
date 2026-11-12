@@ -384,6 +384,7 @@ export type ChunkStoreMeshingOptions = {
 )
 
 const LOD_FINEST = 0
+const NO_LOD_CHANGES = 0
 
 const selectChunkLod = (
   chunk: ChunkCoord,
@@ -401,6 +402,122 @@ const selectChunkLod = (
     return Result.fail(distance.failure)
   }
   return lodForDistance(distance.success, thresholds.success)
+}
+
+const chunksWithChangedLod = (
+  meshedLods: ReadonlyMap<string, { readonly chunk: ChunkCoord; readonly lod: LodLevel }>,
+  cameraChunk: ChunkCoord,
+  renderDistance: RenderDistanceChunks,
+): Result.Result<ReadonlyArray<ChunkCoord>, ChunkMesherError> => {
+  const currentOptions = { cameraChunk: () => cameraChunk, renderDistance }
+  const changed: Array<ChunkCoord> = []
+  for (const { chunk: coord, lod } of meshedLods.values()) {
+    const nextLod = selectChunkLod(coord, currentOptions)
+    if (Result.isFailure(nextLod)) {
+      return Result.fail(nextLod.failure)
+    }
+    if (nextLod.success !== lod) {
+      changed.push(coord)
+    }
+  }
+  return Result.succeed(changed)
+}
+
+const cameraStateAfterRefresh = (
+  cameraChunk: ChunkCoord,
+  changed: ReadonlyArray<ChunkCoord>,
+  reconciledCameraChunk: ChunkCoord | undefined,
+): Readonly<{ pending: ChunkCoord | undefined; reconciled: ChunkCoord | undefined }> => {
+  if (changed.length === NO_LOD_CHANGES) {
+    return { pending: undefined, reconciled: cameraChunk }
+  }
+  return { pending: cameraChunk, reconciled: reconciledCameraChunk }
+}
+
+const computeLodRefresh = ({
+  cameraChunk,
+  meshedLods,
+  reconciledCameraChunk,
+  renderDistance,
+}: {
+  readonly cameraChunk: ChunkCoord
+  readonly meshedLods: ReadonlyMap<string, { readonly chunk: ChunkCoord; readonly lod: LodLevel }>
+  readonly reconciledCameraChunk: ChunkCoord | undefined
+  readonly renderDistance: RenderDistanceChunks
+}): Result.Result<{
+  readonly changed: ReadonlyArray<ChunkCoord>
+  readonly pending: ChunkCoord | undefined
+  readonly reconciled: ChunkCoord | undefined
+}, ChunkMesherError> => {
+  const changed = chunksWithChangedLod(meshedLods, cameraChunk, renderDistance)
+  if (Result.isFailure(changed)) {
+    return Result.fail(changed.failure)
+  }
+  const cameraState = cameraStateAfterRefresh(cameraChunk, changed.success, reconciledCameraChunk)
+  return Result.succeed({ ...cameraState, changed: changed.success })
+}
+
+type MeshedLodTracker = {
+  readonly refresh: (() => Result.Result<ReadonlyArray<ChunkCoord>, ChunkMesherError>) | undefined
+  readonly remember: (coord: ChunkCoord, lod: LodLevel, mesh: ChunkMesh | undefined) => ChunkMesh | undefined
+  readonly remove: (coord: ChunkCoord) => void
+}
+
+const makeMeshedLodTracker = (options: ChunkStoreMeshingOptions): MeshedLodTracker => {
+  const meshedLods = new Map<string, { readonly chunk: ChunkCoord; readonly lod: LodLevel }>()
+  let reconciledCameraChunk: ChunkCoord | undefined = undefined
+  let pendingCameraChunk: ChunkCoord | undefined = undefined
+  const remember = (coord: ChunkCoord, lod: LodLevel, mesh: ChunkMesh | undefined): ChunkMesh | undefined => {
+    if (mesh !== undefined && options.renderDistance !== undefined) {
+      meshedLods.set(`${coord.cx},${coord.cz}`, { chunk: coord, lod })
+    }
+    return mesh
+  }
+  const { renderDistance } = options
+  let refresh: MeshedLodTracker['refresh'] = undefined
+  if (renderDistance !== undefined) {
+    refresh = () => {
+    const cameraChunk = options.cameraChunk()
+    if (
+      pendingCameraChunk === undefined &&
+      reconciledCameraChunk?.cx === cameraChunk.cx &&
+      reconciledCameraChunk.cz === cameraChunk.cz
+    ) {
+      return Result.succeed([])
+    }
+    const changed = computeLodRefresh({ cameraChunk, meshedLods, reconciledCameraChunk, renderDistance })
+    if (Result.isFailure(changed)) {
+      return Result.fail(changed.failure)
+    }
+    reconciledCameraChunk = changed.success.reconciled
+    pendingCameraChunk = changed.success.pending
+    return Result.succeed(changed.success.changed)
+    }
+  }
+  return { refresh, remember, remove: (coord) => { meshedLods.delete(`${coord.cx},${coord.cz}`) } }
+}
+
+const withMesherCapabilities = (
+  mesher: ChunkMesher,
+  lodTracker: MeshedLodTracker,
+  options: ChunkStoreMeshingOptions,
+): ChunkMesher => {
+  const refreshLod = lodTracker.refresh
+  if (options.workerPool === undefined && refreshLod === undefined) {
+    return mesher
+  }
+  const cancelChunk = (coord: ChunkCoord): Effect.Effect<void> => {
+    lodTracker.remove(coord)
+    return Effect.asVoid(options.workerPool?.cancel(`${coord.cx},${coord.cz}`) ?? Effect.void)
+  }
+  let enhancedMesher = Object.assign(mesher, { cancel: cancelChunk })
+  if (refreshLod !== undefined) {
+    enhancedMesher = Object.assign(enhancedMesher, { refreshLod })
+  }
+  if (options.workerPool !== undefined) {
+    enhancedMesher = Object.assign(enhancedMesher, { concurrency: options.workerPool.concurrency })
+  }
+  return enhancedMesher
 }
 
 const meshConfigForWorker = (config: RenderMeshConfig): ChunkMeshingWorkerPayload['config'] => ({
@@ -424,11 +541,13 @@ const meshInWorker = ({
   readonly workerKey: string
 }): Effect.Effect<ChunkMesh | undefined, ChunkMesherError> =>
   Effect.gen(function* () {
+    // Keep the local input attached for block-shape assembly after the worker replies.
+    const workerInput = structuredClone(input)
     const outcome = yield* workerPool.submit(workerKey, {
-      chunk: input.chunk,
+      chunk: workerInput.chunk,
       config: meshConfigForWorker(config),
       lod,
-      neighbours: input.neighbours,
+      neighbours: workerInput.neighbours,
     })
     if (outcome._tag === 'cancelled') {
       return undefined
@@ -449,6 +568,26 @@ export const makeChunkStoreMesher = (
   options: ChunkStoreMeshingOptions = {},
 ): ChunkMesher => {
   const { workerPool } = options
+  const lodTracker = makeMeshedLodTracker(options)
+  const meshPreparedInput = (
+    coord: ChunkCoord,
+    input: MeshingChunkInput,
+    lod: LodLevel,
+  ): Effect.Effect<ChunkMesh | undefined, ChunkMesherError> => {
+    if (workerPool === undefined) {
+      return Effect.map(Effect.fromResult(meshWorldgenChunk(input, config, lod)), (mesh) => lodTracker.remember(coord, lod, mesh))
+    }
+    return Effect.map(
+      meshInWorker({
+        config,
+        input,
+        lod,
+        workerKey: `${coord.cx},${coord.cz}`,
+        workerPool,
+      }),
+      (mesh) => lodTracker.remember(coord, lod, mesh),
+    )
+  }
   const meshChunkFromStore: ChunkMesher = ({ cx, cz }) =>
     Effect.gen(function* () {
       const coord = chunkCoord(ChunkAxis(cx), ChunkAxis(cz))
@@ -458,25 +597,10 @@ export const makeChunkStoreMesher = (
       }
       const lod = yield* Effect.fromResult(selectChunkLod(coord, options))
       const input = toMeshingChunkInput(worldgenInput)
-      if (workerPool === undefined) {
-        return yield* Effect.fromResult(meshWorldgenChunk(input, config, lod))
-      }
-      return yield* meshInWorker({
-        config,
-        input,
-        lod,
-        workerKey: `${cx},${cz}`,
-        workerPool,
-      })
+      return yield* meshPreparedInput(coord, input, lod)
     })
 
-  if (workerPool === undefined) {
-    return meshChunkFromStore
-  }
-  return Object.assign(meshChunkFromStore, {
-    cancel: (chunk: ChunkCoord) => Effect.asVoid(workerPool.cancel(`${chunk.cx},${chunk.cz}`)),
-    concurrency: workerPool.concurrency,
-  })
+  return withMesherCapabilities(meshChunkFromStore, lodTracker, options)
 }
 
 /** `options` with default atlas tiles and chunk lighting, unless the caller supplied overrides. */

@@ -15,6 +15,7 @@
  */
 import { describe, expect, it } from '@effect/vitest'
 import { Effect, Fiber, Result, Schema } from 'effect'
+import * as FastCheck from 'fast-check'
 import {
   DEFAULT_MAX_QUEUED,
   makeWorkerPool as makeWorkerPoolWithRunner,
@@ -24,6 +25,7 @@ import {
   type WorkerRequest,
   type WorkerResponse,
 } from '../src/application/worker-pool'
+import { WorkerQueueCapacitySchema } from '../src/domain/worker-parallelism.js'
 
 const makeWorkerPool = <TPayload, TResult>(
   ports: ReadonlyArray<WorkerPort<WorkerRequest<TPayload>, WorkerResponse<TResult>>>,
@@ -32,6 +34,17 @@ const makeWorkerPool = <TPayload, TResult>(
 
 type Payload = { readonly chunk: string }
 type Result = { readonly quads: number }
+
+const makeWorkerPoolWithUnknownOptions = (
+  ports: ReadonlyArray<WorkerPort<WorkerRequest<Payload>, WorkerResponse<Result>>>,
+  options: unknown,
+): ReturnType<typeof makeWorkerPool<Payload, Result>> =>
+  Function.prototype.apply.call(makeWorkerPool, undefined, [ports, options])
+
+const makeWorkerPoolWithUnknownPorts = (
+  ports: unknown,
+): ReturnType<typeof makeWorkerPool<Payload, Result>> =>
+  Function.prototype.apply.call(makeWorkerPool, undefined, [ports])
 
 type FakeWorker = WorkerPort<WorkerRequest<Payload>, WorkerResponse<Result>> & {
   /** Requests this worker was handed, in order. */
@@ -92,6 +105,7 @@ const workers = (count: number): ReadonlyArray<FakeWorker> =>
  * reason and none of them were about the pool.
  */
 const settle = Effect.yieldNow
+const queueCapacity = Schema.decodeUnknownSync(WorkerQueueCapacitySchema)
 
 describe('dispatch', () => {
   it.effect('a job goes straight to an idle worker', () =>
@@ -161,6 +175,15 @@ describe('dispatch', () => {
       expect((yield* pool.stats)).toMatchObject({ busy: 2, queued: 3 })
       expect(pool_workers.map((worker) => worker.received().length)).toStrictEqual([1, 1])
     }),
+  )
+
+  it.effect('exposes exactly the supplied worker width for every small pool', () =>
+    Effect.sync(() => FastCheck.assert(FastCheck.property(FastCheck.integer({ min: 1, max: 6 }), (count) => {
+      const pool = Effect.runSync(makeWorkerPool(workers(count)))
+      const matchesWidth = pool.concurrency === count
+      Effect.runSync(pool.shutdown)
+      return matchesWidth
+    })))
   )
 
   it.effect('a freed worker picks up the next queued job', () =>
@@ -333,7 +356,7 @@ describe('backpressure', () => {
       // chunk they are walking into.
       const [worker] = workers(1)
       if (worker === undefined) {throw new Error('no worker')}
-      const pool = yield* makeWorkerPool([worker], { maxQueued: 2 })
+      const pool = yield* makeWorkerPool([worker], { maxQueued: queueCapacity(2) })
 
       yield* Effect.forkChild(pool.submit('running', { chunk: 'running' }))
 
@@ -367,7 +390,8 @@ describe('pool input failures', () => {
   it.effect('returns typed failures for no workers and invalid queue bounds', () =>
     Effect.gen(function* () {
       const noWorkers = yield* Effect.result(makeWorkerPool<Payload, Result>([]))
-      const invalidQueue = yield* Effect.result(makeWorkerPool(workers(1), { maxQueued: 0 }))
+      const invalidQueue = yield* Effect.result(makeWorkerPoolWithUnknownOptions(workers(1), { maxQueued: 0 }))
+      const nullQueue = yield* Effect.result(makeWorkerPoolWithUnknownOptions(workers(1), { maxQueued: null }))
 
       expect(noWorkers).toStrictEqual(Result.fail({
         _tag: 'WorkerPoolFailure',
@@ -377,8 +401,27 @@ describe('pool input failures', () => {
         _tag: 'WorkerPoolFailure',
         reason: 'invalid-max-queued',
       }))
+      expect(nullQueue).toStrictEqual(Result.fail({
+        _tag: 'WorkerPoolFailure',
+        reason: 'invalid-max-queued',
+      }))
       if (Result.isFailure(noWorkers)) {
         expect(Result.isSuccess(Schema.decodeUnknownResult(WorkerPoolFailureSchema)(noWorkers.failure))).toBe(true)
+      }
+      if (Result.isFailure(invalidQueue)) {
+        expect(Result.isSuccess(Schema.decodeUnknownResult(WorkerPoolFailureSchema)(invalidQueue.failure))).toBe(true)
+      }
+      if (Result.isFailure(nullQueue)) {
+        expect(Result.isSuccess(Schema.decodeUnknownResult(WorkerPoolFailureSchema)(nullQueue.failure))).toBe(true)
+      }
+
+      const invalidWorkerCount = yield* Effect.result(makeWorkerPoolWithUnknownPorts({ length: Number.NaN }))
+      expect(invalidWorkerCount).toStrictEqual(Result.fail({
+        _tag: 'WorkerPoolFailure',
+        reason: 'invalid-worker-count',
+      }))
+      if (Result.isFailure(invalidWorkerCount)) {
+        expect(Result.isSuccess(Schema.decodeUnknownResult(WorkerPoolFailureSchema)(invalidWorkerCount.failure))).toBe(true)
       }
     }),
   )
@@ -418,6 +461,52 @@ describe('worker failure', () => {
       yield* settle
 
       expect(yield* Fiber.join(next)).toStrictEqual({ _tag: 'completed', result: { quads: 11 } })
+    }),
+  )
+
+  it.effect('keeps a typed failure when the worker error event has no Error message', () =>
+    Effect.gen(function* () {
+      const [worker] = workers(1)
+      if (worker === undefined) {throw new Error('no worker')}
+      const pool = yield* makeWorkerPool([worker])
+      const job = yield* Effect.forkChild(pool.submit('no-message', { chunk: 'no-message' }))
+      yield* settle
+
+      worker.fail('worker unavailable')
+      yield* settle
+
+      const outcome = yield* Fiber.join(job)
+      expect(outcome).toStrictEqual({
+        _tag: 'failed',
+        error: { _tag: 'WorkerPoolFailure', reason: 'worker-failed', workerIndex: 0 },
+      })
+      if (outcome._tag === 'failed') {
+        expect(Result.isSuccess(Schema.decodeUnknownResult(WorkerPoolFailureSchema)(outcome.error))).toBe(true)
+      }
+    }),
+  )
+
+  it.effect('omits a malformed non-string Error message from the typed worker failure', () =>
+    Effect.gen(function* () {
+      const [worker] = workers(1)
+      if (worker === undefined) {throw new Error('no worker')}
+      const pool = yield* makeWorkerPool([worker])
+      const job = yield* Effect.forkChild(pool.submit('malformed-message', { chunk: 'malformed-message' }))
+      yield* settle
+
+      const malformedError = new Error('host supplied an invalid message')
+      Object.defineProperty(malformedError, 'message', { value: 1 })
+      worker.fail(malformedError)
+      yield* settle
+
+      const outcome = yield* Fiber.join(job)
+      expect(outcome).toStrictEqual({
+        _tag: 'failed',
+        error: { _tag: 'WorkerPoolFailure', reason: 'worker-failed', workerIndex: 0 },
+      })
+      if (outcome._tag === 'failed') {
+        expect(Result.isSuccess(Schema.decodeUnknownResult(WorkerPoolFailureSchema)(outcome.error))).toBe(true)
+      }
     }),
   )
 
@@ -472,6 +561,38 @@ describe('worker failure', () => {
         error: { _tag: 'WorkerPoolFailure', reason: 'replacement-failed', workerIndex: 0, message: replacementFailure.message },
       })
       expect(yield* pool.stats).toMatchObject({ failed: 2, restarted: 0, deadWorkers: 1, queued: 0 })
+    }),
+  )
+
+  it.effect('preserves the replacement failure reason when its Error message is malformed', () =>
+    Effect.gen(function* () {
+      const [worker] = workers(1)
+      if (worker === undefined) {
+        throw new Error('no worker')
+      }
+      const replacementFailure = new Error()
+      Object.defineProperty(replacementFailure, 'message', { value: null })
+      const pool = yield* makeWorkerPool([worker], {
+        replaceWorker: () => {
+          throw replacementFailure
+        },
+      })
+      const running = yield* Effect.forkChild(pool.submit('malformed-replacement-error', { chunk: 'malformed-replacement-error' }))
+      yield* settle
+      const queued = yield* Effect.forkChild(pool.submit('malformed-replacement-queued', { chunk: 'malformed-replacement-queued' }))
+      yield* settle
+
+      worker.fail(new Error('worker exited'))
+      yield* settle
+
+      expect(yield* Fiber.join(running)).toMatchObject({
+        _tag: 'failed',
+        error: { _tag: 'WorkerPoolFailure', reason: 'worker-failed', workerIndex: 0 },
+      })
+      expect(yield* Fiber.join(queued)).toMatchObject({
+        _tag: 'failed',
+        error: { _tag: 'WorkerPoolFailure', reason: 'replacement-failed', workerIndex: 0 },
+      })
     }),
   )
 

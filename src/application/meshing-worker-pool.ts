@@ -1,3 +1,4 @@
+import { Brand, Data, Effect, Result, Schema } from 'effect'
 import {
   type BrowserWorkerLike,
   makeBrowserWorkerPort,
@@ -7,10 +8,15 @@ import {
   ChunkMeshingWorkerResponseSchema,
   type ChunkMeshingWorkerResult,
 } from './chunk-meshing-worker.js'
-import { Data, Effect, Result, Schema } from 'effect'
 import {
+  HardwareConcurrencySchema,
+  type WorkerCount,
+  WorkerCountSchema,
+  type WorkerIndex,
   type WorkerParallelismError,
   type WorkerParallelismInput,
+  type WorkerQueueCapacity,
+  WorkerQueueCapacitySchema,
   resolveWorkerParallelism,
 } from '../domain/worker-parallelism.js'
 import {
@@ -23,21 +29,29 @@ import {
 } from './worker-pool.js'
 import type { ChunkView } from '@nerima-games/mc-meshing'
 
-const MIN_MAX_QUEUED = 1
-const MIN_WORKER_COUNT = 1
-
 const MeshingWorkerPoolStartupErrorBase: ReturnType<typeof Data.TaggedError<'MeshingWorkerPoolStartupError'>> =
   Data.TaggedError('MeshingWorkerPoolStartupError')
 
 export class MeshingWorkerPoolStartupError extends MeshingWorkerPoolStartupErrorBase<{
   readonly cause: unknown
-  readonly reason: 'worker-creation-failed' | 'invalid-max-queued'
-  readonly workerIndex?: number
+  readonly reason: 'invalid-max-queued' | 'invalid-worker-index' | 'worker-creation-failed'
+  readonly workerIndex?: WorkerIndex
 }> {}
 
+const makeStartupError = (
+  reason: MeshingWorkerPoolStartupError['reason'],
+  cause: unknown,
+  workerIndex?: WorkerIndex,
+): MeshingWorkerPoolStartupError => {
+  if (workerIndex === undefined) {
+    return new MeshingWorkerPoolStartupError({ cause, reason })
+  }
+  return new MeshingWorkerPoolStartupError({ cause, reason, workerIndex })
+}
+
 export type MeshingWorkerPoolFactoryOptions = WorkerParallelismInput & {
-  readonly createWorker: (workerIndex: number) => BrowserWorkerLike<ArrayBuffer>
-  readonly maxQueued?: number | undefined
+  readonly createWorker: (workerIndex: WorkerIndex) => BrowserWorkerLike<ArrayBuffer>
+  readonly maxQueued?: WorkerQueueCapacity | undefined
 }
 
 export type MeshingWorkerPool = WorkerPool<ChunkMeshingWorkerPayload, ChunkMeshingWorkerResult>
@@ -71,7 +85,7 @@ const transferablesFor = (request: WorkerRequest<ChunkMeshingWorkerPayload>): Ar
 
 const createWorkerPorts = (
   options: MeshingWorkerPoolFactoryOptions,
-  workerCount: number,
+  workerCount: WorkerCount,
 ): Effect.Effect<
   Array<WorkerPort<
     WorkerRequest<ChunkMeshingWorkerPayload>,
@@ -80,18 +94,14 @@ const createWorkerPorts = (
   MeshingWorkerPoolStartupError
 > => {
   const workers: Array<BrowserWorkerLike<ArrayBuffer>> = []
-  return Effect.try({
-    catch: (cause) => {
-      for (const worker of workers) {
-        worker.terminate()
-      }
-      return new MeshingWorkerPoolStartupError({
-        cause,
-        reason: 'worker-creation-failed',
-        workerIndex: workers.length,
-      })
-    },
-    try: () => Array.from({ length: workerCount }, (_unused, workerIndex) => {
+  const makeWorkerIndexFromArrayPosition = Brand.nominal<WorkerIndex>()
+  const workerIndices = Effect.try({
+    catch: (cause) => makeStartupError('worker-creation-failed', cause),
+    try: () => Array.from({ length: workerCount }, (_unused, workerIndex) => makeWorkerIndexFromArrayPosition(workerIndex)),
+  })
+  const createPort = (workerIndex: WorkerIndex) => Effect.try({
+    catch: (cause) => makeStartupError('worker-creation-failed', cause, workerIndex),
+    try: () => {
       const worker = options.createWorker(workerIndex)
       workers.push(worker)
       return makeBrowserWorkerPort<
@@ -103,9 +113,30 @@ const createWorkerPorts = (
         transfer: transferablesFor,
         workerIndex,
       })
-    }),
+    },
   })
+  return workerIndices.pipe(
+    Effect.flatMap((indices) => Effect.forEach(indices, createPort)),
+    Effect.mapError((failure) => {
+      for (const worker of workers) {
+        worker.terminate()
+      }
+      return failure
+    }),
+  )
 }
+
+const startPoolWithWorkers = (
+  options: MeshingWorkerPoolFactoryOptions,
+  workerCount: WorkerCount,
+  maxQueued: WorkerQueueCapacity | undefined,
+): Effect.Effect<MeshingWorkerPool, MeshingWorkerPoolStartupError | WorkerPoolFailure> =>
+  createWorkerPorts(options, workerCount).pipe(Effect.flatMap((workerPorts) => {
+    if (maxQueued === undefined) {
+      return makeWorkerPool(workerPorts, { runSync: Effect.runSync })
+    }
+    return makeWorkerPool(workerPorts, { maxQueued, runSync: Effect.runSync })
+  }))
 
 /** Create and adapt workers, cleaning up a partial startup if construction fails. */
 export const startMeshingWorkerPool = (
@@ -116,25 +147,27 @@ export const startMeshingWorkerPool = (
   if (Result.isFailure(count)) {
     return Effect.fail(count.failure)
   }
-  if (maxQueued !== undefined && (!Number.isSafeInteger(maxQueued) || maxQueued < MIN_MAX_QUEUED)) {
-    return Effect.fail(new MeshingWorkerPoolStartupError({ cause: undefined, reason: 'invalid-max-queued' }))
-  }
-
-  const ports = createWorkerPorts(options, count.success)
   if (maxQueued === undefined) {
-    return ports.pipe(Effect.flatMap((workerPorts) => makeWorkerPool(workerPorts, { runSync: Effect.runSync })))
+    return startPoolWithWorkers(options, count.success, undefined)
   }
-  return ports.pipe(Effect.flatMap((workerPorts) => makeWorkerPool(workerPorts, {
-    maxQueued,
-    runSync: Effect.runSync,
-  })))
+  const queueCapacity = Schema.decodeUnknownResult(WorkerQueueCapacitySchema)(maxQueued)
+  if (Result.isFailure(queueCapacity)) {
+    return Effect.fail(makeStartupError('invalid-max-queued', queueCapacity.failure))
+  }
+  return startPoolWithWorkers(options, count.success, queueCapacity.success)
 }
+
+type MeshingWorkerPoolFactoryOptionsEncoded = Readonly<{
+  readonly hardwareConcurrency?: Schema.Codec.Encoded<typeof HardwareConcurrencySchema> | undefined
+  readonly maxQueued?: Schema.Codec.Encoded<typeof WorkerQueueCapacitySchema> | undefined
+  readonly workerCount?: Schema.Codec.Encoded<typeof WorkerCountSchema> | undefined
+}>
 
 export const MeshingWorkerPoolFactoryOptionsSchema: Schema.Codec<Pick<
   MeshingWorkerPoolFactoryOptions,
   'hardwareConcurrency' | 'maxQueued' | 'workerCount'
->> = Schema.Struct({
-  hardwareConcurrency: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(MIN_WORKER_COUNT))),
-  maxQueued: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(MIN_MAX_QUEUED))),
-  workerCount: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(MIN_WORKER_COUNT))),
+>, MeshingWorkerPoolFactoryOptionsEncoded> = Schema.Struct({
+  hardwareConcurrency: Schema.optional(HardwareConcurrencySchema),
+  maxQueued: Schema.optional(WorkerQueueCapacitySchema),
+  workerCount: Schema.optional(WorkerCountSchema),
 })

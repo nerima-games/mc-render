@@ -192,6 +192,12 @@ const mappedEvents: ReadonlyArray<Readonly<{
     position: expectedWorldPosition(9, 10, 11),
     followEntity: 'player-1',
   },
+  {
+    name: 'weather-driven block change',
+    value: { _tag: 'BlockChangedByWorld', tick: 1, address: { dimension: 'overworld', position: { x: 1, y: 2, z: 3 } }, cause: 'weather' },
+    kind: 'block-break',
+    position: expectedWorldPosition(1.5, 2.5, 3.5),
+  },
 ]
 
 describe('particleRequestForDomainEvent', () => {

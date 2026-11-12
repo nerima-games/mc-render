@@ -1,5 +1,5 @@
 import { describe, expect, it } from '@effect/vitest'
-import { Effect } from 'effect'
+import { Effect, Result } from 'effect'
 import {
   makeWeatherRenderer,
   type WeatherPrecipitationResource,
@@ -65,18 +65,22 @@ describe('weather renderer resource lifecycle', () => {
 
   it.effect('forwards active strikes and hides their geometry after the flash expires', () =>
     Effect.gen(function* () {
+      const createdKinds: Array<PrecipitationKind> = []
       const boltSequences: Array<number | undefined> = []
       const flashes: Array<number> = []
       const renderer = yield* makeWeatherRenderer({
         setEnvironment: () => Effect.void,
-        createPrecipitation: () => Effect.succeed({
-          update: () => Effect.void,
-          updateLightning: (bolt, flash) => Effect.sync(() => {
-            boltSequences.push(bolt?.sequence)
-            flashes.push(flash)
-          }),
-          resize: () => Effect.void,
-          dispose: Effect.void,
+        createPrecipitation: (kind) => Effect.sync(() => {
+          createdKinds.push(kind)
+          return {
+            update: () => Effect.void,
+            updateLightning: (bolt, flash) => Effect.sync(() => {
+              boltSequences.push(bolt?.sequence)
+              flashes.push(flash)
+            }),
+            resize: () => Effect.void,
+            dispose: Effect.void,
+          }
         }),
       }, { lightningDurationFrames: 1 })
       const thunder = { ...snapshot('thunder'), lightningSequence: 11 }
@@ -85,11 +89,78 @@ describe('weather renderer resource lifecycle', () => {
       const expiredPlan = yield* renderer.frame(thunder, camera)
       expect(activePlan.lightningBolt?.sequence).toBe(11)
       expect(expiredPlan.lightningBolt).toBeUndefined()
+      expect(createdKinds).toStrictEqual(['rain'])
       expect(boltSequences).toStrictEqual([11, undefined])
       expect(flashes).toStrictEqual([1, 0])
 
       yield* renderer.frame(snapshot('clear'), camera)
       expect(boltSequences).toStrictEqual([11, undefined])
+      yield* renderer.dispose
+    }),
+  )
+
+  it.effect('fails invalid thunder snapshots before mutating the renderer state or resources', () =>
+    Effect.gen(function* () {
+      let environments = 0
+      let particleUpdates = 0
+      const renderer = yield* makeWeatherRenderer({
+        setEnvironment: () => Effect.sync(() => { environments += 1 }),
+        createPrecipitation: () => Effect.succeed({
+          update: () => Effect.sync(() => { particleUpdates += 1 }),
+          resize: () => Effect.void,
+          dispose: Effect.void,
+        }),
+      })
+
+      const invalidSeed = yield* Effect.result(renderer.frame({
+        ...snapshot('thunder'),
+        seed: Number.NaN,
+        lightningSequence: 5,
+      }, camera))
+      const invalidSequence = yield* Effect.result(renderer.frame({
+        ...snapshot('thunder'),
+        lightningSequence: 1.5,
+      }, camera))
+
+      expect(Result.isFailure(invalidSeed)).toBe(true)
+      expect(Result.isFailure(invalidSequence)).toBe(true)
+      expect(environments).toBe(0)
+      expect(particleUpdates).toBe(0)
+      expect(yield* renderer.state).toMatchObject({ frame: 0, lightningFramesRemaining: 0 })
+      yield* renderer.dispose
+    }),
+  )
+
+  it.effect('keeps the active resource after a failed strike and releases it on clear', () =>
+    Effect.gen(function* () {
+      let environments = 0
+      let particleUpdates = 0
+      let disposals = 0
+      const renderer = yield* makeWeatherRenderer({
+        setEnvironment: () => Effect.sync(() => { environments += 1 }),
+        createPrecipitation: () => Effect.succeed({
+          update: () => Effect.sync(() => { particleUpdates += 1 }),
+          resize: () => Effect.void,
+          dispose: Effect.sync(() => { disposals += 1 }),
+        }),
+      })
+
+      yield* renderer.frame(snapshot('rain'), camera)
+      const stateAfterRain = yield* renderer.state
+      const failedStrike = yield* Effect.result(renderer.frame({
+        ...snapshot('thunder'),
+        lightningSequence: 8,
+      }, { ...camera, x: Number.NaN }))
+
+      expect(Result.isFailure(failedStrike)).toBe(true)
+      expect(yield* renderer.state).toStrictEqual(stateAfterRain)
+      expect(environments).toBe(1)
+      expect(particleUpdates).toBe(1)
+      expect(disposals).toBe(0)
+
+      yield* renderer.frame(snapshot('clear'), camera)
+      expect(environments).toBe(2)
+      expect(disposals).toBe(1)
       yield* renderer.dispose
     }),
   )

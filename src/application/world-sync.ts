@@ -52,6 +52,7 @@ import { type ChunkGeometryUpdate, type ChunkKey, type WorldRenderer } from './w
 import { Effect, Ref, Result, Schema, Semaphore } from 'effect'
 import type { ChunkMeshingWorkerFailure } from './chunk-meshing-worker.js'
 import type { LodInputError } from '../domain/level-of-detail.js'
+import type { WorkerCount } from '../domain/worker-parallelism.js'
 import type { WorkerPoolFailure } from './worker-pool.js'
 import { chunkKeyOf as worldgenChunkKeyOf } from '@nerima-games/mc-worldgen'
 
@@ -122,9 +123,11 @@ export type ChunkMesherError = ReturnType<typeof meshChunk> extends Result.Resul
   : never
 export type ChunkMesher = ((chunk: ChunkRef) => Effect.Effect<ChunkMesh | undefined, ChunkMesherError>) & {
   /** Worker-backed meshers expose their fixed pool width to the frame batcher. */
-  readonly concurrency?: number
+  readonly concurrency?: WorkerCount
   /** Cancel queued/in-flight work when the corresponding chunk unloads. */
   readonly cancel?: (chunk: ChunkRef) => Effect.Effect<void>
+  /** Resident chunks whose cached LOD no longer matches the current camera chunk. */
+  readonly refreshLod?: () => Result.Result<ReadonlyArray<ChunkRef>, ChunkMesherError>
 }
 
 const FLUID_KIND_BY_BLOCK_ID = new Map<BlockId, 'lava' | 'water'>(
@@ -348,6 +351,22 @@ const removeChunks = (
     return removed
   })
 
+const includeLodChanges = (
+  changedChunks: ReadonlyArray<ChunkRef>,
+  lodChangedChunks: ReadonlyArray<ChunkRef>,
+): ReadonlyArray<ChunkRef> => {
+  const included = new Set(changedChunks.map(chunkKeyOf))
+  const combined = [...changedChunks]
+  for (const chunk of lodChangedChunks) {
+    const key = chunkKeyOf(chunk)
+    if (!included.has(key)) {
+      included.add(key)
+      combined.push(chunk)
+    }
+  }
+  return combined
+}
+
 /** Mesh every changed chunk, splitting the results into applied updates and a deferred count. */
 const meshChangedChunks = (
   changedChunks: ReadonlyArray<ChunkRef>,
@@ -407,7 +426,9 @@ export const syncWorld = (
     const batch = yield* source.drain
 
     const removed = yield* removeChunks(renderer, batch.removed, mesher)
-    const { deferred, updates } = yield* meshChangedChunks(batch.changed, mesher, options)
+    const lodChangedChunks = yield* Effect.fromResult(mesher.refreshLod?.() ?? Result.succeed([]))
+    const changedChunks = includeLodChanges(batch.changed, lodChangedChunks)
+    const { deferred, updates } = yield* meshChangedChunks(changedChunks, mesher, options)
     yield* renderer.setChunks(updates)
 
     return { deferred, meshed: updates.length, removed }

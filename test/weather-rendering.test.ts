@@ -4,12 +4,15 @@ import * as FastCheck from 'fast-check'
 import {
   decodeLightningBoltInput,
   LightningBoltInputSchema,
+  LightningFlashSchema,
+  LightningSeedSchema,
+  LightningSequenceSchema,
   planLightningBolt,
   type LightningBoltInput,
 } from '../src/domain/lightning-bolt'
 import {
   INITIAL_WEATHER_RENDER_STATE,
-  planWeatherFrame,
+  planWeatherFrame as planWeatherFrameResult,
   type WorldWeatherSnapshot,
 } from '../src/domain/weather-rendering'
 
@@ -21,6 +24,9 @@ const rain: WorldWeatherSnapshot = {
   temperature: 0.8,
   seed: 42,
 }
+
+const planWeatherFrame = (input: Parameters<typeof planWeatherFrameResult>[0]) =>
+  Result.getOrThrow(planWeatherFrameResult(input))
 
 describe('weather frame planning', () => {
   it.effect('is deterministic for the same snapshot, camera, and state', () =>
@@ -245,21 +251,70 @@ describe('weather frame planning', () => {
     }),
   )
 
-  it.effect('omits a bolt when a thunder sequence or seed fails the lightning input schema', () =>
+  it.effect('rejects a weather snapshot with an invalid lightning seed or sequence', () =>
     Effect.sync(() => {
-      const sequenceFailure = planWeatherFrame({
+      const sequenceFailure = planWeatherFrameResult({
         camera,
         snapshot: { ...rain, mode: 'thunder', lightningSequence: 1.5 },
       })
-      const seedFailure = planWeatherFrame({
+      const seedFailure = planWeatherFrameResult({
         camera,
         snapshot: { ...rain, mode: 'thunder', seed: Number.NaN, lightningSequence: 2 },
       })
 
-      expect(sequenceFailure.plan.lightningFlash).toBe(1)
-      expect(sequenceFailure.plan.lightningBolt).toBeUndefined()
-      expect(seedFailure.plan.lightningFlash).toBe(1)
-      expect(seedFailure.plan.lightningBolt).toBeUndefined()
+      expect(Result.isFailure(sequenceFailure)).toBe(true)
+      expect(Result.isFailure(seedFailure)).toBe(true)
+    }),
+  )
+
+  it.effect('returns a schema failure when a valid strike resolves to a non-finite bolt origin', () =>
+    Effect.sync(() => {
+      const invalidOrigin = planWeatherFrameResult({
+        camera: { ...camera, x: Number.NaN },
+        snapshot: { ...rain, mode: 'thunder', lightningSequence: 8 },
+      })
+
+      expect(Result.isFailure(invalidOrigin)).toBe(true)
+    }),
+  )
+
+  it.effect('property: only schema-valid seeds and nonnegative integer sequences produce plans', () =>
+    Effect.sync(() => {
+      const number = FastCheck.double({ min: -1000, max: 1000, noNaN: true })
+      FastCheck.assert(
+        FastCheck.property(number, number, (seed, sequence) => {
+          const planned = planWeatherFrameResult({
+            camera,
+            snapshot: { ...rain, mode: 'thunder', seed, lightningSequence: sequence },
+          })
+          const validInput = Number.isInteger(seed) && Number.isInteger(sequence) && sequence >= 0
+          if (!validInput) {
+            return Result.isFailure(planned)
+          }
+          if (Result.isFailure(planned)) {
+            return false
+          }
+          return Result.isSuccess(Schema.decodeUnknownResult(LightningSeedSchema)(seed)) &&
+            Result.isSuccess(Schema.decodeUnknownResult(LightningSequenceSchema)(sequence)) &&
+            Result.isSuccess(Schema.decodeUnknownResult(LightningFlashSchema)(planned.success.plan.lightningFlash))
+        }),
+        { numRuns: 300 },
+      )
+    }),
+  )
+
+  it.effect('accepts numeric schema boundaries and rejects values immediately outside them', () =>
+    Effect.sync(() => {
+      const plan = (seed: number, lightningSequence: number) =>
+        planWeatherFrameResult({ camera, snapshot: { ...rain, mode: 'thunder', seed, lightningSequence } })
+
+      expect(Result.isSuccess(plan(0, 0))).toBe(true)
+      expect(Result.isSuccess(plan(-1, 1))).toBe(true)
+      expect(Result.isFailure(plan(Number.MIN_VALUE, 0))).toBe(true)
+      expect(Result.isFailure(plan(Number.NaN, 0))).toBe(true)
+      expect(Result.isFailure(plan(0, -Number.MIN_VALUE))).toBe(true)
+      expect(Result.isFailure(plan(0, Number.MIN_VALUE))).toBe(true)
+      expect(Result.isFailure(plan(0, 1 + Number.EPSILON))).toBe(true)
     }),
   )
 

@@ -47,8 +47,10 @@ import type { CrossPlantQuad, GeometryQuad, MeshQuad, QuadColor } from '../src/d
 import { TILE_BY_BLOCK_NAME, quadTileForLookup } from '../src/domain/block-texture-map'
 import { FAKE_CANVAS, makeFakeThree } from './support/fake-three'
 import { blockId, chunkCoord } from './support/kernel-brands'
+import { WorkerCountSchema } from '../src/domain/worker-parallelism.js'
 
 const VIEWPORT = { width: 1280, height: 720 }
+const workerCount = Schema.decodeUnknownSync(WorkerCountSchema)
 
 const quad = (overrides: Partial<MeshQuad> = {}): MeshQuad => ({
   blockId: blockId(1),
@@ -134,7 +136,7 @@ describe('syncWorld', () => {
           started.push(chunk.cx)
           releases.push(() => resume(Effect.succeed([quad()])))
         }),
-        { concurrency: 2 },
+        { concurrency: workerCount(2) },
       )
 
       const syncing = yield* Effect.forkChild(syncWorld(renderer, source, mesher))
@@ -153,6 +155,29 @@ describe('syncWorld', () => {
         release()
       }
       yield* Fiber.join(syncing)
+    }),
+  )
+
+  it.effect('merges camera-driven LOD refreshes with dirty chunks without meshing duplicates', () =>
+    Effect.gen(function* () {
+      const three = makeFakeThree()
+      const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT)
+      const alreadyDirty = chunkCoord(2, 0)
+      const lodOnly = chunkCoord(4, 0)
+      const source = yield* scriptedSource([{ changed: [alreadyDirty], removed: [] }])
+      const meshed: Array<string> = []
+      const mesher = Object.assign(
+        (chunk: ChunkRef) => Effect.sync(() => {
+          meshed.push(`${chunk.cx},${chunk.cz}`)
+          return [quad()]
+        }),
+        { refreshLod: () => Result.succeed([lodOnly, alreadyDirty]) },
+      )
+
+      const report = yield* syncWorld(renderer, source, mesher)
+
+      expect(meshed).toStrictEqual(['2,0', '4,0'])
+      expect(report).toStrictEqual({ meshed: 2, deferred: 0, removed: 0 })
     }),
   )
 

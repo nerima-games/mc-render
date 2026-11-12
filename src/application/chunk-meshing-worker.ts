@@ -1,3 +1,4 @@
+import { Brand, Option, Result, Schema } from 'effect'
 import {
   type ChunkNeighbours,
   type ChunkView,
@@ -7,7 +8,6 @@ import {
   meshChunk,
   simplifyMesh,
 } from '@nerima-games/mc-meshing'
-import { Result, Schema } from 'effect'
 import type { WorkerRequest, WorkerResponse } from './worker-pool.js'
 
 export type ChunkMeshingWorkerPayload = {
@@ -20,12 +20,26 @@ export type ChunkMeshingWorkerPayload = {
 export type ChunkMeshingWorkerFailure = {
   readonly _tag: 'ChunkMeshingWorkerFailure'
   readonly reason: 'invalid-request' | 'mesh-failed'
-  readonly causeTag?: string | undefined
+  readonly causeTag?: ChunkMeshingCauseTag | undefined
 }
 
-export const ChunkMeshingWorkerFailureSchema: Schema.Codec<ChunkMeshingWorkerFailure> = Schema.Struct({
+export type ChunkMeshingCauseTag = Brand.Branded<string, 'ChunkMeshingCauseTag'>
+
+export const ChunkMeshingCauseTagSchema: Schema.Codec<ChunkMeshingCauseTag, string> =
+  Schema.String.pipe(Schema.brand('ChunkMeshingCauseTag'))
+
+type ChunkMeshingWorkerFailureEncoded = Readonly<{
+  readonly _tag: 'ChunkMeshingWorkerFailure'
+  readonly reason: ChunkMeshingWorkerFailure['reason']
+  readonly causeTag?: Schema.Codec.Encoded<typeof ChunkMeshingCauseTagSchema> | undefined
+}>
+
+export const ChunkMeshingWorkerFailureSchema: Schema.Codec<
+  ChunkMeshingWorkerFailure,
+  ChunkMeshingWorkerFailureEncoded
+> = Schema.Struct({
   _tag: Schema.Literal('ChunkMeshingWorkerFailure'),
-  causeTag: Schema.optional(Schema.String),
+  causeTag: Schema.optional(ChunkMeshingCauseTagSchema),
   reason: Schema.Literals(['invalid-request', 'mesh-failed']),
 })
 
@@ -109,9 +123,7 @@ const isChunkMeshingWorkerResult = (value: unknown): value is ChunkMeshingWorker
     return isMeshLayers(layers)
   }
   if (_tag === 'failed' && isRecord(error)) {
-    return error['_tag'] === 'ChunkMeshingWorkerFailure' &&
-      (error['reason'] === 'invalid-request' || error['reason'] === 'mesh-failed') &&
-      (error['causeTag'] === undefined || typeof error['causeTag'] === 'string')
+    return Schema.is(ChunkMeshingWorkerFailureSchema)(error)
   }
   return false
 }
@@ -125,11 +137,9 @@ const isWorkerResponse = (value: unknown): value is WorkerResponse<ChunkMeshingW
 export const ChunkMeshingWorkerResponseSchema: Schema.Codec<WorkerResponse<ChunkMeshingWorkerResult>> =
   Schema.declare<WorkerResponse<ChunkMeshingWorkerResult>>(isWorkerResponse)
 
-const errorTag = (error: unknown): string | undefined => {
-  if (isRecord(error) && typeof error['_tag'] === 'string') {
-    return error['_tag']
-  }
-  return undefined
+const errorTag = (error: unknown): ChunkMeshingCauseTag | undefined => {
+  const decoded = Schema.decodeUnknownResult(Schema.Struct({ _tag: ChunkMeshingCauseTagSchema }))(error)
+  return Option.getOrUndefined(Result.getSuccess(decoded))?._tag
 }
 
 export const processChunkMeshingWorkerRequest = (

@@ -655,6 +655,7 @@ type BrowserPostProcessingState = {
   currentKey: string
   readbackTarget: THREE.WebGLRenderTarget | undefined
   readonly referenceComposer: EffectComposer
+  referenceColorCorrectionPass: BrowserColorCorrectionPass | undefined
   referenceKey: string
   readonly referenceQuality: GraphicsQuality
 }
@@ -771,6 +772,7 @@ const createBrowserPostProcessingState = ({
     copyQuad,
     currentKey: '',
     readbackTarget: undefined,
+    referenceColorCorrectionPass: undefined,
     referenceComposer,
     referenceKey: '',
     referenceQuality,
@@ -842,6 +844,21 @@ const installBrowserPostProcessingChain = ({
     target.addPass(createPass(step, quality))
   }
   return key
+}
+
+const updateColorCorrectionPassForChain = (
+  chain: ReadonlyArray<PostProcessingStep>,
+  colorCorrectionPass: BrowserColorCorrectionPass | undefined,
+  colorFilter: ColorFilterInput,
+): BrowserColorCorrectionPass | undefined => {
+  let nextPass = colorCorrectionPass
+  if (!chain.some(({ pass }) => pass === 'colorCorrection')) {
+    nextPass = undefined
+  }
+  if (nextPass !== undefined) {
+    updateColorCorrectionPass(nextPass, colorFilter)
+  }
+  return nextPass
 }
 
 const ensureBrowserComposerQuality = ({
@@ -983,6 +1000,7 @@ const readBrowserReferenceImage = ({
 const ensureBrowserPostProcessingChains = ({
   chain,
   createPass,
+  createReferencePass,
   getColorFilter,
   getPixelRatio,
   getQuality,
@@ -992,6 +1010,7 @@ const ensureBrowserPostProcessingChains = ({
 }: {
   readonly chain: ReadonlyArray<PostProcessingStep>
   readonly createPass: (step: PostProcessingStep, quality: GraphicsQuality) => Pass
+  readonly createReferencePass: (step: PostProcessingStep, quality: GraphicsQuality) => Pass
   readonly getColorFilter: () => ColorFilterInput
   readonly getPixelRatio: () => number
   readonly getQuality: () => GraphicsQuality
@@ -1000,6 +1019,7 @@ const ensureBrowserPostProcessingChains = ({
   readonly state: BrowserPostProcessingState
 }): void => {
   ensureBrowserComposerQuality({ getPixelRatio, getQuality, getViewport, renderer, state })
+  const colorFilter = getColorFilter()
   state.currentKey = installBrowserPostProcessingChain({
     chain,
     createPass,
@@ -1007,19 +1027,20 @@ const ensureBrowserPostProcessingChains = ({
     quality: state.composerQuality,
     target: state.composer,
   })
-  if (!chain.some(({ pass }) => pass === 'colorCorrection')) {
-    state.colorCorrectionPass = undefined
-  }
-  if (state.colorCorrectionPass) {
-    updateColorCorrectionPass(state.colorCorrectionPass, getColorFilter())
-  }
+  state.colorCorrectionPass = updateColorCorrectionPassForChain(chain, state.colorCorrectionPass, colorFilter)
+  const referenceChain = browserPostProcessingChain(state.referenceQuality, colorFilter)
   state.referenceKey = installBrowserPostProcessingChain({
-    chain: browserPostProcessingChain(state.referenceQuality),
-    createPass,
+    chain: referenceChain,
+    createPass: createReferencePass,
     installedKey: state.referenceKey,
     quality: state.referenceQuality,
     target: state.referenceComposer,
   })
+  state.referenceColorCorrectionPass = updateColorCorrectionPassForChain(
+    referenceChain,
+    state.referenceColorCorrectionPass,
+    colorFilter,
+  )
 }
 
 const renderAndCompareBrowserImages = ({
@@ -1126,12 +1147,23 @@ const createPostProcessingSession = ({
     },
     scene: surface.scene,
   })
+  const createReferencePass = createBrowserPostProcessingPass({
+    camera: surface.camera,
+    getColorFilter: options.getColorFilter,
+    getPixelRatio: options.getPixelRatio,
+    getViewport: options.getViewport,
+    onColorCorrectionPass: (pass) => {
+      state.referenceColorCorrectionPass = pass
+    },
+    scene: surface.scene,
+  })
   const draw = (chain: ReadonlyArray<PostProcessingStep>): void => {
     const priorSample = Effect.runSync(gpuTiming.service.poll)
     gpuTiming.latestGpuTimeMs = resolveBrowserLatestGpuTime(gpuTiming.latestGpuTimeMs, priorSample)
     ensureBrowserPostProcessingChains({
       chain,
       createPass,
+      createReferencePass,
       getColorFilter: options.getColorFilter,
       getPixelRatio: options.getPixelRatio,
       getQuality: options.getQuality,
@@ -1907,10 +1939,10 @@ const applyRuntimeColorFilter = (
   Effect.try({
     catch: (cause) => browserRuntimeError('runtime', 'operation-failed', cause),
     try: () => {
-      resources.state.colorFilter = colorFilter
       Effect.runSync(resources.world.setPostProcessingChain(
         browserPostProcessingChain(resources.state.quality, colorFilter),
       ))
+      resources.state.colorFilter = colorFilter
     },
   })
 

@@ -74,4 +74,53 @@ describe('chunk meshing worker protocol', () => {
       )
     }),
   )
+
+  it.effect('rejects malformed nested chunk, neighbour, config, and LOD fields', () =>
+    Effect.sync(() => {
+      const payload = validPayload()
+      const invalidPayloads: ReadonlyArray<unknown> = [
+        null,
+        { ...payload, chunk: null },
+        { ...payload, chunk: { ...payload.chunk, coord: null } },
+        { ...payload, chunk: { ...payload.chunk, height: 0 } },
+        { ...payload, neighbours: null },
+        { ...payload, neighbours: { xPos: null } },
+        { ...payload, config: null },
+        { ...payload, config: { ...payload.config, waterBlockIds: [1] } },
+        { ...payload, config: { ...payload.config, fluidMaxLevels: new Map([[1, Number.POSITIVE_INFINITY]]) } },
+        { ...payload, lod: 3 },
+      ]
+
+      for (const invalidPayload of invalidPayloads) {
+        const decoded = decodeChunkMeshingWorkerRequest({ id: 1, payload: invalidPayload })
+        expect(Result.isFailure(decoded)).toBe(true)
+        if (Result.isFailure(decoded)) {
+          expect(Result.isSuccess(Schema.decodeUnknownResult(ChunkMeshingWorkerFailureSchema)(decoded.failure)))
+            .toBe(true)
+          expect(decoded.failure.reason).toBe('invalid-request')
+        }
+      }
+    }),
+  )
+
+  it.effect('rejects invalid response unions, layer shapes, IDs, and encoded failure tags', () =>
+    Effect.sync(() => {
+      const emptyLayers = { opaque: [], water: [], transparentSolid: [], crossPlants: [], fluids: [], specialBlocks: [] }
+      const malformedResponses: ReadonlyArray<unknown> = [
+        null,
+        { id: 1, result: null },
+        { id: 0, result: { _tag: 'meshed', layers: emptyLayers } },
+        { id: 1, result: { _tag: 'meshed', layers: null } },
+        { id: 1, result: { _tag: 'meshed', layers: { ...emptyLayers, opaque: null } } },
+        { id: 1, result: { _tag: 'failed', error: null } },
+        { id: 1, result: { _tag: 'failed', error: { _tag: 'ChunkMeshingWorkerFailure', reason: 'other' } } },
+        { id: 1, result: { _tag: 'failed', error: { _tag: 'ChunkMeshingWorkerFailure', reason: 'mesh-failed', causeTag: 1 } } },
+      ]
+
+      for (const malformedResponse of malformedResponses) {
+        expect(Result.isFailure(Schema.decodeUnknownResult(ChunkMeshingWorkerResponseSchema)(malformedResponse)))
+          .toBe(true)
+      }
+    }),
+  )
 })

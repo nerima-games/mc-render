@@ -56,8 +56,12 @@ describe('lightning input brands', () => {
       }
 
       expect(Result.isSuccess(Schema.decodeUnknownResult(LightningBoltInputSchema)(decoded.success))).toBe(true)
-      expect(planLightningBolt(decoded.success)).toStrictEqual(planLightningBolt(decoded.success))
-      expect(planLightningBolt(decoded.success).sequence).toBe(decoded.success.sequence)
+      expect(planLightningBolt(decoded.success).strands[0]?.[4]).toStrictEqual({
+        x: 0.3429188693407923,
+        y: 80,
+        z: -6.693482273956761,
+      })
+      expect(planLightningBolt(decoded.success).sequence).toBe(2)
     }),
   )
 })
