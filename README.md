@@ -202,17 +202,20 @@ casts ([`docs/design-notes.md`](./docs/design-notes.md) DN-15). The published
   描画距離はグラフィックス品質プリセットとは別に設定し、ホストは `WorldRenderer` と
   `makeChunkStoreMesher` の双方に同じ `renderDistance` を渡す。
   前者はチャンクの表示範囲を制限し、後者は `cameraChunk` との距離で LOD を選ぶ。
+  カメラが別チャンクへ移動すると、常駐チャンクの LOD を再評価し、LOD が変わった
+  チャンクだけを再メッシュする。
   worker pool は browser entry から起動し、パーティクルは
   `runtime.world.particleService.spawn` で要求する。色補正は生成時か
   `setColorVisionCorrection` で設定し、水中状態は `setUnderwater` で更新する。
   雨、雪、雷は `runtime.world.weather.frame` に天候スナップショットを渡して更新する。
+  `seed` または `lightningSequence` が不正な値なら、`frame` は `Schema.SchemaError` で失敗する。
 
 ```typescript
 import { Effect } from 'effect'
 import { makeChunkStoreMesher } from '@nerima-games/mc-render'
 import { makeBrowserWorldRuntime, startBrowserMeshingWorkerPool } from '@nerima-games/mc-render/browser'
 
-const workers = await Effect.runPromise(startBrowserMeshingWorkerPool({ workerCount: settings.workerCount }))
+const workers = await Effect.runPromise(startBrowserMeshingWorkerPool())
 const mesher = makeChunkStoreMesher(store, config, {
   cameraChunk: () => cameraChunk,
   renderDistance: settings.renderDistance,
@@ -235,10 +238,11 @@ await Effect.runPromise(runtime.world.weather.frame(weatherSnapshot, cameraPosit
 `BrowserFrame` の形は変わらない。ホストは従来どおり `advanceFrame` または `start` でフレームを渡す。
 UI で色補正を変更したら `setColorVisionCorrection` を、水中状態が変わったら `setUnderwater` を呼ぶ。
 各実装経路は
-`src/application/world-renderer.ts:908,1761-1765`、`src/application/chunk-store-mesher.ts:368-376`、
-`src/browser-meshing-workers.mts:29-40`、`src/application/world-renderer-production.ts:113`、
-`src/application/world-renderer.ts:831-832`、`src/application/weather-renderer.ts:112-114`、
-`src/browser.ts:796,1001,1927-1930` にある。詳細と呼び出し例は
+`src/application/world-renderer.ts:911,1375-1379,1772-1776`、
+`src/application/chunk-store-mesher.ts:389-405,466-494,567-605`、
+`src/application/world-sync.ts:428-432`、`src/browser-meshing-workers.mts:25-29,55-63`、
+`src/application/world-renderer-production.ts:113`、`src/application/weather-renderer.ts:126-133`、
+`src/browser.ts:1912-1925,2085,2116-2123` にある。詳細と呼び出し例は
 [`docs/public-api.md`](./docs/public-api.md) を参照。
 - **ビルドは実装済みだが、publish はまだ運用していない。** `pnpm build` が `dist/index.js` と宣言ファイルを生成し、
   `package.json` の `exports` はその生成物を指す。`version` は `0.x` に留める（[`docs/versioning.md`](./docs/versioning.md)）。

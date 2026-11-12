@@ -1144,10 +1144,13 @@ const runtime = await Effect.runPromise(makeBrowserWorldRuntime({
 }))
 ```
 
-LOD selection runs in `src/application/chunk-store-mesher.ts:368-376`; the
-renderer hides chunks outside the same Chebyshev radius in
-`src/application/world-renderer.ts:1761-1765`. The browser runtime forwards
-`world` options in `src/browser.ts:1420-1425`.
+When the camera moves to another chunk, resident chunks whose LOD tier changes
+are re-meshed. LOD selection runs in
+`src/application/chunk-store-mesher.ts:389-405`; the refresh tracker is applied
+by `src/application/world-sync.ts:428-432` and also removes unloaded chunks.
+The renderer hides chunks outside the same Chebyshev radius in
+`src/application/world-renderer.ts:1772-1776`. The browser runtime forwards
+`world` options in `src/browser.ts:1513-1532`.
 
 ## 4. マテリアル方針
 
@@ -1395,7 +1398,7 @@ The setters return `Effect<void, BrowserRuntimeFailure>` and reject invalid
 runtime values with `BrowserRenderPolicyError` (`operation: 'color-filter'`).
 
 ```typescript
-const workerOptions: BrowserMeshingWorkerPoolOptions = { workerCount: settings.workerCount }
+const workerOptions: BrowserMeshingWorkerPoolOptions = {}
 const workerPool: BrowserMeshingWorkerPool = await Effect.runPromise(startBrowserMeshingWorkerPool(workerOptions))
 const chunkMesher = makeChunkStoreMesher(store, meshConfig, {
   cameraChunk: () => currentCameraChunk,
@@ -1430,16 +1433,27 @@ await Effect.runPromise(workerPool.shutdown)
 `particleRequestForDomainEvent` maps supported domain events, including fire-caused
 block changes; hosts can request `smoke` and `water-splash` directly.
 `startBrowserMeshingWorkerPool` creates the browser worker slots
-(`src/browser-meshing-workers.mts:29-40`), and the root
+(`src/browser-meshing-workers.mts:25-29,55-63`), and the browser entry exports it
+(`src/browser.ts:2116-2123`). If neither `workerCount` nor
+`hardwareConcurrency` is supplied, the browser entry reads
+`navigator.hardwareConcurrency` and leaves one logical processor available to
+the host. An explicit `workerCount` uses the `WorkerCount` brand; use
+`makeWorkerCount` or `WorkerCountSchema` to validate a host number. Missing or
+invalid hardware concurrency returns `WorkerParallelismError`.
+The root
 `startMeshingWorkerPool` accepts a host-provided worker factory. Worker startup
 effects can fail with `WorkerParallelismError`, `MeshingWorkerPoolStartupError`,
 or `WorkerPoolFailure`.
 
 `WorldRenderer.weather.frame(snapshot, camera)` advances precipitation, the
-environment, and lightning for a host snapshot. The browser world exposes that
-renderer at `src/application/world-renderer.ts:831-832`; weather runtime wiring
-is in `src/application/world-renderer.ts:1805-1820` and
-`src/application/world-renderer.ts:1894-1907`. The root also exports
+environment, and lightning for a host snapshot. Invalid `seed` or
+`lightningSequence` values fail with `Schema.SchemaError`; the renderer does not
+update its state or weather resources for that frame. The planning and frame
+handling are in `src/domain/weather-rendering.ts:481-541` and
+`src/application/weather-renderer.ts:126-133`. The browser world exposes the
+renderer at `src/application/world-renderer.ts:838-840`; it is created at
+`src/application/world-renderer.ts:1810-1825` and returned at
+`src/application/world-renderer.ts:1912`. The root also exports
 `LightningBoltInputSchema` and `planLightningBolt` for deterministic pure bolt
 plans. Runtime updates to correction or underwater state do not change the
 existing `advanceFrame` and `start` call shapes.
