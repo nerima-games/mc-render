@@ -8,9 +8,11 @@ import {
   decodeEntityRenderEntityInput,
   decodeEntityRenderFrameInput,
   sampleEntityRenderFrame,
-  type EntityRenderEntityInputEncoded,
-  type EntityRenderFrameInputEncoded,
+  type EntityRenderEntityInput,
 } from '../src/domain/entity-render-input.js'
+
+type EntityRenderEntityInputEncoded = Schema.Codec.Encoded<typeof EntityRenderEntityInputSchema>
+type EntityRenderFrameInputEncoded = Schema.Codec.Encoded<typeof EntityRenderFrameInputSchema>
 
 const VALID_ENTITY: EntityRenderEntityInputEncoded = {
   id: 'mob-1',
@@ -38,6 +40,32 @@ const validFrame = (patch: Partial<EntityRenderFrameInputEncoded> = {}): EntityR
 
 const validEntityWith = (patch: Record<string, unknown>) => ({ ...VALID_ENTITY, ...patch })
 const YAW_OUTSIDE_DELTA = 1e-12
+
+const entityFieldValues = (
+  entity: EntityRenderEntityInput | EntityRenderEntityInputEncoded,
+): ReadonlyArray<unknown> => [
+  entity.id,
+  entity.kind,
+  entity.position.dimension,
+  entity.position.x,
+  entity.position.y,
+  entity.position.z,
+  entity.bodyYawRadians,
+  entity.headYawRadians,
+  entity.pitchRadians,
+  entity.blockLight,
+  entity.skyLight,
+  entity.walkPhaseRadians,
+  entity.walkAmount,
+  entity.attackProgress,
+  entity.hurtProgress,
+  entity.deathProgress,
+]
+
+const preservesEntityFields = (decoded: EntityRenderEntityInput, encoded: EntityRenderEntityInputEncoded): boolean => {
+  const encodedValues = entityFieldValues(encoded)
+  return entityFieldValues(decoded).every((value, index) => value === encodedValues[index])
+}
 
 const angleArbitrary = FastCheck.double({ min: -Math.PI, max: Math.PI, noNaN: true, noDefaultInfinity: true })
 const pitchArbitrary = FastCheck.double({ min: -Math.PI / 2, max: Math.PI / 2, noNaN: true, noDefaultInfinity: true })
@@ -73,22 +101,7 @@ describe('entity render input schemas', () => {
         if (Result.isFailure(decoded)) {
           return false
         }
-        return decoded.success.id === entity.id &&
-          decoded.success.kind === entity.kind &&
-          decoded.success.position.dimension === entity.position.dimension &&
-          decoded.success.position.x === entity.position.x &&
-          decoded.success.position.y === entity.position.y &&
-          decoded.success.position.z === entity.position.z &&
-          decoded.success.bodyYawRadians === entity.bodyYawRadians &&
-          decoded.success.headYawRadians === entity.headYawRadians &&
-          decoded.success.pitchRadians === entity.pitchRadians &&
-          decoded.success.blockLight === entity.blockLight &&
-          decoded.success.skyLight === entity.skyLight &&
-          decoded.success.walkPhaseRadians === entity.walkPhaseRadians &&
-          decoded.success.walkAmount === entity.walkAmount &&
-          decoded.success.attackProgress === entity.attackProgress &&
-          decoded.success.hurtProgress === entity.hurtProgress &&
-          decoded.success.deathProgress === entity.deathProgress
+        return preservesEntityFields(decoded.success, entity)
       }),
     )
   })
@@ -213,18 +226,12 @@ describe('entity render frame clock', () => {
           if (Result.isFailure(sampled)) {
             return false
           }
+          const [sampledEntity] = sampled.success.frame.entities
+          if (sampledEntity === undefined) {
+            return false
+          }
           return sampled.success.animationSeconds === (simulationTick + partialTick) / 20 &&
-            sampled.success.frame.entities[0]?.position.dimension === entity.position.dimension &&
-            sampled.success.frame.entities[0]?.blockLight === entity.blockLight &&
-            sampled.success.frame.entities[0]?.skyLight === entity.skyLight &&
-            sampled.success.frame.entities[0]?.bodyYawRadians === entity.bodyYawRadians &&
-            sampled.success.frame.entities[0]?.headYawRadians === entity.headYawRadians &&
-            sampled.success.frame.entities[0]?.pitchRadians === entity.pitchRadians &&
-            sampled.success.frame.entities[0]?.walkPhaseRadians === entity.walkPhaseRadians &&
-            sampled.success.frame.entities[0]?.walkAmount === entity.walkAmount &&
-            sampled.success.frame.entities[0]?.attackProgress === entity.attackProgress &&
-            sampled.success.frame.entities[0]?.hurtProgress === entity.hurtProgress &&
-            sampled.success.frame.entities[0]?.deathProgress === entity.deathProgress
+            preservesEntityFields(sampledEntity, entity)
         },
       ),
     )

@@ -1,12 +1,13 @@
-import { Brand, Result, Schema } from 'effect'
-import { type WorldPosition, SimulationTickSchema, WorldPositionSchema } from '@nerima-games/mc-kernel'
 import {
   type AnimationClockInput,
+  type AnimationClockInputError,
   type AnimationSeconds,
   PartialTickSchema,
   TimeOfDayTicksSchema,
   animationTimeSeconds,
 } from './animation-clock.js'
+import { Brand, Result, Schema } from 'effect'
+import { SimulationTickSchema, type WorldPosition, WorldPositionSchema } from '@nerima-games/mc-kernel'
 
 export type EntityRenderIdentifier = Brand.Branded<string, 'EntityRenderIdentifier'>
 export type EntityRenderKind = Brand.Branded<string, 'EntityRenderKind'>
@@ -18,10 +19,12 @@ export type EntityRenderLightLevel = Brand.Branded<number, 'EntityRenderLightLev
 
 const MINIMUM_ENTITY_ANGLE_RADIANS = -Math.PI
 const MAXIMUM_ENTITY_ANGLE_RADIANS = Math.PI
-const MINIMUM_PITCH_RADIANS = -Math.PI / 2
-const MAXIMUM_PITCH_RADIANS = Math.PI / 2
+const HALF_TURN_DIVISOR = 2
+const MINIMUM_PITCH_RADIANS = -Math.PI / HALF_TURN_DIVISOR
+const MAXIMUM_PITCH_RADIANS = Math.PI / HALF_TURN_DIVISOR
 const MINIMUM_WALK_PHASE_RADIANS = 0
-const WALK_PHASE_RADIANS_PER_CYCLE = 2 * Math.PI
+const WALK_PHASE_RADIANS_PER_CYCLE = HALF_TURN_DIVISOR * Math.PI
+const MINIMUM_IDENTIFIER_LENGTH = 1
 const MINIMUM_PROGRESS = 0
 const MAXIMUM_PROGRESS = 1
 const MINIMUM_LIGHT_LEVEL = 0
@@ -29,11 +32,11 @@ const MAXIMUM_LIGHT_LEVEL = 15
 
 /** Entity IDs and kinds are non-empty host identifiers; this module does not depend on gameplay types. */
 export const EntityRenderIdentifierSchema: Schema.Codec<EntityRenderIdentifier, string> = Schema.String
-  .check(Schema.isMinLength(1))
+  .check(Schema.isMinLength(MINIMUM_IDENTIFIER_LENGTH))
   .pipe(Schema.brand('EntityRenderIdentifier'))
 
 export const EntityRenderKindSchema: Schema.Codec<EntityRenderKind, string> = Schema.String
-  .check(Schema.isMinLength(1))
+  .check(Schema.isMinLength(MINIMUM_IDENTIFIER_LENGTH))
   .pipe(Schema.brand('EntityRenderKind'))
 
 /** Yaw values are radians in the canonical inclusive range [-π, π]. */
@@ -80,7 +83,7 @@ export type EntityRenderEntityInput = Readonly<{
   readonly deathProgress: EntityRenderProgress
 }>
 
-export type EntityRenderEntityInputEncoded = Readonly<{
+type EntityRenderEntityInputEncoded = Readonly<{
   readonly id: string
   readonly kind: string
   readonly position: Schema.Codec.Encoded<typeof WorldPositionSchema>
@@ -119,7 +122,7 @@ export type EntityRenderFrameInput = AnimationClockInput & Readonly<{
   readonly entities: ReadonlyArray<EntityRenderEntityInput>
 }>
 
-export type EntityRenderFrameInputEncoded = Readonly<{
+type EntityRenderFrameInputEncoded = Readonly<{
   readonly simulationTick: number
   readonly partialTick: number
   readonly timeOfDayTicks: number
@@ -138,13 +141,19 @@ export const EntityRenderFrameInputSchema: Schema.Codec<
 })
 
 /** Decoders reject unknown fields at every nested object boundary. */
-export const decodeEntityRenderEntityInput = Schema.decodeUnknownResult(EntityRenderEntityInputSchema, {
-  onExcessProperty: 'error',
-})
+export const decodeEntityRenderEntityInput: (
+  input: unknown,
+) => Result.Result<EntityRenderEntityInput, Schema.SchemaError> = Schema.decodeUnknownResult(
+  EntityRenderEntityInputSchema,
+  { onExcessProperty: 'error' },
+)
 
-export const decodeEntityRenderFrameInput = Schema.decodeUnknownResult(EntityRenderFrameInputSchema, {
-  onExcessProperty: 'error',
-})
+export const decodeEntityRenderFrameInput: (
+  input: unknown,
+) => Result.Result<EntityRenderFrameInput, Schema.SchemaError> = Schema.decodeUnknownResult(
+  EntityRenderFrameInputSchema,
+  { onExcessProperty: 'error' },
+)
 
 export type SampledEntityRenderFrame = Readonly<{
   readonly frame: EntityRenderFrameInput
@@ -152,7 +161,9 @@ export type SampledEntityRenderFrame = Readonly<{
 }>
 
 /** Validate a host frame and derive animation time from simulation ticks, without render-delta accumulation. */
-export const sampleEntityRenderFrame = (input: unknown) => {
+export const sampleEntityRenderFrame = (
+  input: unknown,
+): Result.Result<SampledEntityRenderFrame, Schema.SchemaError | AnimationClockInputError> => {
   const frame = decodeEntityRenderFrameInput(input)
   if (Result.isFailure(frame)) {
     return Result.fail(frame.failure)
@@ -163,5 +174,5 @@ export const sampleEntityRenderFrame = (input: unknown) => {
     return Result.fail(animationSeconds.failure)
   }
 
-  return Result.succeed({ frame: frame.success, animationSeconds: animationSeconds.success })
+  return Result.succeed({ animationSeconds: animationSeconds.success, frame: frame.success })
 }
