@@ -74,7 +74,12 @@ const iconRaster = (rgba: Uint8Array, tileIndex: number): Uint8Array => {
 const differentPixelCount = (left: Uint8Array, right: Uint8Array): number => {
   let different = 0
   for (let pixelOffset = 0; pixelOffset < left.length; pixelOffset += CHANNELS) {
-    if ([0, 1, 2, 3].some((channel) => left[pixelOffset + channel] !== right[pixelOffset + channel])) {
+    const leftAlpha = left[pixelOffset + 3] ?? 0
+    const rightAlpha = right[pixelOffset + 3] ?? 0
+    if (
+      (leftAlpha !== 0 || rightAlpha !== 0) &&
+      [0, 1, 2, 3].some((channel) => left[pixelOffset + channel] !== right[pixelOffset + channel])
+    ) {
       different += 1
     }
   }
@@ -101,6 +106,26 @@ describe('item icon generation', () => {
         expect(iconPixels(artifacts.rgba, index).length, `${itemId} has visible pixels`).toBeGreaterThan(0)
       }
     }
+  })
+
+  it('ignores RGB differences in transparent pixels but counts visible color and alpha differences', () => {
+    const transparentPixels = new Uint8Array(TILE_PIXELS * TILE_PIXELS * CHANNELS)
+    const hiddenRgbDifferences = new Uint8Array(transparentPixels)
+    for (let pixel = 0; pixel < 9; pixel += 1) {
+      const offset = pixel * CHANNELS
+      hiddenRgbDifferences.set([pixel + 1, pixel + 2, pixel + 3, 0], offset)
+    }
+    expect(differentPixelCount(transparentPixels, hiddenRgbDifferences)).toBe(0)
+
+    const visiblePixels = new Uint8Array(transparentPixels)
+    visiblePixels.set([24, 32, 40, 255], 0)
+    const differentVisibleColor = new Uint8Array(visiblePixels)
+    differentVisibleColor[0] = 25
+    const differentVisibleAlpha = new Uint8Array(visiblePixels)
+    differentVisibleAlpha[3] = 254
+
+    expect(differentPixelCount(visiblePixels, differentVisibleColor)).toBe(1)
+    expect(differentPixelCount(visiblePixels, differentVisibleAlpha)).toBe(1)
   })
 
   it('keeps registered item icons visually distinct and lists duplicate or near-duplicate pairs', () => {
