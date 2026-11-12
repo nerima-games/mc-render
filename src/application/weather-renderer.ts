@@ -10,17 +10,17 @@ import {
   type WorldWeatherSnapshot,
   planWeatherFrame,
 } from '../domain/weather-rendering.js'
+import type { LightningBoltPlan, LightningFlash } from '../domain/lightning-bolt.js'
 import {
   type RenderEnvironmentPlan,
   type Viewport,
   planRenderEnvironment,
 } from '../domain/render-environment.js'
 import type { Dimension } from '@nerima-games/mc-kernel'
-import type { LightningBoltPlan } from '../domain/lightning-bolt.js'
 
 export type WeatherPrecipitationResource = {
   readonly update: (particles: ReadonlyArray<PrecipitationParticle>) => Effect.Effect<void>
-  readonly updateLightning?: (bolt: LightningBoltPlan | undefined, flash: number) => Effect.Effect<void>
+  readonly updateLightning?: (bolt: LightningBoltPlan | undefined, flash: LightningFlash) => Effect.Effect<void>
   readonly resize: (viewport: Viewport) => Effect.Effect<void>
   readonly dispose: Effect.Effect<void>
 }

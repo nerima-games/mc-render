@@ -245,6 +245,24 @@ describe('weather frame planning', () => {
     }),
   )
 
+  it.effect('omits a bolt when a thunder sequence or seed fails the lightning input schema', () =>
+    Effect.sync(() => {
+      const sequenceFailure = planWeatherFrame({
+        camera,
+        snapshot: { ...rain, mode: 'thunder', lightningSequence: 1.5 },
+      })
+      const seedFailure = planWeatherFrame({
+        camera,
+        snapshot: { ...rain, mode: 'thunder', seed: Number.NaN, lightningSequence: 2 },
+      })
+
+      expect(sequenceFailure.plan.lightningFlash).toBe(1)
+      expect(sequenceFailure.plan.lightningBolt).toBeUndefined()
+      expect(seedFailure.plan.lightningFlash).toBe(1)
+      expect(seedFailure.plan.lightningBolt).toBeUndefined()
+    }),
+  )
+
   it.effect('retains lightning geometry for a thunder snapshot that resolves to snow', () =>
     Effect.sync(() => {
       const planned = planWeatherFrame({
@@ -301,7 +319,7 @@ describe('weather frame planning', () => {
 
 describe('lightning bolt geometry planning', () => {
   const origin = { x: 6, y: 62, z: -9 }
-  const input: LightningBoltInput = { origin, seed: 147, sequence: 3 }
+  const input: LightningBoltInput = Schema.decodeUnknownSync(LightningBoltInputSchema)({ origin, seed: 147, sequence: 3 })
 
   it.effect('builds three repeatable eight-segment strands from the strike sequence', () =>
     Effect.sync(() => {
@@ -329,9 +347,13 @@ describe('lightning bolt geometry planning', () => {
           coordinate,
           coordinate,
           FastCheck.integer(),
-          FastCheck.integer(),
+          FastCheck.nat(),
           (x, y, z, seed, sequence) => {
-            const bolt = planLightningBolt({ origin: { x, y, z }, seed, sequence })
+            const decoded = decodeLightningBoltInput({ origin: { x, y, z }, seed, sequence })
+            if (Result.isFailure(decoded)) {
+              return false
+            }
+            const bolt = planLightningBolt(decoded.success)
             return bolt.sequence === sequence && bolt.strands.length === 3 && bolt.strands.every((strand) =>
               strand.length === 9 && strand.every((point) =>
                 Number.isFinite(point.x) && Number.isFinite(point.y) && Number.isFinite(point.z),
@@ -363,6 +385,7 @@ describe('lightning bolt geometry planning', () => {
     Effect.sync(() => {
       expect(Result.isSuccess(decodeLightningBoltInput(input))).toBe(true)
       expect(Result.isFailure(decodeLightningBoltInput({ ...input, sequence: 3.5 }))).toBe(true)
+      expect(Result.isFailure(decodeLightningBoltInput({ ...input, sequence: -1 }))).toBe(true)
       expect(Result.isFailure(decodeLightningBoltInput({ ...input, seed: Number.POSITIVE_INFINITY }))).toBe(true)
       expect(Result.isFailure(decodeLightningBoltInput({ ...input, origin: { ...origin, x: Number.NaN } }))).toBe(true)
       expect(Result.isFailure(decodeLightningBoltInput({ ...input, extra: true }))).toBe(true)

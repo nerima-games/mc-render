@@ -1,16 +1,38 @@
-import { Result, Schema } from 'effect'
+import { Brand, Result, Schema } from 'effect'
 
 type LightningPoint = Readonly<{ readonly x: number; readonly y: number; readonly z: number }>
 
+export type LightningSeed = Brand.Branded<number, 'LightningSeed'>
+export type LightningSequence = Brand.Branded<number, 'LightningSequence'>
+export type LightningFlash = Brand.Branded<number, 'LightningFlash'>
+
+const ZERO = 0
+const UNIT_INTERVAL_MAX = 1
+const MIN_LIGHTNING_SEQUENCE = 0
+
+export const LightningSeedSchema: Schema.Codec<LightningSeed, number> = Schema.Int
+  .pipe(Schema.brand('LightningSeed'))
+
+export const LightningSequenceSchema: Schema.Codec<LightningSequence, number> = Schema.Int
+  .check(Schema.isGreaterThanOrEqualTo(MIN_LIGHTNING_SEQUENCE))
+  .pipe(Schema.brand('LightningSequence'))
+
+export const LightningFlashSchema: Schema.Codec<LightningFlash, number> = Schema.Finite
+  .check(Schema.isBetween({ maximum: UNIT_INTERVAL_MAX, minimum: ZERO }))
+  .pipe(Schema.brand('LightningFlash'))
+
+export const decodeLightningFlash = (input: unknown): Result.Result<LightningFlash, Schema.SchemaError> =>
+  Schema.decodeUnknownResult(LightningFlashSchema)(input)
+
 export type LightningBoltPlan = Readonly<{
-  readonly sequence: number
+  readonly sequence: LightningSequence
   readonly strands: ReadonlyArray<ReadonlyArray<LightningPoint>>
 }>
 
 export type LightningBoltInput = Readonly<{
   readonly origin: LightningPoint
-  readonly seed: number
-  readonly sequence: number
+  readonly seed: LightningSeed
+  readonly sequence: LightningSequence
 }>
 
 const LightningPointSchema: Schema.Codec<LightningPoint> = Schema.Struct({
@@ -19,10 +41,14 @@ const LightningPointSchema: Schema.Codec<LightningPoint> = Schema.Struct({
   z: Schema.Finite,
 })
 
-export const LightningBoltInputSchema: Schema.Codec<LightningBoltInput> = Schema.Struct({
+export const LightningBoltInputSchema: Schema.Codec<LightningBoltInput, Readonly<{
+  readonly origin: Readonly<{ readonly x: number; readonly y: number; readonly z: number }>
+  readonly seed: number
+  readonly sequence: number
+}>> = Schema.Struct({
   origin: LightningPointSchema,
-  seed: Schema.Int,
-  sequence: Schema.Int,
+  seed: LightningSeedSchema,
+  sequence: LightningSequenceSchema,
 })
 
 export const decodeLightningBoltInput: (

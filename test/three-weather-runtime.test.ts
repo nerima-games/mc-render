@@ -1,5 +1,5 @@
 import { describe, expect, it } from '@effect/vitest'
-import { Effect } from 'effect'
+import { Effect, Schema } from 'effect'
 import * as FastCheck from 'fast-check'
 import { makeThreeWeatherPrecipitation } from '../src/application/three-weather-runtime'
 import type {
@@ -16,7 +16,11 @@ import type {
   ThreeScene,
   ThreeSurface,
 } from '../src/application/three-surface'
-import { planLightningBolt } from '../src/domain/lightning-bolt'
+import {
+  LightningBoltInputSchema,
+  LightningFlashSchema,
+  planLightningBolt,
+} from '../src/domain/lightning-bolt'
 
 type FakeAttribute = ThreeDynamicBufferAttribute & {
   readonly array: Float32Array | Uint8Array | Uint32Array
@@ -223,48 +227,67 @@ const fakeThree = (): FakeWeatherSurface => ({
   WebGLRenderer: FakeWebGLRenderer,
 })
 
+const decodeFlash = Schema.decodeUnknownSync(LightningFlashSchema)
+const decodeLightningBoltInput = Schema.decodeUnknownSync(LightningBoltInputSchema)
+const requireFakeValue = <Value>(value: Value | undefined): Value => {
+  if (typeof value === 'undefined') {
+    throw new Error('expected a lightning resource value')
+  }
+  return value
+}
+
 describe('Three precipitation resource lightning lifecycle', () => {
   it.effect('uploads visible ribbon geometry, hides it on expiry, and disposes every owned object', () =>
     Effect.sync(() => {
       const scene = new FakeScene()
       const three = fakeThree()
       const resource = makeThreeWeatherPrecipitation({ capacity: 1, kind: 'rain', scene, three })
-      const [particleMesh, lightningMesh] = scene.objects as unknown as ReadonlyArray<FakeMesh>
+      const [particleMeshValue, lightningMeshValue] = scene.objects as unknown as ReadonlyArray<FakeMesh>
+      const particleMesh = requireFakeValue(particleMeshValue)
+      const lightningMesh = requireFakeValue(lightningMeshValue)
+      const updateLightning = requireFakeValue(resource.updateLightning)
       expect(scene.objects).toHaveLength(2)
-      expect(particleMesh).toBeDefined()
-      expect(lightningMesh).toBeDefined()
 
-      const plan = planLightningBolt({ origin: { x: 2, y: 10, z: -3 }, seed: 5, sequence: 8 })
-      Effect.runSync(resource.updateLightning?.(plan, 1) ?? Effect.void)
-      expect(lightningMesh?.visible).toBe(true)
-      expect(lightningMesh?.geometry.drawRange()).toBe(576)
-      const positions = lightningMesh?.geometry.attributes.get('position') as FakeAttribute | undefined
-      const colors = lightningMesh?.geometry.attributes.get('color') as FakeAttribute | undefined
-      expect(positions?.array).toBeInstanceOf(Float32Array)
-      expect((positions?.array as Float32Array | undefined)?.every(Number.isFinite)).toBe(true)
-      expect(colors?.normalized).toBe(true)
-      expect((colors?.array as Uint8Array | undefined)?.some((value) => value > 0)).toBe(true)
+      const origin = { x: 2, y: 10, z: -3 }
+      const plan = planLightningBolt(decodeLightningBoltInput({ origin, seed: 5, sequence: 8 }))
+      const activeFlash = decodeFlash(1)
+      Effect.runSync(updateLightning(plan, activeFlash))
+      expect(lightningMesh.visible).toBe(true)
+      expect(lightningMesh.geometry.drawRange()).toBe(576)
+      const positions = requireFakeValue(lightningMesh.geometry.attributes.get('position') as FakeAttribute | undefined)
+      const colors = requireFakeValue(lightningMesh.geometry.attributes.get('color') as FakeAttribute | undefined)
+      expect(positions.array).toBeInstanceOf(Float32Array)
+      expect((positions.array as Float32Array).every(Number.isFinite)).toBe(true)
+      expect(colors.normalized).toBe(true)
+      expect((colors.array as Uint8Array).some((value) => value > 0)).toBe(true)
 
-      Effect.runSync(resource.updateLightning?.(undefined, 0) ?? Effect.void)
-      expect(lightningMesh?.visible).toBe(false)
-      expect(lightningMesh?.geometry.drawRange()).toBe(0)
+      Effect.runSync(updateLightning(undefined, decodeFlash(0)))
+      expect(lightningMesh.visible).toBe(false)
+      expect(lightningMesh.geometry.drawRange()).toBe(0)
       Effect.runSync(resource.dispose)
       Effect.runSync(resource.dispose)
+      Effect.runSync(updateLightning(plan, activeFlash))
       expect(scene.objects).toHaveLength(0)
-      expect(particleMesh?.geometry.disposed()).toBe(true)
-      expect(lightningMesh?.geometry.disposed()).toBe(true)
-      expect(particleMesh?.material.disposed()).toBe(true)
+      expect(lightningMesh.visible).toBe(false)
+      expect(lightningMesh.geometry.drawRange()).toBe(0)
+      expect(particleMesh.geometry.disposed()).toBe(true)
+      expect(lightningMesh.geometry.disposed()).toBe(true)
+      expect(particleMesh.material.disposed()).toBe(true)
     }),
   )
 
   it.effect('property: arbitrary sequence and seed values still upload finite fixed-size geometry', () =>
     Effect.sync(() => {
       FastCheck.assert(
-        FastCheck.property(FastCheck.integer(), FastCheck.integer(), (seed, sequence) => {
+        FastCheck.property(FastCheck.integer(), FastCheck.nat(), (seed, sequence) => {
           const scene = new FakeScene()
           const resource = makeThreeWeatherPrecipitation({ capacity: 0, kind: 'rain', scene, three: fakeThree() })
-          const plan = planLightningBolt({ origin: { x: 0, y: 0, z: 0 }, seed, sequence })
-          Effect.runSync(resource.updateLightning?.(plan, 0.5) ?? Effect.void)
+          const plan = planLightningBolt(decodeLightningBoltInput({
+            origin: { x: 0, y: 0, z: 0 },
+            seed,
+            sequence,
+          }))
+          Effect.runSync(resource.updateLightning?.(plan, decodeFlash(0.5)) ?? Effect.void)
           const [, lightningMesh] = scene.objects as unknown as ReadonlyArray<FakeMesh>
           const positions = lightningMesh?.geometry.attributes.get('position') as FakeAttribute | undefined
           const valid = lightningMesh?.visible === true &&
@@ -275,6 +298,45 @@ describe('Three precipitation resource lightning lifecycle', () => {
         }),
         { numRuns: 100 },
       )
+    }),
+  )
+
+  it.effect('keeps degenerate lightning segments finite through the normalized-direction fallback', () =>
+    Effect.sync(() => {
+      const scene = new FakeScene()
+      const resource = makeThreeWeatherPrecipitation({ capacity: 0, kind: 'rain', scene, three: fakeThree() })
+      const [, lightningMesh] = scene.objects as unknown as ReadonlyArray<FakeMesh>
+      const origin = { x: 2, y: 10, z: -3 }
+      const plan = planLightningBolt(decodeLightningBoltInput({ origin, seed: 5, sequence: 8 }))
+      const degeneratePlan = {
+        sequence: plan.sequence,
+        strands: plan.strands.map((strand) => strand.map(() => origin)),
+      }
+
+      Effect.runSync(resource.updateLightning?.(degeneratePlan, decodeFlash(1)) ?? Effect.void)
+
+      const positions = lightningMesh?.geometry.attributes.get('position') as FakeAttribute | undefined
+      expect(lightningMesh?.visible).toBe(true)
+      expect(lightningMesh?.geometry.drawRange()).toBe(576)
+      expect((positions?.array as Float32Array | undefined)?.every(Number.isFinite)).toBe(true)
+      Effect.runSync(resource.dispose)
+    }),
+  )
+
+  it.effect('skips segments without a complete endpoint pair', () =>
+    Effect.sync(() => {
+      const scene = new FakeScene()
+      const resource = makeThreeWeatherPrecipitation({ capacity: 0, kind: 'rain', scene, three: fakeThree() })
+      const [, lightningMesh] = scene.objects as unknown as ReadonlyArray<FakeMesh>
+      const origin = { x: 2, y: 10, z: -3 }
+      const plan = planLightningBolt(decodeLightningBoltInput({ origin, seed: 5, sequence: 8 }))
+      const incompletePlan = { sequence: plan.sequence, strands: [[origin]] }
+
+      Effect.runSync(resource.updateLightning?.(incompletePlan, decodeFlash(1)) ?? Effect.void)
+
+      expect(lightningMesh?.visible).toBe(false)
+      expect(lightningMesh?.geometry.drawRange()).toBe(0)
+      Effect.runSync(resource.dispose)
     }),
   )
 })

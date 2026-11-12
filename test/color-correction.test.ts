@@ -4,7 +4,10 @@ import * as FastCheck from 'fast-check'
 import {
   COLOR_VISION_CORRECTIONS,
   ColorFilterInputSchema,
+  ColorCorrectionShaderSourceSchema,
+  ColorVisionCoefficientSchema,
   ColorVisionCorrectionSchema,
+  UnderwaterColorStrengthSchema,
   decodeColorFilterInput,
   isColorFilterActive,
   makeColorCorrectionPass,
@@ -77,6 +80,37 @@ describe('color vision correction input', () => {
     }),
   )
 
+  it.effect('brands finite transform coefficients and bounds underwater blend strength', () =>
+    Effect.sync(() => {
+      FastCheck.assert(FastCheck.property(FastCheck.double(), (candidate) => {
+        const decoded = Schema.decodeUnknownResult(ColorVisionCoefficientSchema)(candidate)
+        return Result.isFailure(decoded) || Number.isFinite(decoded.success)
+      }))
+      FastCheck.assert(FastCheck.property(FastCheck.double(), (candidate) => {
+        const decoded = Schema.decodeUnknownResult(UnderwaterColorStrengthSchema)(candidate)
+        return Result.isFailure(decoded) || (decoded.success >= 0 && decoded.success <= 1)
+      }))
+      FastCheck.assert(FastCheck.property(FastCheck.string(), (candidate) => {
+        const decoded = Schema.decodeUnknownResult(ColorCorrectionShaderSourceSchema)(candidate)
+        return Result.isFailure(decoded) || decoded.success.length > 0
+      }))
+
+      for (const coefficient of [-1.25, 0, 1.5]) {
+        expect(Result.isSuccess(Schema.decodeUnknownResult(ColorVisionCoefficientSchema)(coefficient))).toBe(true)
+      }
+      expect(Result.isFailure(Schema.decodeUnknownResult(ColorVisionCoefficientSchema)(Number.NaN))).toBe(true)
+      expect(Result.isFailure(Schema.decodeUnknownResult(ColorVisionCoefficientSchema)(Number.POSITIVE_INFINITY))).toBe(true)
+
+      expect(Result.isSuccess(Schema.decodeUnknownResult(UnderwaterColorStrengthSchema)(0))).toBe(true)
+      expect(Result.isSuccess(Schema.decodeUnknownResult(UnderwaterColorStrengthSchema)(1))).toBe(true)
+      expect(Result.isFailure(Schema.decodeUnknownResult(UnderwaterColorStrengthSchema)(-Number.MIN_VALUE))).toBe(true)
+      expect(Result.isFailure(Schema.decodeUnknownResult(UnderwaterColorStrengthSchema)(1 + Number.EPSILON))).toBe(true)
+
+      expect(Result.isSuccess(Schema.decodeUnknownResult(ColorCorrectionShaderSourceSchema)('void main() {}'))).toBe(true)
+      expect(Result.isFailure(Schema.decodeUnknownResult(ColorCorrectionShaderSourceSchema)(''))).toBe(true)
+    }),
+  )
+
   it.effect('boundary: the four setting literals pass and neighboring or absent values fail', () =>
     Effect.sync(() => {
       expect(COLOR_VISION_CORRECTIONS.map(isColorVisionCorrection)).toStrictEqual([
@@ -113,15 +147,7 @@ describe('color correction plan and shader pass', () => {
   it.effect('gates screen tint on underwater state and leaves the settings value dynamic', () =>
     Effect.sync(() => {
       const descriptor = makeColorCorrectionShader({ colorVisionCorrection: 'off', underwater: false })
-      const pass = {
-        uniforms: {
-          ...descriptor.uniforms,
-          uColorVisionRow0: { value: [0, 0, 0] as const },
-          uColorVisionRow1: { value: [0, 0, 0] as const },
-          uColorVisionRow2: { value: [0, 0, 0] as const },
-          uUnderwaterStrength: { value: 0 },
-        } satisfies ColorCorrectionUniforms,
-      }
+      const pass = { uniforms: descriptor.uniforms } satisfies { readonly uniforms: ColorCorrectionUniforms }
 
       updateColorCorrectionPass(pass, { colorVisionCorrection: 'protanopia', underwater: true })
       expect(pass.uniforms.uColorVisionRow0.value).toStrictEqual([0.152286, 1.052583, -0.204868])

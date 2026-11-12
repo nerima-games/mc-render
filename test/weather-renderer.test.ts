@@ -94,6 +94,27 @@ describe('weather renderer resource lifecycle', () => {
     }),
   )
 
+  it.effect('keeps precipitation rendering when the host resource has no lightning updater', () =>
+    Effect.gen(function* () {
+      let particleUpdateCount = 0
+      const renderer = yield* makeWeatherRenderer({
+        setEnvironment: () => Effect.void,
+        createPrecipitation: () => Effect.succeed({
+          update: () => Effect.sync(() => { particleUpdateCount += 1 }),
+          resize: () => Effect.void,
+          dispose: Effect.void,
+        }),
+      })
+      const thunder = { ...snapshot('thunder'), lightningSequence: 7 }
+
+      const plan = yield* renderer.frame(thunder, camera)
+
+      expect(plan.lightningBolt).toBeDefined()
+      expect(particleUpdateCount).toBe(1)
+      yield* renderer.dispose
+    }),
+  )
+
   it.effect('disposes rain before acquiring snow and restores initial state on stop', () =>
     Effect.gen(function* () {
       const events: Array<string> = []
