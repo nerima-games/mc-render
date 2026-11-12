@@ -1561,7 +1561,14 @@ const initializeBrowserWorld = ({
       THREE.MeshBasicMaterial,
       THREE.LineBasicMaterial,
       THREE.PointsMaterial
-    >(THREE, options.canvas, state.viewport, atlas.texture, setup.worldOptions, presentationSurface)
+    >(THREE, options.canvas, state.viewport, atlas.texture, setup.worldOptions, presentationSurface).pipe(
+      Effect.mapError((failure) => {
+        if (failure instanceof Schema.SchemaError) {
+          return browserRuntimeError('initialization', 'invalid-input', failure)
+        }
+        return failure
+      }),
+    )
     setup.buildState.world = initializedWorld
     yield* initializedWorld.setPostProcessingChain(browserPostProcessingChain(state.quality, state.colorFilter))
     const surface = yield* Effect.fromResult(requireBrowserRuntimeValue(
@@ -2114,13 +2121,20 @@ const createBrowserWorldRuntime = (
     },
   })
 
+const colorVisionCorrectionOrDefault = (value: ColorVisionCorrection | undefined): ColorVisionCorrection => {
+  if (typeof value !== 'undefined') {
+    return value
+  }
+  return DEFAULT_COLOR_FILTER_INPUT.colorVisionCorrection
+}
+
 export const makeBrowserWorldRuntime = (
   options: BrowserWorldRuntimeOptions,
 ): Effect.Effect<BrowserWorldRuntime, BrowserRuntimeFailure> =>
   Effect.gen(function* makeBrowserWorldRuntimeEffect() {
     const { quality, preset: qualityPreset } = yield* Effect.fromResult(resolveBrowserQuality(options.quality))
     const colorFilter = yield* Effect.fromResult(resolveBrowserColorFilterInput({
-      colorVisionCorrection: options.colorVisionCorrection ?? DEFAULT_COLOR_FILTER_INPUT.colorVisionCorrection,
+      colorVisionCorrection: colorVisionCorrectionOrDefault(options.colorVisionCorrection),
       underwater: DEFAULT_COLOR_FILTER_INPUT.underwater,
     }))
     const maxPixelRatio = yield* Effect.fromResult(

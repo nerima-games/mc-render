@@ -899,6 +899,15 @@ describe('browser world runtime', () => {
     expect(createdWorkers).toBe(0)
   })
 
+  it('rejects a null color vision setting instead of selecting the default filter', async () => {
+    const outcome = await Effect.runPromise(Effect.result(makeBrowserWorldRuntimeEffect({
+      canvas: new HTMLCanvasElement(),
+      colorVisionCorrection: null as never,
+    })))
+
+    expect(Result.isFailure(outcome)).toBe(true)
+  })
+
   it('loads the checked-in atlas by default with nearest and mipmapped sampling', async () => {
     const runtime = await makeBrowserWorldRuntime({
       autoResize: false,
