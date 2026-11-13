@@ -1,4 +1,4 @@
-import { Effect, Option } from 'effect'
+import { Effect, Option, Result, Schema } from 'effect'
 import {
   INITIAL_WEATHER_RENDER_STATE,
   type PrecipitationKind,
@@ -8,8 +8,10 @@ import {
   type WeatherRenderPlan,
   type WeatherRenderState,
   type WorldWeatherSnapshot,
+  decodeWeatherFrameOptions,
   planWeatherFrame,
 } from '../domain/weather-rendering.js'
+import type { LightningBoltPlan, LightningFlash } from '../domain/lightning-bolt.js'
 import {
   type RenderEnvironmentPlan,
   type Viewport,
@@ -19,6 +21,7 @@ import type { Dimension } from '@nerima-games/mc-kernel'
 
 export type WeatherPrecipitationResource = {
   readonly update: (particles: ReadonlyArray<PrecipitationParticle>) => Effect.Effect<void>
+  readonly updateLightning?: (bolt: LightningBoltPlan | undefined, flash: LightningFlash) => Effect.Effect<void>
   readonly resize: (viewport: Viewport) => Effect.Effect<void>
   readonly dispose: Effect.Effect<void>
 }
@@ -34,20 +37,32 @@ export type WeatherRenderer = {
   readonly frame: (
     snapshot: WorldWeatherSnapshot,
     camera: WeatherCameraPosition,
-  ) => Effect.Effect<WeatherRenderPlan>
+  ) => Effect.Effect<WeatherRenderPlan, Schema.SchemaError>
   readonly resize: (viewport: Viewport) => Effect.Effect<void>
   /**
    * Stop precipitation and restore an ordinary clear environment. Idempotent.
    * `dimension` selects which dimension's clear sky to restore; absent means
    * `overworld`, unchanged from before dimensions existed.
    */
-  readonly stop: (daylight?: number, dimension?: Dimension) => Effect.Effect<void>
+  readonly stop: (daylight?: number, dimension?: Dimension) => Effect.Effect<void, Schema.SchemaError>
   readonly state: Effect.Effect<WeatherRenderState>
   readonly dispose: Effect.Effect<void>
 }
 
 /** Neutral daylight value `stop` restores the environment to when the caller does not say otherwise. */
 const DEFAULT_STOP_DAYLIGHT = 1
+
+const resolveWeatherRendererOptions = (
+  options: WeatherFrameOptions,
+): Result.Result<Readonly<{
+  readonly disposeEnvironment: RenderEnvironmentPlan
+  readonly validatedOptions: WeatherFrameOptions
+}>, Schema.SchemaError> =>
+  Result.flatMap(decodeWeatherFrameOptions(options), (validatedOptions) =>
+    Result.map(
+      planRenderEnvironment(DEFAULT_STOP_DAYLIGHT, validatedOptions.farPlane),
+      (disposeEnvironment) => ({ disposeEnvironment, validatedOptions }),
+    ))
 
 /** A live precipitation resource together with the kind it was built for. */
 type ActivePrecipitation = {
@@ -59,8 +74,9 @@ type ActivePrecipitation = {
 export const makeWeatherRenderer = (
   ports: WeatherRendererPorts,
   options: WeatherFrameOptions = {},
-): Effect.Effect<WeatherRenderer> =>
-  Effect.sync(() => {
+): Effect.Effect<WeatherRenderer, Schema.SchemaError> =>
+  Effect.gen(function* makeWeatherRendererEffect() {
+    const { disposeEnvironment, validatedOptions } = yield* Effect.fromResult(resolveWeatherRendererOptions(options))
     let renderState = INITIAL_WEATHER_RENDER_STATE
     let activePrecipitation: Option.Option<ActivePrecipitation> = Option.none()
     let viewport: Option.Option<Viewport> = Option.none()
@@ -72,11 +88,17 @@ export const makeWeatherRenderer = (
       activePrecipitation = Option.none()
     })
 
-    const stop = (daylight: number = DEFAULT_STOP_DAYLIGHT, dimension?: Dimension): Effect.Effect<void> =>
+    const stop = (
+      daylight: number = DEFAULT_STOP_DAYLIGHT,
+      dimension?: Dimension,
+    ): Effect.Effect<void, Schema.SchemaError> =>
       Effect.gen(function* stopWeatherRendererEffect() {
+        const environment = yield* Effect.fromResult(
+          planRenderEnvironment(daylight, validatedOptions.farPlane, dimension),
+        )
         yield* releaseEffect
         renderState = INITIAL_WEATHER_RENDER_STATE
-        yield* ports.setEnvironment(planRenderEnvironment(daylight, options.farPlane, dimension))
+        yield* ports.setEnvironment(environment)
       })
 
     /** Build a fresh resource for `kind`, releasing whatever was active first. */
@@ -104,26 +126,38 @@ export const makeWeatherRenderer = (
         return yield* refreshPrecipitationResource(kind)
       })
 
-    return {
-      dispose: stop(),
+    const updateWeatherResource = (plan: WeatherRenderPlan): Effect.Effect<void> =>
+      Effect.gen(function* updateWeatherResourceEffect() {
+        if (typeof plan.precipitation === 'undefined') {
+          yield* releaseEffect
+          return
+        }
+        const resource = yield* ensurePrecipitationResource(plan.precipitation)
+        yield* resource.update(plan.particles)
+        if (resource.updateLightning) {
+          yield* resource.updateLightning(plan.lightningBolt, plan.lightningFlash)
+        }
+      })
 
-      frame: (snapshot, camera) =>
+    return {
+      dispose: Effect.gen(function* disposeWeatherRendererEffect() {
+        yield* releaseEffect
+        renderState = INITIAL_WEATHER_RENDER_STATE
+        yield* ports.setEnvironment(disposeEnvironment)
+      }),
+
+      frame: (snapshot: WorldWeatherSnapshot, camera: WeatherCameraPosition) =>
         Effect.gen(function* frameWeatherEffect() {
-          const next = planWeatherFrame({ camera, options, previous: renderState, snapshot })
+          const next = yield* Effect.fromResult(
+            planWeatherFrame({ camera, options: validatedOptions, previous: renderState, snapshot }),
+          )
           renderState = next.state
           yield* ports.setEnvironment(next.plan.environment)
-
-          if (typeof next.plan.precipitation === 'undefined') {
-            yield* releaseEffect
-            return next.plan
-          }
-
-          const resource = yield* ensurePrecipitationResource(next.plan.precipitation)
-          yield* resource.update(next.plan.particles)
+          yield* updateWeatherResource(next.plan)
           return next.plan
         }),
 
-      resize: (nextViewport) =>
+      resize: (nextViewport: Viewport) =>
         Effect.gen(function* resizeWeatherEffect() {
           viewport = Option.some(nextViewport)
           if (Option.isSome(activePrecipitation)) {

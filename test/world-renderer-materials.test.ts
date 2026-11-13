@@ -3,9 +3,11 @@ import { Effect, Result, Schema } from 'effect'
 import {
   assertRendererMaterialPolicies,
   findRendererMaterialPolicyViolations,
+  makeTranslucentChunkMaterial,
   RendererMaterialPolicyResultSchema,
 } from '../src/application/world-renderer-materials'
 import type { ThreeMaterial } from '../src/application/three-surface'
+import { makeFakeThree } from './support/fake-three'
 
 const makeMaterial = (forceSinglePass?: boolean): ThreeMaterial => {
   if (forceSinglePass === undefined) {
@@ -53,6 +55,24 @@ describe('renderer material policy assertions', () => {
           ])
           expect(decoded.failure.violations.every(({ verdict }) => verdict.kind === 'must-force-single-pass')).toBe(true)
         }
+      }
+    }),
+  )
+})
+
+describe('translucent chunk material environment', () => {
+  it.effect('uses a supplied valid sun intensity', () =>
+    Effect.sync(() => {
+      const result = makeTranslucentChunkMaterial({
+        atlasTexture: {},
+        sunIntensity: 0.25,
+        three: makeFakeThree(),
+        viewport: { height: 64, width: 64 },
+      })
+
+      expect(Result.isSuccess(result)).toBe(true)
+      if (Result.isSuccess(result)) {
+        expect(result.success.uniforms['uSunIntensity']?.value).toBe(0.25)
       }
     }),
   )

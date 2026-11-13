@@ -244,7 +244,14 @@ vec4 shadeWaterSurface() {
   float sun = ${glslFloat(WATER_SUN_FLOOR)}
     + ${glslFloat(WATER_SUN_RANGE)} * clamp(uSunIntensity, 0.0, 1.0);
 
-  return vec4(body * sun, ${glslFloat(WATER_SURFACE_ALPHA)});
+  // A double-sided water surface viewed from underneath receives the same cool
+  // color cast as the screen-space underwater filter. No extra uniform is
+  // needed: the rasterizer already distinguishes the back-facing surface.
+  vec3 underwaterBody = body * vec3(0.62, 0.82, 1.0) + vec3(0.0, 0.015, 0.04);
+  float underwaterSurface = gl_FrontFacing ? 0.0 : 1.0;
+  vec3 filteredBody = mix(body, underwaterBody, underwaterSurface);
+
+  return vec4(filteredBody * sun, ${glslFloat(WATER_SURFACE_ALPHA)});
 }
 `
 

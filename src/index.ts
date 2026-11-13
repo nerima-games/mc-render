@@ -38,8 +38,9 @@
  * fixture against the REAL `three` and `lib.dom.d.ts` to prove the namespace
  * satisfies them. The root entry stays structural and does not import `three`;
  * the separate browser entry owns the pinned Three.js runtime and its published
- * declarations depend on the matching `@types/three` package. `"WebWorker"` is
- * still ahead, with the mesher pool.
+ * declarations depend on the matching `@types/three` package. The root mesher
+ * pool takes a structural worker factory; the browser entry supplies the
+ * `Worker` constructor without adding WebWorker globals here.
  */
 
 // --- Domain: pure values, policies and orderings ---------------------------
@@ -63,6 +64,7 @@ export type {
 export type { ChunkAnimationKind } from './domain/chunk-animation-kind.js'
 export * from './domain/block-shapes.js'
 export * from './domain/camera-mirror.js'
+export * from './domain/color-correction.js'
 export * from './domain/chunk-geometry.js'
 export * from './domain/frame-scratch.js'
 export * from './domain/frustum-culling.js'
@@ -87,9 +89,13 @@ export {
   DAY_SKY_COLOR,
   DEFAULT_DIMENSION,
   DEFAULT_ENVIRONMENT_FAR_PLANE,
+  DEFAULT_RENDER_ENVIRONMENT,
   END_VOID_COLOR,
   NETHER_FOG_COLOR,
   NIGHT_SKY_COLOR,
+  RenderEnvironmentDimensionSchema,
+  RenderEnvironmentInputSchema,
+  RenderEnvironmentPlanSchema,
   type RenderEnvironmentPlan,
   planRenderEnvironment,
 } from './domain/render-environment.js'
@@ -97,6 +103,8 @@ export * from './domain/weather-rendering.js'
 export * from './domain/texture-atlas.js'
 export * from './domain/vehicle-visual.js'
 export * from './domain/wither-visual.js'
+export * from './domain/lightning-bolt.js'
+export * from './domain/worker-parallelism.js'
 // The shading curve. `chunk-geometry.ts` builds buffers and does not decide how
 // Bright a surface is; this holds the rule, and a host injects the light
 // Readings. Its header names the noun still missing before the reference's
@@ -125,6 +133,7 @@ export * from './domain/water-surface.js'
 // --- Application: Effect services ------------------------------------------
 export * from './application/input-service.js'
 export {
+  PARTICLE_KINDS,
   PARTICLE_KIND_DEFAULTS,
   ParticleColorChannelSchema,
   ParticleColorSchema,
@@ -147,6 +156,27 @@ export type {
   ParticleServiceLiveOptions,
 } from './application/particle-service.js'
 export * from './application/particle-event-adapter.js'
+export {
+  MeshingWorkerPoolFactoryOptionsSchema,
+  MeshingWorkerPoolStartupError,
+  startMeshingWorkerPool,
+} from './application/meshing-worker-pool.js'
+export type {
+  MeshingWorkerPool,
+  MeshingWorkerPoolFactoryOptions,
+} from './application/meshing-worker-pool.js'
+export {
+  ChunkMeshingCauseTagSchema,
+  ChunkMeshingWorkerFailureSchema,
+  ChunkMeshingWorkerPayloadSchema,
+  ChunkMeshingWorkerResponseSchema,
+} from './application/chunk-meshing-worker.js'
+export type {
+  ChunkMeshingCauseTag,
+  ChunkMeshingWorkerFailure,
+  ChunkMeshingWorkerPayload,
+  ChunkMeshingWorkerResult,
+} from './application/chunk-meshing-worker.js'
 
 // --- Application: the browser adapter for the input service ------------------
 // The ONLY files in this repository that know what an `addEventListener` is.

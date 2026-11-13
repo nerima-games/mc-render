@@ -132,6 +132,9 @@ const particleRequestForBlockEvent: ParticleEventMapper = (event) => {
     case 'BlockPlaced':
       return requestAt('level-up', blockCenter(event.address), { color: placementColor })
     case 'BlockChangedByWorld':
+      if (event.cause === 'fire') {
+        return requestAt('fire', blockCenter(event.address))
+      }
       return requestAt('block-break', blockCenter(event.address))
     case 'ItemDropped':
       return requestAt('block-break', event.position)

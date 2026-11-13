@@ -9,16 +9,24 @@ import {
   BrowserRuntimeUnknownResultSchema,
   makeBrowserWorldRuntime as makeBrowserWorldRuntimeEffect,
   makeGpuTimerService,
+  MeshingWorkerPoolStartupError,
+  startBrowserMeshingWorkerPool,
+  type BrowserMeshingWorkerPool,
+  type BrowserMeshingWorkerPoolOptions,
 } from '../src/browser.js'
 import { mirroredCameraState } from '../src/domain/camera-mirror.js'
-import { ParticleDeltaSecsSchema } from '../src/domain/particle-pool.js'
+import { ParticleDeltaSecsSchema, type ParticlePoolInputError } from '../src/domain/particle-pool.js'
+import { WorkerCountSchema } from '../src/domain/worker-parallelism.js'
 import { QUALITY_PRESETS, type PostProcessingStep } from '../src/domain/post-processing.js'
 import { ATLAS_PIXELS, AtlasLayoutIntegerSchema } from '../src/domain/texture-atlas.js'
+import { planRenderEnvironment } from '../src/domain/render-environment.js'
 import { makeAnimationClockInput } from './support/animation-clock.js'
 
 const testCamera = mirroredCameraState(undefined)
 const decodeDelta = Schema.decodeUnknownSync(ParticleDeltaSecsSchema)
 const decodeAtlasLayoutInteger = Schema.decodeUnknownSync(AtlasLayoutIntegerSchema)
+const decodeWorkerCount = Schema.decodeUnknownSync(WorkerCountSchema)
+const originalNavigator = Object.getOwnPropertyDescriptor(globalThis, 'navigator')
 
 const makeBrowserWorldRuntime = (options: Parameters<typeof makeBrowserWorldRuntimeEffect>[0]) =>
   Effect.runPromise(makeBrowserWorldRuntimeEffect(options))
@@ -207,6 +215,8 @@ describe('browser GPU timer service', () => {
 const browserMocks = vi.hoisted(() => ({
   settings: {
     activePixel: 0,
+    colorCorrectionPasses: [] as Array<{ readonly uniforms: Record<string, { value: unknown }>; disposed: boolean }>,
+    omitColorCorrectionUniforms: false,
     failAtlasDataTextureCreation: false,
     failAtlasUrlLoad: false,
     lastAtlasUrl: undefined as string | undefined,
@@ -577,6 +587,12 @@ vi.mock('three/addons/postprocessing/ShaderPass.js', () => ({
     readonly uniforms: Record<string, { value: unknown }>
     constructor(shader: { readonly uniforms: Record<string, { value: unknown }> }) {
       this.uniforms = shader.uniforms
+      if ('uColorVisionRow0' in this.uniforms) {
+        browserMocks.settings.colorCorrectionPasses.push(this)
+        if (browserMocks.settings.omitColorCorrectionUniforms) {
+          delete this.uniforms['uColorVisionRow0']
+        }
+      }
       if (browserMocks.settings.omitCompositeDepthUniform) {
         delete this.uniforms['tDepth']
       }
@@ -790,6 +806,8 @@ beforeEach(() => {
     },
   })
   browserMocks.settings.activePixel = 0
+  browserMocks.settings.colorCorrectionPasses = []
+  browserMocks.settings.omitColorCorrectionUniforms = false
   browserMocks.settings.failAtlasDataTextureCreation = false
   browserMocks.settings.failAtlasUrlLoad = false
   browserMocks.settings.lastAtlasUrl = undefined
@@ -842,9 +860,91 @@ afterEach(() => {
   restoreGlobal('requestAnimationFrame', originalAnimationFrame)
   restoreGlobal('cancelAnimationFrame', originalCancelAnimationFrame)
   restoreGlobal('URL', originalUrl)
+  restoreGlobal('navigator', originalNavigator)
 })
 
 describe('browser world runtime', () => {
+  it('exports browser worker startup and accepts a host worker factory', async () => {
+    let terminated = false
+    const options: BrowserMeshingWorkerPoolOptions = {
+      workerCount: decodeWorkerCount(1),
+      createWorker: () => ({
+        addEventListener: () => undefined,
+        postMessage: () => undefined,
+        terminate: () => { terminated = true },
+      }),
+    }
+    const pool: BrowserMeshingWorkerPool = await Effect.runPromise(startBrowserMeshingWorkerPool(options))
+
+    expect(pool.concurrency).toBe(1)
+    expect(MeshingWorkerPoolStartupError.name).toBe('MeshingWorkerPoolStartupError')
+    await Effect.runPromise(pool.shutdown)
+    expect(terminated).toBe(true)
+  })
+
+  it('returns a typed failure when detected hardware concurrency is invalid', async () => {
+    Object.defineProperty(globalThis, 'navigator', { configurable: true, value: { hardwareConcurrency: 0 } })
+    let createdWorkers = 0
+
+    const outcome = await Effect.runPromise(Effect.result(startBrowserMeshingWorkerPool({
+      createWorker: () => {
+        createdWorkers += 1
+        throw new Error('invalid hardware concurrency must fail before worker creation')
+      },
+    })))
+
+    expect(outcome).toStrictEqual(Result.fail({
+      _tag: 'WorkerParallelismError',
+      reason: 'invalid-hardware-concurrency',
+    }))
+    expect(createdWorkers).toBe(0)
+  })
+
+  it('rejects a null color vision setting instead of selecting the default filter', async () => {
+    const outcome = await Effect.runPromise(Effect.result(makeBrowserWorldRuntimeEffect({
+      canvas: new HTMLCanvasElement(),
+      colorVisionCorrection: null as never,
+    })))
+
+    expect(Result.isFailure(outcome)).toBe(true)
+  })
+
+  it.each([
+    { daylight: Number.NaN },
+    { farPlane: Number.POSITIVE_INFINITY },
+    { dimension: 'moon' },
+  ])('returns a typed browser initialization failure for invalid render environment options %#', async (world) => {
+    browserMocks.worldFactory.mockImplementationOnce((_three, _canvas, _viewport, _atlas, options) => {
+      const { daylight: suppliedDaylight, dimension, farPlane } = options
+      let daylight = 1
+      if (suppliedDaylight !== undefined) {
+        daylight = suppliedDaylight
+      }
+      return Effect.fromResult(planRenderEnvironment(daylight, farPlane, dimension))
+    })
+    expect(await browserRuntimeFailureAsync(makeBrowserWorldRuntimeEffect({
+      canvas: new HTMLCanvasElement(),
+      world: world as never,
+    }))).toMatchObject({
+      _tag: 'BrowserRuntimeError',
+      operation: 'initialization',
+      reason: 'invalid-input',
+    })
+  })
+
+  it('preserves typed non-schema production failures during browser initialization', async () => {
+    const failure: ParticlePoolInputError = {
+      _tag: 'ParticlePoolInputError',
+      operation: 'pool',
+      reason: 'invalid-capacity',
+    }
+    browserMocks.worldFactory.mockImplementationOnce(() => Effect.fail(failure))
+
+    expect(await browserRuntimeFailureAsync(makeBrowserWorldRuntimeEffect({
+      canvas: new HTMLCanvasElement(),
+    }))).toStrictEqual(failure)
+  })
+
   it('loads the checked-in atlas by default with nearest and mipmapped sampling', async () => {
     const runtime = await makeBrowserWorldRuntime({
       autoResize: false,
@@ -857,6 +957,79 @@ describe('browser world runtime', () => {
     expect(atlas.minFilter).toBe(THREE.NearestMipmapLinearFilter)
     expect(atlas.generateMipmaps).toBe(true)
     expect(atlas.flipY).toBe(true)
+    Effect.runSync(runtime.dispose())
+  })
+
+  it('updates the active color pass from UI settings without replacing quality state', async () => {
+    const runtime = await makeBrowserWorldRuntime({
+      atlas: new THREE.Texture(),
+      autoResize: false,
+      canvas: new HTMLCanvasElement(),
+      colorVisionCorrection: 'protanopia',
+      quality: 'high',
+    })
+    const { quality } = runtime
+
+    Effect.runSync(runtime.render(testCamera))
+    const [firstPass, referencePass] = browserMocks.settings.colorCorrectionPasses
+    if (!firstPass || !referencePass) {
+      throw new Error('color correction pass was not installed')
+    }
+    expect(firstPass.uniforms['uColorVisionRow0']?.value).toStrictEqual([0.152286, 1.052583, -0.204868])
+    expect(referencePass.uniforms['uColorVisionRow0']?.value).toStrictEqual([0.152286, 1.052583, -0.204868])
+
+    Effect.runSync(runtime.setUnderwater(true))
+    Effect.runSync(runtime.render(testCamera))
+    expect(firstPass.uniforms['uUnderwaterStrength']?.value).toBe(1)
+    expect(referencePass.uniforms['uUnderwaterStrength']?.value).toBe(1)
+
+    Effect.runSync(runtime.setColorVisionCorrection('deuteranopia'))
+    Effect.runSync(runtime.render(testCamera))
+    expect(firstPass.uniforms['uColorVisionRow0']?.value).toStrictEqual([0.367322, 0.860646, -0.227968])
+    expect(referencePass.uniforms['uColorVisionRow0']?.value).toStrictEqual([0.367322, 0.860646, -0.227968])
+    expect(browserMocks.settings.colorCorrectionPasses).toHaveLength(2)
+    expect(runtime.quality).toBe(quality)
+
+    const invalidCorrection = browserRuntimeFailure(Reflect.apply(
+      runtime.setColorVisionCorrection,
+      runtime,
+      ['unknown'],
+    ))
+    expect(invalidCorrection).toStrictEqual({
+      _tag: 'BrowserRenderPolicyError',
+      operation: 'color-filter',
+      reason: 'invalid-input',
+    })
+    const invalidUnderwater = browserRuntimeFailure(Reflect.apply(runtime.setUnderwater, runtime, ['wet']))
+    expect(invalidUnderwater).toStrictEqual(invalidCorrection)
+
+    Effect.runSync(runtime.setColorVisionCorrection('off'))
+    Effect.runSync(runtime.setUnderwater(false))
+    Effect.runSync(runtime.render(testCamera))
+    expect(firstPass.disposed).toBe(true)
+    expect(referencePass.disposed).toBe(true)
+    expect(runtime.quality).toBe(quality)
+
+    Effect.runSync(runtime.setUnderwater(true))
+    Effect.runSync(runtime.render(testCamera))
+    expect(browserMocks.settings.colorCorrectionPasses).toHaveLength(4)
+    Effect.runSync(runtime.dispose())
+  })
+
+  it('reports missing color correction uniforms as a typed runtime failure', async () => {
+    const runtime = await makeBrowserWorldRuntime({
+      atlas: new THREE.Texture(),
+      autoResize: false,
+      canvas: new HTMLCanvasElement(),
+      colorVisionCorrection: 'protanopia',
+    })
+    browserMocks.settings.omitColorCorrectionUniforms = true
+
+    expect(browserRuntimeFailure(runtime.render(testCamera))).toMatchObject({
+      _tag: 'BrowserRuntimeError',
+      operation: 'runtime',
+      reason: 'operation-failed',
+    })
     Effect.runSync(runtime.dispose())
   })
 
@@ -962,6 +1135,32 @@ describe('browser world runtime', () => {
         reason: 'operation-failed',
       })
     } finally {
+      Effect.runSync(runtime.dispose())
+    }
+  })
+
+  it('preserves color settings when replacing the post-processing chain fails', async () => {
+    const runtime = await makeBrowserWorldRuntime({
+      atlas: new THREE.Texture(),
+      autoResize: false,
+      canvas: new HTMLCanvasElement(),
+    })
+    const setPostProcessingChain = vi.spyOn(runtime.world, 'setPostProcessingChain')
+    setPostProcessingChain.mockReturnValue(Effect.die(new Error('post-processing update defect')))
+
+    try {
+      expect(browserRuntimeFailure(runtime.setColorVisionCorrection('tritanopia'))).toMatchObject({
+        _tag: 'BrowserRuntimeError',
+        operation: 'runtime',
+        reason: 'operation-failed',
+      })
+      setPostProcessingChain.mockRestore()
+      Effect.runSync(runtime.setUnderwater(true))
+      Effect.runSync(runtime.render(testCamera))
+      const [colorCorrectionPass] = browserMocks.settings.colorCorrectionPasses
+      expect(colorCorrectionPass?.uniforms['uColorVisionRow0']?.value).toStrictEqual([1, 0, 0])
+    } finally {
+      setPostProcessingChain.mockRestore()
       Effect.runSync(runtime.dispose())
     }
   })

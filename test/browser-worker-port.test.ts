@@ -56,7 +56,7 @@ const makeFakeWorker = (): FakeWorker => {
       messageHandler?.({ data })
     },
     posted,
-    postMessage: (message, transfer) => {
+    postMessage: (message, transfer?: Array<string>) => {
       posted.push({ message, transfer })
     },
     terminate: () => {

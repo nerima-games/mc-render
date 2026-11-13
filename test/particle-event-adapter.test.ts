@@ -88,7 +88,7 @@ const mappedEvents: ReadonlyArray<Readonly<{
   {
     name: 'world block change',
     value: { _tag: 'BlockChangedByWorld', tick: 1, address: { dimension: 'overworld', position: { x: 1, y: 2, z: 3 } }, cause: 'fire' },
-    kind: 'block-break',
+    kind: 'fire',
     position: expectedWorldPosition(1.5, 2.5, 3.5),
   },
   {
@@ -191,6 +191,12 @@ const mappedEvents: ReadonlyArray<Readonly<{
     kind: 'level-up',
     position: expectedWorldPosition(9, 10, 11),
     followEntity: 'player-1',
+  },
+  {
+    name: 'weather-driven block change',
+    value: { _tag: 'BlockChangedByWorld', tick: 1, address: { dimension: 'overworld', position: { x: 1, y: 2, z: 3 } }, cause: 'weather' },
+    kind: 'block-break',
+    position: expectedWorldPosition(1.5, 2.5, 3.5),
   },
 ]
 

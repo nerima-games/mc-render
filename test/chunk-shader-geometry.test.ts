@@ -48,7 +48,7 @@ import {
   makeWaterMaterial,
   makeWorldRenderer,
 } from '../src/application/world-renderer'
-import { planRenderEnvironment } from '../src/domain/render-environment'
+import { renderEnvironmentPlan } from './support/render-environment'
 import { FAKE_CANVAS, makeFakeThree } from './support/fake-three'
 import { blockId, chunkCoord } from './support/kernel-brands'
 
@@ -213,7 +213,7 @@ describe('the shader material the renderer can be given', () => {
     Effect.sync(() => {
       const three = makeFakeThree()
       const { material, uniforms } = makeChunkShaderMaterial(three, { id: 'atlas' })
-      const environment = planRenderEnvironment(0.25, 200)
+      const environment = renderEnvironmentPlan(0.25, 200)
 
       applyChunkShaderEnvironment(uniforms, environment)
 

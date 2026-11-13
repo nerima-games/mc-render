@@ -342,7 +342,7 @@
     "text": "number"
   },
   {
-    "count": 14,
+    "count": 13,
     "file": "src/application/worker-pool.ts",
     "ruleId": "no-raw-exported-type-field",
     "text": "number"
@@ -600,7 +600,7 @@
     "text": "number"
   },
   {
-    "count": 19,
+    "count": 18,
     "file": "src/domain/weather-rendering.ts",
     "ruleId": "no-raw-exported-type-field",
     "text": "number"

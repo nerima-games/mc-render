@@ -75,6 +75,7 @@ import {
 } from '../domain/chunk-shader.js'
 import {
   DAY_SKY_COLOR,
+  DEFAULT_RENDER_ENVIRONMENT,
   type RenderEnvironmentPlan,
   planRenderEnvironment,
 } from '../domain/render-environment.js'
@@ -83,8 +84,10 @@ import {
   type Dimension,
   type ChunkKey as KernelChunkKey,
   MonotonicTimeSecs,
+  type Position,
+  type RenderDistanceChunks,
+  decodeChunkKey,
 } from '@nerima-games/mc-kernel'
-export type ChunkKey = KernelChunkKey
 import { Effect, Ref, Result, Schema } from 'effect'
 import {
   type MobAnimationInput,
@@ -101,8 +104,8 @@ import {
 import { type ParticleSystem, makeParticleSystem } from './particle-system.js'
 import type {
   ThreeBufferGeometry,
-  ThreeDynamicBufferAttribute,
   ThreeCamera,
+  ThreeDynamicBufferAttribute,
   ThreeEuler,
   ThreeInstancedBufferGeometry,
   ThreeInstancedSurface,
@@ -118,6 +121,7 @@ import type {
   ThreeWebGLRenderer,
 } from './three-surface.js'
 import { WATER_MATERIAL_SPEC, WATER_WRITES_DEPTH } from '../domain/water-surface.js'
+import { type WeatherFrameOptions, decodeWeatherFrameOptions } from '../domain/weather-rendering.js'
 import { type WeatherRenderer, makeWeatherRenderer } from './weather-renderer.js'
 import {
   type WitherSkullVisualInput,
@@ -127,17 +131,20 @@ import {
   planWitherSkullVisual,
   planWitherVisual,
 } from '../domain/wither-visual.js'
-import type { MirroredCameraState } from '../domain/camera-mirror.js'
-import type { PostProcessingStep } from '../domain/post-processing.js'
-import type { WeatherFrameOptions } from '../domain/weather-rendering.js'
-import { makeThreeWeatherPrecipitation } from './three-weather-runtime.js'
-import { waterShaderSource } from '../domain/water-shader.js'
 import {
   applyWaterFrameUniforms,
   makeTranslucentChunkMaterial,
 } from './world-renderer-materials.js'
+import { CHUNK_HEIGHT } from '@nerima-games/mc-worldgen'
+import { CHUNK_SIZE } from '@nerima-games/mc-meshing'
+import type { MirroredCameraState } from '../domain/camera-mirror.js'
+import type { PostProcessingStep } from '../domain/post-processing.js'
+import { makeThreeWeatherPrecipitation } from './three-weather-runtime.js'
+import { waterShaderSource } from '../domain/water-shader.js'
 // oxlint-disable-next-line sort-imports
 import { requiresForceSinglePass } from '../domain/material-policy.js'
+
+export type ChunkKey = KernelChunkKey
 
 /**
  * Vertical field of view, in degrees.
@@ -176,24 +183,57 @@ export const CAMERA_NEAR_PLANE = 0.1
  *
  *   far: Math.max(initialSettings.renderDistance * CHUNK_SIZE * 1.5 + CHUNK_HEIGHT, 300)
  *
- * and 300 is the FLOOR of that expression, not the value it usually takes. This
- * repository uses the floor, and says so rather than transcribing the formula,
- * because two of the formula's three inputs are unreachable from here:
- * `renderDistance` is a setting owned by mc-sim, and `CHUNK_SIZE`/`CHUNK_HEIGHT`
- * are mc-meshing's — neither is published (see `domain/chunk-geometry.ts`'s
- * header). Restating the formula with mirrored constants would produce a number
- * that looks derived and is not, which is the failure mode this project has
- * eight recorded instances of.
- *
- * So: 300 is a FLOOR STANDING IN FOR A COMPUTATION, and it is wrong in the safe
- * direction — a far plane that is too near clips distant terrain, which is
- * visible immediately, rather than costing depth precision, which is not.
+ * and 300 is the FLOOR of that expression, not the value it usually takes.
+ * Without a host render-distance input this repository still uses that floor.
+ * When the host supplies the mc-sim-owned setting, the computation uses the
+ * published kernel setting type and the chunk dimensions from mc-meshing and
+ * mc-worldgen instead of mirroring their values.
  */
 export const CAMERA_FAR_PLANE = 300
+const RENDER_DISTANCE_FAR_PLANE_MULTIPLIER = 1.5
+
+export type RenderDistanceCullingError = {
+  readonly _tag: 'RenderDistanceCullingError'
+  readonly reason: 'invalid-camera-position' | 'invalid-chunk-key'
+}
+
+export const RenderDistanceCullingErrorSchema: Schema.Codec<RenderDistanceCullingError> = Schema.Struct({
+  _tag: Schema.Literal('RenderDistanceCullingError'),
+  reason: Schema.Literals(['invalid-camera-position', 'invalid-chunk-key']),
+})
+
+/** Whether a canonical chunk key lies inside the host setting's square radius. */
+export const chunkWithinRenderDistance = (
+  key: ChunkKey,
+  cameraPosition: Position,
+  renderDistance: RenderDistanceChunks,
+): Result.Result<boolean, RenderDistanceCullingError> => {
+  const cameraChunkX = Math.floor(cameraPosition.x / CHUNK_SIZE)
+  const cameraChunkZ = Math.floor(cameraPosition.z / CHUNK_SIZE)
+  if (!Number.isSafeInteger(cameraChunkX) || !Number.isSafeInteger(cameraChunkZ)) {
+    return Result.fail({ _tag: 'RenderDistanceCullingError', reason: 'invalid-camera-position' })
+  }
+  const coord = decodeChunkKey(key)
+  if (coord === undefined) {
+    return Result.fail({ _tag: 'RenderDistanceCullingError', reason: 'invalid-chunk-key' })
+  }
+  return Result.succeed(
+    Math.max(Math.abs(coord.cx - cameraChunkX), Math.abs(coord.cz - cameraChunkZ)) <= renderDistance,
+  )
+}
+
+const distanceVisibility = (
+  key: ChunkKey,
+  cameraPosition: Position,
+  renderDistance: RenderDistanceChunks | undefined,
+): Result.Result<boolean, RenderDistanceCullingError> => {
+  if (renderDistance === undefined) {
+    return Result.succeed(true)
+  }
+  return chunkWithinRenderDistance(key, cameraPosition, renderDistance)
+}
 
 /** The fewest weather particles a capacity is ever clamped down to: none. */
-const MIN_WEATHER_CAPACITY = 0
-
 /** The weather particle capacity used when a host does not specify one. */
 const DEFAULT_WEATHER_CAPACITY = 96
 
@@ -360,7 +400,7 @@ const makeChunkShaderMaterialVariant = <
   variant: ChunkMaterialVariant,
 ): ChunkShaderMaterial<TShaderMaterial> => {
   const source = chunkShaderSource()
-  const defaultEnvironment = planRenderEnvironment(FULL_SUN_INTENSITY)
+  const defaultEnvironment = DEFAULT_RENDER_ENVIRONMENT
   const alphaTest = chunkAlphaTestFor(variant)
   const uniforms: Record<string, ThreeUniform> = {
     [CHUNK_SHADER_UNIFORMS.atlas]: { value: atlasTexture },
@@ -871,8 +911,10 @@ export type WorldRendererOptions<TMaterial extends ThreeMaterial = ThreeMaterial
   readonly fovDegrees?: number
   readonly nearPlane?: number
   readonly farPlane?: number
+  /** Host-owned mc-sim setting. When supplied, chunks beyond this Chebyshev radius are hidden. */
+  readonly renderDistance?: RenderDistanceChunks
   readonly clearColor?: number
-  /** Initial daylight in the inclusive 0..1 range; invalid values are clamped by the planner. */
+  /** Initial daylight in the inclusive 0..1 range; invalid values fail with `SchemaError`. */
   readonly daylight?: number
   /** Initial dimension; absent means `overworld`, the sky every caller got before dimensions existed. */
   readonly dimension?: Dimension
@@ -905,6 +947,33 @@ export type WorldRendererOptions<TMaterial extends ThreeMaterial = ThreeMaterial
   /** Optional host-owned compositor; absent in headless and preview renders. */
   readonly postProcessing?: PostProcessingRendererFactory
   readonly beforeDraw?: ((camera: MirroredCameraState) => Effect.Effect<void, unknown>) | undefined
+}
+
+const weatherFrameOptionsWithFarPlane = (
+  options: WeatherFrameOptions,
+  farPlane: number | undefined,
+): unknown => {
+  if (typeof farPlane === 'undefined') {
+    return options
+  }
+  return { ...options, farPlane }
+}
+
+const resolveWorldRendererWeatherOptions = (
+  options: WorldRendererOptions,
+): Result.Result<WeatherFrameOptions, Schema.SchemaError> => {
+  const supplied = decodeWeatherFrameOptions(options.weather)
+  if (Result.isFailure(supplied)) {
+    return Result.fail(supplied.failure)
+  }
+  return decodeWeatherFrameOptions(weatherFrameOptionsWithFarPlane(supplied.success, options.farPlane))
+}
+
+const weatherParticleCapacity = (options: WeatherFrameOptions): number => {
+  if (typeof options.particleCapacity !== 'undefined') {
+    return options.particleCapacity
+  }
+  return DEFAULT_WEATHER_CAPACITY
 }
 
 export type PostProcessingRenderer = {
@@ -957,6 +1026,55 @@ const safeAspect = (viewport: Viewport): number => {
     return viewport.width / viewport.height
   }
   return IDENTITY_ASPECT
+}
+
+type ResolvedWorldRendererSettings = Readonly<{
+  readonly fovDegrees: number
+  readonly nearPlane: number
+  readonly farPlane: number
+  readonly weatherCapacity: number
+  readonly initialAspect: number
+  readonly initialEnvironment: RenderEnvironmentPlan
+  readonly weatherOptions: WeatherFrameOptions
+}>
+
+const resolveWorldRendererSettings = (
+  options: Pick<WorldRendererOptions, 'daylight' | 'dimension' | 'farPlane' | 'fovDegrees' | 'nearPlane' | 'renderDistance'>,
+  viewport: Viewport,
+): Result.Result<ResolvedWorldRendererSettings, Schema.SchemaError> => {
+  const {
+    daylight: daylightOption,
+    dimension,
+    farPlane: farPlaneOption,
+    renderDistance,
+  } = options
+  const weatherOptions = resolveWorldRendererWeatherOptions(options)
+  return Result.flatMap(weatherOptions, (resolvedWeatherOptions) => {
+    let derivedFarPlane = CAMERA_FAR_PLANE
+    if (renderDistance !== undefined) {
+      derivedFarPlane = Math.max(
+        CAMERA_FAR_PLANE,
+        renderDistance * CHUNK_SIZE * RENDER_DISTANCE_FAR_PLANE_MULTIPLIER + CHUNK_HEIGHT,
+      )
+    }
+    let farPlane = derivedFarPlane
+    if (farPlaneOption !== undefined) {
+      farPlane = farPlaneOption
+    }
+    let daylight = FULL_SUN_INTENSITY
+    if (daylightOption !== undefined) {
+      daylight = daylightOption
+    }
+    return Result.map(planRenderEnvironment(daylight, farPlane, dimension), (initialEnvironment) => ({
+      farPlane,
+      fovDegrees: options.fovDegrees ?? CAMERA_FOV_DEGREES,
+      initialAspect: safeAspect(viewport),
+      initialEnvironment,
+      nearPlane: options.nearPlane ?? CAMERA_NEAR_PLANE,
+      weatherCapacity: weatherParticleCapacity(resolvedWeatherOptions),
+      weatherOptions: resolvedWeatherOptions,
+    }))
+  })
 }
 
 /** One frame's advance on the submitted-frame counter. */
@@ -1305,7 +1423,7 @@ export const makeWorldRenderer = <
   canvas: TCanvas,
   viewport: Viewport,
   options: WorldRendererOptions<TUsedMaterial> = {},
-): Effect.Effect<WorldRenderer> => {
+): Effect.Effect<WorldRenderer, Schema.SchemaError> => {
   const createChunkMaterials = () => {
     const opaque = options.material?.() ??
       new three.MeshBasicMaterial({
@@ -1320,27 +1438,7 @@ export const makeWorldRenderer = <
   }
 
   return Effect.gen(function* buildRenderer() {
-    /** The camera and weather settings resolved from `options`, before any GPU resource exists. */
-    const resolveRenderSettings = (): {
-      readonly fovDegrees: number
-      readonly nearPlane: number
-      readonly farPlane: number
-      readonly weatherCapacity: number
-      readonly initialAspect: number
-    } => {
-      const farPlane = options.farPlane ?? CAMERA_FAR_PLANE
-      const weatherCapacity = Math.max(
-        MIN_WEATHER_CAPACITY,
-        Math.trunc(options.weather?.particleCapacity ?? DEFAULT_WEATHER_CAPACITY),
-      )
-      return {
-        farPlane,
-        fovDegrees: options.fovDegrees ?? CAMERA_FOV_DEGREES,
-        initialAspect: safeAspect(viewport),
-        nearPlane: options.nearPlane ?? CAMERA_NEAR_PLANE,
-        weatherCapacity,
-      }
-    }
+    const { weatherOptions, ...settings } = yield* Effect.fromResult(resolveWorldRendererSettings(options, viewport))
 
     /**
      * The GPU-owning surface: a sized, cleared renderer plus the scene and
@@ -1358,7 +1456,6 @@ export const makeWorldRenderer = <
       readonly weatherCapacity: number
       readonly initialAspect: number
     } => {
-      const settings = resolveRenderSettings()
       const renderer: ThreeWebGLRenderer = new three.WebGLRenderer({
         antialias: false,
         canvas,
@@ -1367,11 +1464,7 @@ export const makeWorldRenderer = <
         stencil: false,
       })
       renderer.setSize(viewport.width, viewport.height, UPDATE_CANVAS_STYLE)
-      const initialEnvironment = planRenderEnvironment(
-        options.daylight ?? FULL_SUN_INTENSITY,
-        settings.farPlane,
-        options.dimension,
-      )
+      const { initialEnvironment } = settings
       renderer.setClearColor(options.clearColor ?? initialEnvironment.skyColor, SKY_CLEAR_ALPHA)
       options.applyMaterialEnvironment?.(initialEnvironment)
       const scene: ThreeScene = new three.Scene()
@@ -1715,13 +1808,20 @@ export const makeWorldRenderer = <
       updateChunkVisibility: (
         currentChunks: ReadonlyMap<ChunkKey, ChunkEntry<TGeometry>>,
         frustum: ReturnType<typeof preparePerspectiveFrustum>,
-      ): void => {
-        for (const entry of currentChunks.values()) {
-          const visible = isBoundsVisible(entry.bounds, frustum)
+        mirrored: MirroredCameraState,
+      ): Result.Result<void, RenderDistanceCullingError> => {
+        const { renderDistance } = options
+        for (const [key, entry] of currentChunks) {
+          const withinDistance = distanceVisibility(key, mirrored.position, renderDistance)
+          if (Result.isFailure(withinDistance)) {
+            return Result.fail(withinDistance.failure)
+          }
+          const visible = withinDistance.success && isBoundsVisible(entry.bounds, frustum)
           for (const mesh of entry.meshes) {
             mesh.visible = visible
           }
         }
+        return Result.succeed(undefined)
       },
 
       updateEntity: (entry: EntityEntry, entity: RenderEntity): EntityEntry => {
@@ -1763,7 +1863,7 @@ export const makeWorldRenderer = <
           ),
         setEnvironment: ops.setEnvironment,
       },
-      { ...options.weather, farPlane },
+      { ...weatherOptions, farPlane },
     )
     yield* weather.resize(viewport)
 
@@ -1802,7 +1902,7 @@ export const makeWorldRenderer = <
             nearPlane,
             verticalFovDegrees: fovDegrees,
           })
-          ops.updateChunkVisibility(currentChunks, frustum)
+          yield* Effect.fromResult(ops.updateChunkVisibility(currentChunks, frustum, mirrored))
           ops.updateTransparentSort(currentChunks, mirrored)
           const chain = yield* Ref.get(postProcessingChain)
           ops.renderFrame(chain)
@@ -1938,12 +2038,12 @@ export const makeProductionWorldRenderer = <
   viewport: Viewport,
   atlasTexture: unknown,
   options: ProductionWorldRendererOptions = {},
-): Effect.Effect<ProductionWorldRenderer<TShaderMaterial>, ParticlePoolInputError> =>
+): Effect.Effect<ProductionWorldRenderer<TShaderMaterial>, ParticlePoolInputError | Schema.SchemaError> =>
   Effect.gen(function* buildProductionRenderer() {
     const particlePool = yield* Effect.fromResult(makeParticlePool(options.particles))
     const chunk = makeChunkShaderMaterial(three, atlasTexture)
     const cutout = makeChunkShaderMaterialVariant(three, atlasTexture, FULL_SUN_INTENSITY, 'cutout')
-    const transparentSolid = makeTranslucentChunkMaterial({ atlasTexture, three, viewport })
+    const transparentSolid = yield* Effect.fromResult(makeTranslucentChunkMaterial({ atlasTexture, three, viewport }))
     const water = makeWaterMaterial(three, viewport)
     const particles = yield* makeParticleSystem(three, particlePool, atlasTexture)
     const { particles: _particles, ...rendererOptions } = options

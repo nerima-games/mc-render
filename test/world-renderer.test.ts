@@ -22,6 +22,7 @@ import {
   buildChunkGeometry,
   buildFluidGeometry,
   combineChunkGeometry,
+  type ChunkGeometryBuffers,
   type FluidQuad,
   type MeshQuad,
 } from '../src/domain/chunk-geometry'
@@ -30,14 +31,18 @@ import {
   blockTypeOfId,
   chunkKeyOf,
   MonotonicTimeSecs,
+  RenderDistanceChunks,
   type BlockId,
   type CameraPoseSnapshot,
 } from '@nerima-games/mc-kernel'
+import { CHUNK_SIZE } from '@nerima-games/mc-meshing'
+import { CHUNK_HEIGHT } from '@nerima-games/mc-worldgen'
 import {
   applyChunkShaderEnvironment,
   CAMERA_FAR_PLANE,
   CAMERA_FOV_DEGREES,
   CAMERA_NEAR_PLANE,
+  RenderDistanceCullingErrorSchema,
   makeProductionWorldRenderer,
   makeWorldRenderer,
   NO_DRAW_TARGET,
@@ -47,6 +52,7 @@ import {
   SKY_CLEAR_ALPHA,
   SKY_CLEAR_COLOR,
   validateProductionFrameElapsedSecs,
+  type WorldRenderer,
 } from '../src/application/world-renderer'
 import {
   ParticleBurstCountSchema,
@@ -59,14 +65,37 @@ import {
   spawnBurst as spawnBurstResult,
 } from '../src/domain/particle-pool'
 import { FAKE_CANVAS, makeFakeThree } from './support/fake-three'
-import { END_VOID_COLOR, planRenderEnvironment } from '../src/domain/render-environment'
+import { END_VOID_COLOR } from '../src/domain/render-environment'
+import { renderEnvironmentPlan } from './support/render-environment'
 import { planMobVisual } from '../src/domain/mob-visual'
 import { buildPostProcessingChain, QUALITY_PRESETS } from '../src/domain/post-processing'
 import { planWitherSkullVisual, planWitherVisual } from '../src/domain/wither-visual'
 import { makeThreeWeatherPrecipitation } from '../src/application/three-weather-runtime'
-import type { ThreeScene } from '../src/application/three-surface'
+import type { ThreeObject3D, ThreeScene } from '../src/application/three-surface'
 import { angleRadians, blockId, chunkCoord, position } from './support/kernel-brands'
 import { makeAnimationClockInput } from './support/animation-clock'
+
+const requiredWeatherValue = <Value>(value: Value | undefined): Value => {
+  if (typeof value === 'undefined') {
+    throw new Error('expected a weather resource to exist')
+  }
+  return value
+}
+
+const readWeatherResources = (three: ReturnType<typeof makeFakeThree>) => {
+  const [particleGeometry, lightningGeometry] = three.geometries()
+  const [particleMesh, lightningMesh] = three.meshes()
+  const particlePositionAttribute = requiredWeatherValue(particleGeometry?.attributes.get('position'))
+  const lightningPositionAttribute = requiredWeatherValue(lightningGeometry?.attributes.get('position'))
+  return {
+    lightningGeometry: requiredWeatherValue(lightningGeometry),
+    lightningMesh: requiredWeatherValue(lightningMesh),
+    lightningPositionAttribute,
+    particleGeometry: requiredWeatherValue(particleGeometry),
+    particleMesh: requiredWeatherValue(particleMesh),
+    particlePositionAttribute,
+  }
+}
 
 const VIEWPORT = { width: 1280, height: 720 }
 const decodePosition = Schema.decodeUnknownSync(ParticleWorldCoordinateSchema)
@@ -173,6 +202,12 @@ const poseAt = (x: number, y: number, z: number, yaw: number, pitch: number): Ca
   capturedAtSecs: MonotonicTimeSecs(1),
 })
 
+const setChunkWithRuntimeKey = (
+  renderer: WorldRenderer,
+  key: unknown,
+  buffers: ChunkGeometryBuffers,
+): Effect.Effect<void> => Function.prototype.apply.call(renderer.setChunk, renderer, [key, buffers])
+
 describe('acquiring the renderer', () => {
   it.effect('constructs exactly one renderer, scene, camera and material', () =>
     Effect.gen(function* () {
@@ -248,11 +283,11 @@ describe('acquiring the renderer', () => {
       const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT, {
         applyMaterialEnvironment: (environment) => applied.push(environment),
       })
-      const night = planRenderEnvironment(0, CAMERA_FAR_PLANE)
+      const night = renderEnvironmentPlan(0, CAMERA_FAR_PLANE)
 
       yield* renderer.setEnvironment(night)
 
-      expect(applied).toStrictEqual([planRenderEnvironment(1, CAMERA_FAR_PLANE), night])
+      expect(applied).toStrictEqual([renderEnvironmentPlan(1, CAMERA_FAR_PLANE), night])
       expect(three.renderer().clearColors()).toStrictEqual([
         [SKY_CLEAR_COLOR, SKY_CLEAR_ALPHA],
         [night.skyColor, SKY_CLEAR_ALPHA],
@@ -283,6 +318,19 @@ describe('acquiring the renderer', () => {
       expect(three.camera().far).toBe(CAMERA_FAR_PLANE)
       expect(three.camera().aspect).toBe(1280 / 720)
       expect([CAMERA_FOV_DEGREES, CAMERA_NEAR_PLANE, CAMERA_FAR_PLANE]).toStrictEqual([75, 0.1, 300])
+    }),
+  )
+
+  it.effect('extends the camera far plane from the host render distance', () =>
+    Effect.gen(function* () {
+      const three = makeFakeThree()
+      const renderDistance = RenderDistanceChunks(8)
+      yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT, { renderDistance })
+
+      expect(three.camera().far).toBe(Math.max(
+        CAMERA_FAR_PLANE,
+        renderDistance * CHUNK_SIZE * 1.5 + CHUNK_HEIGHT,
+      ))
     }),
   )
 
@@ -1116,6 +1164,43 @@ describe('drawing', () => {
     }),
   )
 
+  it.effect('uses the supplied host distance during every chunk visibility update', () =>
+    Effect.gen(function* () {
+      const three = makeFakeThree()
+      const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT, {
+        renderDistance: RenderDistanceChunks(2),
+      })
+      yield* renderer.setChunk(chunkKeyOf(chunkCoord(0, 0)), buildChunkGeometry([quad({ lz: -10 })]))
+      yield* renderer.draw(mirroredCameraState(poseAt(0, 0, 0, 0, 0)))
+
+      expect(three.meshes().map(({ visible }) => visible)).toStrictEqual([true])
+    }),
+  )
+
+  it.effect('propagates render-distance key failures through draw as typed results', () =>
+    Effect.gen(function* () {
+      const three = makeFakeThree()
+      const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT, {
+        renderDistance: RenderDistanceChunks(2),
+      })
+      const setMalformedChunk = setChunkWithRuntimeKey(renderer,
+        'not-a-chunk-key',
+        buildChunkGeometry([quad()]),
+      )
+      yield* setMalformedChunk
+
+      const drawResult = yield* Effect.result(renderer.draw(mirroredCameraState(poseAt(0, 64, 0, 0, 0))))
+      expect(Result.isFailure(drawResult)).toBe(true)
+      if (Result.isFailure(drawResult)) {
+        const decoded = Schema.decodeUnknownResult(RenderDistanceCullingErrorSchema)(drawResult.failure)
+        expect(Result.isSuccess(decoded)).toBe(true)
+        if (Result.isSuccess(decoded)) {
+          expect(decoded.success.reason).toBe('invalid-chunk-key')
+        }
+      }
+    }),
+  )
+
   it.effect('re-evaluates empty chunks and viewport aspect before each draw', () =>
     Effect.gen(function* () {
       const three = makeFakeThree()
@@ -1204,6 +1289,41 @@ describe('drawing', () => {
 })
 
 describe('canvas weather', () => {
+  it.effect('rejects invalid environment options before acquiring a renderer', () =>
+    Effect.gen(function* () {
+      for (const environment of [
+        { daylight: Number.NaN },
+        { daylight: 1 + Number.EPSILON },
+        { farPlane: Number.POSITIVE_INFINITY },
+        { farPlane: 0 },
+        { dimension: 'moon' },
+        { dimension: null },
+      ]) {
+        const three = makeFakeThree()
+        const result = yield* Effect.result(makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT, environment as never))
+        expect(Result.isFailure(result)).toBe(true)
+        expect(three.renderers()).toHaveLength(0)
+      }
+    }),
+  )
+
+  it.effect('rejects invalid weather options before acquiring a renderer', () =>
+    Effect.gen(function* () {
+      for (const weather of [
+        { particleCapacity: Number.NaN },
+        { particleCapacity: null },
+        null,
+      ]) {
+        const three = makeFakeThree()
+        const result = yield* Effect.result(makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT, {
+          weather: weather as never,
+        }))
+        expect(Result.isFailure(result)).toBe(true)
+        expect(three.renderers()).toHaveLength(0)
+      }
+    }),
+  )
+
   it.effect('reuses a bounded GPU buffer and clears it without residue', () =>
     Effect.gen(function* () {
       const three = makeFakeThree()
@@ -1220,28 +1340,47 @@ describe('canvas weather', () => {
 
       const first = yield* renderer.weather.frame(rain, { x: 10, y: 64, z: -5 })
       expect(first.particles).toHaveLength(2)
-      expect(three.geometries()).toHaveLength(1)
+      // The resource owns a particle buffer and a separately preallocated
+      // lightning buffer; rain keeps the latter attached but hidden.
+      expect(three.geometries()).toHaveLength(2)
       expect(three.materials()).toHaveLength(2)
-      expect(three.scene().members()).toHaveLength(1)
-      const [geometry] = three.geometries()
-      const positionAttribute = geometry?.attributes.get('position')
-      expect(geometry?.drawRanges()).toStrictEqual([
+      expect(three.scene().members()).toHaveLength(2)
+      const {
+        lightningGeometry,
+        lightningMesh,
+        lightningPositionAttribute,
+        particleGeometry,
+        particleMesh,
+        particlePositionAttribute,
+      } = readWeatherResources(three)
+      expect(particlePositionAttribute.array).toHaveLength(2 * 12 * 3)
+      expect(lightningPositionAttribute.array).toHaveLength(3 * 8 * 2 * 12 * 3)
+      expect(particleMesh.visible).toBe(true)
+      expect(lightningMesh.visible).toBe(false)
+      expect(particleGeometry.drawRanges()).toStrictEqual([
         [0, 0],
         [0, 24],
       ])
-      expect(positionAttribute?.needsUpdate).toBe(true)
+      expect(lightningGeometry.drawRanges()).toStrictEqual([
+        [0, 0],
+        [0, 0],
+      ])
+      expect(particlePositionAttribute.needsUpdate).toBe(true)
 
       yield* renderer.weather.frame(rain, { x: 10, y: 64, z: -5 })
-      expect(three.geometries()).toHaveLength(1)
-      expect(geometry?.attributes.get('position')?.array).toBe(positionAttribute?.array)
-      expect(geometry?.drawRanges().at(-1)).toStrictEqual([0, 24])
+      expect(three.geometries()).toHaveLength(2)
+      expect(particleGeometry.attributes.get('position')?.array).toBe(particlePositionAttribute.array)
+      expect(lightningGeometry.attributes.get('position')?.array).toBe(lightningPositionAttribute.array)
+      expect(particleGeometry.drawRanges().at(-1)).toStrictEqual([0, 24])
+      expect(lightningGeometry.drawRanges().at(-1)).toStrictEqual([0, 0])
 
       yield* renderer.resize(800, 600)
       yield* renderer.weather.frame(
         { ...rain, mode: 'clear' as const },
         { x: 10, y: 64, z: -5 },
       )
-      expect(geometry?.disposed()).toBe(true)
+      expect(particleGeometry.disposed()).toBe(true)
+      expect(lightningGeometry.disposed()).toBe(true)
       expect(three.materials()[1]?.disposed()).toBe(true)
       expect(three.scene().members()).toStrictEqual([])
     }),
@@ -1264,7 +1403,7 @@ describe('canvas weather', () => {
       )
 
       yield* renderer.dispose
-      expect(three.geometries()[0]?.disposed()).toBe(true)
+      expect(three.geometries().map((geometry) => geometry.disposed())).toStrictEqual([true, true])
       expect(three.scene().members()).toStrictEqual([])
     }),
   )
@@ -1369,18 +1508,18 @@ describe('three-weather-runtime: direct precipitation resource construction', ()
   it.effect('dispose is idempotent: a second dispose does not re-release the scene', () =>
     Effect.gen(function* () {
       // Guards `three-weather-runtime.ts`'s `if (disposed) {return}` in
-      // `dispose`. Without it, a second dispose would call `scene.remove`
-      // again -- harmless on the real fake (which already tolerates removing
-      // an absent member), so the count on `remove` itself, not `members()`,
-      // is what actually distinguishes "guarded" from "not".
+      // `dispose`. The resource owns both the particle mesh and the lightning
+      // mesh, so the first dispose removes two distinct objects exactly once.
       const three = makeFakeThree()
       const scene = new three.Scene()
       let removeCalls = 0
+      const removedObjects: Array<ThreeObject3D> = []
       const originalRemove = scene.remove
       const countingScene: ThreeScene = {
         add: scene.add,
         remove: (object) => {
           removeCalls += 1
+          removedObjects.push(object)
           originalRemove(object)
         },
       }
@@ -1390,12 +1529,18 @@ describe('three-weather-runtime: direct precipitation resource construction', ()
         scene: countingScene,
         three,
       })
+      const ownedMeshes = [...three.meshes()]
+      expect(ownedMeshes).toHaveLength(2)
+      expect(three.scene().members()).toHaveLength(2)
 
       yield* resource.dispose
-      expect(removeCalls).toBe(1)
+      expect(removeCalls).toBe(2)
+      expect(removedObjects).toStrictEqual(ownedMeshes)
+      expect(three.geometries().map((geometry) => geometry.disposed())).toStrictEqual([true, true])
+      expect(three.scene().members()).toStrictEqual([])
 
       yield* resource.dispose
-      expect(removeCalls).toBe(1)
+      expect(removeCalls).toBe(2)
     }),
   )
 
@@ -1566,7 +1711,7 @@ describe('makeProductionWorldRenderer', () => {
       )
       expect(translucentMeshes.map(({ material }) => material)).toStrictEqual([transparentSolidMaterial])
 
-      yield* renderer.setEnvironment(planRenderEnvironment(0.25))
+      yield* renderer.setEnvironment(renderEnvironmentPlan(0.25))
       expect(renderer.chunkMaterial.uniforms['uSunIntensity']?.value).toBeCloseTo(0.25)
       expect(cutoutMaterial.uniforms['uSunIntensity']?.value).toBeCloseTo(0.25)
       expect(transparentSolidMaterial.uniforms['uSunIntensity']?.value).toBeCloseTo(0.25)
@@ -1628,8 +1773,8 @@ describe('makeProductionWorldRenderer', () => {
         delete uniforms['uTime']
       }
 
-      applyChunkShaderEnvironment({}, planRenderEnvironment(0.5))
-      yield* renderer.setEnvironment(planRenderEnvironment(0.5))
+      applyChunkShaderEnvironment({}, renderEnvironmentPlan(0.5))
+      yield* renderer.setEnvironment(renderEnvironmentPlan(0.5))
       yield* renderer.advanceFrame({
         ...makeAnimationClockInput(20, 0, 1200),
         deltaSecs: decodeDelta(0.01),

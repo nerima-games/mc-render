@@ -1,8 +1,23 @@
 import { describe, expect, it } from '@effect/vitest'
-import { BLOCK_IDS, BlockAxis, BlockId, LocalAxis, propertyOfBlockId, type ChunkCoord } from '@nerima-games/mc-kernel'
+import {
+  BLOCK_IDS,
+  BlockAxis,
+  BlockId,
+  LocalAxis,
+  RenderDistanceChunks,
+  propertyOfBlockId,
+  type ChunkCoord,
+} from '@nerima-games/mc-kernel'
 import type { Chunk, ReadonlyChunk } from '@nerima-games/mc-worldgen'
 import { emptyBlocks, setBlockAt, type SubscriberId } from '@nerima-games/mc-worldgen/testing'
-import { Effect, Ref, Result } from 'effect'
+import { Effect, Ref, Result, Schema } from 'effect'
+import {
+  ChunkMeshingWorkerFailureSchema,
+  decodeChunkMeshingWorkerRequest,
+  processChunkMeshingWorkerRequest,
+  type ChunkMeshingWorkerPayload,
+  type ChunkMeshingWorkerResult,
+} from '../src/application/chunk-meshing-worker'
 import {
   attachChunkStoreRenderer,
   blockNameFromKernel,
@@ -12,12 +27,48 @@ import {
   type MeshingChunkStore,
   type RendererChunkStore,
 } from '../src/application/chunk-store-mesher'
+import {
+  type JobOutcome,
+  type WorkerPool,
+  WorkerPoolFailureSchema,
+  type WorkerPoolFailure,
+} from '../src/application/worker-pool'
+import { startMeshingWorkerPool } from '../src/application/meshing-worker-pool.js'
+import type {
+  BrowserWorkerLike,
+  BrowserWorkerMessageEvent,
+} from '../src/application/browser-worker-port.js'
 import { makeWorldRenderer } from '../src/application/world-renderer'
 import { aoShade } from '../src/domain/chunk-geometry'
+import { WorkerCountSchema } from '../src/domain/worker-parallelism.js'
+import { LodInputErrorSchema, type LodInputError } from '../src/domain/level-of-detail.js'
 import { FAKE_CANVAS, makeFakeThree } from './support/fake-three'
 import { chunkCoord } from './support/kernel-brands'
 
 const VIEWPORT = { width: 640, height: 360 }
+const workerCount = Schema.decodeUnknownSync(WorkerCountSchema)
+const emptyLayers = {
+  crossPlants: [],
+  fluids: [],
+  opaque: [],
+  specialBlocks: [],
+  transparentSolid: [],
+  water: [],
+}
+
+const workerPoolWithOutcome = (
+  outcome: JobOutcome<ChunkMeshingWorkerResult>,
+): Pick<WorkerPool<ChunkMeshingWorkerPayload, ChunkMeshingWorkerResult>, 'cancel' | 'concurrency' | 'submit'> => ({
+  cancel: () => Effect.succeed(0),
+  concurrency: workerCount(1),
+  submit: () => Effect.succeed(outcome),
+})
+
+const makeMesherWithRuntimeOptions = (
+  store: MeshingChunkStore,
+  options: unknown,
+): ReturnType<typeof makeChunkStoreMesher> =>
+  Function.prototype.apply.call(makeChunkStoreMesher, undefined, [store, KERNEL_MESH_CONFIG, options])
 
 const chunk = (cx: number, cz: number, blocks: ReadonlyArray<readonly [number, number, number, number]>): Chunk => {
   const data = emptyBlocks()
@@ -56,6 +107,36 @@ const storeWithNeighbours = (
   neighbours: () => Effect.succeed(neighbours),
 })
 
+type StructuredCloneWorker = BrowserWorkerLike<ArrayBuffer> & {
+  readonly transferredBuffers: () => ReadonlyArray<ArrayBuffer>
+}
+
+const makeStructuredCloneWorker = (): StructuredCloneWorker => {
+  let messageListener: (event: BrowserWorkerMessageEvent) => void = () => {
+    throw new Error('worker message listener is not installed')
+  }
+  const transferredBuffers: Array<ArrayBuffer> = []
+  return {
+    addEventListener: (type, listener) => {
+      if (type === 'message') {
+        messageListener = (event) => Function.prototype.apply.call(listener, undefined, [event])
+      }
+    },
+    postMessage: (message: unknown, transfer?: Array<ArrayBuffer>) => {
+      const transferList = transfer ?? []
+      const workerMessage = structuredClone(message, { transfer: transferList })
+      transferredBuffers.push(...transferList)
+      const request = decodeChunkMeshingWorkerRequest(workerMessage)
+      if (Result.isFailure(request)) {
+        throw new Error('structured-cloned worker request did not decode')
+      }
+      messageListener({ data: processChunkMeshingWorkerRequest(request.success) })
+    },
+    terminate: () => undefined,
+    transferredBuffers: () => transferredBuffers,
+  }
+}
+
 describe('makeChunkStoreMesher', () => {
   it.effect('returns undefined when the requested chunk is not resident', () =>
     Effect.gen(function* () {
@@ -78,6 +159,218 @@ describe('makeChunkStoreMesher', () => {
       expect(quads).toHaveLength(12)
       expect(quads?.fluids?.length).toBeGreaterThan(0)
       expect(new Set(quads?.fluids?.map(({ blockId }) => blockId))).toEqual(new Set([6]))
+    }),
+  )
+
+  it.effect('selects worker LOD from host distance at the thresholds and their near sides', () =>
+    Effect.gen(function* () {
+      let requested = chunkCoord(0, 0)
+      const store: MeshingChunkStore = {
+        peek: () => Effect.succeed(chunk(requested.cx, requested.cz, [])),
+        neighbours: () => Effect.succeed({}),
+      }
+      const observedLods: Array<number> = []
+      const layers = {
+        crossPlants: [],
+        fluids: [],
+        opaque: [],
+        specialBlocks: [],
+        transparentSolid: [],
+        water: [],
+      }
+      const workerPool: Pick<WorkerPool<ChunkMeshingWorkerPayload, ChunkMeshingWorkerResult>, 'cancel' | 'concurrency' | 'submit'> = {
+        cancel: () => Effect.succeed(0),
+        concurrency: workerCount(1),
+        submit: (_key, payload) => {
+          observedLods.push(payload.lod)
+          return Effect.succeed({ _tag: 'completed', result: { _tag: 'meshed', layers } })
+        },
+      }
+      const mesher = makeChunkStoreMesher(store, KERNEL_MESH_CONFIG, {
+        cameraChunk: () => chunkCoord(0, 0),
+        renderDistance: RenderDistanceChunks(4),
+        workerPool,
+      })
+
+      for (const distance of [1, 2, 3, 4]) {
+        requested = chunkCoord(distance, 0)
+        yield* mesher(requested)
+      }
+
+      expect(observedLods).toStrictEqual([0, 1, 1, 2])
+    }),
+  )
+
+  it.effect('transfers worker copies and preserves the store buffer for block-shape assembly', () =>
+    Effect.gen(function* () {
+      const slabBlockId = BLOCK_IDS.find((blockId) =>
+        Result.getOrThrow(propertyOfBlockId(blockId, 'collisionShape')) === 'slab'
+      )
+      if (slabBlockId === undefined) {
+        throw new Error('mc-kernel must expose a slab block')
+      }
+      const resident = chunk(0, 0, [[4, 20, 4, slabBlockId]])
+      const storeBuffer = resident.blocks.buffer
+      const worker = makeStructuredCloneWorker()
+      const pool = yield* startMeshingWorkerPool({
+        createWorker: () => worker,
+        workerCount: workerCount(1),
+      })
+      const mesher = makeChunkStoreMesher(storeOf(resident), KERNEL_MESH_CONFIG, { workerPool: pool })
+
+      const mesh = yield* mesher(chunkCoord(0, 0))
+
+      expect(mesh?.blockShapes).toHaveLength(6)
+      expect(new Set(mesh?.blockShapes?.map(({ shape }) => shape))).toStrictEqual(new Set(['slab']))
+      expect(storeBuffer.byteLength).toBe(131_072)
+      expect(resident.blocks.buffer).toBe(storeBuffer)
+      expect(worker.transferredBuffers()).toHaveLength(1)
+      expect(worker.transferredBuffers()[0]?.byteLength).toBe(0)
+
+      yield* pool.shutdown
+    }),
+  )
+
+  it.effect('keeps cancellation and both worker failure layers distinct', () =>
+    Effect.gen(function* () {
+      const resident = chunk(0, 0, [])
+      const requested = chunkCoord(0, 0)
+      const cancelledMesher = makeChunkStoreMesher(storeOf(resident), KERNEL_MESH_CONFIG, {
+        workerPool: workerPoolWithOutcome({ _tag: 'cancelled' }),
+      })
+      expect(yield* cancelledMesher(requested)).toBeUndefined()
+
+      let cancelledKey: string | undefined = undefined
+      const cancellationPool = {
+        ...workerPoolWithOutcome({
+          _tag: 'completed',
+          result: { _tag: 'meshed', layers: emptyLayers },
+        }),
+        cancel: (key: string) => {
+          cancelledKey = key
+          return Effect.succeed(1)
+        },
+      }
+      const cancellableMesher = makeChunkStoreMesher(storeOf(resident), KERNEL_MESH_CONFIG, {
+        workerPool: cancellationPool,
+      })
+      if (cancellableMesher.cancel === undefined) {
+        throw new Error('worker-backed mesher must expose its cancellation port')
+      }
+      yield* cancellableMesher.cancel(requested)
+      expect(cancelledKey).toBe('0,0')
+
+      const workerFailure: WorkerPoolFailure = { _tag: 'WorkerPoolFailure', reason: 'worker-failed' }
+      const poolFailedMesher = makeChunkStoreMesher(storeOf(resident), KERNEL_MESH_CONFIG, {
+        workerPool: workerPoolWithOutcome({ _tag: 'failed', error: workerFailure }),
+      })
+      const poolFailure = yield* Effect.result(poolFailedMesher(requested))
+      expect(Result.isFailure(poolFailure)).toBe(true)
+      if (Result.isFailure(poolFailure)) {
+        expect(poolFailure.failure).toStrictEqual(workerFailure)
+        expect(Result.isSuccess(Schema.decodeUnknownResult(WorkerPoolFailureSchema)(poolFailure.failure))).toBe(true)
+      }
+
+      const meshingFailure = { _tag: 'ChunkMeshingWorkerFailure', reason: 'mesh-failed' } as const
+      const resultFailedMesher = makeChunkStoreMesher(storeOf(resident), KERNEL_MESH_CONFIG, {
+        workerPool: workerPoolWithOutcome({
+          _tag: 'completed',
+          result: { _tag: 'failed', error: meshingFailure },
+        }),
+      })
+      const meshFailure = yield* Effect.result(resultFailedMesher(requested))
+      expect(Result.isFailure(meshFailure)).toBe(true)
+      if (Result.isFailure(meshFailure)) {
+        expect(meshFailure.failure).toStrictEqual(meshingFailure)
+        expect(Result.isSuccess(Schema.decodeUnknownResult(ChunkMeshingWorkerFailureSchema)(meshFailure.failure)))
+          .toBe(true)
+      }
+    }),
+  )
+
+  it.effect('validates render-distance and camera chunk failures before selecting an LOD', () =>
+    Effect.gen(function* () {
+      const resident = chunk(0, 0, [])
+      const invalidDistanceMesher = makeMesherWithRuntimeOptions(storeOf(resident), {
+        cameraChunk: () => chunkCoord(0, 0),
+        renderDistance: 2.5,
+      })
+      const invalidDistance = yield* Effect.result(invalidDistanceMesher(chunkCoord(0, 0)))
+      expect(Result.isFailure(invalidDistance)).toBe(true)
+      if (Result.isFailure(invalidDistance)) {
+        expect(invalidDistance.failure).toMatchObject({
+          _tag: 'LodInputError',
+          operation: 'thresholds',
+          reason: 'invalid-render-distance',
+        } satisfies LodInputError)
+        expect(Result.isSuccess(Schema.decodeUnknownResult(LodInputErrorSchema)(invalidDistance.failure))).toBe(true)
+      }
+
+      const invalidCameraMesher = makeMesherWithRuntimeOptions(storeOf(resident), {
+        cameraChunk: () => ({ cx: Number.MAX_VALUE, cz: 0 }),
+        renderDistance: RenderDistanceChunks(4),
+      })
+      const invalidCamera = yield* Effect.result(invalidCameraMesher(chunkCoord(0, 0)))
+      expect(Result.isFailure(invalidCamera)).toBe(true)
+      if (Result.isFailure(invalidCamera)) {
+        expect(invalidCamera.failure).toMatchObject({
+          _tag: 'LodInputError',
+          operation: 'chunk-distance',
+          reason: 'invalid-chunk-coordinate',
+        })
+        expect(Result.isSuccess(Schema.decodeUnknownResult(LodInputErrorSchema)(invalidCamera.failure))).toBe(true)
+      }
+    }),
+  )
+
+  it.effect('returns a typed failure when a resident LOD cannot be recomputed after camera movement', () =>
+    Effect.gen(function* () {
+      const resident = chunk(0, 0, [])
+      let cameraChunk: unknown = chunkCoord(0, 0)
+      const mesher = makeMesherWithRuntimeOptions(storeOf(resident), {
+        cameraChunk: () => cameraChunk,
+        renderDistance: RenderDistanceChunks(4),
+      })
+      yield* mesher(resident.coord)
+
+      cameraChunk = { cx: Number.MAX_VALUE, cz: 0 }
+      const { refreshLod } = mesher
+      if (refreshLod === undefined) {
+        throw new Error('render-distance mesher must expose LOD refresh')
+      }
+      const refresh = refreshLod()
+
+      expect(Result.isFailure(refresh)).toBe(true)
+      if (Result.isFailure(refresh)) {
+        const { failure } = refresh
+        expect(failure).toMatchObject({
+          _tag: 'LodInputError',
+          operation: 'chunk-distance',
+          reason: 'invalid-chunk-coordinate',
+        })
+        expect(Result.isSuccess(Schema.decodeUnknownResult(LodInputErrorSchema)(failure))).toBe(true)
+      }
+    }),
+  )
+
+  it.effect('removes a locally meshed chunk from camera LOD refresh when cancelled', () =>
+    Effect.gen(function* () {
+      const resident = chunk(2, 0, [])
+      let cameraChunk: unknown = chunkCoord(0, 0)
+      const mesher = makeMesherWithRuntimeOptions(storeOf(resident), {
+        cameraChunk: () => cameraChunk,
+        renderDistance: RenderDistanceChunks(4),
+      })
+      yield* mesher(resident.coord)
+
+      const { cancel, refreshLod } = mesher
+      if (cancel === undefined || refreshLod === undefined) {
+        throw new Error('render-distance mesher must expose cancellation and LOD refresh')
+      }
+      yield* cancel(resident.coord)
+      cameraChunk = chunkCoord(1, 0)
+
+      expect(refreshLod()).toStrictEqual(Result.succeed([]))
     }),
   )
 
@@ -271,6 +564,235 @@ describe('attachChunkStoreRenderer', () => {
 
       expect(yield* renderer.chunkKeys).toStrictEqual(['0,0'])
       expect(yield* Ref.get(getLightCalls)).toBe(0)
+    }),
+  )
+
+  it.effect('passes host LOD and unload cancellation through the attached worker pool', () =>
+    Effect.gen(function* () {
+      const three = makeFakeThree()
+      const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT)
+      const batches = yield* Ref.make<ReadonlyArray<{
+        readonly changed: ReadonlyArray<ChunkCoord>
+        readonly removed: ReadonlyArray<ChunkCoord>
+      }>>([
+        { changed: [chunkCoord(0, 0)], removed: [] },
+        { changed: [], removed: [chunkCoord(0, 0)] },
+      ])
+      const store: RendererChunkStore = {
+        peek: () => Effect.succeed(chunk(0, 0, [])),
+        neighbours: () => Effect.succeed({}),
+        subscribeDirty: Effect.succeed({
+          id: 0 as SubscriberId,
+          drain: Ref.modify(batches, ([next, ...rest]) => [next ?? { changed: [], removed: [] }, rest]),
+          unsubscribe: Effect.void,
+        }),
+        getLight: () => Effect.succeed({ _tag: 'Light', block: 15, sky: 15 }),
+      }
+      const submittedLods: Array<number> = []
+      const cancelledKeys: Array<string> = []
+      const workerPool: Pick<WorkerPool<ChunkMeshingWorkerPayload, ChunkMeshingWorkerResult>, 'cancel' | 'concurrency' | 'submit'> = {
+        cancel: (key) => {
+          cancelledKeys.push(key)
+          return Effect.succeed(1)
+        },
+        concurrency: workerCount(1),
+        submit: (_key, payload) => {
+          submittedLods.push(payload.lod)
+          return Effect.succeed({
+            _tag: 'completed',
+            result: { _tag: 'meshed', layers: emptyLayers },
+          })
+        },
+      }
+
+      const attachment = yield* attachChunkStoreRenderer(renderer, store, {
+        cameraChunk: () => chunkCoord(0, 0),
+        renderDistance: RenderDistanceChunks(4),
+        workerPool,
+      })
+      yield* attachment.update
+      yield* attachment.update
+
+      expect(submittedLods).toStrictEqual([0])
+      expect(cancelledKeys).toStrictEqual(['0,0'])
+      yield* attachment.detach
+      yield* renderer.dispose
+    }),
+  )
+
+  it.effect('refreshes only resident chunks whose LOD band changes when the camera chunk moves', () =>
+    Effect.gen(function* () {
+      const three = makeFakeThree()
+      const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT)
+      const residentChunks = [0, 2, 4, 10].map((cx) => chunk(cx, 0, []))
+      const residents = new Map(residentChunks.map((resident) => [`${resident.coord.cx},${resident.coord.cz}`, resident]))
+      const batches = yield* Ref.make<ReadonlyArray<{
+        readonly changed: ReadonlyArray<ChunkCoord>
+        readonly removed: ReadonlyArray<ChunkCoord>
+      }>>([
+        { changed: residentChunks.map(({ coord }) => coord), removed: [] },
+        { changed: [], removed: [] },
+        { changed: [], removed: [] },
+      ])
+      const store: RendererChunkStore = {
+        peek: (coord) => Effect.succeed(residents.get(`${coord.cx},${coord.cz}`)),
+        neighbours: () => Effect.succeed({}),
+        subscribeDirty: Effect.succeed({
+          id: 0 as SubscriberId,
+          drain: Ref.modify(batches, ([next, ...rest]) => [next ?? { changed: [], removed: [] }, rest]),
+          unsubscribe: Effect.void,
+        }),
+        getLight: () => Effect.succeed({ _tag: 'Light', block: 15, sky: 15 }),
+      }
+      let cameraChunk = chunkCoord(0, 0)
+      const submissions: Array<readonly [string, number]> = []
+      const workerPool: Pick<WorkerPool<ChunkMeshingWorkerPayload, ChunkMeshingWorkerResult>, 'cancel' | 'concurrency' | 'submit'> = {
+        cancel: () => Effect.succeed(0),
+        concurrency: workerCount(1),
+        submit: (key, payload) => {
+          submissions.push([key, payload.lod])
+          return Effect.succeed({ _tag: 'completed', result: { _tag: 'meshed', layers: emptyLayers } })
+        },
+      }
+      const attachment = yield* attachChunkStoreRenderer(renderer, store, {
+        cameraChunk: () => cameraChunk,
+        renderDistance: RenderDistanceChunks(4),
+        workerPool,
+      })
+
+      yield* attachment.update
+      cameraChunk = chunkCoord(1, 0)
+      yield* attachment.update
+      yield* attachment.update
+
+      expect(submissions).toStrictEqual([
+        ['0,0', 0],
+        ['2,0', 1],
+        ['4,0', 2],
+        ['10,0', 2],
+        ['2,0', 0],
+        ['4,0', 1],
+      ])
+      yield* attachment.detach
+      yield* renderer.dispose
+    }),
+  )
+
+  it.effect('retries a camera-driven LOD update after the first worker mesh fails', () =>
+    Effect.gen(function* () {
+      const three = makeFakeThree()
+      const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT)
+      const resident = chunk(2, 0, [])
+      const batches = yield* Ref.make<ReadonlyArray<{
+        readonly changed: ReadonlyArray<ChunkCoord>
+        readonly removed: ReadonlyArray<ChunkCoord>
+      }>>([
+        { changed: [resident.coord], removed: [] },
+        { changed: [], removed: [] },
+        { changed: [], removed: [] },
+      ])
+      const store: RendererChunkStore = {
+        peek: () => Effect.succeed(resident),
+        neighbours: () => Effect.succeed({}),
+        subscribeDirty: Effect.succeed({
+          id: 0 as SubscriberId,
+          drain: Ref.modify(batches, ([next, ...rest]) => [next ?? { changed: [], removed: [] }, rest]),
+          unsubscribe: Effect.void,
+        }),
+        getLight: () => Effect.succeed({ _tag: 'Light', block: 15, sky: 15 }),
+      }
+      let cameraChunk = chunkCoord(0, 0)
+      const submittedLods: Array<number> = []
+      const workerFailure: WorkerPoolFailure = { _tag: 'WorkerPoolFailure', reason: 'worker-failed' }
+      const workerPool: Pick<WorkerPool<ChunkMeshingWorkerPayload, ChunkMeshingWorkerResult>, 'cancel' | 'concurrency' | 'submit'> = {
+        cancel: () => Effect.succeed(0),
+        concurrency: workerCount(1),
+        submit: (_key, payload) => {
+          submittedLods.push(payload.lod)
+          if (submittedLods.length === 2) {
+            return Effect.succeed({ _tag: 'failed', error: workerFailure })
+          }
+          return Effect.succeed({ _tag: 'completed', result: { _tag: 'meshed', layers: emptyLayers } })
+        },
+      }
+      const attachment = yield* attachChunkStoreRenderer(renderer, store, {
+        cameraChunk: () => cameraChunk,
+        renderDistance: RenderDistanceChunks(4),
+        workerPool,
+      })
+
+      yield* attachment.update
+      cameraChunk = chunkCoord(1, 0)
+      const firstRefresh = yield* Effect.result(attachment.update)
+      expect(firstRefresh).toStrictEqual(Result.fail(workerFailure))
+      yield* attachment.update
+
+      expect(submittedLods).toStrictEqual([1, 0, 0])
+      yield* attachment.update
+      expect(submittedLods).toStrictEqual([1, 0, 0])
+      yield* attachment.detach
+      yield* renderer.dispose
+    }),
+  )
+
+  it.effect('does not refresh an unloaded chunk after the camera moves', () =>
+    Effect.gen(function* () {
+      const three = makeFakeThree()
+      const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT)
+      const residentChunks = [chunk(2, 0, []), chunk(4, 0, [])]
+      const batches = yield* Ref.make<ReadonlyArray<{
+        readonly changed: ReadonlyArray<ChunkCoord>
+        readonly removed: ReadonlyArray<ChunkCoord>
+      }>>([
+        { changed: residentChunks.map(({ coord }) => coord), removed: [] },
+        { changed: [], removed: [chunkCoord(2, 0)] },
+        { changed: [], removed: [] },
+      ])
+      const store: RendererChunkStore = {
+        peek: (coord) => Effect.succeed(residentChunks.find(({ coord: candidate }) =>
+          candidate.cx === coord.cx && candidate.cz === coord.cz
+        )),
+        neighbours: () => Effect.succeed({}),
+        subscribeDirty: Effect.succeed({
+          id: 0 as SubscriberId,
+          drain: Ref.modify(batches, ([next, ...rest]) => [next ?? { changed: [], removed: [] }, rest]),
+          unsubscribe: Effect.void,
+        }),
+        getLight: () => Effect.succeed({ _tag: 'Light', block: 15, sky: 15 }),
+      }
+      let cameraChunk = chunkCoord(0, 0)
+      const submissions: Array<readonly [string, number]> = []
+      const cancelledKeys: Array<string> = []
+      const workerPool: Pick<WorkerPool<ChunkMeshingWorkerPayload, ChunkMeshingWorkerResult>, 'cancel' | 'concurrency' | 'submit'> = {
+        cancel: (key) => {
+          cancelledKeys.push(key)
+          return Effect.succeed(1)
+        },
+        concurrency: workerCount(1),
+        submit: (key, payload) => {
+          submissions.push([key, payload.lod])
+          return Effect.succeed({ _tag: 'completed', result: { _tag: 'meshed', layers: emptyLayers } })
+        },
+      }
+      const attachment = yield* attachChunkStoreRenderer(renderer, store, {
+        cameraChunk: () => cameraChunk,
+        renderDistance: RenderDistanceChunks(4),
+        workerPool,
+      })
+
+      yield* attachment.update
+      yield* attachment.update
+      cameraChunk = chunkCoord(1, 0)
+      yield* attachment.update
+
+      expect(cancelledKeys).toStrictEqual(['2,0'])
+      expect(submissions).toStrictEqual([
+        ['2,0', 1],
+        ['4,0', 2],
+        ['4,0', 1],
+      ])
+      yield* attachment.detach
+      yield* renderer.dispose
     }),
   )
 

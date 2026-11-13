@@ -5,7 +5,9 @@ import {
   type BlockId,
   type BlockType,
   ChunkAxis,
+  type ChunkCoord,
   LightLevelCandidate,
+  type RenderDistanceChunks,
   blockIdsWithOpacity,
   blockPosition,
   blockTypeOfId,
@@ -22,9 +24,12 @@ import {
 import {
   CHUNK_SIZE,
   type ChunkView,
+  type LodLevel,
   type MeshConfig,
+  type MeshLayers,
   type ChunkNeighbours as MeshingChunkNeighbours,
   meshChunk,
+  simplifyMesh,
 } from '@nerima-games/mc-meshing'
 import {
   type ChunkMesh,
@@ -34,6 +39,10 @@ import {
   type WorldRendererAttachment,
   attachWorldRenderer,
 } from './world-sync.js'
+import {
+  type ChunkMeshingWorkerPayload,
+  type ChunkMeshingWorkerResult,
+} from './chunk-meshing-worker.js'
 import { Effect, Option, Result } from 'effect'
 import { type GeometryQuad, type MeshQuad, type QuadColor } from '../domain/chunk-geometry.js'
 import {
@@ -43,7 +52,14 @@ import {
   lightSampleForGeometryQuad,
   packedLightColor,
 } from '../domain/voxel-lighting.js'
+import {
+  type LodInputError,
+  chunkDistance,
+  lodForDistance,
+  lodThresholdsForRenderDistance,
+} from '../domain/level-of-detail.js'
 import type { BlockShapeKind } from '../domain/meshing-vocabulary.js'
+import type { WorkerPool } from './worker-pool.js'
 import type { WorldRenderer } from './world-renderer.js'
 import { meshBlockShapes } from '../domain/block-shapes.js'
 
@@ -266,6 +282,16 @@ type ReadonlyWorldgenChunkNeighbours = Readonly<{
   [Key in keyof WorldgenChunkNeighbours]: ReadonlyChunk
 }>
 
+type WorldgenMeshingInput = {
+  readonly chunk: ReadonlyChunk
+  readonly neighbours: ReadonlyWorldgenChunkNeighbours
+}
+
+type MeshingChunkInput = {
+  readonly chunk: ChunkView
+  readonly neighbours: MeshingChunkNeighbours
+}
+
 /** Adapt mc-worldgen's four read-only neighbours to meshing views. */
 const toMeshingNeighbours = (neighbours: ReadonlyWorldgenChunkNeighbours): MeshingChunkNeighbours => {
   const adapted: {
@@ -289,14 +315,31 @@ const toMeshingNeighbours = (neighbours: ReadonlyWorldgenChunkNeighbours): Meshi
   return adapted
 }
 
-const meshWorldgenChunk = (
-  worldgenChunk: ReadonlyChunk,
-  worldgenNeighbours: ReadonlyWorldgenChunkNeighbours,
+const toMeshingChunkInput = ({ chunk, neighbours }: WorldgenMeshingInput): MeshingChunkInput => ({
+  chunk: toChunkView(chunk),
+  neighbours: toMeshingNeighbours(neighbours),
+})
+
+const readWorldgenMeshingInput = ({
+  coord,
+  store,
+}: {
+  readonly coord: ChunkCoord
+  readonly store: MeshingChunkStore
+}): Effect.Effect<WorldgenMeshingInput | undefined> =>
+  Effect.gen(function* () {
+    const chunk = yield* store.peek(coord)
+    if (chunk === undefined) {
+      return undefined
+    }
+    return { chunk, neighbours: yield* store.neighbours(coord) }
+  })
+
+const assembleWorldgenMesh = (
+  input: MeshingChunkInput,
   config: RenderMeshConfig,
-): Result.Result<ChunkMesh, ChunkMesherError> => {
-  const chunkView = toChunkView(worldgenChunk)
-  const meshingNeighbours = toMeshingNeighbours(worldgenNeighbours)
-  return Result.map(meshChunk(chunkView, meshingNeighbours, config), (layers) => {
+  layers: MeshLayers,
+): ChunkMesh => {
     const blockShapeKinds = config.blockShapeKinds ?? EMPTY_BLOCK_SHAPE_KINDS
     const opaque = withoutBlockShapes(layers.opaque, blockShapeKinds)
     const water = withoutBlockShapes(layers.water, blockShapeKinds)
@@ -305,7 +348,7 @@ const meshWorldgenChunk = (
     const quads = [...layers.opaque, ...layers.water, ...layers.transparentSolid].filter(
       (quad) => !blockShapeKinds.has(quad.blockId),
     )
-    const blockShapes = meshBlockShapes(chunkView, meshingNeighbours, blockShapeKinds)
+    const blockShapes = meshBlockShapes(input.chunk, input.neighbours, blockShapeKinds)
     return Object.assign(quads, {
       blockShapes,
       crossPlants: layers.crossPlants,
@@ -317,25 +360,248 @@ const meshWorldgenChunk = (
         water,
       },
     })
-  })
 }
+
+const meshWorldgenChunk = (
+  input: MeshingChunkInput,
+  config: RenderMeshConfig,
+  lod: LodLevel,
+): Result.Result<ChunkMesh, ChunkMesherError> =>
+  Result.map(meshChunk(input.chunk, input.neighbours, config), (meshedLayers) =>
+    assembleWorldgenMesh(input, config, simplifyMesh(meshedLayers, lod)),
+  )
+
+type MeshingPool = Pick<
+  WorkerPool<ChunkMeshingWorkerPayload, ChunkMeshingWorkerResult>,
+  'submit' | 'cancel' | 'concurrency'
+>
+
+export type ChunkStoreMeshingOptions = {
+  readonly workerPool?: MeshingPool
+} & (
+  | { readonly renderDistance?: undefined; readonly cameraChunk?: undefined }
+  | { readonly renderDistance: RenderDistanceChunks; readonly cameraChunk: () => ChunkCoord }
+)
+
+const LOD_FINEST = 0
+const NO_LOD_CHANGES = 0
+
+const selectChunkLod = (
+  chunk: ChunkCoord,
+  options: ChunkStoreMeshingOptions,
+): Result.Result<LodLevel, LodInputError> => {
+  if (options.renderDistance === undefined) {
+    return Result.succeed(LOD_FINEST)
+  }
+  const thresholds = lodThresholdsForRenderDistance(options.renderDistance)
+  if (Result.isFailure(thresholds)) {
+    return Result.fail(thresholds.failure)
+  }
+  const distance = chunkDistance(options.cameraChunk(), chunk)
+  if (Result.isFailure(distance)) {
+    return Result.fail(distance.failure)
+  }
+  return lodForDistance(distance.success, thresholds.success)
+}
+
+const chunksWithChangedLod = (
+  meshedLods: ReadonlyMap<string, { readonly chunk: ChunkCoord; readonly lod: LodLevel }>,
+  cameraChunk: ChunkCoord,
+  renderDistance: RenderDistanceChunks,
+): Result.Result<ReadonlyArray<ChunkCoord>, ChunkMesherError> => {
+  const currentOptions = { cameraChunk: () => cameraChunk, renderDistance }
+  const changed: Array<ChunkCoord> = []
+  for (const { chunk: coord, lod } of meshedLods.values()) {
+    const nextLod = selectChunkLod(coord, currentOptions)
+    if (Result.isFailure(nextLod)) {
+      return Result.fail(nextLod.failure)
+    }
+    if (nextLod.success !== lod) {
+      changed.push(coord)
+    }
+  }
+  return Result.succeed(changed)
+}
+
+const cameraStateAfterRefresh = (
+  cameraChunk: ChunkCoord,
+  changed: ReadonlyArray<ChunkCoord>,
+  reconciledCameraChunk: ChunkCoord | undefined,
+): Readonly<{ pending: ChunkCoord | undefined; reconciled: ChunkCoord | undefined }> => {
+  if (changed.length === NO_LOD_CHANGES) {
+    return { pending: undefined, reconciled: cameraChunk }
+  }
+  return { pending: cameraChunk, reconciled: reconciledCameraChunk }
+}
+
+const computeLodRefresh = ({
+  cameraChunk,
+  meshedLods,
+  reconciledCameraChunk,
+  renderDistance,
+}: {
+  readonly cameraChunk: ChunkCoord
+  readonly meshedLods: ReadonlyMap<string, { readonly chunk: ChunkCoord; readonly lod: LodLevel }>
+  readonly reconciledCameraChunk: ChunkCoord | undefined
+  readonly renderDistance: RenderDistanceChunks
+}): Result.Result<{
+  readonly changed: ReadonlyArray<ChunkCoord>
+  readonly pending: ChunkCoord | undefined
+  readonly reconciled: ChunkCoord | undefined
+}, ChunkMesherError> => {
+  const changed = chunksWithChangedLod(meshedLods, cameraChunk, renderDistance)
+  if (Result.isFailure(changed)) {
+    return Result.fail(changed.failure)
+  }
+  const cameraState = cameraStateAfterRefresh(cameraChunk, changed.success, reconciledCameraChunk)
+  return Result.succeed({ ...cameraState, changed: changed.success })
+}
+
+type MeshedLodTracker = {
+  readonly refresh: (() => Result.Result<ReadonlyArray<ChunkCoord>, ChunkMesherError>) | undefined
+  readonly remember: (coord: ChunkCoord, lod: LodLevel, mesh: ChunkMesh | undefined) => ChunkMesh | undefined
+  readonly remove: (coord: ChunkCoord) => void
+}
+
+const makeMeshedLodTracker = (options: ChunkStoreMeshingOptions): MeshedLodTracker => {
+  const meshedLods = new Map<string, { readonly chunk: ChunkCoord; readonly lod: LodLevel }>()
+  let reconciledCameraChunk: ChunkCoord | undefined = undefined
+  let pendingCameraChunk: ChunkCoord | undefined = undefined
+  const remember = (coord: ChunkCoord, lod: LodLevel, mesh: ChunkMesh | undefined): ChunkMesh | undefined => {
+    if (mesh !== undefined && options.renderDistance !== undefined) {
+      meshedLods.set(`${coord.cx},${coord.cz}`, { chunk: coord, lod })
+    }
+    return mesh
+  }
+  const { renderDistance } = options
+  let refresh: MeshedLodTracker['refresh'] = undefined
+  if (renderDistance !== undefined) {
+    refresh = () => {
+    const cameraChunk = options.cameraChunk()
+    if (
+      pendingCameraChunk === undefined &&
+      reconciledCameraChunk?.cx === cameraChunk.cx &&
+      reconciledCameraChunk.cz === cameraChunk.cz
+    ) {
+      return Result.succeed([])
+    }
+    const changed = computeLodRefresh({ cameraChunk, meshedLods, reconciledCameraChunk, renderDistance })
+    if (Result.isFailure(changed)) {
+      return Result.fail(changed.failure)
+    }
+    reconciledCameraChunk = changed.success.reconciled
+    pendingCameraChunk = changed.success.pending
+    return Result.succeed(changed.success.changed)
+    }
+  }
+  return { refresh, remember, remove: (coord) => { meshedLods.delete(`${coord.cx},${coord.cz}`) } }
+}
+
+const withMesherCapabilities = (
+  mesher: ChunkMesher,
+  lodTracker: MeshedLodTracker,
+  options: ChunkStoreMeshingOptions,
+): ChunkMesher => {
+  const refreshLod = lodTracker.refresh
+  if (options.workerPool === undefined && refreshLod === undefined) {
+    return mesher
+  }
+  const cancelChunk = (coord: ChunkCoord): Effect.Effect<void> => {
+    lodTracker.remove(coord)
+    return Effect.asVoid(options.workerPool?.cancel(`${coord.cx},${coord.cz}`) ?? Effect.void)
+  }
+  let enhancedMesher = Object.assign(mesher, { cancel: cancelChunk })
+  if (refreshLod !== undefined) {
+    enhancedMesher = Object.assign(enhancedMesher, { refreshLod })
+  }
+  if (options.workerPool !== undefined) {
+    enhancedMesher = Object.assign(enhancedMesher, { concurrency: options.workerPool.concurrency })
+  }
+  return enhancedMesher
+}
+
+const meshConfigForWorker = (config: RenderMeshConfig): ChunkMeshingWorkerPayload['config'] => ({
+  crossPlantBlockIds: config.crossPlantBlockIds,
+  fluidMaxLevels: config.fluidMaxLevels,
+  transparentSolidBlockIds: config.transparentSolidBlockIds,
+  waterBlockIds: config.waterBlockIds,
+})
+
+const meshInWorker = ({
+  config,
+  input,
+  lod,
+  workerPool,
+  workerKey,
+}: {
+  readonly config: RenderMeshConfig
+  readonly input: MeshingChunkInput
+  readonly lod: LodLevel
+  readonly workerPool: MeshingPool
+  readonly workerKey: string
+}): Effect.Effect<ChunkMesh | undefined, ChunkMesherError> =>
+  Effect.gen(function* () {
+    // Keep the local input attached for block-shape assembly after the worker replies.
+    const workerInput = structuredClone(input)
+    const outcome = yield* workerPool.submit(workerKey, {
+      chunk: workerInput.chunk,
+      config: meshConfigForWorker(config),
+      lod,
+      neighbours: workerInput.neighbours,
+    })
+    if (outcome._tag === 'cancelled') {
+      return undefined
+    }
+    if (outcome._tag === 'failed') {
+      return yield* Effect.fail(outcome.error)
+    }
+    if (outcome.result._tag === 'failed') {
+      return yield* Effect.fail(outcome.result.error)
+    }
+    return assembleWorldgenMesh(input, config, outcome.result.layers)
+  })
 
 /** Adapt a worldgen chunk store to the renderer's pull-based meshing port. */
 export const makeChunkStoreMesher = (
   store: MeshingChunkStore,
   config: RenderMeshConfig = KERNEL_MESH_CONFIG,
-): ChunkMesher =>
-  ({ cx, cz }) =>
+  options: ChunkStoreMeshingOptions = {},
+): ChunkMesher => {
+  const { workerPool } = options
+  const lodTracker = makeMeshedLodTracker(options)
+  const meshPreparedInput = (
+    coord: ChunkCoord,
+    input: MeshingChunkInput,
+    lod: LodLevel,
+  ): Effect.Effect<ChunkMesh | undefined, ChunkMesherError> => {
+    if (workerPool === undefined) {
+      return Effect.map(Effect.fromResult(meshWorldgenChunk(input, config, lod)), (mesh) => lodTracker.remember(coord, lod, mesh))
+    }
+    return Effect.map(
+      meshInWorker({
+        config,
+        input,
+        lod,
+        workerKey: `${coord.cx},${coord.cz}`,
+        workerPool,
+      }),
+      (mesh) => lodTracker.remember(coord, lod, mesh),
+    )
+  }
+  const meshChunkFromStore: ChunkMesher = ({ cx, cz }) =>
     Effect.gen(function* () {
       const coord = chunkCoord(ChunkAxis(cx), ChunkAxis(cz))
-      const worldgenChunk = yield* store.peek(coord)
-      if (worldgenChunk === undefined) {
+      const worldgenInput = yield* readWorldgenMeshingInput({ coord, store })
+      if (worldgenInput === undefined) {
         return undefined
       }
-
-      const worldgenNeighbours = yield* store.neighbours(coord)
-      return yield* Effect.fromResult(meshWorldgenChunk(worldgenChunk, worldgenNeighbours, config))
+      const lod = yield* Effect.fromResult(selectChunkLod(coord, options))
+      const input = toMeshingChunkInput(worldgenInput)
+      return yield* meshPreparedInput(coord, input, lod)
     })
+
+  return withMesherCapabilities(meshChunkFromStore, lodTracker, options)
+}
 
 /** `options` with default atlas tiles and chunk lighting, unless the caller supplied overrides. */
 const withDefaultColorForChunk = (store: RendererChunkStore, options: SyncOptions): SyncOptions => {
@@ -351,10 +617,14 @@ const withDefaultColorForChunk = (store: RendererChunkStore, options: SyncOption
   }
 }
 
-/** `attachChunkStoreRenderer`'s options: every `SyncOptions` field, plus the mesher's own `MeshConfig`. */
+/** `attachChunkStoreRenderer` options, including the host-owned distance and optional worker pool. */
 export type ChunkStoreRendererOptions = SyncOptions & {
   readonly config?: RenderMeshConfig
-}
+  readonly workerPool?: MeshingPool
+} & (
+  | { readonly renderDistance?: undefined; readonly cameraChunk?: undefined }
+  | { readonly renderDistance: RenderDistanceChunks; readonly cameraChunk: () => ChunkCoord }
+)
 
 /** Attach the renderer directly to a worldgen ChunkStore subscription. */
 export const attachChunkStoreRenderer = (
@@ -362,11 +632,25 @@ export const attachChunkStoreRenderer = (
   store: RendererChunkStore,
   options: ChunkStoreRendererOptions = {},
 ): Effect.Effect<WorldRendererAttachment> => {
-  const { config = KERNEL_MESH_CONFIG, ...syncOptions } = options
+  const {
+    cameraChunk,
+    config = KERNEL_MESH_CONFIG,
+    renderDistance,
+    workerPool,
+    ...syncOptions
+  } = options
+  const workerPoolOption: { workerPool?: MeshingPool } = {}
+  if (workerPool !== undefined) {
+    workerPoolOption.workerPool = workerPool
+  }
+  let meshingOptions: ChunkStoreMeshingOptions = workerPoolOption
+  if (renderDistance !== undefined) {
+    meshingOptions = { ...workerPoolOption, cameraChunk, renderDistance }
+  }
   return attachWorldRenderer(
     renderer,
     store,
-    makeChunkStoreMesher(store, config),
+    makeChunkStoreMesher(store, config, meshingOptions),
     withDefaultColorForChunk(store, syncOptions),
   )
 }

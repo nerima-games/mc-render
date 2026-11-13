@@ -41,7 +41,13 @@ import {
   type LodThresholds,
 } from '../src/domain/level-of-detail'
 import { CHUNK_SIZE, LOD_LEVELS, STEP_FOR_LOD, type LodLevel } from '@nerima-games/mc-meshing'
-import { CAMERA_FOV_DEGREES } from '../src/application/world-renderer'
+import { chunkKeyOf, MAX_RENDER_DISTANCE, MIN_RENDER_DISTANCE, RenderDistanceChunks } from '@nerima-games/mc-kernel'
+import {
+  CAMERA_FOV_DEGREES,
+  chunkWithinRenderDistance,
+  RenderDistanceCullingErrorSchema,
+} from '../src/application/world-renderer'
+import { position } from './support/kernel-brands'
 
 const arbitraryLevel: FastCheck.Arbitrary<LodLevel> = FastCheck.constantFrom(...LOD_LEVELS)
 
@@ -100,6 +106,8 @@ const unreachableFor = (renderDistance: number, thresholds: LodThresholds) => {
   expectSuccess(result)
   return result.success
 }
+
+const renderDistanceSetting = (value: number) => RenderDistanceChunks(value)
 
 const decodeThresholdsResult = Schema.decodeUnknownResult(LodThresholdsResultSchema, {
   onExcessProperty: 'error',
@@ -299,6 +307,19 @@ describe('lodForDistance', () => {
     }),
   )
 
+  it.effect('switches the ratio thresholds inclusively and one chunk outside them', () =>
+    Effect.sync(() => {
+      const thresholds = thresholdsFor(6)
+      expect(thresholds).toStrictEqual({ lod1: 3, lod2: 6 })
+      expect([lod(2, thresholds), lod(3, thresholds), lod(5, thresholds), lod(6, thresholds)]).toStrictEqual([
+        0,
+        1,
+        1,
+        2,
+      ])
+    }),
+  )
+
   it.effect('returns a strict schema-valid failure for invalid distances', () =>
     Effect.sync(() => {
       FastCheck.assert(
@@ -381,6 +402,81 @@ describe('lodForDistance', () => {
         ),
         { seed: 0, numRuns: 300 },
       )
+    }),
+  )
+})
+
+describe('chunkWithinRenderDistance', () => {
+  it.effect('includes the square edge and excludes the first chunk beyond it', () =>
+    Effect.sync(() => {
+      const camera = position(0, 64, 0)
+      expect(chunkWithinRenderDistance(chunkKeyOf(chunk(2, -2)), camera, renderDistanceSetting(2))).toStrictEqual(Result.succeed(true))
+      expect(chunkWithinRenderDistance(chunkKeyOf(chunk(3, -2)), camera, renderDistanceSetting(2))).toStrictEqual(Result.succeed(false))
+    }),
+  )
+
+  it.effect('matches Chebyshev chunk distance for generated positions', () =>
+    Effect.sync(() => {
+      FastCheck.assert(
+        FastCheck.property(
+          FastCheck.integer({ min: -32, max: 32 }),
+          FastCheck.integer({ min: -32, max: 32 }),
+          FastCheck.integer({ min: MIN_RENDER_DISTANCE, max: MAX_RENDER_DISTANCE }),
+          FastCheck.integer({ min: -32, max: 32 }),
+          FastCheck.integer({ min: -32, max: 32 }),
+          (cameraCx, cameraCz, renderDistance, chunkCx, chunkCz) => {
+            const cameraPosition = position(
+              cameraCx * CHUNK_SIZE + CHUNK_SIZE / 2,
+              64,
+              cameraCz * CHUNK_SIZE + CHUNK_SIZE / 2,
+            )
+            const result = chunkWithinRenderDistance(
+              chunkKeyOf(chunk(chunkCx, chunkCz)),
+              cameraPosition,
+              RenderDistanceChunks(renderDistance),
+            )
+            expectSuccess(result)
+            expect(result.success).toBe(
+              Math.max(Math.abs(chunkCx - cameraCx), Math.abs(chunkCz - cameraCz)) <= renderDistance,
+            )
+          },
+        ),
+        { seed: 0, numRuns: 200 },
+      )
+    }),
+  )
+
+  it.effect('returns schema-valid failures for unsafe camera chunks and malformed runtime keys', () =>
+    Effect.sync(() => {
+      const unsafeCamera = chunkWithinRenderDistance(
+        chunkKeyOf(chunk(0, 0)),
+        position(Number.MAX_VALUE, 64, 0),
+        renderDistanceSetting(2),
+      )
+      expectFailure(unsafeCamera)
+      expect(unsafeCamera.failure.reason).toBe('invalid-camera-position')
+      expectSuccess(Schema.decodeUnknownResult(RenderDistanceCullingErrorSchema)(unsafeCamera.failure))
+
+      const malformedKey = Reflect.apply(chunkWithinRenderDistance, undefined, [
+        'not-a-chunk-key',
+        position(0, 64, 0),
+        renderDistanceSetting(2),
+      ])
+      expect(Result.isFailure(malformedKey)).toBe(true)
+      if (Result.isFailure(malformedKey)) {
+        const decodedMalformedKey = Schema.decodeUnknownResult(RenderDistanceCullingErrorSchema)(malformedKey.failure)
+        expectSuccess(decodedMalformedKey)
+        expect(decodedMalformedKey.success.reason).toBe('invalid-chunk-key')
+      }
+    }),
+  )
+
+  it.effect('constructs the setting endpoints and rejects the adjacent invalid values', () =>
+    Effect.sync(() => {
+      expect(RenderDistanceChunks(MIN_RENDER_DISTANCE)).toBe(MIN_RENDER_DISTANCE)
+      expect(RenderDistanceChunks(MAX_RENDER_DISTANCE)).toBe(MAX_RENDER_DISTANCE)
+      expect(() => RenderDistanceChunks(MIN_RENDER_DISTANCE - 1)).toThrow()
+      expect(() => RenderDistanceChunks(MAX_RENDER_DISTANCE + 1)).toThrow()
     }),
   )
 })

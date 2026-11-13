@@ -3,6 +3,11 @@ import {
   type AdaptiveQualityState,
   advanceAdaptiveQuality,
 } from './adaptive-quality.js'
+import {
+  type ColorFilterInput,
+  DEFAULT_COLOR_FILTER_INPUT,
+  decodeColorFilterInput,
+} from './color-correction.js'
 import { Effect, Result, Schema } from 'effect'
 import {
   type GraphicsQuality,
@@ -31,6 +36,7 @@ export type BrowserRenderPolicyError = {
     | 'pixel-ratio'
     | 'god-ray-samples'
     | 'bloom-strength'
+    | 'color-filter'
     | 'viewport'
     | 'drawing-buffer-size'
     | 'refraction-target-size'
@@ -59,6 +65,7 @@ export const BrowserRenderPolicyErrorSchema: Schema.Codec<BrowserRenderPolicyErr
     'pixel-ratio',
     'god-ray-samples',
     'bloom-strength',
+    'color-filter',
     'viewport',
     'drawing-buffer-size',
     'refraction-target-size',
@@ -815,7 +822,18 @@ export const browserDepthTextureOption = <Texture>(
 
 export const browserPostProcessingChain = (
   quality: GraphicsQuality,
-): ReadonlyArray<PostProcessingStep> => buildPostProcessingChain(quality)
+  colorFilter: ColorFilterInput = DEFAULT_COLOR_FILTER_INPUT,
+): ReadonlyArray<PostProcessingStep> => buildPostProcessingChain(quality, colorFilter)
+
+export const resolveBrowserColorFilterInput = (
+  input: unknown,
+): Result.Result<ColorFilterInput, BrowserRenderPolicyError> => {
+  const decoded = decodeColorFilterInput(input)
+  if (Result.isFailure(decoded)) {
+    return Result.fail(browserRenderPolicyError('color-filter', 'invalid-input'))
+  }
+  return Result.succeed(decoded.success)
+}
 
 export const browserPostProcessingChainKey = (
   chain: ReadonlyArray<PostProcessingStep>,

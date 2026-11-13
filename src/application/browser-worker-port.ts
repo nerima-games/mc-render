@@ -19,7 +19,8 @@ export class WorkerResponseDecodeError extends WorkerResponseDecodeErrorBase<{
 }> {}
 
 export type BrowserWorkerLike<TTransfer = unknown> = {
-  postMessage(message: unknown, transfer?: Array<TTransfer>): void
+  postMessage(message: unknown): void
+  postMessage(message: unknown, transfer: Array<TTransfer>): void
   addEventListener(type: 'message', listener: (event: BrowserWorkerMessageEvent) => void): void
   addEventListener(type: 'error', listener: (event: BrowserWorkerErrorEvent) => void): void
   terminate(): void
