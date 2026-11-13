@@ -544,13 +544,8 @@ const untexturedVisualFor = (
 const withEntityTextureCoordinates = (
   visual: UntexturedEntityVisualPlan,
   kind: EntityModelKind,
-): Result.Result<EntityVisualPlan, EntityTextureResolutionIssue> => {
-  const textureCoordinates = entityTextureUvForKind(kind)
-  if (Result.isFailure(textureCoordinates)) {
-    return Result.fail(textureCoordinates.failure)
-  }
-  return Result.succeed({ ...visual, textureCoordinates: textureCoordinates.success })
-}
+): Result.Result<EntityVisualPlan, EntityTextureResolutionIssue> =>
+  Result.map(entityTextureUvForKind(kind), (textureCoordinates) => ({ ...visual, textureCoordinates }))
 
 export const planEntityVisual = (
   entity: RenderEntity,
