@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: CC0-1.0
 import { Brand } from 'effect'
 import type {
   EntityModelColor,
@@ -21,10 +22,43 @@ const part = (
   color: EntityModelColor,
 ): EntityModelPartDescriptor => ({ id: partIdentifier(id), role: partRole(role), size, center, color })
 
+const partVerticalHalfExtent = ({ size, rotation }: EntityModelPartDescriptor): number => {
+  const [sizeX, sizeY, sizeZ] = size
+  const [rotationX, , rotationZ] = rotation ?? [0, 0, 0]
+  // The renderer applies descriptor Euler rotations in YXZ order.
+  return (
+    Math.abs(Math.cos(rotationX) * Math.sin(rotationZ)) * sizeX / 2 +
+    Math.abs(Math.cos(rotationX) * Math.cos(rotationZ)) * sizeY / 2 +
+    Math.abs(Math.sin(rotationX)) * sizeZ / 2
+  )
+}
+
+const partMinimumY = (part: EntityModelPartDescriptor): number =>
+  part.center[1] - partVerticalHalfExtent(part)
+
 const model = (
   kind: string,
   ...parts: EntityModelPartDescriptor[]
-): EntityModelDescriptor => ({ kind: modelKind(kind), parts })
+): EntityModelDescriptor => {
+  const lowestPart = parts.reduce((lowest, part) =>
+    partMinimumY(part) < partMinimumY(lowest) ? part : lowest)
+  const minimumY = partMinimumY(lowestPart)
+  const verticalOffset = partVerticalHalfExtent(lowestPart) - lowestPart.center[1]
+  return {
+    kind: modelKind(kind),
+    parts: parts.map(part => {
+      const isLowest = partMinimumY(part) === minimumY
+      return {
+        ...part,
+        center: [
+          part.center[0],
+          isLowest ? partVerticalHalfExtent(part) : part.center[1] + verticalOffset,
+          part.center[2],
+        ],
+      }
+    }),
+  }
+}
 
 export const ANIMAL_ENTITY_MODELS: ReadonlyArray<EntityModelDescriptor> = [
   model(

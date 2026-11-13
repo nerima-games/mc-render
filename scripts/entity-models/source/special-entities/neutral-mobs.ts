@@ -1,4 +1,6 @@
+// SPDX-License-Identifier: CC0-1.0
 import { Brand } from 'effect'
+import { Euler, Matrix4 } from 'three'
 import type {
   EntityModelColor,
   EntityModelDescriptor,
@@ -21,7 +23,39 @@ const part = (
   color: EntityModelColor,
 ): EntityModelPartDescriptor => ({ id: partIdentifier(id), role: partRole(role), size, center, color })
 
-const model = (kind: string, ...parts: EntityModelPartDescriptor[]): EntityModelDescriptor => ({ kind: modelKind(kind), parts })
+const partRotationMatrix = new Matrix4()
+
+const partMinimumY = (part: EntityModelPartDescriptor): number => {
+  const [rotationX, rotationY, rotationZ] = part.rotation ?? [0, 0, 0]
+  // Match the renderer's YXZ order when measuring the static cuboid bounds.
+  const elements = partRotationMatrix.makeRotationFromEuler(new Euler(rotationX, rotationY, rotationZ, 'YXZ')).elements
+  const yExtent =
+    Math.abs(elements[1]!) * part.size[0] / 2 +
+    Math.abs(elements[5]!) * part.size[1] / 2 +
+    Math.abs(elements[9]!) * part.size[2] / 2
+  return part.center[1] - yExtent
+}
+
+const translatePartsVertically = (
+  parts: ReadonlyArray<EntityModelPartDescriptor>,
+  offsetY: number,
+): ReadonlyArray<EntityModelPartDescriptor> =>
+  parts.map((part) => ({
+    ...part,
+    center: [part.center[0], part.center[1] + offsetY, part.center[2]],
+  }))
+
+const model = (kind: string, ...parts: EntityModelPartDescriptor[]): EntityModelDescriptor => {
+  const lowestPoint = Math.min(...parts.map(partMinimumY))
+  const translatedParts = lowestPoint === 0 ? parts : translatePartsVertically(parts, -lowestPoint)
+  const roundingCorrection = Math.min(...translatedParts.map(partMinimumY))
+  const groundedParts =
+    roundingCorrection === 0
+      ? translatedParts
+      : translatePartsVertically(translatedParts, -roundingCorrection)
+
+  return { kind: modelKind(kind), parts: groundedParts }
+}
 
 const caveSpiderLegs = [
   part("leg-front-left", "leg", [0.56, 0.08, 0.1], [-0.48, 0.29, 0.33], [0.15, 0.22, 0.3]),

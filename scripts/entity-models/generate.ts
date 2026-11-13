@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: CC0-1.0
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -208,6 +209,16 @@ const outputFiles = (): ReadonlyArray<Readonly<{ path: string; contents: string 
   const manifest = {
     schemaVersion: 1,
     license: 'CC0-1.0',
+    licenseScope: {
+      identifier: 'CC0-1.0',
+      appliesTo: [
+        'scripts/entity-models/**',
+        'src/domain/entity-models/generated/**',
+        'assets/entity-models/**',
+      ],
+      repositoryLicense: 'MIT',
+      repositoryRelationship: 'CC0-1.0 applies only to the listed entity-model scripts and generated assets. The rest of this repository remains under MIT.',
+    },
     provenance: 'Original cuboid geometry and flat-color palettes authored for this project. No external model, texture, or game artwork was used.',
     generator: 'scripts/entity-models/generate.ts',
     outputColorEncoding: 'RGB byte channels in [0,255], written to the renderer Uint8 color buffer',

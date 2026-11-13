@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: CC0-1.0
 import { Brand } from 'effect'
 import type {
   EntityModelColor,
@@ -45,6 +46,41 @@ const part = (
   center: EntityModelPartDescriptor['center'],
   color: EntityModelPartDescriptor['color'],
 ): EntityModelPartDescriptor => ({ id: partIdentifier(id), role: partRole(role), size, center, color })
+
+const partVerticalHalfExtent = ({ size, rotation }: EntityModelPartDescriptor): number => {
+  const [sizeX, sizeY, sizeZ] = size
+  const [rotationX, , rotationZ] = rotation ?? [0, 0, 0]
+  // The renderer applies descriptor Euler rotations in YXZ order.
+  return (
+    Math.abs(Math.cos(rotationX) * Math.sin(rotationZ)) * sizeX / 2 +
+    Math.abs(Math.cos(rotationX) * Math.cos(rotationZ)) * sizeY / 2 +
+    Math.abs(Math.sin(rotationX)) * sizeZ / 2
+  )
+}
+
+const partMinimumY = (modelPart: EntityModelPartDescriptor): number =>
+  modelPart.center[1] - partVerticalHalfExtent(modelPart)
+
+const groundModel = (model: EntityModelDescriptor): EntityModelDescriptor => {
+  const lowestPart = model.parts.reduce((lowest, modelPart) =>
+    partMinimumY(modelPart) < partMinimumY(lowest) ? modelPart : lowest)
+  const minimumY = partMinimumY(lowestPart)
+  const verticalOffset = partVerticalHalfExtent(lowestPart) - lowestPart.center[1]
+  return {
+    ...model,
+    parts: model.parts.map((modelPart): EntityModelPartDescriptor => {
+      const isLowest = partMinimumY(modelPart) === minimumY
+      return {
+        ...modelPart,
+        center: [
+          modelPart.center[0],
+          isLowest ? partVerticalHalfExtent(modelPart) : modelPart.center[1] + verticalOffset,
+          modelPart.center[2],
+        ],
+      }
+    }),
+  }
+}
 
 const player: EntityModelDescriptor = {
   kind: modelKind('player'),
@@ -108,4 +144,4 @@ export const VILLAGER_PLAYER_ENTITY_MODELS: ReadonlyArray<EntityModelDescriptor>
   player,
   villager,
   wanderingTrader,
-]
+].map(groundModel)
