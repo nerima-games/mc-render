@@ -1023,6 +1023,7 @@ const BLAZE_ORBIT_BOB_AMPLITUDE = 0.08
 const ATTACK_ARM_SWING_AMPLITUDE = Math.PI / QUARTER_TURN_DIVISOR
 
 const DEFAULT_ANIMATION_INPUT: MobAnimationInput = { state: 'idle' }
+const KIND_ONLY_ARGUMENT_COUNT = 1
 
 const resolveDefaultProgress = (state: MobAnimationState): number => {
   if (state === 'hurt' || state === 'death') {
@@ -1224,22 +1225,27 @@ const buildPartPlan = (
   }
 }
 
-/** Resolve a mob kind and animation sample into immutable cuboid transforms. */
-export function planMobVisual(kind: string): Result.Result<MobVisualPlan, Schema.SchemaError>
-export function planMobVisual(kind: string, input: unknown): Result.Result<MobVisualPlan, Schema.SchemaError>
-export function planMobVisual(kind: string, input?: unknown): Result.Result<MobVisualPlan, Schema.SchemaError> {
-  const inputValue = arguments.length === 1 ? DEFAULT_ANIMATION_INPUT : input
-  const decodedInput = Schema.decodeUnknownResult(MobAnimationInputSchema, { onExcessProperty: 'error' })(inputValue)
-  if (Result.isFailure(decodedInput)) {
-    return Result.fail(decodedInput.failure)
-  }
-
+const planDecodedMobVisual = (kind: string, input: MobAnimationInput): MobVisualPlan => {
   const descriptor = mobVisualDescriptor(kind)
-  const animation = resolveAnimationSample(decodedInput.success)
+  const animation = resolveAnimationSample(input)
   const context = partPlanContextFor(animation)
   const parts = descriptor.parts.map((source): MobVisualPartPlan =>
     buildPartPlan(source, descriptor.scale, context),
   )
+  return { animation, descriptorKind: descriptor.kind, parts, temperament: descriptor.temperament }
+}
 
-  return Result.succeed({ animation, descriptorKind: descriptor.kind, parts, temperament: descriptor.temperament })
+/** Resolve a mob kind and animation sample into immutable cuboid transforms. */
+export function planMobVisual(kind: string): Result.Result<MobVisualPlan, Schema.SchemaError>
+export function planMobVisual(kind: string, input: unknown): Result.Result<MobVisualPlan, Schema.SchemaError>
+export function planMobVisual(kind: string, input?: unknown): Result.Result<MobVisualPlan, Schema.SchemaError> {
+  let inputValue: unknown = input
+  if (arguments.length === KIND_ONLY_ARGUMENT_COUNT) {
+    inputValue = DEFAULT_ANIMATION_INPUT
+  }
+  const decodedInput = Schema.decodeUnknownResult(MobAnimationInputSchema, { onExcessProperty: 'error' })(inputValue)
+  if (Result.isFailure(decodedInput)) {
+    return Result.fail(decodedInput.failure)
+  }
+  return Result.succeed(planDecodedMobVisual(kind, decodedInput.success))
 }

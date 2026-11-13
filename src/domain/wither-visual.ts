@@ -558,20 +558,11 @@ const witherPartsForPhase = (
   return WITHER_VISUAL_DESCRIPTOR.parts
 }
 
-/** Plan one Wither frame solely from its simulation state. */
-export const planWitherVisual = (
-  input: unknown,
-): Result.Result<WitherVisualPlan, Schema.SchemaError> => {
-  const decoded = Schema.decodeUnknownResult(WitherVisualStateInputSchema, { onExcessProperty: 'error' })(input)
-  if (Result.isFailure(decoded)) {
-    return Result.fail(decoded.failure)
-  }
-
-  const state = decoded.success
+const planDecodedWitherVisual = (state: WitherVisualStateInput): WitherVisualPlan => {
   const position = copyPosition(state.feetPosition)
   const [yawRadians] = directionAngles(state.velocity)
   if (state.phase === 'dead') {
-    return Result.succeed({
+    return {
       chargingFlashOn: false,
       kind: 'wither',
       parts: [],
@@ -579,7 +570,7 @@ export const planWitherVisual = (
       position,
       visible: false,
       yawRadians,
-    })
+    }
   }
 
   const remaining = state.chargeRemainingSecs
@@ -588,7 +579,7 @@ export const planWitherVisual = (
     Math.floor(remaining * WITHER_CHARGE_FLASH_HZ) % WITHER_CHARGE_FLASH_PARITY === ZERO
   const parts = witherPartsForPhase(state.phase, chargingFlashOn)
 
-  return Result.succeed({
+  return {
     chargingFlashOn,
     kind: 'wither',
     parts,
@@ -596,7 +587,15 @@ export const planWitherVisual = (
     position,
     visible: true,
     yawRadians,
-  })
+  }
+}
+
+/** Plan one Wither frame solely from its simulation state. */
+export const planWitherVisual = (
+  input: unknown,
+): Result.Result<WitherVisualPlan, Schema.SchemaError> => {
+  const decoded = Schema.decodeUnknownResult(WitherVisualStateInputSchema, { onExcessProperty: 'error' })(input)
+  return Result.map(decoded, planDecodedWitherVisual)
 }
 
 const pitchPart = (

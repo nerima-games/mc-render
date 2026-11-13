@@ -3,10 +3,15 @@ import { Result, Schema } from 'effect'
 import { EntityRenderProgressSchema } from '../src/domain/entity-render-input'
 import { planMobVisual } from '../src/domain/mob-visual'
 import { planWitherSkullVisual, planWitherVisual } from '../src/domain/wither-visual'
-import { copyRenderEntity, planEntityVisual, type RenderEntity } from '../src/application/entity-visual-plan'
+import { copyRenderEntity, planEntityVisual } from '../src/application/entity-visual-plan'
 
 const position = { x: 4, y: 70, z: -2 }
 const entityRenderProgress = Schema.decodeUnknownSync(EntityRenderProgressSchema)
+const resolvedMobPlan = (kind: string, animation: unknown) =>
+  Result.getOrThrow(planMobVisual(kind, animation))
+const resolvedWitherPlan = (input: unknown) => Result.getOrThrow(planWitherVisual(input))
+const resolvedSkullPlan = (input: unknown) => Result.getOrThrow(planWitherSkullVisual(input))
+type RenderEntity = Parameters<typeof planEntityVisual>[0]
 
 const entity = (overrides: Partial<RenderEntity> = {}): RenderEntity => ({
   feetPosition: position,
@@ -49,7 +54,7 @@ describe('entity visual planning', () => {
       phase: 'airborne' as const,
       velocity: { x: 1, y: 0, z: 0 },
     }
-    const visual = planWitherVisual(witherState)
+    const visual = resolvedWitherPlan(witherState)
 
     expectPlannedVisual(entity({ kind: 'wither', witherState }), {
       facingRadians: visual.yawRadians,
@@ -68,7 +73,7 @@ describe('entity visual planning', () => {
       speed: 20,
       variant: 'normal' as const,
     }
-    const visual = planWitherSkullVisual(projectile)
+    const visual = resolvedSkullPlan(projectile)
 
     expectPlannedVisual(entity({ kind: 'wither_skull', witherSkullProjectile: projectile }), {
       facingRadians: visual.yawRadians,
@@ -83,7 +88,7 @@ describe('entity visual planning', () => {
     // The fallback must still produce a real plan rather than throwing, and
     // its velocity must follow the facing this caller reports.
     const facingRadians = Math.PI
-    const visual = planWitherVisual({
+    const visual = resolvedWitherPlan({
       chargeRemainingSecs: 0,
       feetPosition: position,
       healthPoints: 300,
@@ -102,7 +107,7 @@ describe('entity visual planning', () => {
     // Same fallback shape as the wither case above, for the projectile
     // instead of the boss state.
     const facingRadians = Math.PI / 4
-    const visual = planWitherSkullVisual({
+    const visual = resolvedSkullPlan({
       destroysResistantBlocks: false,
       direction: { x: -Math.sin(facingRadians), y: 0, z: -Math.cos(facingRadians) },
       explosivePower: 0,
@@ -124,7 +129,7 @@ describe('entity visual planning', () => {
 
     expectPlannedVisual(entity({ animation }), {
       facingRadians: 0,
-      parts: planMobVisual('zombie', animation).parts,
+      parts: resolvedMobPlan('zombie', animation).parts,
       position,
     })
   })
@@ -169,6 +174,29 @@ describe('entity visual planning', () => {
         _tag: 'UnsupportedEntityModel',
         kind: 'future_entity',
       })
+    }
+  })
+
+  it('propagates invalid public animation and Wither inputs as Schema failures', () => {
+    const invalidMob = planEntityVisual(entity({
+      animation: { phaseRadians: 2 * Math.PI, state: 'walk' },
+    }))
+    const invalidWither = planEntityVisual(entity({
+      kind: 'wither',
+      witherState: {
+        chargeRemainingSecs: -Number.MIN_VALUE,
+        feetPosition: position,
+        healthPoints: 300,
+        phase: 'airborne',
+        velocity: { x: 0, y: 0, z: -1 },
+      },
+    }))
+
+    for (const result of [invalidMob, invalidWither]) {
+      expect(Result.isFailure(result)).toBe(true)
+      if (Result.isFailure(result)) {
+        expect(Schema.isSchemaError(result.failure)).toBe(true)
+      }
     }
   })
 

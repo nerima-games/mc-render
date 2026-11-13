@@ -10,7 +10,7 @@ import {
 } from '../src/domain/mob-visual'
 
 const resolvedPlan = (kind: string, input?: unknown) =>
-  Result.getOrThrow(input === undefined ? planMobVisual(kind) : planMobVisual(kind, input))
+  Result.getOrThrow(planMobVisual(kind, input ?? { state: 'idle' }))
 
 const hostileKinds = [
   'zombie',
@@ -107,6 +107,19 @@ describe('mob animation planning', () => {
       }
     }
     expect(resolvedPlan('zombie', { state: 'hurt' }).animation.progress).toBe(1)
+  })
+
+  it('uses defaults only when animation fields are omitted', () => {
+    expect(Result.getOrThrow(planMobVisual('zombie')).animation.state).toBe('idle')
+    expect(resolvedPlan('zombie', { state: 'walk' }).animation.walkAmount).toBe(1)
+
+    for (const input of [undefined, { state: 'walk', progress: undefined }]) {
+      const result = planMobVisual('zombie', input)
+      expect(Result.isFailure(result)).toBe(true)
+      if (Result.isFailure(result)) {
+        expect(Schema.isSchemaError(result.failure)).toBe(true)
+      }
+    }
   })
 
   it('accepts animation endpoints and rejects values outside the phase and progress domains', () => {

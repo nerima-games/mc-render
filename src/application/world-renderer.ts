@@ -75,8 +75,8 @@ import {
 } from '../domain/chunk-shader.js'
 import {
   DAY_SKY_COLOR,
-  DEFAULT_RENDER_ENVIRONMENT,
   DEFAULT_DIMENSION,
+  DEFAULT_RENDER_ENVIRONMENT,
   type RenderEnvironmentPlan,
   planRenderEnvironment,
 } from '../domain/render-environment.js'
@@ -90,18 +90,20 @@ import {
   decodeChunkKey,
 } from '@nerima-games/mc-kernel'
 import { Effect, Ref, Result, Schema } from 'effect'
+import { type EntityModelResolutionIssue } from '../domain/entity-model-catalog.js'
 import {
   type EntityVisualPartPlan,
   type EntityVisualPlan,
   planEntityVisual,
 } from './entity-visual-plan.js'
 import {
-  type EntityRenderLightLevel,
-  type EntityRenderPitchRadians,
-  type EntityRenderYawRadians,
+  type EntityRenderIdentifier,
   EntityRenderIdentifierSchema,
+  type EntityRenderLightLevel,
   EntityRenderLightLevelSchema,
+  type EntityRenderPitchRadians,
   EntityRenderPitchRadiansSchema,
+  type EntityRenderYawRadians,
   EntityRenderYawRadiansSchema,
   sampleEntityRenderFrame,
 } from '../domain/entity-render-input.js'
@@ -109,7 +111,6 @@ import {
   type MobAnimationInput,
   MobAnimationInputSchema,
 } from '../domain/mob-visual.js'
-import type { EntityModelResolutionIssue } from '../domain/entity-model-catalog.js'
 import {
   type ParticlePool,
   type ParticlePoolInputError,
@@ -141,8 +142,8 @@ import { type WeatherFrameOptions, decodeWeatherFrameOptions } from '../domain/w
 import { type WeatherRenderer, makeWeatherRenderer } from './weather-renderer.js'
 import {
   type WitherSkullVisualInput,
-  type WitherVisualStateInput,
   WitherSkullVisualInputSchema,
+  type WitherVisualStateInput,
   WitherVisualStateInputSchema,
 } from '../domain/wither-visual.js'
 import {
@@ -822,7 +823,7 @@ export type EntityRenderCategory = 'hostile' | 'passive' | 'item'
 
 /** The renderer-owned entity projection consumed by compose. */
 export type RenderEntity = {
-  readonly id: string
+  readonly id: EntityRenderIdentifier
   readonly kind: string
   readonly dimension?: Dimension
   readonly feetPosition: {
@@ -906,7 +907,7 @@ export const decodeRenderEntities = (
   Schema.decodeUnknownResult(RenderEntityArraySchema, { onExcessProperty: 'error' })(input)
 
 export type WorldRendererEntityModelDiagnostic = Readonly<{
-  readonly entityId: string
+  readonly entityId: EntityRenderIdentifier
   readonly issue: EntityModelResolutionIssue
 }>
 
@@ -952,7 +953,7 @@ export type WorldRenderer = DrawPort & {
   /** Which chunks are currently in the scene. Diagnostics and tests. */
   readonly chunkKeys: Effect.Effect<ReadonlyArray<ChunkKey>>
   /** Reconcile the complete visible entity set by stable entity id. */
-  readonly syncEntities: (entities: ReadonlyArray<RenderEntity>) => Effect.Effect<void, Schema.SchemaError>
+  readonly syncEntities: (entities: unknown) => Effect.Effect<void, Schema.SchemaError>
   /** Validate a complete host frame and reconcile only entities in the configured scene dimension. */
   readonly syncEntityFrame: (
     input: unknown,
@@ -1451,6 +1452,46 @@ const copyEntity = (entity: RenderEntity): RenderEntity => ({
   ...copiedWitherSkullProjectile(entity),
 })
 
+type IncomingEntityPlans = Readonly<{
+  readonly desired: Map<string, PlannedEntity>
+  readonly diagnostics: ReadonlyArray<WorldRendererEntityModelDiagnostic>
+}>
+
+const appendIncomingEntityPlan = (
+  id: EntityRenderIdentifier,
+  entity: RenderEntity,
+  desired: Map<string, PlannedEntity>,
+  diagnostics: Array<WorldRendererEntityModelDiagnostic>,
+): Result.Result<void, Schema.SchemaError> => {
+  const visual = planEntityVisual(entity)
+  if (Result.isFailure(visual)) {
+    if (Schema.isSchemaError(visual.failure)) {
+      return Result.fail(visual.failure)
+    }
+    diagnostics.push({ entityId: id, issue: visual.failure })
+  } else {
+    desired.set(id, { entity, visual: visual.success })
+  }
+  return Result.succeed(undefined)
+}
+
+const planIncomingEntities = (
+  incoming: ReadonlyArray<RenderEntity>,
+): Result.Result<IncomingEntityPlans, Schema.SchemaError> => {
+  const incomingById = new Map<EntityRenderIdentifier, RenderEntity>(
+    incoming.map((entity): readonly [EntityRenderIdentifier, RenderEntity] => [entity.id, copyEntity(entity)]),
+  )
+  const desired = new Map<string, PlannedEntity>()
+  const diagnostics: Array<WorldRendererEntityModelDiagnostic> = []
+  for (const [id, entity] of incomingById) {
+    const result = appendIncomingEntityPlan(id, entity, desired, diagnostics)
+    if (Result.isFailure(result)) {
+      return Result.fail(result.failure)
+    }
+  }
+  return Result.succeed({ desired, diagnostics })
+}
+
 /**
  * Build a renderer on a canvas.
  *
@@ -1825,35 +1866,11 @@ export const makeWorldRenderer = <
 
       entityFrameState: {
         dimension: options.dimension ?? DEFAULT_DIMENSION,
-        sunIntensity: planRenderEnvironment(
-          options.daylight ?? FULL_SUN_INTENSITY,
-          options.farPlane ?? CAMERA_FAR_PLANE,
-          options.dimension ?? DEFAULT_DIMENSION,
-        ).sunIntensity,
+        sunIntensity: settings.initialEnvironment.sunIntensity,
       },
 
       entitySync: (() => {
-        const planIncomingEntities = (incoming: ReadonlyArray<RenderEntity>): Result.Result<Readonly<{
-          readonly desired: Map<string, PlannedEntity>
-          readonly diagnostics: ReadonlyArray<WorldRendererEntityModelDiagnostic>
-        }>, Schema.SchemaError> => {
-          const incomingById = new Map(incoming.map((entity) => [entity.id, copyEntity(entity)]))
-          const desired = new Map<string, PlannedEntity>()
-          const diagnostics: Array<WorldRendererEntityModelDiagnostic> = []
-          for (const [id, entity] of incomingById) {
-            const visual = planEntityVisual(entity)
-            if (Result.isFailure(visual)) {
-              if (Schema.isSchemaError(visual.failure)) {
-                return Result.fail(visual.failure)
-              }
-              diagnostics.push({ entityId: id, issue: visual.failure })
-            } else {
-              desired.set(id, { entity, visual: visual.success })
-            }
-          }
-          return Result.succeed({ desired, diagnostics })
-        }
-        const syncEntities = (input: ReadonlyArray<RenderEntity>): Effect.Effect<void, Schema.SchemaError> =>
+        const syncEntities = (input: unknown): Effect.Effect<void, Schema.SchemaError> =>
           Effect.gen(function* reconcileEntities() {
             const incoming = yield* Effect.fromResult(decodeRenderEntities(input))
             const { desired, diagnostics } = yield* Effect.fromResult(planIncomingEntities(incoming))

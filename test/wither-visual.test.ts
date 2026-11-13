@@ -1,5 +1,9 @@
 import { describe, expect, it } from '@effect/vitest'
+import * as FastCheck from 'fast-check'
+import { Result, Schema } from 'effect'
 import {
+  WitherSkullVisualInputSchema,
+  WitherVisualStateInputSchema,
   planWitherSkullVisual,
   planWitherVisual,
   WITHER_SKULL_VISUAL_DESCRIPTORS,
@@ -41,6 +45,9 @@ const projectile = (
   destroysResistantBlocks: variant === 'blue',
 })
 
+const resolvedWitherPlan = (input: unknown) => Result.getOrThrow(planWitherVisual(input))
+const resolvedSkullPlan = (input: unknown) => Result.getOrThrow(planWitherSkullVisual(input))
+
 describe('Wither visual descriptors', () => {
   it('publishes a stable three-headed body, rib cage, and tail silhouette', () => {
     const roles = WITHER_VISUAL_DESCRIPTOR.parts.map(({ role }) => role)
@@ -52,16 +59,16 @@ describe('Wither visual descriptors', () => {
     expect(roles.filter((role) => role === 'rib')).toHaveLength(3)
     expect(roles.filter((role) => role === 'tail')).toHaveLength(2)
     expect(new Set(ids)).toHaveLength(ids.length)
-    expect(planWitherVisual(state('airborne'))).toStrictEqual(
-      planWitherVisual(state('airborne')),
+    expect(resolvedWitherPlan(state('airborne'))).toStrictEqual(
+      resolvedWitherPlan(state('airborne')),
     )
   })
 
   it('plans charging flashes and the armoured phase as deterministic visual differences', () => {
-    const flashOff = planWitherVisual(state('charging', 1.125))
-    const flashOn = planWitherVisual(state('charging', 1))
-    const airborne = planWitherVisual(state('airborne'))
-    const armoured = planWitherVisual(state('armoured'))
+    const flashOff = resolvedWitherPlan(state('charging', 1.125))
+    const flashOn = resolvedWitherPlan(state('charging', 1))
+    const airborne = resolvedWitherPlan(state('airborne'))
+    const armoured = resolvedWitherPlan(state('armoured'))
 
     expect(flashOff.chargingFlashOn).toBe(false)
     expect(flashOn.chargingFlashOn).toBe(true)
@@ -72,7 +79,7 @@ describe('Wither visual descriptors', () => {
   })
 
   it('hides the dead phase without losing its authoritative transform', () => {
-    const dead = planWitherVisual(state('dead'))
+    const dead = resolvedWitherPlan(state('dead'))
 
     expect(dead.visible).toBe(false)
     expect(dead.parts).toStrictEqual([])
@@ -80,13 +87,64 @@ describe('Wither visual descriptors', () => {
     expect(dead.yawRadians).toBeCloseTo(-Math.PI / 2, 12)
   })
 
-  it('folds a non-finite feet-position component to zero rather than propagating NaN', () => {
-    const plan = planWitherVisual({
-      ...state('airborne'),
-      feetPosition: { x: Number.NaN, y: 70, z: -2 },
+  it('rejects invalid state numbers with typed Schema failures', () => {
+    const invalidStates = [
+      { ...state('airborne'), feetPosition: { x: Number.NaN, y: 70, z: -2 } },
+      { ...state('airborne'), velocity: { x: 1, y: Number.POSITIVE_INFINITY, z: 0 } },
+      { ...state('airborne'), healthPoints: -Number.MIN_VALUE },
+      { ...state('airborne'), chargeRemainingSecs: Number.NaN },
+      { ...state('airborne'), unexpected: true },
+    ]
+
+    for (const input of invalidStates) {
+      const result = planWitherVisual(input)
+      expect(Result.isFailure(result)).toBe(true)
+      if (Result.isFailure(result)) {
+        expect(Schema.isSchemaError(result.failure)).toBe(true)
+      }
+    }
+  })
+
+  it('accepts zero and finite position limits, and rejects values just outside state limits', () => {
+    const boundary = {
+      ...state('charging', 0),
+      healthPoints: 0,
+      feetPosition: { x: Number.MAX_VALUE, y: -Number.MAX_VALUE, z: 0 },
+    }
+    expect(Result.isSuccess(Schema.decodeUnknownResult(WitherVisualStateInputSchema)(boundary))).toBe(true)
+    expect(Result.isSuccess(planWitherVisual(boundary))).toBe(true)
+
+    for (const input of [
+      { ...boundary, healthPoints: -Number.MIN_VALUE },
+      { ...boundary, chargeRemainingSecs: -Number.MIN_VALUE },
+      { ...boundary, feetPosition: { ...boundary.feetPosition, z: Number.POSITIVE_INFINITY } },
+      { ...boundary, velocity: { x: 0, y: Number.NEGATIVE_INFINITY, z: 0 } },
+    ]) {
+      expect(Result.isFailure(planWitherVisual(input))).toBe(true)
+    }
+  })
+
+  it('plans generated finite positions and nonnegative state values', () => {
+    const finite = FastCheck.double({ min: -1000, max: 1000, noNaN: true, noDefaultInfinity: true })
+    const nonNegative = FastCheck.double({ min: 0, max: 1000, noNaN: true, noDefaultInfinity: true })
+    const validState = FastCheck.record({
+      chargeRemainingSecs: nonNegative,
+      feetX: finite,
+      feetY: finite,
+      feetZ: finite,
+      healthPoints: nonNegative,
+      velocityX: finite,
+      velocityY: finite,
+      velocityZ: finite,
     })
 
-    expect(plan.position).toStrictEqual({ x: 0, y: 70, z: -2 })
+    FastCheck.assert(FastCheck.property(validState, (sample) => Result.isSuccess(planWitherVisual({
+      chargeRemainingSecs: sample.chargeRemainingSecs,
+      feetPosition: { x: sample.feetX, y: sample.feetY, z: sample.feetZ },
+      healthPoints: sample.healthPoints,
+      phase: 'airborne',
+      velocity: { x: sample.velocityX, y: sample.velocityY, z: sample.velocityZ },
+    }))))
   })
 })
 
@@ -102,8 +160,8 @@ describe('Wither skull visual descriptors', () => {
   })
 
   it('derives position, yaw, and pitch from the projectile descriptor', () => {
-    const normal = planWitherSkullVisual(projectile('normal'))
-    const blue = planWitherSkullVisual(projectile('blue'))
+    const normal = resolvedSkullPlan(projectile('normal'))
+    const blue = resolvedSkullPlan(projectile('blue'))
 
     expect(normal.position).toStrictEqual({ x: 8, y: 72, z: 3 })
     expect(normal.yawRadians).toBeCloseTo(-Math.PI / 2, 12)
@@ -114,7 +172,7 @@ describe('Wither skull visual descriptors', () => {
   })
 
   it('yaws and pitches to zero for a perfectly still projectile direction', () => {
-    const plan = planWitherSkullVisual({
+    const plan = resolvedSkullPlan({
       ...projectile('normal'),
       direction: { x: 0, y: 0, z: 0 },
     })
@@ -124,12 +182,78 @@ describe('Wither skull visual descriptors', () => {
   })
 
   it('pitches straight up for a vertical-only direction, leaving yaw at zero', () => {
-    const plan = planWitherSkullVisual({
+    const plan = resolvedSkullPlan({
       ...projectile('normal'),
       direction: { x: 0, y: 5, z: 0 },
     })
 
     expect(plan.yawRadians).toBe(0)
     expect(plan.pitchRadians).toBeCloseTo(Math.PI / 2, 12)
+  })
+
+  it('rejects invalid projectile numeric values with typed Schema failures', () => {
+    const invalidProjectiles = [
+      { ...projectile('normal'), origin: { x: 0, y: Number.NaN, z: 0 } },
+      { ...projectile('normal'), direction: { x: 0, y: 0, z: Number.POSITIVE_INFINITY } },
+      { ...projectile('normal'), speed: Number.POSITIVE_INFINITY },
+      { ...projectile('normal'), explosivePower: -Number.MIN_VALUE },
+      { ...projectile('normal'), extra: true },
+    ]
+
+    for (const input of invalidProjectiles) {
+      const result = planWitherSkullVisual(input)
+      expect(Result.isFailure(result)).toBe(true)
+      if (Result.isFailure(result)) {
+        expect(Schema.isSchemaError(result.failure)).toBe(true)
+      }
+    }
+  })
+
+  it('accepts zero projectile limits and rejects values just outside them', () => {
+    const boundary = {
+      ...projectile('blue'),
+      origin: { x: Number.MAX_VALUE, y: -Number.MAX_VALUE, z: 0 },
+      direction: { x: 0, y: 0, z: 0 },
+      speed: 0,
+      explosivePower: 0,
+    }
+    expect(Result.isSuccess(Schema.decodeUnknownResult(WitherSkullVisualInputSchema)(boundary))).toBe(true)
+    expect(Result.isSuccess(planWitherSkullVisual(boundary))).toBe(true)
+
+    for (const input of [
+      { ...boundary, speed: -Number.MIN_VALUE },
+      { ...boundary, explosivePower: -Number.MIN_VALUE },
+      { ...boundary, direction: { x: Number.NaN, y: 0, z: 0 } },
+      { ...boundary, origin: { x: 0, y: 0, z: Number.NEGATIVE_INFINITY } },
+    ]) {
+      expect(Result.isFailure(planWitherSkullVisual(input))).toBe(true)
+    }
+  })
+
+  it('plans generated finite projectiles with nonnegative speed and power', () => {
+    const finite = FastCheck.double({ min: -1000, max: 1000, noNaN: true, noDefaultInfinity: true })
+    const nonNegative = FastCheck.double({ min: 0, max: 1000, noNaN: true, noDefaultInfinity: true })
+    FastCheck.assert(FastCheck.property(
+      FastCheck.record({
+        directionX: finite,
+        directionY: finite,
+        directionZ: finite,
+        originX: finite,
+        originY: finite,
+        originZ: finite,
+        explosivePower: nonNegative,
+        speed: nonNegative,
+        variant: FastCheck.constantFrom('normal' as const, 'blue' as const),
+      }),
+      (sample) => Result.isSuccess(planWitherSkullVisual({
+        destroysResistantBlocks: false,
+        direction: { x: sample.directionX, y: sample.directionY, z: sample.directionZ },
+        explosivePower: sample.explosivePower,
+        kind: 'wither_skull',
+        origin: { x: sample.originX, y: sample.originY, z: sample.originZ },
+        speed: sample.speed,
+        variant: sample.variant,
+      })),
+    ))
   })
 })

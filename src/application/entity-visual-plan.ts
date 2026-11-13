@@ -1,9 +1,15 @@
-import type { EntityModelKind, EntityModelPartDescriptor } from '../domain/entity-models/types.js'
+import { Result, Schema } from 'effect'
 import {
   type EntityModelResolutionIssue,
   decodeEntityModelKind,
   entityModelForKind,
 } from '../domain/entity-model-catalog.js'
+import type {
+  EntityModelKind,
+  EntityModelPartDescriptor,
+  EntityModelPartIdentifier,
+  EntityModelPartRole,
+} from '../domain/entity-models/types.js'
 import {
   MOB_VISUAL_KINDS,
   type MobAnimationInput,
@@ -19,13 +25,12 @@ import {
   planWitherSkullVisual,
   planWitherVisual,
 } from '../domain/wither-visual.js'
-import { Result, Schema } from 'effect'
 
 /** Coarse render policy without importing simulation entity classes. */
 export type EntityRenderCategory = 'hostile' | 'passive' | 'item'
 
 /** The renderer-owned entity projection consumed by compose. */
-export type RenderEntity = {
+type RenderEntity = {
   readonly id: string
   readonly kind: string
   readonly feetPosition: {
@@ -141,8 +146,8 @@ export const copyRenderEntity = (entity: RenderEntity): RenderEntity => ({
 })
 
 export type EntityModelPartPlan = Readonly<{
-  readonly id: string
-  readonly role: string
+  readonly id: EntityModelPartIdentifier
+  readonly role: EntityModelPartRole
   readonly size: MobVisualPartPlan['size']
   readonly center: MobVisualPartPlan['center']
   readonly color: MobVisualPartPlan['color']
@@ -437,7 +442,7 @@ const genericModelPartPlan = (
   center: part.center,
   color: part.color,
   id: part.id,
-  role: String(part.role),
+  role: part.role,
   rotation: genericPartRotation(part, sample, index),
   size: part.size,
 })
@@ -482,9 +487,10 @@ const planDefaultEntityVisual = (
   if (!isMobVisualKind(entity.kind)) {
     return planCatalogEntityVisual(entity, facingRadians, kind)
   }
-  const mobVisual = entity.animation === undefined
-    ? planMobVisual(entity.kind)
-    : planMobVisual(entity.kind, entity.animation)
+  let mobVisual = planMobVisual(entity.kind)
+  if (entity.animation !== undefined) {
+    mobVisual = planMobVisual(entity.kind, entity.animation)
+  }
   return Result.map(mobVisual, (visual) => ({
     facingRadians,
     parts: visual.parts,

@@ -49,7 +49,6 @@ import {
   makeWorldRenderer,
   NO_DRAW_TARGET,
   type ProductionFrame,
-  type RenderEntity,
   ProductionFrameElapsedSecsSchema,
   ProductionFrameInputErrorSchema,
   SKY_CLEAR_ALPHA,
@@ -121,10 +120,13 @@ const advanceFrameWithRawInput = (
 ): Effect.Effect<void, ParticlePoolInputError | AnimationClockInputError> =>
   Function.prototype.apply.call(advanceFrame, undefined, [frame])
 const syncEntitiesWithRawInput = (
-  syncEntities: (entities: ReadonlyArray<RenderEntity>) => Effect.Effect<void, Schema.SchemaError>,
+  syncEntities: (entities: unknown) => Effect.Effect<void, Schema.SchemaError>,
   entities: unknown,
 ): Effect.Effect<void, Schema.SchemaError> =>
   Function.prototype.apply.call(syncEntities, undefined, [entities])
+const resolvedMobPlan = (kind: string) => Result.getOrThrow(planMobVisual(kind))
+const resolvedWitherPlan = (input: unknown) => Result.getOrThrow(planWitherVisual(input))
+const resolvedSkullPlan = (input: unknown) => Result.getOrThrow(planWitherSkullVisual(input))
 const spawnBurst = (pool: Parameters<typeof spawnBurstResult>[0], x: number, y: number, z: number, u: number, v: number, count: number) =>
   Result.getOrThrow(spawnBurstResult(
     pool,
@@ -830,7 +832,7 @@ describe('entity meshes in the scene', () => {
 
       expect(yield* renderer.entityCount).toBe(4)
       const mobPartCount = ['zombie', 'creeper', 'enderman'].reduce(
-        (total, kind) => total + planMobVisual(kind).parts.length,
+        (total, kind) => total + resolvedMobPlan(kind).parts.length,
         0,
       )
       expect(three.scene().members()).toHaveLength(mobPartCount + 1)
@@ -1280,7 +1282,7 @@ describe('entity meshes in the scene', () => {
       expect(entityColorBytes(three.meshes()[0])).toStrictEqual([64, 104, 57])
       expect(entityColorBytes(three.meshes()[6])).toStrictEqual([85, 138, 76])
 
-      yield* renderer.setEnvironment(planRenderEnvironment(1, CAMERA_FAR_PLANE, 'overworld'))
+      yield* renderer.setEnvironment(Result.getOrThrow(planRenderEnvironment(1, CAMERA_FAR_PLANE, 'overworld')))
       const liveMeshes = three.meshes().filter((mesh) => three.scene().members().includes(mesh))
       const skyHead = liveMeshes.find((mesh) => {
         const meshPosition = mesh.positions().at(-1)
@@ -1338,8 +1340,8 @@ describe('entity meshes in the scene', () => {
       ])
 
       const currentMeshes = three.scene().members()
-      expect(previousMeshes).toHaveLength(planMobVisual('zombie').parts.length)
-      expect(currentMeshes).toHaveLength(planMobVisual('creeper').parts.length)
+      expect(previousMeshes).toHaveLength(resolvedMobPlan('zombie').parts.length)
+      expect(currentMeshes).toHaveLength(resolvedMobPlan('creeper').parts.length)
       expect(currentMeshes.every((mesh) => !previousMeshes.includes(mesh))).toBe(true)
       expect(previousGeometries.every((geometry) => !geometry.disposed())).toBe(true)
       expect(three.materials()[1]).toBe(entityMaterial)
@@ -1355,7 +1357,7 @@ describe('entity meshes in the scene', () => {
         { id: 'future', kind: 'not-yet-supported', feetPosition: { x: 4, y: 5, z: 6 } },
       ])
 
-      const fallback = planMobVisual('not-yet-supported')
+      const fallback = resolvedMobPlan('not-yet-supported')
       expect(fallback.descriptorKind).toBe('unknown')
       expect(three.scene().members()).toHaveLength(0)
       expect(yield* renderer.entityCount).toBe(0)
@@ -1376,7 +1378,7 @@ describe('entity meshes in the scene', () => {
         feetPosition: { x: 10, y: 20, z: 30 },
         velocity: { x: 1, y: 0, z: 0 },
       }
-      const visual = planWitherVisual(witherState)
+      const visual = resolvedWitherPlan(witherState)
       const [firstPart] = visual.parts
 
       yield* renderer.syncEntities([
@@ -1465,7 +1467,7 @@ describe('entity meshes in the scene', () => {
         explosivePower: 1,
         destroysResistantBlocks: true,
       }
-      const visual = planWitherSkullVisual(witherSkullProjectile)
+      const visual = resolvedSkullPlan(witherSkullProjectile)
 
       yield* renderer.syncEntities([
         {
@@ -1504,7 +1506,7 @@ describe('entity meshes in the scene', () => {
         feetPosition,
         velocity: { x: -Math.sin(facingRadians), y: 0, z: -Math.cos(facingRadians) },
       }
-      const visual = planWitherVisual(expectedDefaultState)
+      const visual = resolvedWitherPlan(expectedDefaultState)
       const [firstPart] = visual.parts
 
       yield* renderer.syncEntities([
@@ -1543,7 +1545,7 @@ describe('entity meshes in the scene', () => {
         explosivePower: 0,
         destroysResistantBlocks: false,
       }
-      const visual = planWitherSkullVisual(expectedDefaultProjectile)
+      const visual = resolvedSkullPlan(expectedDefaultProjectile)
 
       yield* renderer.syncEntities([
         {
