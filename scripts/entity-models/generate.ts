@@ -2,6 +2,9 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
+import { Euler, Box3, Vector3 } from 'three'
+import { Result, Schema } from 'effect'
+import collisionDimensionInput from './collision-dimensions.json' with { type: 'json' }
 import {
   ANIMAL_ENTITY_MODELS,
 } from './source/animals.js'
@@ -25,6 +28,9 @@ const ONE = 1
 const TWO = 2
 const ROOT_DIRECTORY = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
 const MANIFEST_PATH = resolve(ROOT_DIRECTORY, 'assets/entity-models/manifest.json')
+const BOUNDS_REPORT_PATH = resolve(ROOT_DIRECTORY, 'docs/entity-model-bounds.md')
+const MODEL_BOUNDS_RELATIVE_TOLERANCE = 0.1
+const MODEL_BOUNDS_FIT_ATTEMPTS = 8
 
 type ColorEncoding = 'unit-rgb' | 'byte-rgb'
 type ModelGroup = Readonly<{
@@ -45,6 +51,22 @@ type GeneratedPart = Readonly<{
   rotation: GeneratedVector | null
 }>
 type GeneratedModel = Readonly<{ kind: string; parts: ReadonlyArray<GeneratedPart> }>
+type CollisionDimensionStatus = 'fixed' | 'baseline' | 'variable' | 'configurable' | 'none' | 'unavailable'
+type CollisionDimension = Readonly<{
+  kind: string
+  status: CollisionDimensionStatus
+  width: number | null
+  height: number | null
+  state?: string | undefined
+}>
+type CollisionDimensionInput = Readonly<{
+  source: string
+  edition: string
+  versionNote: string
+  entities: ReadonlyArray<CollisionDimension>
+}>
+type ModelBounds = Readonly<{ minX: number; minY: number; minZ: number; maxX: number; maxY: number; maxZ: number }>
+type FittedEntityModel = Readonly<{ model: EntityModelDescriptor; bounds: ModelBounds }>
 
 const MODEL_GROUPS: ReadonlyArray<ModelGroup> = [
   {
@@ -96,6 +118,181 @@ const MODEL_GROUPS: ReadonlyArray<ModelGroup> = [
     models: VILLAGER_PLAYER_ENTITY_MODELS,
   },
 ]
+
+const COLLISION_DIMENSION_STATUS_SCHEMA = Schema.Literals([
+  'fixed',
+  'baseline',
+  'variable',
+  'configurable',
+  'none',
+  'unavailable',
+])
+const POSITIVE_COLLISION_DIMENSION_SCHEMA = Schema.Finite.check(Schema.isGreaterThan(ZERO))
+const OPTIONAL_COLLISION_DIMENSION_SCHEMA = Schema.Union([
+  POSITIVE_COLLISION_DIMENSION_SCHEMA,
+  Schema.Null,
+])
+const COLLISION_DIMENSION_SCHEMA = Schema.Struct({
+  kind: Schema.String,
+  status: COLLISION_DIMENSION_STATUS_SCHEMA,
+  state: Schema.optional(Schema.String),
+  width: OPTIONAL_COLLISION_DIMENSION_SCHEMA,
+  height: OPTIONAL_COLLISION_DIMENSION_SCHEMA,
+})
+const COLLISION_DIMENSION_INPUT_SCHEMA = Schema.Struct({
+  source: Schema.String,
+  edition: Schema.String,
+  versionNote: Schema.String,
+  entities: Schema.Array(COLLISION_DIMENSION_SCHEMA),
+})
+
+const collisionDimensionSchemaResult = Schema.decodeUnknownResult(COLLISION_DIMENSION_INPUT_SCHEMA)(
+  collisionDimensionInput,
+)
+
+const modelBoundsFor = (parts: ReadonlyArray<EntityModelPartDescriptor>): ModelBounds => {
+  const bounds = new Box3()
+  const cornerSigns = [-ONE, ONE] as const
+  for (const part of parts) {
+    const [sizeX, sizeY, sizeZ] = part.size
+    const [centerX, centerY, centerZ] = part.center
+    const [rotationX, rotationY, rotationZ] = part.rotation ?? [ZERO, ZERO, ZERO]
+    const rotation = new Euler(rotationX, rotationY, rotationZ, 'YXZ')
+    for (const signX of cornerSigns) {
+      for (const signY of cornerSigns) {
+        for (const signZ of cornerSigns) {
+          bounds.expandByPoint(
+            new Vector3(signX * sizeX / TWO, signY * sizeY / TWO, signZ * sizeZ / TWO)
+              .applyEuler(rotation)
+              .add(new Vector3(centerX, centerY, centerZ)),
+          )
+        }
+      }
+    }
+  }
+  return {
+    minX: bounds.min.x,
+    minY: bounds.min.y,
+    minZ: bounds.min.z,
+    maxX: bounds.max.x,
+    maxY: bounds.max.y,
+    maxZ: bounds.max.z,
+  }
+}
+
+const modelWidthFor = (bounds: ModelBounds): number =>
+  Math.max(bounds.maxX - bounds.minX, bounds.maxZ - bounds.minZ)
+
+const relativeDimensionError = (actual: number, expected: number): number =>
+  Math.abs(actual - expected) / expected
+
+const scaleModelParts = (
+  parts: ReadonlyArray<EntityModelPartDescriptor>,
+  horizontalScale: number,
+  verticalScale: number,
+): ReadonlyArray<EntityModelPartDescriptor> => parts.map((part) => ({
+  ...part,
+  size: [part.size[ZERO] * horizontalScale, part.size[ONE] * verticalScale, part.size[TWO] * horizontalScale] as EntityModelVector,
+  center: [part.center[ZERO] * horizontalScale, part.center[ONE] * verticalScale, part.center[TWO] * horizontalScale] as EntityModelVector,
+}))
+
+const fitModelToCollisionDimensions = (
+  model: EntityModelDescriptor,
+  dimensions: CollisionDimension,
+): Result.Result<FittedEntityModel, string> => {
+  let parts = model.parts
+  for (let attempt = 0; attempt < MODEL_BOUNDS_FIT_ATTEMPTS; attempt += 1) {
+    const bounds = modelBoundsFor(parts)
+    const width = modelWidthFor(bounds)
+    const height = bounds.maxY - bounds.minY
+    const horizontalScale = dimensions.width !== null &&
+        relativeDimensionError(width, dimensions.width) > MODEL_BOUNDS_RELATIVE_TOLERANCE
+      ? dimensions.width / width
+      : ONE
+    const verticalScale = dimensions.height !== null &&
+        relativeDimensionError(height, dimensions.height) > MODEL_BOUNDS_RELATIVE_TOLERANCE
+      ? dimensions.height / height
+      : ONE
+    if (horizontalScale === ONE && verticalScale === ONE) {
+      break
+    }
+    parts = scaleModelParts(parts, horizontalScale, verticalScale)
+  }
+
+  const minimumY = modelBoundsFor(parts).minY
+  const groundedParts = parts.map((part) => ({
+    ...part,
+    center: [part.center[ZERO], part.center[ONE] - minimumY, part.center[TWO]] as EntityModelVector,
+  }))
+  const bounds = modelBoundsFor(groundedParts)
+  const width = modelWidthFor(bounds)
+  const height = bounds.maxY - bounds.minY
+  if (dimensions.width !== null &&
+    relativeDimensionError(width, dimensions.width) > MODEL_BOUNDS_RELATIVE_TOLERANCE) {
+    return Result.fail(`${model.kind}: model width ${width} is outside 10% of collision width ${dimensions.width}`)
+  }
+  if (dimensions.height !== null &&
+    relativeDimensionError(height, dimensions.height) > MODEL_BOUNDS_RELATIVE_TOLERANCE) {
+    return Result.fail(`${model.kind}: model height ${height} is outside 10% of collision height ${dimensions.height}`)
+  }
+  return Result.succeed({ model: { ...model, parts: groundedParts }, bounds })
+}
+
+const validateCollisionDimensions = (
+  models: ReadonlyArray<EntityModelDescriptor>,
+  dimensions: ReadonlyArray<CollisionDimension>,
+): string | undefined => {
+  const modelKinds = new Set<string>()
+  for (const model of models) {
+    if (modelKinds.has(model.kind)) {
+      return `duplicate entity model kind: ${model.kind}`
+    }
+    modelKinds.add(model.kind)
+  }
+  const dimensionKinds = new Set<string>()
+  for (const dimension of dimensions) {
+    if (dimensionKinds.has(dimension.kind)) {
+      return `duplicate collision dimension kind: ${dimension.kind}`
+    }
+    dimensionKinds.add(dimension.kind)
+    if (dimension.status === 'baseline' && (dimension.state === undefined || dimension.width === null || dimension.height === null)) {
+      return `${dimension.kind}: baseline collision dimensions require a state label, width, and height`
+    }
+    if ((dimension.status === 'none' || dimension.status === 'unavailable' || dimension.status === 'configurable') &&
+      (dimension.width !== null || dimension.height !== null)) {
+      return `${dimension.kind}: ${dimension.status} dimensions must not provide numeric width or height`
+    }
+    if (dimension.status === 'fixed' && (dimension.width === null || dimension.height === null)) {
+      return `${dimension.kind}: fixed collision dimensions require both width and height`
+    }
+  }
+  const missingDimensions = [...modelKinds].filter((kind) => !dimensionKinds.has(kind))
+  const missingModels = [...dimensionKinds].filter((kind) => !modelKinds.has(kind))
+  if (missingDimensions.length > 0 || missingModels.length > 0) {
+    return `model and collision dimension kinds differ; missing dimensions: ${missingDimensions.join(', ')}; missing models: ${missingModels.join(', ')}`
+  }
+  return undefined
+}
+
+const fitAllModels = (
+  models: ReadonlyArray<EntityModelDescriptor>,
+  dimensions: ReadonlyArray<CollisionDimension>,
+): Result.Result<ReadonlyMap<string, FittedEntityModel>, string> => {
+  const dimensionsByKind = new Map(dimensions.map((dimension) => [dimension.kind, dimension]))
+  const fittedModels = new Map<string, FittedEntityModel>()
+  for (const model of models) {
+    const collisionDimensions = dimensionsByKind.get(model.kind)
+    if (collisionDimensions === undefined) {
+      return Result.fail(`${model.kind}: collision dimensions are missing`)
+    }
+    const fitted = fitModelToCollisionDimensions(model, collisionDimensions)
+    if (Result.isFailure(fitted)) {
+      return Result.fail(fitted.failure)
+    }
+    fittedModels.set(model.kind, fitted.success)
+  }
+  return Result.succeed(fittedModels)
+}
 
 const finiteVector = (vector: readonly number[]): boolean => vector.every(Number.isFinite)
 
@@ -195,17 +392,99 @@ const generatedPartFor = (part: EntityModelPartDescriptor, group: ModelGroup): G
   }
 }
 
-const generatedModelsFor = (group: ModelGroup): ReadonlyArray<GeneratedModel> =>
-  group.models.map((model) => ({
-    kind: model.kind,
-    parts: model.parts.map((part) => generatedPartFor(part, group)),
-  }))
+const generatedModelsFor = (
+  group: ModelGroup,
+  fittedModels: ReadonlyMap<string, FittedEntityModel>,
+): Result.Result<ReadonlyArray<GeneratedModel>, string> => {
+  const generated: Array<GeneratedModel> = []
+  for (const model of group.models) {
+    const fitted = fittedModels.get(model.kind)
+    if (fitted === undefined) {
+      return Result.fail(`${model.kind}: fitted entity model is missing`)
+    }
+    generated.push({
+      kind: model.kind,
+      parts: fitted.model.parts.map((part) => generatedPartFor(part, group)),
+    })
+  }
+  return Result.succeed(generated)
+}
 
-const outputFiles = (): ReadonlyArray<Readonly<{ path: string; contents: string }>> => {
-  const modelFiles = MODEL_GROUPS.map((group) => ({
-    path: resolve(ROOT_DIRECTORY, `src/domain/entity-models/generated/${group.name}.json`),
-    contents: `${JSON.stringify(generatedModelsFor(group), null, 2)}\n`,
-  }))
+const formattedMeasurement = (value: number): string => value.toFixed(3)
+
+const collisionDimensionLabel = (dimension: CollisionDimension): string => {
+  if (dimension.state !== undefined) {
+    return `${dimension.status}: ${dimension.state}`
+  }
+  return dimension.status
+}
+
+const collisionDimensionDisplay = (dimension: CollisionDimension, value: number | null): string => {
+  if (value !== null) {
+    return formattedMeasurement(value)
+  }
+  switch (dimension.status) {
+    case 'none': return 'None'
+    case 'unavailable': return 'N/A'
+    case 'configurable':
+    case 'variable': return 'Varies'
+    case 'fixed':
+    case 'baseline': return 'N/A'
+  }
+}
+
+const entityBoundsReport = (
+  fittedModels: ReadonlyMap<string, FittedEntityModel>,
+  dimensions: CollisionDimensionInput,
+): Result.Result<string, string> => {
+  const dimensionsByKind = new Map(dimensions.entities.map((dimension) => [dimension.kind, dimension]))
+  const sortedModels = [...fittedModels.entries()].toSorted(([kindA], [kindB]) => kindA.localeCompare(kindB, 'en'))
+  const rows: Array<string> = []
+  for (const [kind, fitted] of sortedModels) {
+    const dimension = dimensionsByKind.get(kind)
+    if (dimension === undefined) {
+      return Result.fail(`${kind}: collision reference is missing while rendering the bounds table`)
+    }
+    const { bounds } = fitted
+    rows.push(`| ${kind} | ${formattedMeasurement(bounds.minY)} | ${formattedMeasurement(modelWidthFor(bounds))} | ${formattedMeasurement(bounds.maxY - bounds.minY)} | ${formattedMeasurement(bounds.maxX - bounds.minX)} × ${formattedMeasurement(bounds.maxZ - bounds.minZ)} | ${collisionDimensionDisplay(dimension, dimension.width)} | ${collisionDimensionDisplay(dimension, dimension.height)} | ${collisionDimensionLabel(dimension)} |`)
+  }
+  return Result.succeed([
+    '# Entity model bounds',
+    '',
+    'Measurements are in blocks. Model width is the larger horizontal span; height is the static AABB height after applying each part rotation in the renderer’s `YXZ` order.',
+    '',
+    `Collision reference: ${dimensions.edition} values from [Minecraft Wiki: Collision / Hitbox](${dimensions.source}). The pinned kernel API provides entity kind identifiers but no per-kind width or height. ${dimensions.versionNote}`,
+    '',
+    `Fixed and named baseline dimensions are checked within ±${Math.round(MODEL_BOUNDS_RELATIVE_TOLERANCE * 100)}% in test/entity-model-bounds.test.ts. Varies, None, and N/A remain explicit and are not converted to invented numeric dimensions.`,
+    '',
+    '| Kind | Model min Y | Model width | Model height | Model X × Z | Reference width | Reference height | Reference state |',
+    '|---|---:|---:|---:|---:|---:|---:|---|',
+    ...rows,
+    '',
+  ].join('\n'))
+}
+
+type GeneratedFile = Readonly<{ path: string; contents: string }>
+
+const outputFiles = (
+  fittedModels: ReadonlyMap<string, FittedEntityModel>,
+  dimensions: CollisionDimensionInput,
+): Result.Result<ReadonlyArray<GeneratedFile>, string> => {
+  const modelFiles: Array<GeneratedFile> = []
+  for (const group of MODEL_GROUPS) {
+    const generated = generatedModelsFor(group, fittedModels)
+    if (Result.isFailure(generated)) {
+      return Result.fail(generated.failure)
+    }
+    modelFiles.push({
+      path: resolve(ROOT_DIRECTORY, `src/domain/entity-models/generated/${group.name}.json`),
+      contents: `${JSON.stringify(generated.success, null, 2)}\n`,
+    })
+  }
+  const boundsReport = entityBoundsReport(fittedModels, dimensions)
+  if (Result.isFailure(boundsReport)) {
+    return Result.fail(boundsReport.failure)
+  }
   const manifest = {
     schemaVersion: 1,
     license: 'CC0-1.0',
@@ -221,14 +500,23 @@ const outputFiles = (): ReadonlyArray<Readonly<{ path: string; contents: string 
     },
     provenance: 'Original cuboid geometry and flat-color palettes authored for this project. No external model, texture, or game artwork was used.',
     generator: 'scripts/entity-models/generate.ts',
+    collisionDimensionReference: {
+      input: 'scripts/entity-models/collision-dimensions.json',
+      source: dimensions.source,
+      edition: dimensions.edition,
+      versionNote: dimensions.versionNote,
+      comparisonTolerance: MODEL_BOUNDS_RELATIVE_TOLERANCE,
+    },
     outputColorEncoding: 'RGB byte channels in [0,255], written to the renderer Uint8 color buffer',
     sources: MODEL_GROUPS.map(({ name, sourcePath, colorEncoding }) => ({ name, sourcePath, colorEncoding })),
     outputs: MODEL_GROUPS.map(({ name }) => `src/domain/entity-models/generated/${name}.json`),
+    reports: ['docs/entity-model-bounds.md'],
   }
-  return [
+  return Result.succeed([
     ...modelFiles,
     { path: MANIFEST_PATH, contents: `${JSON.stringify(manifest, null, 2)}\n` },
-  ]
+    { path: BOUNDS_REPORT_PATH, contents: boundsReport.success },
+  ])
 }
 
 const runCli = async (arguments_: ReadonlyArray<string>): Promise<number> => {
@@ -240,7 +528,28 @@ const runCli = async (arguments_: ReadonlyArray<string>): Promise<number> => {
       return 1
     }
   }
-  const outputs = outputFiles()
+  if (Result.isFailure(collisionDimensionSchemaResult)) {
+    console.error(`EntityCollisionDimensionsSchemaError: ${String(collisionDimensionSchemaResult.failure)}`)
+    return 1
+  }
+  const dimensions = collisionDimensionSchemaResult.success
+  const allModels = MODEL_GROUPS.flatMap(({ models }) => models)
+  const collisionCoverageFailure = validateCollisionDimensions(allModels, dimensions.entities)
+  if (collisionCoverageFailure !== undefined) {
+    console.error(`EntityCollisionDimensionCoverageError: ${collisionCoverageFailure}`)
+    return 1
+  }
+  const fittedModels = fitAllModels(allModels, dimensions.entities)
+  if (Result.isFailure(fittedModels)) {
+    console.error(`EntityModelBoundsFitError: ${fittedModels.failure}`)
+    return 1
+  }
+  const preparedOutputs = outputFiles(fittedModels.success, dimensions)
+  if (Result.isFailure(preparedOutputs)) {
+    console.error(`EntityModelGenerationError: ${preparedOutputs.failure}`)
+    return 1
+  }
+  const outputs = preparedOutputs.success
   try {
     if (checkOnly) {
       const existingOutputs = await Promise.all(

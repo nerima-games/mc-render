@@ -13,6 +13,13 @@
   },
   "provenance": "Original cuboid geometry and flat-color palettes authored for this project. No external model, texture, or game artwork was used.",
   "generator": "scripts/entity-models/generate.ts",
+  "collisionDimensionReference": {
+    "input": "scripts/entity-models/collision-dimensions.json",
+    "source": "https://minecraft.wiki/w/Collision",
+    "edition": "Java Edition",
+    "versionNote": "The page describes its main dimensions as primarily Java Edition and does not pin the full table to one release.",
+    "comparisonTolerance": 0.1
+  },
   "outputColorEncoding": "RGB byte channels in [0,255], written to the renderer Uint8 color buffer",
   "sources": [
     {
@@ -65,5 +72,8 @@
     "src/domain/entity-models/generated/projectiles.json",
     "src/domain/entity-models/generated/vehicles-tnt.json",
     "src/domain/entity-models/generated/villagers-player.json"
+  ],
+  "reports": [
+    "docs/entity-model-bounds.md"
   ]
 }
