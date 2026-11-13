@@ -160,6 +160,18 @@ describe('entity visual planning', () => {
     expect(legRotations[1]).toBeCloseTo(-0.65 * 0.5, 12)
   })
 
+  it('animates armor-stand arms from a zero base rotation', () => {
+    const planned = Result.getOrThrow(planEntityVisual(entity({
+      animation: { phaseRadians: Math.PI / 2, state: 'walk' },
+      kind: 'armor_stand',
+    })))
+    const armRotations = planned.parts
+      .filter((part) => part.role === 'arm')
+      .map((part) => part.rotation)
+
+    expect(armRotations).toStrictEqual([[0.45, 0, 0], [-0.45, 0, 0]])
+  })
+
   it('animates unnamed bee wings in opposite directions when progress is omitted', () => {
     const staticPlan = Result.getOrThrow(planEntityVisual(entity({ kind: 'bee' })))
     const animatedPlan = Result.getOrThrow(planEntityVisual(entity({

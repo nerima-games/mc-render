@@ -8,7 +8,7 @@ import type {
   EntityModelVector,
 } from '../types.js'
 import { Brand } from 'effect'
-import models from '../generated/projectiles.json'
+import models from '../generated/projectiles.json' with { type: 'json' }
 
 const modelKind = Brand.nominal<EntityModelKind>()
 const partIdentifier = Brand.nominal<EntityModelPartIdentifier>()
