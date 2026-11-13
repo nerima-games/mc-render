@@ -4,12 +4,28 @@
   "licenseScope": {
     "identifier": "CC0-1.0",
     "appliesTo": [
-      "scripts/entity-models/**",
+      "scripts/entity-models/generate.ts",
+      "scripts/entity-models/png-encoder.ts",
+      "scripts/entity-models/texture-atlas.ts",
+      "scripts/entity-models/source/**/*.ts",
       "src/domain/entity-models/generated/**",
-      "assets/entity-models/**"
+      "assets/entity-models/manifest.json",
+      "assets/entity-models/entity-textures.png"
+    ],
+    "excludes": [
+      "scripts/entity-models/collision-dimensions.json",
+      "docs/entity-model-bounds.md"
     ],
     "repositoryLicense": "MIT",
-    "repositoryRelationship": "CC0-1.0 applies only to the listed entity-model scripts and generated assets. The rest of this repository remains under MIT."
+    "repositoryRelationship": "CC0-1.0 applies to the listed original entity-model scripts and generated model/texture assets. Collision reference data and its generated comparison report remain under their source license; other repository-owned files remain under MIT.",
+    "referenceData": {
+      "path": "scripts/entity-models/collision-dimensions.json",
+      "derivedReport": "docs/entity-model-bounds.md",
+      "source": "https://minecraft.wiki/w/Collision",
+      "attribution": "Minecraft Wiki contributors, Collision / Hitbox",
+      "license": "CC BY-NC-SA 3.0",
+      "licenseUrl": "https://creativecommons.org/licenses/by-nc-sa/3.0/"
+    }
   },
   "provenance": "Original cuboid geometry, color palettes, and pixel-art texture atlas authored for this project. No external model, texture, or game artwork was used.",
   "generator": "scripts/entity-models/generate.ts",
@@ -18,6 +34,8 @@
     "source": "https://minecraft.wiki/w/Collision",
     "edition": "Java Edition",
     "versionNote": "The page describes its main dimensions as primarily Java Edition and does not pin the full table to one release.",
+    "license": "CC BY-NC-SA 3.0",
+    "attribution": "Minecraft Wiki contributors, Collision / Hitbox",
     "comparisonTolerance": 0.1
   },
   "outputColorEncoding": "RGB byte channels in [0,255], written to the renderer Uint8 color buffer",

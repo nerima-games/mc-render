@@ -2,7 +2,7 @@
 
 Measurements are in blocks. Model width is the larger horizontal span; height is the static AABB height after applying each part rotation in the renderer’s `YXZ` order.
 
-Collision reference: Java Edition values from [Minecraft Wiki: Collision / Hitbox](https://minecraft.wiki/w/Collision). The pinned kernel API provides entity kind identifiers but no per-kind width or height. The page describes its main dimensions as primarily Java Edition and does not pin the full table to one release.
+Collision reference: Java Edition values from [Minecraft Wiki: Collision / Hitbox](https://minecraft.wiki/w/Collision). This reference data and its generated comparison report use [CC BY-NC-SA 3.0](https://creativecommons.org/licenses/by-nc-sa/3.0/), separate from the original CC0 model and texture assets. The pinned kernel API provides entity kind identifiers but no per-kind width or height. The page describes its main dimensions as primarily Java Edition and does not pin the full table to one release.
 
 Fixed and named baseline dimensions are checked within ±10% in test/entity-model-bounds.test.ts. Varies, None, and N/A remain explicit and are not converted to invented numeric dimensions.
 

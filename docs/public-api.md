@@ -1221,10 +1221,13 @@ renderer DTO の `kind` として `syncEntities` に渡す。モデルカタロ�
 `ENTITY_MODEL_CATALOG`、`ENTITY_MODEL_KINDS`、`UNSUPPORTED_ENTITY_MODEL_KINDS`、
 `EntityModelKindSchema`、`decodeEntityModelKind`、`entityModelForKind`、`resolveEntityModel`、
 `EntityModelResolutionIssueSchema` はパッケージrootからimportできる。
+`ENTITY_MODEL_TEXTURE_ATLAS`、`entityTextureAtlasPixels`、`entityTextureUvForKind`、
+`EntityTextureUvCoordinatesSchema`、`EntityTextureResolutionIssueSchema` もrootからimportできる。
 関連型として `EntityModelKind`、`EntityModelDescriptor`、
 `EntityModelPartDescriptor`、`EntityModelPartIdentifier`、`EntityModelPartRole`、
 `EntityModelColor`、`EntityModelVector`、`UnsupportedEntityModel`、`InvalidEntityModelKind`、
-`EntityModelResolutionIssue`、`WorldRendererEntityModelDiagnostic` をrootからimportできる。
+`EntityModelResolutionIssue`、`EntityTextureUvCoordinates`、`EntityTextureResolutionIssue`、
+`WorldRendererEntityModelDiagnostic` をrootからimportできる。
 
 ```ts
 ENTITY_MODEL_CATALOG: ReadonlyArray<EntityModelDescriptor>
@@ -1238,19 +1241,42 @@ WorldRenderer.entityModelDiagnostics: Effect.Effect<ReadonlyArray<WorldRendererE
 各種類にはパーツを持つ個別モデルがあり、形状・配置・部位・配色の署名は種類ごとに異なる。
 歩行位相と量は脚・腕・翼・尾の対応するパーツを動かし、攻撃は腕、被ダメージと死亡はモデルの傾きに反映する。
 
-`WorldRenderer.entityModelDiagnostics` は直近の同期処理でモデルを解決できなかったエンティティを、
-`{ entityId, issue }` の配列で返す。`issue` は `UnsupportedEntityModel` または
-`InvalidEntityModelKind` である。未知の非空 `kind` は `UnsupportedEntityModel` として記録し、
-そのエンティティを描画しない。空の `kind` は `syncEntityFrame` では入力Schemaの失敗となり、
-低水準の `syncEntities` では `InvalidEntityModelKind` として記録する。未対応モデルを既定モデルで代用しない。
+`WorldRenderer.entityModelDiagnostics` は直近の同期処理でモデルまたはテクスチャを解決できなかったエンティティを、
+`{ entityId, issue }` の配列で返す。モデルの `UnsupportedEntityModel` と `InvalidEntityModelKind`、
+テクスチャの `UnsupportedEntityTexture` と `InvalidEntityTextureCoordinates` を記録する。
+診断されたエンティティは描画せず、既定モデルで代用しない。
 `category: 'item'` の値は既存のアイテム描画経路で処理する。
 
 モデルの元データは `scripts/entity-models/source/` にあり、
-`scripts/entity-models/generate.ts` が8グループのJSON記述子を
-`src/domain/entity-models/generated/` に生成する。`--check` は既存の8ファイルとマニフェストが
-元データから再生成した内容と一致するかを検証する。`assets/entity-models/manifest.json` は
-生成元と出力の対応、CC0-1.0ライセンス、独自の直方体形状と単色パレットであり
-外部のモデル・テクスチャ・ゲームアートを使っていない来歴を記録する。
+`scripts/entity-models/generate.ts` が8グループのモデル記述子、128タイルのテクスチャ atlas、
+PNGと境界一覧を決定的に生成する。`--check` は生成物とマニフェストが元データに一致するかを検証する。
+`assets/entity-models/manifest.json` は独自の生成スクリプトとモデル・テクスチャ生成物にCC0-1.0を適用する。
+衝突寸法の参照データとその比較一覧はMinecraft WikiのCC BY-NC-SA 3.0で、CC0の範囲から除外する。
+それ以外のリポジトリ所有ファイルはMITである。モデルとテクスチャの素材は独自制作で、
+外部のモデル・テクスチャ・ゲームアートは使っていない。
+
+ブラウザホストはThree.jsのtextureを `entityMaterial` factoryから渡す。画像ファイルの読み込みに失敗した場合は、
+パッケージrootから出る画素データを `DataTexture` に使える。
+
+```ts
+const atlas = new THREE.DataTexture(
+  entityTextureAtlasPixels(),
+  ENTITY_MODEL_TEXTURE_ATLAS.width,
+  ENTITY_MODEL_TEXTURE_ATLAS.height,
+  THREE.RGBAFormat,
+  THREE.UnsignedByteType,
+)
+atlas.colorSpace = THREE.SRGBColorSpace
+atlas.flipY = true
+atlas.magFilter = THREE.NearestFilter
+atlas.minFilter = THREE.NearestFilter
+atlas.generateMipmaps = false
+atlas.needsUpdate = true
+
+makeWorldRenderer(THREE, canvas, viewport, {
+  entityMaterial: () => new THREE.MeshBasicMaterial({ map: atlas, vertexColors: true }),
+})
+```
 
 開発時は次のコマンドで生成し、`--check` を付けると出力の一致を確認できる。
 

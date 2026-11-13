@@ -44,6 +44,7 @@ const BLUE = 2
 const ALPHA = 3
 const OPAQUE = 255
 const WHITE_CHANNEL = 255
+const ACCENT_RATIO_CEILING = 224
 const SHADOW_CHANNEL = 105
 const HIGHLIGHT_CHANNEL = 220
 const PRIMARY_PART_ROLE = 'body'
@@ -187,7 +188,7 @@ const textureRatio = (accent: EntityModelColor, primary: EntityModelColor): Enti
   primary.map((channel, index) => {
     const accentChannel = accent[index] ?? channel
     const ratio = channel <= COLOR_CHANNEL_MINIMUM ? WHITE_CHANNEL : accentChannel / channel * WHITE_CHANNEL
-    return Math.max(COLOR_CHANNEL_MINIMUM, Math.min(COLOR_CHANNEL_MAXIMUM, Math.round(ratio)))
+    return Math.max(COLOR_CHANNEL_MINIMUM, Math.min(ACCENT_RATIO_CEILING, Math.round(ratio)))
   }) as unknown as EntityModelColor
 
 const pixelColorFor = (

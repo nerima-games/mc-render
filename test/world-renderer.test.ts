@@ -20,6 +20,7 @@ import { vi } from 'vitest'
 import * as entityVisualPlanner from '../src/application/entity-visual-plan'
 import { EntityRenderFrameInputSchema } from '../src/index'
 import { ENTITY_MODEL_CATALOG } from '../src/domain/entity-model-catalog'
+import { ENTITY_MODEL_TEXTURE_ATLAS } from '../src/domain/entity-model-textures.js'
 import { mirroredCameraState } from '../src/domain/camera-mirror'
 import type { AnimationClockInputError } from '../src/domain/animation-clock'
 import {
@@ -821,6 +822,29 @@ describe('chunk geometry in the scene', () => {
 })
 
 describe('entity meshes in the scene', () => {
+  it.effect('uses the host entity material and atlas UVs on six cube faces', () =>
+    Effect.gen(function* () {
+      const three = makeFakeThree()
+      const entityMaterial = new three.MeshBasicMaterial({ vertexColors: true, wireframe: false })
+      const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT, {
+        entityMaterial: () => entityMaterial,
+      })
+
+      yield* renderer.syncEntities([
+        { id: 'textured-zombie', kind: 'zombie', feetPosition: { x: 1, y: 2, z: 3 } },
+      ])
+
+      const firstMesh = three.meshes()[0]
+      const uvAttribute = firstMesh?.geometry.attributes.get('uv')
+      const zombieTexture = ENTITY_MODEL_TEXTURE_ATLAS.entries.find(({ kind }) => kind === 'zombie')
+      expect(firstMesh?.material).toBe(entityMaterial)
+      expect(uvAttribute?.itemSize).toBe(2)
+      expect(uvAttribute?.array).toHaveLength(48)
+      expect(Array.from(uvAttribute?.array.slice(0, 2) ?? [])).toStrictEqual(zombieTexture?.uv.slice(0, 2))
+      yield* renderer.dispose
+    }),
+  )
+
   it.effect('creates one transformed mesh per visual part from renderer DTOs', () =>
     Effect.gen(function* () {
       const three = makeFakeThree()

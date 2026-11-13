@@ -5,6 +5,21 @@ import { EntityModelKindSchema } from './entity-model-catalog.js'
 
 export type EntityTextureUvCoordinates = readonly [uMinimum: number, vMinimum: number, uMaximum: number, vMaximum: number]
 
+const UV_ATLAS_MINIMUM = 0
+const UV_ATLAS_MAXIMUM = 1
+
+export const EntityTextureUvCoordinatesSchema: Schema.Codec<EntityTextureUvCoordinates> = Schema.Tuple([
+  Schema.Finite,
+  Schema.Finite,
+  Schema.Finite,
+  Schema.Finite,
+]).check(Schema.makeFilter<EntityTextureUvCoordinates>((coordinates) => {
+  const [uMinimum, vMinimum, uMaximum, vMaximum] = coordinates
+  return uMinimum >= UV_ATLAS_MINIMUM && vMinimum >= UV_ATLAS_MINIMUM &&
+    uMaximum <= UV_ATLAS_MAXIMUM && vMaximum <= UV_ATLAS_MAXIMUM &&
+    uMinimum < uMaximum && vMinimum < vMaximum || 'Entity texture UV coordinates must be ordered inside the unit atlas'
+}))
+
 export type UnsupportedEntityTexture = Readonly<{
   readonly _tag: 'UnsupportedEntityTexture'
   readonly kind: EntityModelKind
@@ -78,7 +93,8 @@ export const entityTextureUvForKind = (
   const vMaximum = entry.uv[3]
   if (uMinimum === undefined || vMinimum === undefined || uMaximum === undefined || vMaximum === undefined ||
     ![uMinimum, vMinimum, uMaximum, vMaximum].every(Number.isFinite) ||
-    uMinimum < 0 || vMinimum < 0 || uMaximum > 1 || vMaximum > 1 ||
+    uMinimum < UV_ATLAS_MINIMUM || vMinimum < UV_ATLAS_MINIMUM ||
+    uMaximum > UV_ATLAS_MAXIMUM || vMaximum > UV_ATLAS_MAXIMUM ||
     uMinimum >= uMaximum || vMinimum >= vMaximum) {
     return Result.fail({ _tag: 'InvalidEntityTextureCoordinates', kind })
   }

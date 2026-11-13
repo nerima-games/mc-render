@@ -191,9 +191,12 @@ casts ([`docs/design-notes.md`](./docs/design-notes.md) DN-15). The published
 - **128種のエンティティモデル。** `ENTITY_MODEL_CATALOG` は現行の `mc-kernel` の128種すべてを収録し、
   `UNSUPPORTED_ENTITY_MODEL_KINDS` は空である。種類ごとに異なるパーツ形状・配置・配色を持ち、
   歩行位相、攻撃・被ダメージ・死亡の入力でパーツが動く。カタログにない非アイテムの種類は
-  `WorldRenderer.entityModelDiagnostics` に `UnsupportedEntityModel` と `entityId` を記録して描画を省き、
-  既定モデルへ置き換えない。モデル元データから `scripts/entity-models/generate.ts` がJSONを決定的に生成し、
-  `assets/entity-models/manifest.json` に CC0-1.0 と来歴を記録する。詳細は
+  `WorldRenderer.entityModelDiagnostics` に型付きの理由と `entityId` を記録して描画を省き、
+  既定モデルへ置き換えない。各モデルには独自のピクセル模様を持つCC0テクスチャを割り当てる。
+  `entityMaterial` factoryでテクスチャ付きマテリアルを渡し、PNGを読み込めない場合は
+  `entityTextureAtlasPixels()` が返す生成済み画素を `DataTexture` に使える。モデルとテクスチャは
+  `scripts/entity-models/generate.ts` が決定的に生成し、`assets/entity-models/manifest.json` に
+  CC0-1.0の適用範囲と来歴を記録する。詳細は
   [`docs/public-api.md`](./docs/public-api.md) §3.7 を参照。
 - **`syncEntities` はrenderer DTOを実行時検証する。** 未知のキーや不正な数値がある入力は
   `Schema.SchemaError` で失敗し、メッシュ同期の前に検出する。ブロック光と天空光は両方省略すると全輝度になり、

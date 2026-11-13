@@ -38,6 +38,7 @@ import {
 } from '../../src/application/browser-input-adapter.js'
 import { InputService } from '../../src/application/input-service.js'
 import { createInteractionRenderer } from '../../src/application/interaction-renderer.js'
+import { planEntityVisual } from '../../src/application/entity-visual-plan.js'
 import {
   FIRST_PERSON_ARM_TEXTURE_HEIGHT,
   FIRST_PERSON_ARM_TEXTURE_WIDTH,
@@ -55,8 +56,28 @@ import { chunkKeyOf, syncWorld, type ChunkRef } from '../../src/application/worl
 import { tileIndexForBlockName, type BlockTextureLookupError } from '../../src/domain/block-texture-map.js'
 import type { GeometryQuad, MeshQuad } from '../../src/domain/meshing-vocabulary.js'
 import type { MirroredCameraState } from '../../src/domain/camera-mirror.js'
+import {
+  ENTITY_MODEL_CATALOG,
+} from '../../src/domain/entity-model-catalog.js'
+import {
+  ENTITY_MODEL_TEXTURE_ATLAS,
+  entityTextureAtlasPixels,
+} from '../../src/domain/entity-model-textures.js'
 
 const VIEWPORT = { width: 640, height: 360 }
+const ENTITY_GALLERY_VIEWPORT = { width: 128, height: 128 }
+const ENTITY_GALLERY_COLUMNS = 16
+const ENTITY_GALLERY_ROWS = 8
+const ENTITY_GALLERY_CELL_HEIGHT = 128
+const ENTITY_GALLERY_LABEL_HEIGHT = 20
+const ENTITY_GALLERY_FIELD_OF_VIEW = 34
+const ENTITY_GALLERY_FRAME_MARGIN = 1.3
+const ENTITY_GALLERY_CAMERA_ELEVATION_FACTOR = 0.3
+const ENTITY_GALLERY_CAMERA_FAR_PLANE = 1_000
+const ENTITY_GALLERY_LIGHT_LEVEL = 15
+const ENTITY_GALLERY_ZERO = 0
+const ENTITY_GALLERY_ONE = 1
+const ENTITY_GALLERY_BACKGROUND_TOLERANCE = 2
 
 /**
  * A camera looking down at the fixture from one corner.
@@ -213,6 +234,180 @@ type EntityPreviewRenderer = Pick<
   WorldRenderer,
   'entityCount' | 'entityModelDiagnostics' | 'syncEntityFrame'
 >
+
+type EntityGalleryRenderer = Pick<WorldRenderer, 'draw' | 'entityCount' | 'entityModelDiagnostics' | 'syncEntities'>
+
+const entityModelBounds = (parts: ReadonlyArray<{
+  readonly size: readonly [number, number, number]
+  readonly center: readonly [number, number, number]
+  readonly rotation?: readonly [number, number, number]
+}>): THREE.Box3 => {
+  const bounds = new THREE.Box3()
+  for (const part of parts) {
+    const [sizeX, sizeY, sizeZ] = part.size
+    const [centerX, centerY, centerZ] = part.center
+    const [rotationX, rotationY, rotationZ] = part.rotation ?? [0, 0, 0]
+    const rotation = new THREE.Euler(rotationX, rotationY, rotationZ, 'YXZ')
+    for (const signX of [-1, 1]) {
+      for (const signY of [-1, 1]) {
+        for (const signZ of [-1, 1]) {
+          bounds.expandByPoint(new THREE.Vector3(
+            signX * sizeX / 2,
+            signY * sizeY / 2,
+            signZ * sizeZ / 2,
+          ).applyEuler(rotation).add(new THREE.Vector3(centerX, centerY, centerZ)))
+        }
+      }
+    }
+  }
+  return bounds
+}
+
+const configureEntityTexture = (texture: THREE.Texture): THREE.Texture => {
+  texture.colorSpace = THREE.SRGBColorSpace
+  texture.flipY = true
+  texture.magFilter = THREE.NearestFilter
+  texture.minFilter = THREE.NearestFilter
+  texture.generateMipmaps = false
+  texture.wrapS = THREE.ClampToEdgeWrapping
+  texture.wrapT = THREE.ClampToEdgeWrapping
+  texture.needsUpdate = true
+  return texture
+}
+
+const loadEntityTexture = async (): Promise<THREE.Texture> => {
+  const textureUrl = new URL('../../assets/entity-models/entity-textures.png', import.meta.url).href
+  try {
+    return configureEntityTexture(await new THREE.TextureLoader().loadAsync(textureUrl))
+  } catch {
+    document.body.setAttribute('data-entity-texture-fallback', 'generated-rgba')
+    return configureEntityTexture(new THREE.DataTexture(
+      entityTextureAtlasPixels(),
+      ENTITY_MODEL_TEXTURE_ATLAS.width,
+      ENTITY_MODEL_TEXTURE_ATLAS.height,
+      THREE.RGBAFormat,
+      THREE.UnsignedByteType,
+    ))
+  }
+}
+
+const drawEntityContactSheet = async (
+  renderer: EntityGalleryRenderer,
+  webglCanvas: HTMLCanvasElement,
+  contactCanvas: HTMLCanvasElement,
+  report: HTMLElement,
+): Promise<boolean> => {
+  const context = contactCanvas.getContext('2d')
+  const gl = webglCanvas.getContext('webgl2')
+  if (context === null || gl === null) {
+    document.body.setAttribute('data-entity-gallery', 'failed')
+    report.textContent = 'Contact sheet requires 2D canvas and WebGL2 contexts.'
+    return false
+  }
+
+  const cellStrideY = ENTITY_GALLERY_CELL_HEIGHT + ENTITY_GALLERY_LABEL_HEIGHT
+  contactCanvas.width = ENTITY_GALLERY_COLUMNS * ENTITY_GALLERY_VIEWPORT.width
+  contactCanvas.height = ENTITY_GALLERY_ROWS * cellStrideY
+  context.fillStyle = '#171a21'
+  context.fillRect(0, 0, contactCanvas.width, contactCanvas.height)
+  context.font = '10px ui-monospace, monospace'
+  context.textAlign = 'center'
+  context.textBaseline = 'middle'
+  const pixels = new Uint8Array(ENTITY_GALLERY_VIEWPORT.width * ENTITY_GALLERY_VIEWPORT.height * 4)
+  let renderedModels = 0
+
+  for (const [index, model] of ENTITY_MODEL_CATALOG.entries()) {
+    const kind = String(model.kind)
+    const feetPosition = { x: ENTITY_GALLERY_ZERO, y: ENTITY_GALLERY_ZERO, z: ENTITY_GALLERY_ZERO }
+    const plannedVisual = planEntityVisual({ id: `gallery-${kind}`, kind, feetPosition })
+    if (Result.isFailure(plannedVisual)) {
+      document.body.setAttribute('data-entity-gallery', 'failed')
+      report.textContent = JSON.stringify({ kind, issue: plannedVisual.failure })
+      return false
+    }
+    await Effect.runPromise(renderer.syncEntities([{
+      id: `gallery-${kind}`,
+      kind,
+      feetPosition,
+      blockLight: ENTITY_GALLERY_LIGHT_LEVEL,
+      skyLight: ENTITY_GALLERY_LIGHT_LEVEL,
+    }]))
+    const [entityCount, diagnostics] = await Effect.runPromise(Effect.all([
+      renderer.entityCount,
+      renderer.entityModelDiagnostics,
+    ]))
+    if (entityCount !== 1 || diagnostics.length !== 0) {
+      document.body.setAttribute('data-entity-gallery', 'failed')
+      report.textContent = JSON.stringify({ kind, entityCount, diagnostics })
+      return false
+    }
+
+    const bounds = entityModelBounds(plannedVisual.success.parts)
+    const size = bounds.getSize(new THREE.Vector3())
+    const center = bounds.getCenter(new THREE.Vector3())
+    const halfExtent = Math.max(size.x / 2, size.y / 2, size.z / 2)
+    const distance = Math.max(
+      ENTITY_GALLERY_ONE,
+      halfExtent / Math.tan(THREE.MathUtils.degToRad(ENTITY_GALLERY_FIELD_OF_VIEW / 2)) * ENTITY_GALLERY_FRAME_MARGIN,
+    )
+    const cameraRise = distance * ENTITY_GALLERY_CAMERA_ELEVATION_FACTOR
+    const pose = {
+      x: center.x,
+      y: center.y + cameraRise,
+      z: center.z + distance,
+      yaw: ENTITY_GALLERY_ZERO,
+      pitch: -Math.atan2(cameraRise, distance),
+    }
+    await Effect.runPromise(renderer.draw(cameraFrom(pose)))
+    gl.readPixels(
+      0,
+      0,
+      ENTITY_GALLERY_VIEWPORT.width,
+      ENTITY_GALLERY_VIEWPORT.height,
+      gl.RGBA,
+      gl.UNSIGNED_BYTE,
+      pixels,
+    )
+
+    const [skyRed, skyGreen, skyBlue] = skyBytes()
+    let visiblePixels = 0
+    for (let pixel = 0; pixel < pixels.length; pixel += 4) {
+      const isSky = Math.abs((pixels[pixel] ?? 0) - skyRed) <= ENTITY_GALLERY_BACKGROUND_TOLERANCE &&
+        Math.abs((pixels[pixel + 1] ?? 0) - skyGreen) <= ENTITY_GALLERY_BACKGROUND_TOLERANCE &&
+        Math.abs((pixels[pixel + 2] ?? 0) - skyBlue) <= ENTITY_GALLERY_BACKGROUND_TOLERANCE
+      if (!isSky) {
+        visiblePixels += 1
+      }
+    }
+    if (visiblePixels === 0) {
+      document.body.setAttribute('data-entity-gallery', 'failed')
+      report.textContent = `${kind} produced no visible pixels in its gallery cell.`
+      return false
+    }
+
+    const image = context.createImageData(ENTITY_GALLERY_VIEWPORT.width, ENTITY_GALLERY_VIEWPORT.height)
+    for (let y = 0; y < ENTITY_GALLERY_VIEWPORT.height; y += 1) {
+      const sourceY = ENTITY_GALLERY_VIEWPORT.height - y - 1
+      const sourceStart = sourceY * ENTITY_GALLERY_VIEWPORT.width * 4
+      const targetStart = y * ENTITY_GALLERY_VIEWPORT.width * 4
+      image.data.set(pixels.subarray(sourceStart, sourceStart + ENTITY_GALLERY_VIEWPORT.width * 4), targetStart)
+    }
+    const column = index % ENTITY_GALLERY_COLUMNS
+    const row = Math.floor(index / ENTITY_GALLERY_COLUMNS)
+    const targetX = column * ENTITY_GALLERY_VIEWPORT.width
+    const targetY = row * cellStrideY
+    context.putImageData(image, targetX, targetY)
+    context.fillStyle = '#d8dee9'
+    context.fillText(kind.replaceAll('_', ' '), targetX + ENTITY_GALLERY_VIEWPORT.width / 2, targetY + ENTITY_GALLERY_CELL_HEIGHT + ENTITY_GALLERY_LABEL_HEIGHT / 2)
+    renderedModels += 1
+  }
+
+  const complete = renderedModels === ENTITY_MODEL_CATALOG.length && renderedModels === 128
+  document.body.setAttribute('data-entity-gallery', complete ? 'drawn' : 'failed')
+  document.body.setAttribute('data-entity-gallery-count', String(renderedModels))
+  report.textContent = `Rendered ${String(renderedModels)} entity models through WorldRenderer.syncEntities with the generated CC0 texture atlas.`
+  return complete
+}
 
 const drawEntityPreview = async (renderer: EntityPreviewRenderer, report: HTMLElement): Promise<boolean> => {
   await Effect.runPromise(renderer.syncEntityFrame(ENTITY_PREVIEW_FRAME))
@@ -376,15 +571,24 @@ const createPreviewPresentation = async (
 }
 
 const main = async (): Promise<void> => {
-  const entityPreview = new URLSearchParams(window.location.search).get('entities') === '1'
+  const search = new URLSearchParams(window.location.search)
+  const entityPreview = search.get('entities') === '1'
+  const entityGallery = search.get('entity-gallery') === '1'
+  const entityRendering = entityPreview || entityGallery
   const canvas = document.getElementById('preview-canvas')
   const report = document.getElementById('preview-report')
-  if (!(canvas instanceof HTMLCanvasElement) || report === null) {
+  const contactCanvas = document.getElementById('entity-contact-sheet')
+  if (!(canvas instanceof HTMLCanvasElement) || report === null ||
+    (entityGallery && !(contactCanvas instanceof HTMLCanvasElement))) {
     document.body.setAttribute('data-render-preview', 'failed')
     return
   }
-  canvas.width = VIEWPORT.width
-  canvas.height = VIEWPORT.height
+  const viewport = entityGallery ? ENTITY_GALLERY_VIEWPORT : VIEWPORT
+  canvas.width = viewport.width
+  canvas.height = viewport.height
+  if (entityGallery) {
+    document.body.setAttribute('data-entity-gallery', 'running')
+  }
 
   const atlasUrl = new URL('../../src/assets/block-textures/atlas.png', import.meta.url).href
   const atlasTexture = await new THREE.TextureLoader().loadAsync(atlasUrl)
@@ -396,14 +600,22 @@ const main = async (): Promise<void> => {
   atlasTexture.wrapS = THREE.ClampToEdgeWrapping
   atlasTexture.wrapT = THREE.ClampToEdgeWrapping
   atlasTexture.needsUpdate = true
+  const entityAtlasTexture = entityRendering ? await loadEntityTexture() : undefined
   const renderer = await Effect.runPromise(
     makeWorldRenderer<
       HTMLCanvasElement,
       THREE.BufferGeometry,
       THREE.MeshBasicMaterial,
       THREE.ShaderMaterial
-    >(THREE, canvas, VIEWPORT, {
-      ...(entityPreview ? { fovDegrees: ENTITY_PREVIEW_FOV_DEGREES } : {}),
+    >(THREE, canvas, viewport, {
+      ...(entityGallery
+        ? { farPlane: ENTITY_GALLERY_CAMERA_FAR_PLANE, fovDegrees: ENTITY_GALLERY_FIELD_OF_VIEW }
+        : entityPreview
+          ? { fovDegrees: ENTITY_PREVIEW_FOV_DEGREES }
+          : {}),
+      ...(entityAtlasTexture === undefined ? {} : {
+        entityMaterial: () => new THREE.MeshBasicMaterial({ map: entityAtlasTexture, vertexColors: true }),
+      }),
       material: () =>
         makeChunkShaderMaterial<
           HTMLCanvasElement,
@@ -413,6 +625,15 @@ const main = async (): Promise<void> => {
         >(THREE, atlasTexture).material,
     }),
   )
+
+  if (entityGallery && contactCanvas instanceof HTMLCanvasElement) {
+    const complete = await drawEntityContactSheet(renderer, canvas, contactCanvas, report)
+    await Effect.runPromise(renderer.dispose)
+    if (!complete) {
+      document.body.setAttribute('data-render-preview', 'failed')
+    }
+    return
+  }
 
   const presentationSetupResult = await createPreviewPresentation(renderer, atlasTexture)
   if (Result.isFailure(presentationSetupResult)) {
