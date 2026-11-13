@@ -1,4 +1,4 @@
-import { Effect, Option, Schema } from 'effect'
+import { Effect, Option, Result, Schema } from 'effect'
 import {
   INITIAL_WEATHER_RENDER_STATE,
   type PrecipitationKind,
@@ -44,13 +44,25 @@ export type WeatherRenderer = {
    * `dimension` selects which dimension's clear sky to restore; absent means
    * `overworld`, unchanged from before dimensions existed.
    */
-  readonly stop: (daylight?: number, dimension?: Dimension) => Effect.Effect<void>
+  readonly stop: (daylight?: number, dimension?: Dimension) => Effect.Effect<void, Schema.SchemaError>
   readonly state: Effect.Effect<WeatherRenderState>
   readonly dispose: Effect.Effect<void>
 }
 
 /** Neutral daylight value `stop` restores the environment to when the caller does not say otherwise. */
 const DEFAULT_STOP_DAYLIGHT = 1
+
+const resolveWeatherRendererOptions = (
+  options: WeatherFrameOptions,
+): Result.Result<Readonly<{
+  readonly disposeEnvironment: RenderEnvironmentPlan
+  readonly validatedOptions: WeatherFrameOptions
+}>, Schema.SchemaError> =>
+  Result.flatMap(decodeWeatherFrameOptions(options), (validatedOptions) =>
+    Result.map(
+      planRenderEnvironment(DEFAULT_STOP_DAYLIGHT, validatedOptions.farPlane),
+      (disposeEnvironment) => ({ disposeEnvironment, validatedOptions }),
+    ))
 
 /** A live precipitation resource together with the kind it was built for. */
 type ActivePrecipitation = {
@@ -64,7 +76,7 @@ export const makeWeatherRenderer = (
   options: WeatherFrameOptions = {},
 ): Effect.Effect<WeatherRenderer, Schema.SchemaError> =>
   Effect.gen(function* makeWeatherRendererEffect() {
-    const validatedOptions = yield* Effect.fromResult(decodeWeatherFrameOptions(options))
+    const { disposeEnvironment, validatedOptions } = yield* Effect.fromResult(resolveWeatherRendererOptions(options))
     let renderState = INITIAL_WEATHER_RENDER_STATE
     let activePrecipitation: Option.Option<ActivePrecipitation> = Option.none()
     let viewport: Option.Option<Viewport> = Option.none()
@@ -76,11 +88,17 @@ export const makeWeatherRenderer = (
       activePrecipitation = Option.none()
     })
 
-    const stop = (daylight: number = DEFAULT_STOP_DAYLIGHT, dimension?: Dimension): Effect.Effect<void> =>
+    const stop = (
+      daylight: number = DEFAULT_STOP_DAYLIGHT,
+      dimension?: Dimension,
+    ): Effect.Effect<void, Schema.SchemaError> =>
       Effect.gen(function* stopWeatherRendererEffect() {
+        const environment = yield* Effect.fromResult(
+          planRenderEnvironment(daylight, validatedOptions.farPlane, dimension),
+        )
         yield* releaseEffect
         renderState = INITIAL_WEATHER_RENDER_STATE
-        yield* ports.setEnvironment(planRenderEnvironment(daylight, validatedOptions.farPlane, dimension))
+        yield* ports.setEnvironment(environment)
       })
 
     /** Build a fresh resource for `kind`, releasing whatever was active first. */
@@ -122,7 +140,11 @@ export const makeWeatherRenderer = (
       })
 
     return {
-      dispose: stop(),
+      dispose: Effect.gen(function* disposeWeatherRendererEffect() {
+        yield* releaseEffect
+        renderState = INITIAL_WEATHER_RENDER_STATE
+        yield* ports.setEnvironment(disposeEnvironment)
+      }),
 
       frame: (snapshot: WorldWeatherSnapshot, camera: WeatherCameraPosition) =>
         Effect.gen(function* frameWeatherEffect() {

@@ -75,6 +75,7 @@ import {
 } from '../domain/chunk-shader.js'
 import {
   DAY_SKY_COLOR,
+  DEFAULT_RENDER_ENVIRONMENT,
   type RenderEnvironmentPlan,
   planRenderEnvironment,
 } from '../domain/render-environment.js'
@@ -399,7 +400,7 @@ const makeChunkShaderMaterialVariant = <
   variant: ChunkMaterialVariant,
 ): ChunkShaderMaterial<TShaderMaterial> => {
   const source = chunkShaderSource()
-  const defaultEnvironment = planRenderEnvironment(FULL_SUN_INTENSITY)
+  const defaultEnvironment = DEFAULT_RENDER_ENVIRONMENT
   const alphaTest = chunkAlphaTestFor(variant)
   const uniforms: Record<string, ThreeUniform> = {
     [CHUNK_SHADER_UNIFORMS.atlas]: { value: atlasTexture },
@@ -913,7 +914,7 @@ export type WorldRendererOptions<TMaterial extends ThreeMaterial = ThreeMaterial
   /** Host-owned mc-sim setting. When supplied, chunks beyond this Chebyshev radius are hidden. */
   readonly renderDistance?: RenderDistanceChunks
   readonly clearColor?: number
-  /** Initial daylight in the inclusive 0..1 range; invalid values are clamped by the planner. */
+  /** Initial daylight in the inclusive 0..1 range; invalid values fail with `SchemaError`. */
   readonly daylight?: number
   /** Initial dimension; absent means `overworld`, the sky every caller got before dimensions existed. */
   readonly dimension?: Dimension
@@ -1033,28 +1034,47 @@ type ResolvedWorldRendererSettings = Readonly<{
   readonly farPlane: number
   readonly weatherCapacity: number
   readonly initialAspect: number
+  readonly initialEnvironment: RenderEnvironmentPlan
+  readonly weatherOptions: WeatherFrameOptions
 }>
 
 const resolveWorldRendererSettings = (
-  options: Pick<WorldRendererOptions, 'farPlane' | 'fovDegrees' | 'nearPlane' | 'renderDistance'>,
+  options: Pick<WorldRendererOptions, 'daylight' | 'dimension' | 'farPlane' | 'fovDegrees' | 'nearPlane' | 'renderDistance'>,
   viewport: Viewport,
-  weatherOptions: WeatherFrameOptions,
-): ResolvedWorldRendererSettings => {
-  let derivedFarPlane = CAMERA_FAR_PLANE
-  if (options.renderDistance !== undefined) {
-    derivedFarPlane = Math.max(
-      CAMERA_FAR_PLANE,
-      options.renderDistance * CHUNK_SIZE * RENDER_DISTANCE_FAR_PLANE_MULTIPLIER + CHUNK_HEIGHT,
-    )
-  }
-  const farPlane = options.farPlane ?? derivedFarPlane
-  return {
-    farPlane,
-    fovDegrees: options.fovDegrees ?? CAMERA_FOV_DEGREES,
-    initialAspect: safeAspect(viewport),
-    nearPlane: options.nearPlane ?? CAMERA_NEAR_PLANE,
-    weatherCapacity: weatherParticleCapacity(weatherOptions),
-  }
+): Result.Result<ResolvedWorldRendererSettings, Schema.SchemaError> => {
+  const {
+    daylight: daylightOption,
+    dimension,
+    farPlane: farPlaneOption,
+    renderDistance,
+  } = options
+  const weatherOptions = resolveWorldRendererWeatherOptions(options)
+  return Result.flatMap(weatherOptions, (resolvedWeatherOptions) => {
+    let derivedFarPlane = CAMERA_FAR_PLANE
+    if (renderDistance !== undefined) {
+      derivedFarPlane = Math.max(
+        CAMERA_FAR_PLANE,
+        renderDistance * CHUNK_SIZE * RENDER_DISTANCE_FAR_PLANE_MULTIPLIER + CHUNK_HEIGHT,
+      )
+    }
+    let farPlane = derivedFarPlane
+    if (farPlaneOption !== undefined) {
+      farPlane = farPlaneOption
+    }
+    let daylight = FULL_SUN_INTENSITY
+    if (daylightOption !== undefined) {
+      daylight = daylightOption
+    }
+    return Result.map(planRenderEnvironment(daylight, farPlane, dimension), (initialEnvironment) => ({
+      farPlane,
+      fovDegrees: options.fovDegrees ?? CAMERA_FOV_DEGREES,
+      initialAspect: safeAspect(viewport),
+      initialEnvironment,
+      nearPlane: options.nearPlane ?? CAMERA_NEAR_PLANE,
+      weatherCapacity: weatherParticleCapacity(resolvedWeatherOptions),
+      weatherOptions: resolvedWeatherOptions,
+    }))
+  })
 }
 
 /** One frame's advance on the submitted-frame counter. */
@@ -1418,7 +1438,7 @@ export const makeWorldRenderer = <
   }
 
   return Effect.gen(function* buildRenderer() {
-    const weatherOptions = yield* Effect.fromResult(resolveWorldRendererWeatherOptions(options))
+    const { weatherOptions, ...settings } = yield* Effect.fromResult(resolveWorldRendererSettings(options, viewport))
 
     /**
      * The GPU-owning surface: a sized, cleared renderer plus the scene and
@@ -1436,7 +1456,6 @@ export const makeWorldRenderer = <
       readonly weatherCapacity: number
       readonly initialAspect: number
     } => {
-      const settings = resolveWorldRendererSettings(options, viewport, weatherOptions)
       const renderer: ThreeWebGLRenderer = new three.WebGLRenderer({
         antialias: false,
         canvas,
@@ -1445,11 +1464,7 @@ export const makeWorldRenderer = <
         stencil: false,
       })
       renderer.setSize(viewport.width, viewport.height, UPDATE_CANVAS_STYLE)
-      const initialEnvironment = planRenderEnvironment(
-        options.daylight ?? FULL_SUN_INTENSITY,
-        settings.farPlane,
-        options.dimension,
-      )
+      const { initialEnvironment } = settings
       renderer.setClearColor(options.clearColor ?? initialEnvironment.skyColor, SKY_CLEAR_ALPHA)
       options.applyMaterialEnvironment?.(initialEnvironment)
       const scene: ThreeScene = new three.Scene()
@@ -2028,7 +2043,7 @@ export const makeProductionWorldRenderer = <
     const particlePool = yield* Effect.fromResult(makeParticlePool(options.particles))
     const chunk = makeChunkShaderMaterial(three, atlasTexture)
     const cutout = makeChunkShaderMaterialVariant(three, atlasTexture, FULL_SUN_INTENSITY, 'cutout')
-    const transparentSolid = makeTranslucentChunkMaterial({ atlasTexture, three, viewport })
+    const transparentSolid = yield* Effect.fromResult(makeTranslucentChunkMaterial({ atlasTexture, three, viewport }))
     const water = makeWaterMaterial(three, viewport)
     const particles = yield* makeParticleSystem(three, particlePool, atlasTexture)
     const { particles: _particles, ...rendererOptions } = options

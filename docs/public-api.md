@@ -999,9 +999,10 @@ host mapper is consulted.
 ## 3. WorldRenderer — **実装済**
 
 `makeWorldRenderer` は注入された THREE surface と canvas から renderer、scene、camera を
-取得し、chunk mesh、描画、resize、破棄を所有する。環境表現は純粋な
-`planRenderEnvironment(daylight, farPlane)` と副作用境界の
-`WorldRenderer.setEnvironment(plan)` に分ける。
+取得し、chunk mesh、描画、resize、破棄を所有する。環境表現は入力を Schema で検証する
+`planRenderEnvironment(daylight, farPlane, dimension)` と副作用境界の
+`WorldRenderer.setEnvironment(plan)` に分ける。有効な入力は `Result` で plan を返し、
+不正な入力は `Schema.SchemaError` で失敗する。
 
 ```ts
 const shader = makeChunkShaderMaterial(three, atlasTexture)
@@ -1011,7 +1012,8 @@ const renderer = yield* makeWorldRenderer(three, canvas, {
     applyChunkShaderEnvironment(shader.uniforms, environment),
 })
 
-yield* renderer.setEnvironment(planRenderEnvironment(daylight, farPlane))
+const plan = yield* Effect.fromResult(planRenderEnvironment(daylight, farPlane))
+yield* renderer.setEnvironment(plan)
 ```
 
 同じ plan が canvas の clear color と chunk shader の sunlight / fog uniforms を更新する。
@@ -1023,12 +1025,15 @@ resize listener と renderer/material の解放責務は従来どおり scope fi
 `ChunkGeometryUpdate.key`、`WorldRenderer.setChunk`、`removeChunk`、`chunkKeys` はこの型を
 共有し、文字列を直接渡す API ではない。worldgen の `chunkKeyOf` が返す key をそのまま使う。
 
-`planRenderEnvironment` は第 3 引数に `@nerima-games/mc-kernel` の
-`Dimension`（`'overworld' | 'nether' | 'end'`）を取る。省略時は `'overworld'` で、既存の
-呼び出しはすべて出力が変わらない。`nether`（太陽も昼夜サイクルも無い、閉じた霧）と
+`RenderEnvironmentInputSchema` は日照を `[0, 1]`、`farPlane` を有限の正数、次元を
+`'overworld' | 'nether' | 'end'` に検証する。`daylight` は必須で、`farPlane` の省略時は
+`300`、`dimension` の省略時は `'overworld'` を使う。明示した範囲外の値、`null`、不正な
+次元は既定値に置き換えず `Schema.SchemaError` を返す。`Dimension` は
+`@nerima-games/mc-kernel` の型である。`nether`（太陽も昼夜サイクルも無い、閉じた霧）と
 `end`（暗い、太陽の無い虚空）は `daylight` を無視し、`RenderEnvironmentPlan.dimension` に
 解決済みの次元を返す。`WorldRendererOptions.dimension`、`WorldWeatherSnapshot.dimension`、
-`WeatherRenderer.stop(daylight?, dimension?)` の 3 箇所がこれを配線する。`Dimension` 自体は
+`WeatherRenderer.stop(daylight?, dimension?)` の 3 箇所がこの planner を呼ぶ。無効な値は
+`Schema.SchemaError` として返る。`Dimension` 自体は
 再エクスポートしない — `src/index.ts` 末尾に書かれている既存方針
 （「Kernel and meshing vocabulary are not re-exported from this package」）どおり、
 呼び出し側は `@nerima-games/mc-kernel` から直接 import する。恒星（`end` の星空）は

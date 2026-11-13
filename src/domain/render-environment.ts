@@ -1,4 +1,5 @@
-import { type Dimension, isDimension } from '@nerima-games/mc-kernel'
+import { Result, Schema } from 'effect'
+import type { Dimension } from '@nerima-games/mc-kernel'
 
 /** The drawing surface's size in device-independent pixels. */
 export type Viewport = {
@@ -16,6 +17,48 @@ export type RenderEnvironmentPlan = {
   readonly fogNear: number
   readonly fogFar: number
 }
+
+export type RenderEnvironmentInput = Readonly<{
+  readonly daylight: number
+  readonly dimension?: Dimension | undefined
+  readonly farPlane?: number | undefined
+}>
+
+const UNIT_INTERVAL_MIN = 0
+const UNIT_INTERVAL_MAX = 1
+const MIN_FAR_PLANE = 0
+const UnitIntervalSchema = Schema.Finite.check(Schema.isBetween({
+  maximum: UNIT_INTERVAL_MAX,
+  minimum: UNIT_INTERVAL_MIN,
+}))
+
+export const RenderEnvironmentDimensionSchema: Schema.Codec<Dimension> = Schema.Literals([
+  'overworld',
+  'nether',
+  'end',
+])
+
+export const RenderEnvironmentInputSchema: Schema.Codec<RenderEnvironmentInput> = Schema.Struct({
+  daylight: UnitIntervalSchema,
+  dimension: Schema.optional(RenderEnvironmentDimensionSchema),
+  farPlane: Schema.optional(Schema.Finite.check(Schema.isGreaterThan(MIN_FAR_PLANE))),
+})
+
+export const RenderEnvironmentPlanSchema: Schema.Codec<RenderEnvironmentPlan> = Schema.Struct({
+  daylight: Schema.Finite.check(Schema.isBetween({
+    maximum: UNIT_INTERVAL_MAX,
+    minimum: UNIT_INTERVAL_MIN,
+  })),
+  dimension: RenderEnvironmentDimensionSchema,
+  fogColor: Schema.Tuple([Schema.Finite, Schema.Finite, Schema.Finite]),
+  fogFar: Schema.Finite,
+  fogNear: Schema.Finite,
+  skyColor: Schema.Int,
+  sunIntensity: Schema.Finite.check(Schema.isBetween({
+    maximum: UNIT_INTERVAL_MAX,
+    minimum: UNIT_INTERVAL_MIN,
+  })),
+})
 
 export const DAY_SKY_COLOR = 0x87ceeb
 export const NIGHT_SKY_COLOR = 0x232a45
@@ -46,29 +89,6 @@ export const DEFAULT_ENVIRONMENT_FAR_PLANE = 300
 
 /** The dimension a caller gets when it does not say otherwise. */
 export const DEFAULT_DIMENSION: Dimension = 'overworld'
-
-/** The `[0, 1]` range `clamp01` clamps into. */
-const NORMALIZED_MIN = 0
-const NORMALIZED_MAX = 1
-
-/** `value`, or the bottom of the normalized range when it is not a finite number (e.g. `NaN`). */
-const finiteOrMin = (value: number): number => {
-  if (Number.isFinite(value)) {
-    return value
-  }
-  return NORMALIZED_MIN
-}
-
-const clamp01 = (value: number): number =>
-  Math.min(NORMALIZED_MAX, Math.max(NORMALIZED_MIN, finiteOrMin(value)))
-
-/** `dimension`, or `DEFAULT_DIMENSION` when it is not one `@nerima-games/mc-kernel`'s `isDimension` recognizes. */
-const resolveDimension = (dimension: Dimension): Dimension => {
-  if (isDimension(dimension)) {
-    return dimension
-  }
-  return DEFAULT_DIMENSION
-}
 
 /**
  * Place value of each channel in a packed `0xRRGGBB` color — the divisor that
@@ -125,16 +145,6 @@ const sunIntensityFor = (dimension: Dimension, daylight: number): number => {
   return NO_SKYLIGHT
 }
 
-/** The nearest valid far plane below `MIN_FAR_PLANE` falls back to the default. */
-const MIN_FAR_PLANE = 0
-
-const resolveFarPlane = (farPlane: number): number => {
-  if (Number.isFinite(farPlane) && farPlane > MIN_FAR_PLANE) {
-    return farPlane
-  }
-  return DEFAULT_ENVIRONMENT_FAR_PLANE
-}
-
 /** The overworld's and end's fog: starts at 45% of the far plane and ends at 90%, so it never clips the far plane itself. */
 const FOG_NEAR_FACTOR = 0.45
 const FOG_FAR_FACTOR = 0.9
@@ -163,30 +173,63 @@ const fogFactorsFor = (dimension: Dimension): FogFactors => {
 /** Full daylight, the state `DEFAULT_RENDER_ENVIRONMENT` renders. */
 const FULL_DAYLIGHT = 1
 
+const resolvedEnvironmentOptions = (input: RenderEnvironmentInput): Readonly<{
+  readonly farPlane: number
+  readonly dimension: Dimension
+}> => {
+  const { dimension: inputDimension, farPlane: inputFarPlane } = input
+  let farPlane = DEFAULT_ENVIRONMENT_FAR_PLANE
+  if (inputFarPlane !== undefined) {
+    farPlane = inputFarPlane
+  }
+  let dimension: Dimension = DEFAULT_DIMENSION
+  if (inputDimension !== undefined) {
+    dimension = inputDimension
+  }
+  return { dimension, farPlane }
+}
+
 /** Build the complete environment state before touching THREE or uniform boxes. */
-export const planRenderEnvironment = (
+const buildRenderEnvironmentPlan = (
   daylight: number,
-  farPlane: number = DEFAULT_ENVIRONMENT_FAR_PLANE,
-  dimension: Dimension = DEFAULT_DIMENSION,
+  farPlane: number,
+  dimension: Dimension,
 ): RenderEnvironmentPlan => {
-  const safeDaylight = clamp01(daylight)
-  const safeFar = resolveFarPlane(farPlane)
-  const safeDimension = resolveDimension(dimension)
-  const skyColor = skyColorFor(safeDimension, safeDaylight)
-  const { far: farFactor, near: nearFactor } = fogFactorsFor(safeDimension)
+  const skyColor = skyColorFor(dimension, daylight)
+  const { far: farFactor, near: nearFactor } = fogFactorsFor(dimension)
   return {
-    daylight: safeDaylight,
-    dimension: safeDimension,
+    daylight,
+    dimension,
     fogColor: [
       channel(skyColor, RED_PLACE_VALUE) / CHANNEL_MAX,
       channel(skyColor, GREEN_PLACE_VALUE) / CHANNEL_MAX,
       channel(skyColor, BLUE_PLACE_VALUE) / CHANNEL_MAX,
     ],
-    fogFar: safeFar * farFactor,
-    fogNear: safeFar * nearFactor,
+    fogFar: farPlane * farFactor,
+    fogNear: farPlane * nearFactor,
     skyColor,
-    sunIntensity: sunIntensityFor(safeDimension, safeDaylight),
+    sunIntensity: sunIntensityFor(dimension, daylight),
   }
 }
 
-export const DEFAULT_RENDER_ENVIRONMENT: RenderEnvironmentPlan = planRenderEnvironment(FULL_DAYLIGHT)
+export const planRenderEnvironment = (
+  daylight: number,
+  farPlane?: number | undefined,
+  dimension?: Dimension | undefined,
+): Result.Result<RenderEnvironmentPlan, Schema.SchemaError> => {
+  const decoded = Schema.decodeUnknownResult(RenderEnvironmentInputSchema, { onExcessProperty: 'error' })({
+    daylight,
+    dimension,
+    farPlane,
+  })
+  return Result.map(decoded, (input) => {
+    const resolved = resolvedEnvironmentOptions(input)
+    return buildRenderEnvironmentPlan(input.daylight, resolved.farPlane, resolved.dimension)
+  })
+}
+
+export const DEFAULT_RENDER_ENVIRONMENT: RenderEnvironmentPlan = buildRenderEnvironmentPlan(
+  FULL_DAYLIGHT,
+  DEFAULT_ENVIRONMENT_FAR_PLANE,
+  DEFAULT_DIMENSION,
+)

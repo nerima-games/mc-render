@@ -1,7 +1,9 @@
 import { Brand, Result, Schema } from 'effect'
 import {
   DEFAULT_ENVIRONMENT_FAR_PLANE,
+  RenderEnvironmentDimensionSchema,
   type RenderEnvironmentPlan,
+  RenderEnvironmentPlanSchema,
   planRenderEnvironment,
 } from './render-environment.js'
 import {
@@ -19,7 +21,7 @@ import type { Dimension } from '@nerima-games/mc-kernel'
 
 export type WeatherMode = 'clear' | 'rain' | 'thunder' | 'snow'
 export type PrecipitationKind = 'rain' | 'snow'
-export const WeatherDimensionSchema: Schema.Codec<Dimension> = Schema.Literals(['overworld', 'nether', 'end'])
+export const WeatherDimensionSchema: Schema.Codec<Dimension> = RenderEnvironmentDimensionSchema
 const UNIT_INTERVAL_MIN = 0
 const UNIT_INTERVAL_MAX = 1
 const UnitIntervalSchema = Schema.Finite.check(Schema.isBetween({
@@ -158,16 +160,6 @@ const WeatherPointSchema = Schema.Struct({ x: Schema.Finite, y: Schema.Finite, z
 const LightningBoltPlanSchema: Schema.Codec<LightningBoltPlan, LightningBoltPlanEncoded> = Schema.Struct({
   sequence: LightningSequenceSchema,
   strands: Schema.Array(Schema.Array(WeatherPointSchema)),
-})
-
-const RenderEnvironmentPlanSchema: Schema.Codec<RenderEnvironmentPlan> = Schema.Struct({
-  daylight: Schema.Finite,
-  dimension: WeatherDimensionSchema,
-  fogColor: Schema.Tuple([Schema.Finite, Schema.Finite, Schema.Finite]),
-  fogFar: Schema.Finite,
-  fogNear: Schema.Finite,
-  skyColor: Schema.Int,
-  sunIntensity: Schema.Finite,
 })
 
 const WeatherPrecipitationParticleSchema: Schema.Codec<PrecipitationParticle> = Schema.Struct({
@@ -412,32 +404,32 @@ const weatherEnvironment = ({
   intensity,
   lightningFlash,
   snapshot,
-}: WeatherEnvironmentInput): RenderEnvironmentPlan => {
-  const base = planRenderEnvironment(snapshot.daylight, farPlane, snapshot.dimension)
-  const storm = stormIntensity(snapshot.mode, intensity)
-  const cover = coverIntensity(snapshot.mode, intensity)
-  const darkness = clamp01(cover * DARKNESS_COVER_WEIGHT + storm * DARKNESS_STORM_WEIGHT)
-  const flash = clamp01(lightningFlash)
-  const skyColor = mixColor(
-    mixColor(base.skyColor, SKY_STORM_COLOR, darkness),
-    SKY_FLASH_COLOR,
-    flash * FLASH_COLOR_MIX_STRENGTH,
-  )
-  const fogScale = UNIT_INTERVAL_MAX - cover * FOG_SCALE_COVER_WEIGHT
-  return {
-    daylight: base.daylight,
-    dimension: base.dimension,
-    fogColor: [
-      colorChannel(skyColor, RED_PLACE_VALUE) / CHANNEL_MAX,
-      colorChannel(skyColor, GREEN_PLACE_VALUE) / CHANNEL_MAX,
-      colorChannel(skyColor, BLUE_PLACE_VALUE) / CHANNEL_MAX,
-    ],
-    fogFar: base.fogFar * fogScale,
-    fogNear: base.fogNear * fogScale,
-    skyColor,
-    sunIntensity: clamp01(base.sunIntensity * (UNIT_INTERVAL_MAX - darkness) + flash * FLASH_BRIGHTNESS_BOOST),
-  }
-}
+}: WeatherEnvironmentInput): Result.Result<RenderEnvironmentPlan, Schema.SchemaError> =>
+  Result.map(planRenderEnvironment(snapshot.daylight, farPlane, snapshot.dimension), (base) => {
+    const storm = stormIntensity(snapshot.mode, intensity)
+    const cover = coverIntensity(snapshot.mode, intensity)
+    const darkness = clamp01(cover * DARKNESS_COVER_WEIGHT + storm * DARKNESS_STORM_WEIGHT)
+    const flash = clamp01(lightningFlash)
+    const skyColor = mixColor(
+      mixColor(base.skyColor, SKY_STORM_COLOR, darkness),
+      SKY_FLASH_COLOR,
+      flash * FLASH_COLOR_MIX_STRENGTH,
+    )
+    const fogScale = UNIT_INTERVAL_MAX - cover * FOG_SCALE_COVER_WEIGHT
+    return {
+      daylight: base.daylight,
+      dimension: base.dimension,
+      fogColor: [
+        colorChannel(skyColor, RED_PLACE_VALUE) / CHANNEL_MAX,
+        colorChannel(skyColor, GREEN_PLACE_VALUE) / CHANNEL_MAX,
+        colorChannel(skyColor, BLUE_PLACE_VALUE) / CHANNEL_MAX,
+      ],
+      fogFar: base.fogFar * fogScale,
+      fogNear: base.fogNear * fogScale,
+      skyColor,
+      sunIntensity: clamp01(base.sunIntensity * (UNIT_INTERVAL_MAX - darkness) + flash * FLASH_BRIGHTNESS_BOOST),
+    }
+  })
 
 type PrecipitationParticlesInput = {
   readonly camera: WeatherCameraPosition
@@ -567,7 +559,7 @@ const weatherFrameEnvironment = ({
   intensity,
   lightningFlash,
   snapshot,
-}: WeatherFrameEnvironmentInput): RenderEnvironmentPlan =>
+}: WeatherFrameEnvironmentInput): Result.Result<RenderEnvironmentPlan, Schema.SchemaError> =>
   weatherEnvironment({
     farPlane: defaultWhenUndefined(options.farPlane, DEFAULT_ENVIRONMENT_FAR_PLANE),
     intensity,
@@ -692,26 +684,22 @@ const prepareWeatherFrame = (
   const timing = resolveWeatherFrameTiming(input)
   const { camera, options, previous, snapshot } = input
   const { capacity, radius, height } = resolveParticleSizing(options)
-  const environment = weatherFrameEnvironment({ ...timing, options, snapshot })
   const lightningOrigin = resolveLightningOrigin({ camera, previous, radius, snapshot })
-  const lightningBolt = lightningBoltForFrame({
-    lightningFlash: timing.lightningFlash,
-    origin: lightningOrigin,
-    snapshot,
-  })
-  if (Result.isFailure(lightningBolt)) {
-    return Result.fail(lightningBolt.failure)
-  }
-  return Result.succeed({
-    ...input,
-    ...timing,
-    capacity,
-    environment,
-    height,
-    lightningBolt: lightningBolt.success,
-    lightningOrigin,
-    radius,
-  })
+  return Result.flatMap(weatherFrameEnvironment({ ...timing, options, snapshot }), (environment) =>
+    Result.map(lightningBoltForFrame({
+      lightningFlash: timing.lightningFlash,
+      origin: lightningOrigin,
+      snapshot,
+    }), (lightningBolt) => ({
+      ...input,
+      ...timing,
+      capacity,
+      environment,
+      height,
+      lightningBolt,
+      lightningOrigin,
+      radius,
+    })))
 }
 
 const assemblePlannedWeatherFrame = ({

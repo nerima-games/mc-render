@@ -1,73 +1,78 @@
 import type { Dimension } from '@nerima-games/mc-kernel'
+import * as FastCheck from 'fast-check'
 import { describe, expect, it } from '@effect/vitest'
-import { Effect } from 'effect'
+import { Effect, Result, Schema } from 'effect'
 import {
   DAY_SKY_COLOR,
   END_VOID_COLOR,
   NETHER_FOG_COLOR,
   NIGHT_SKY_COLOR,
+  RenderEnvironmentInputSchema,
+  RenderEnvironmentPlanSchema,
   planRenderEnvironment,
 } from '../src/domain/render-environment'
+import { renderEnvironmentPlan as plan } from './support/render-environment'
 
 describe('render environment planning', () => {
-  it.effect('maps night and day to the reference sky endpoints', () =>
+  it.effect('maps valid daylight endpoints to the reference sky colors', () =>
     Effect.sync(() => {
-      expect(planRenderEnvironment(0).skyColor).toBe(NIGHT_SKY_COLOR)
-      expect(planRenderEnvironment(1).skyColor).toBe(DAY_SKY_COLOR)
+      expect(plan(0).skyColor).toBe(NIGHT_SKY_COLOR)
+      expect(plan(1).skyColor).toBe(DAY_SKY_COLOR)
     }),
   )
 
-  it.effect('clamps external daylight and keeps the fog interval ordered', () =>
+  it.effect('accepts daylight boundaries and rejects values outside the unit interval', () =>
     Effect.sync(() => {
-      expect(planRenderEnvironment(-2, 100).daylight).toBe(0)
-      expect(planRenderEnvironment(2, 100).daylight).toBe(1)
-      expect(planRenderEnvironment(Number.NaN, 100).daylight).toBe(0)
-      expect(planRenderEnvironment(0.5, 100)).toMatchObject({ fogNear: 45, fogFar: 90 })
+      expect(Result.isSuccess(planRenderEnvironment(0))).toBe(true)
+      expect(Result.isSuccess(planRenderEnvironment(1))).toBe(true)
+      const invalidDaylight = planRenderEnvironment(Number.NaN)
+      expect(Result.isFailure(invalidDaylight)).toBe(true)
+      if (Result.isFailure(invalidDaylight)) {
+        expect(invalidDaylight.failure).toBeInstanceOf(Schema.SchemaError)
+      }
+      for (const daylight of [-Number.MIN_VALUE, 1 + Number.EPSILON, Number.NaN, Infinity, -Infinity, null]) {
+        expect(Result.isFailure(planRenderEnvironment(daylight as number))).toBe(true)
+      }
     }),
   )
 
-  it.effect('falls back to the default far plane for a non-positive or non-finite value', () =>
+  it.effect('rejects invalid far planes and defaults only when the option is omitted', () =>
     Effect.sync(() => {
-      // `resolveFarPlane` guards against a far plane that would put the fog
-      // interval behind the camera or make it NaN: zero, negative, and
-      // non-finite are all rejected the same way, in favor of
-      // DEFAULT_ENVIRONMENT_FAR_PLANE (300) rather than propagating the bad
-      // value into `fogNear`/`fogFar`.
       const defaultFog = { fogFar: 270, fogNear: 135 }
-      expect(planRenderEnvironment(0.5, 0)).toMatchObject(defaultFog)
-      expect(planRenderEnvironment(0.5, -50)).toMatchObject(defaultFog)
-      expect(planRenderEnvironment(0.5, Number.NaN)).toMatchObject(defaultFog)
-      expect(planRenderEnvironment(0.5, Number.POSITIVE_INFINITY)).toMatchObject(defaultFog)
+      expect(plan(0.5)).toMatchObject(defaultFog)
+      expect(plan(0.5, undefined)).toMatchObject(defaultFog)
+      expect(plan(0.5, Number.MIN_VALUE).daylight).toBe(0.5)
+      for (const farPlane of [0, -Number.MIN_VALUE, Number.NaN, Infinity, -Infinity, null]) {
+        expect(Result.isFailure(planRenderEnvironment(0.5, farPlane as number))).toBe(true)
+      }
     }),
   )
 
   it.effect('is deterministic and emits normalized fog channels', () =>
     Effect.sync(() => {
-      const first = planRenderEnvironment(0.375, 640)
-      expect(planRenderEnvironment(0.375, 640)).toStrictEqual(first)
+      const first = plan(0.375, 640)
+      expect(plan(0.375, 640)).toStrictEqual(first)
       expect(first.fogColor.every((value) => value >= 0 && value <= 1)).toBe(true)
     }),
   )
 
   describe('dimension-aware sky', () => {
-    it.effect('defaults to `overworld`, and an explicit `overworld` is byte-for-byte the same plan a caller got before dimensions existed', () =>
+    it.effect('defaults to `overworld`, and explicit `overworld` yields the same plan', () =>
       Effect.sync(() => {
-        const implicit = planRenderEnvironment(0.6, 200)
-        const explicit = planRenderEnvironment(0.6, 200, 'overworld')
+        const implicit = plan(0.6, 200)
+        const explicit = plan(0.6, 200, 'overworld')
         expect(implicit).toStrictEqual(explicit)
         expect(implicit.dimension).toBe('overworld')
-        expect(implicit.skyColor).toBe(planRenderEnvironment(0.6, 200).skyColor)
-        expect(planRenderEnvironment(0, 200, 'overworld').skyColor).toBe(NIGHT_SKY_COLOR)
-        expect(planRenderEnvironment(1, 200, 'overworld').skyColor).toBe(DAY_SKY_COLOR)
+        expect(implicit.skyColor).toBe(plan(0.6, 200).skyColor)
+        expect(plan(0, 200, 'overworld').skyColor).toBe(NIGHT_SKY_COLOR)
+        expect(plan(1, 200, 'overworld').skyColor).toBe(DAY_SKY_COLOR)
       }),
     )
 
-    it.effect('the nether has no visible sky and no day/night cycle: `daylight` does not move it', () =>
+    it.effect('the nether has no visible sky or day/night cycle', () =>
       Effect.sync(() => {
-        const night = planRenderEnvironment(0, 200, 'nether')
-        const day = planRenderEnvironment(1, 200, 'nether')
-        // `daylight` still echoes its (clamped) input either way; every
-        // visually-relevant field ignores it entirely for this dimension.
+        const night = plan(0, 200, 'nether')
+        const day = plan(1, 200, 'nether')
         expect(night.skyColor).toBe(day.skyColor)
         expect(night.fogColor).toStrictEqual(day.fogColor)
         expect(night.fogNear).toBe(day.fogNear)
@@ -79,42 +84,55 @@ describe('render environment planning', () => {
       }),
     )
 
-    it.effect('the end is a dark, sunless void, distinct from both overworld night and the nether', () =>
+    it.effect('the end is a dark, sunless void distinct from overworld night and the nether', () =>
       Effect.sync(() => {
-        const plan = planRenderEnvironment(1, 200, 'end')
-        expect(plan.dimension).toBe('end')
-        expect(plan.skyColor).toBe(END_VOID_COLOR)
-        expect(plan.sunIntensity).toBe(0)
-        expect(plan.skyColor).not.toBe(NIGHT_SKY_COLOR)
-        expect(plan.skyColor).not.toBe(NETHER_FOG_COLOR)
+        const end = plan(1, 200, 'end')
+        expect(end.dimension).toBe('end')
+        expect(end.skyColor).toBe(END_VOID_COLOR)
+        expect(end.sunIntensity).toBe(0)
+        expect(end.skyColor).not.toBe(NIGHT_SKY_COLOR)
+        expect(end.skyColor).not.toBe(NETHER_FOG_COLOR)
       }),
     )
 
-    it.effect('the three dimensions render three different sky colours for the same daylight and far plane', () =>
+    it.effect('renders three different sky colors for the same daylight and far plane', () =>
       Effect.sync(() => {
-        const colors = new Set(
-          (['overworld', 'nether', 'end'] as const).map(
-            (dimension) => planRenderEnvironment(1, 200, dimension).skyColor,
-          ),
-        )
+        const colors = new Set((['overworld', 'nether', 'end'] as const).map((dimension) => plan(1, 200, dimension).skyColor))
         expect(colors.size).toBe(3)
       }),
     )
 
-    it.effect("the nether's fog is tighter than the overworld's, regardless of the far plane", () =>
+    it.effect("the nether's fog is tighter than the overworld's", () =>
       Effect.sync(() => {
-        const overworld = planRenderEnvironment(1, 200, 'overworld')
-        const nether = planRenderEnvironment(1, 200, 'nether')
+        const overworld = plan(1, 200, 'overworld')
+        const nether = plan(1, 200, 'nether')
         expect(nether.fogNear).toBeLessThan(overworld.fogNear)
         expect(nether.fogFar).toBeLessThan(overworld.fogFar)
       }),
     )
 
-    it.effect('an unrecognized dimension falls back to `overworld`, the same defensive treatment this file gives NaN', () =>
+    it.effect('rejects an unrecognized or null dimension', () =>
       Effect.sync(() => {
-        const invalid = 'moon' as Dimension
-        expect(planRenderEnvironment(1, 200, invalid)).toStrictEqual(planRenderEnvironment(1, 200, 'overworld'))
+        for (const dimension of ['moon', null]) {
+          expect(Result.isFailure(planRenderEnvironment(1, 200, dimension as Dimension))).toBe(true)
+        }
       }),
     )
+  })
+
+  it('returns a typed failure or a value decoded by the exported plan schema for arbitrary inputs', () => {
+    const optionalAnything = FastCheck.oneof(FastCheck.constant(undefined), FastCheck.anything())
+    FastCheck.assert(FastCheck.property(
+      FastCheck.tuple(FastCheck.anything(), optionalAnything, optionalAnything),
+      ([daylight, farPlane, dimension]) => {
+        const result = planRenderEnvironment(daylight as number, farPlane as number | undefined, dimension as Dimension | undefined)
+        return Result.isFailure(result) || Result.isSuccess(Schema.decodeUnknownResult(RenderEnvironmentPlanSchema)(result.success))
+      },
+    ))
+  })
+
+  it('exports an input schema for the accepted option boundaries', () => {
+    const decoded = Schema.decodeUnknownResult(RenderEnvironmentInputSchema)({ daylight: 0, dimension: 'end', farPlane: Number.MIN_VALUE })
+    expect(Result.isSuccess(decoded)).toBe(true)
   })
 })

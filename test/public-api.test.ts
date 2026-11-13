@@ -32,6 +32,8 @@ import {
   AnimationClockInputErrorSchema,
   animationTimeSeconds,
   ParticleColorSchema,
+  RenderEnvironmentInputSchema,
+  RenderEnvironmentPlanSchema,
   ParticleDirectionSchema,
   ParticleKindSchema,
   ParticleLifetimeSecondsSchema,
@@ -49,6 +51,7 @@ import {
   planColorCorrection,
   planLightningBolt,
   particleRequestForDomainEvent,
+  planRenderEnvironment,
   resolveWorkerParallelism,
   startMeshingWorkerPool,
   updateColorCorrectionPass,
@@ -116,6 +119,24 @@ describe('public focus navigation and input DTO exports', () => {
     expect(clickLandingForTarget(focus)).toBe('ui')
     browserOptions.onFocusNavigationDirection?.('down')
     expect(directions).toStrictEqual(['down'])
+  })
+})
+
+describe('public render environment validation', () => {
+  it('exports schemas and returns a typed failure for invalid daylight', () => {
+    expect(Schema.decodeUnknownResult(RenderEnvironmentInputSchema)({ daylight: 0 })).toMatchObject({
+      _tag: 'Success',
+    })
+    expect(Result.isSuccess(Schema.decodeUnknownResult(RenderEnvironmentPlanSchema)({
+      daylight: 1,
+      dimension: 'overworld',
+      fogColor: [0, 0, 0],
+      fogFar: 1,
+      fogNear: 0.5,
+      skyColor: 0,
+      sunIntensity: 1,
+    }))).toBe(true)
+    expect(Result.isFailure(planRenderEnvironment(Number.NaN))).toBe(true)
   })
 })
 

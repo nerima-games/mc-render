@@ -182,9 +182,11 @@ casts ([`docs/design-notes.md`](./docs/design-notes.md) DN-15). The published
   隣接チャンク側の光を参照できる。未ロード・範囲外は暗さ 0 とし、光レベルは 0..15 に
   クランプする。既存の `color` または `colorForChunk` を指定すれば、この既定動作を上書きできる。
 - **空・日照・地形フォグは同じ決定的 plan で同期する。**
-  `planRenderEnvironment(daylight, farPlane)` は純粋関数として空色、日照強度、
-  フォグ色と距離を返す。`WorldRenderer.setEnvironment` は clear color と既存の
-  chunk shader uniform を更新し、material や GPU resource を再生成しない。
+  `planRenderEnvironment(daylight, farPlane, dimension)` は Schema で入力を検証し、
+  有効なら空色、日照強度、フォグ色と距離を `Result` で返す。不正な値は
+  `Schema.SchemaError` になり、省略した `farPlane` と `dimension` だけ既定値を使う。
+  `WorldRenderer.setEnvironment` は clear color と既存の chunk shader uniform を更新し、
+  material や GPU resource を再生成しない。
 - **キーボードフォーカスは mx-ui と mc-render の間で分担する。** mx-ui が DOM
   membership を解決してフォーカスを移動し、mc-render は `FocusTarget` の
   `{ group, index }` DTO を `InputServiceApi` で運び、矢印キーを navigation intent に変換する。

@@ -239,4 +239,19 @@ describe('weather renderer resource lifecycle', () => {
       expect(environments.at(-1)?.dimension).toBe('overworld')
     }),
   )
+
+  it.effect('`stop` returns a typed failure for invalid daylight before changing renderer state', () =>
+    Effect.gen(function* () {
+      let environments = 0
+      const renderer = yield* makeWeatherRenderer({
+        setEnvironment: () => Effect.sync(() => { environments += 1 }),
+        createPrecipitation: () => Effect.die('stop does not create precipitation'),
+      })
+
+      const result = yield* Effect.result(renderer.stop(Number.NaN))
+      expect(Result.isFailure(result)).toBe(true)
+      expect(environments).toBe(0)
+      expect(yield* renderer.state).toMatchObject({ frame: 0, lightningFramesRemaining: 0 })
+    }),
+  )
 })

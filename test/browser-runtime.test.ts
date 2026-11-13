@@ -19,6 +19,7 @@ import { ParticleDeltaSecsSchema } from '../src/domain/particle-pool.js'
 import { WorkerCountSchema } from '../src/domain/worker-parallelism.js'
 import { QUALITY_PRESETS, type PostProcessingStep } from '../src/domain/post-processing.js'
 import { ATLAS_PIXELS, AtlasLayoutIntegerSchema } from '../src/domain/texture-atlas.js'
+import { planRenderEnvironment } from '../src/domain/render-environment.js'
 import { makeAnimationClockInput } from './support/animation-clock.js'
 
 const testCamera = mirroredCameraState(undefined)
@@ -906,6 +907,29 @@ describe('browser world runtime', () => {
     })))
 
     expect(Result.isFailure(outcome)).toBe(true)
+  })
+
+  it.each([
+    { daylight: Number.NaN },
+    { farPlane: Number.POSITIVE_INFINITY },
+    { dimension: 'moon' },
+  ])('returns a typed browser initialization failure for invalid render environment options %#', async (world) => {
+    browserMocks.worldFactory.mockImplementationOnce((_three, _canvas, _viewport, _atlas, options) => {
+      const { daylight: suppliedDaylight, dimension, farPlane } = options
+      let daylight = 1
+      if (suppliedDaylight !== undefined) {
+        daylight = suppliedDaylight
+      }
+      return Effect.fromResult(planRenderEnvironment(daylight, farPlane, dimension))
+    })
+    expect(await browserRuntimeFailureAsync(makeBrowserWorldRuntimeEffect({
+      canvas: new HTMLCanvasElement(),
+      world: world as never,
+    }))).toMatchObject({
+      _tag: 'BrowserRuntimeError',
+      operation: 'initialization',
+      reason: 'invalid-input',
+    })
   })
 
   it('loads the checked-in atlas by default with nearest and mipmapped sampling', async () => {

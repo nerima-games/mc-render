@@ -65,7 +65,8 @@ import {
   spawnBurst as spawnBurstResult,
 } from '../src/domain/particle-pool'
 import { FAKE_CANVAS, makeFakeThree } from './support/fake-three'
-import { END_VOID_COLOR, planRenderEnvironment } from '../src/domain/render-environment'
+import { END_VOID_COLOR } from '../src/domain/render-environment'
+import { renderEnvironmentPlan } from './support/render-environment'
 import { planMobVisual } from '../src/domain/mob-visual'
 import { buildPostProcessingChain, QUALITY_PRESETS } from '../src/domain/post-processing'
 import { planWitherSkullVisual, planWitherVisual } from '../src/domain/wither-visual'
@@ -282,11 +283,11 @@ describe('acquiring the renderer', () => {
       const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT, {
         applyMaterialEnvironment: (environment) => applied.push(environment),
       })
-      const night = planRenderEnvironment(0, CAMERA_FAR_PLANE)
+      const night = renderEnvironmentPlan(0, CAMERA_FAR_PLANE)
 
       yield* renderer.setEnvironment(night)
 
-      expect(applied).toStrictEqual([planRenderEnvironment(1, CAMERA_FAR_PLANE), night])
+      expect(applied).toStrictEqual([renderEnvironmentPlan(1, CAMERA_FAR_PLANE), night])
       expect(three.renderer().clearColors()).toStrictEqual([
         [SKY_CLEAR_COLOR, SKY_CLEAR_ALPHA],
         [night.skyColor, SKY_CLEAR_ALPHA],
@@ -1288,6 +1289,24 @@ describe('drawing', () => {
 })
 
 describe('canvas weather', () => {
+  it.effect('rejects invalid environment options before acquiring a renderer', () =>
+    Effect.gen(function* () {
+      for (const environment of [
+        { daylight: Number.NaN },
+        { daylight: 1 + Number.EPSILON },
+        { farPlane: Number.POSITIVE_INFINITY },
+        { farPlane: 0 },
+        { dimension: 'moon' },
+        { dimension: null },
+      ]) {
+        const three = makeFakeThree()
+        const result = yield* Effect.result(makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT, environment as never))
+        expect(Result.isFailure(result)).toBe(true)
+        expect(three.renderers()).toHaveLength(0)
+      }
+    }),
+  )
+
   it.effect('rejects invalid weather options before acquiring a renderer', () =>
     Effect.gen(function* () {
       for (const weather of [
@@ -1692,7 +1711,7 @@ describe('makeProductionWorldRenderer', () => {
       )
       expect(translucentMeshes.map(({ material }) => material)).toStrictEqual([transparentSolidMaterial])
 
-      yield* renderer.setEnvironment(planRenderEnvironment(0.25))
+      yield* renderer.setEnvironment(renderEnvironmentPlan(0.25))
       expect(renderer.chunkMaterial.uniforms['uSunIntensity']?.value).toBeCloseTo(0.25)
       expect(cutoutMaterial.uniforms['uSunIntensity']?.value).toBeCloseTo(0.25)
       expect(transparentSolidMaterial.uniforms['uSunIntensity']?.value).toBeCloseTo(0.25)
@@ -1754,8 +1773,8 @@ describe('makeProductionWorldRenderer', () => {
         delete uniforms['uTime']
       }
 
-      applyChunkShaderEnvironment({}, planRenderEnvironment(0.5))
-      yield* renderer.setEnvironment(planRenderEnvironment(0.5))
+      applyChunkShaderEnvironment({}, renderEnvironmentPlan(0.5))
+      yield* renderer.setEnvironment(renderEnvironmentPlan(0.5))
       yield* renderer.advanceFrame({
         ...makeAnimationClockInput(20, 0, 1200),
         deltaSecs: decodeDelta(0.01),

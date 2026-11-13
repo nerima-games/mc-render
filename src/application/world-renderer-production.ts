@@ -320,21 +320,31 @@ export const makeProductionWorldRenderer = <
   ProductionWorldRenderer<TShaderMaterial>,
   RendererMaterialPolicyError | ParticlePoolInputError | Schema.SchemaError
 > => {
+  let initialDimension = DEFAULT_DIMENSION
+  if (options.dimension !== undefined) {
+    initialDimension = options.dimension
+  }
   const frameState: {
     activeDimension: Dimension
     latestFrame: ProductionFrame | undefined
     particleFrame: ParticleFrameSnapshot
   } = {
-    activeDimension: options.dimension ?? DEFAULT_DIMENSION,
+    activeDimension: initialDimension,
     latestFrame: undefined,
-    particleFrame: { dimension: options.dimension ?? DEFAULT_DIMENSION, entities: [] },
+    particleFrame: {
+      dimension: initialDimension,
+      entities: [],
+    },
   }
   const buildRenderer = Effect.gen(function* buildProductionRenderer() {
-    const chunkMaterials = {
-      cutout: makeChunkShaderMaterialVariant({ atlasTexture, three, variant: 'cutout' }),
-      opaque: makeChunkShaderMaterial(three, atlasTexture),
-      transparent: makeTranslucentChunkMaterial({ atlasTexture, three, viewport }),
-    }
+    const chunkMaterials = yield* Effect.gen(function* makeChunkMaterials() {
+      const transparent = yield* Effect.fromResult(makeTranslucentChunkMaterial({ atlasTexture, three, viewport }))
+      return {
+        cutout: makeChunkShaderMaterialVariant({ atlasTexture, three, variant: 'cutout' }),
+        opaque: makeChunkShaderMaterial(three, atlasTexture),
+        transparent,
+      }
+    })
     const water = makeWaterMaterial(three, viewport)
     const { particleService, particlePool, particles } = yield* Effect.gen(function* makeProductionParticles() {
       const service = yield* ParticleService

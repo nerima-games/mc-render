@@ -33,7 +33,7 @@ import {
   readSlot,
   spawnBurst as spawnBurstResult,
 } from '../src/domain/particle-pool'
-import { planRenderEnvironment } from '../src/domain/render-environment'
+import { renderEnvironmentPlan } from './support/render-environment'
 import { buildChunkGeometry, type MeshQuad } from '../src/domain/chunk-geometry'
 import {
   FAKE_CANVAS,
@@ -109,6 +109,30 @@ const isParticlePoolInputFailure = (
 }
 
 describe('makeProductionWorldRenderer (the shipped composition)', () => {
+  it.effect('returns a schema failure for invalid environment options before acquiring WebGL', () =>
+    Effect.gen(function* () {
+      for (const environment of [
+        { daylight: Number.NaN },
+        { farPlane: Number.POSITIVE_INFINITY },
+        { dimension: 'moon' },
+      ]) {
+        const three = makeFakeThree()
+        const result = yield* Effect.result(makeProductionWorldRenderer(
+          three,
+          FAKE_CANVAS,
+          VIEWPORT,
+          { isTexture: true },
+          environment as never,
+        ))
+        expect(Result.isFailure(result)).toBe(true)
+        if (Result.isFailure(result)) {
+          expect(result.failure).toBeInstanceOf(Schema.SchemaError)
+        }
+        expect(three.renderers()).toHaveLength(0)
+      }
+    }),
+  )
+
   it.effect('uses the layer service pool for both accepted requests and rendered instances', () =>
     Effect.gen(function* () {
       const three = makeFakeThree()
@@ -222,7 +246,7 @@ describe('makeProductionWorldRenderer (the shipped composition)', () => {
       expect(translucentMeshes.map(({ material }) => material)).toStrictEqual([transparentSolidMaterial])
       expect(translucentMeshes[0]?.renderOrder).toBe(0)
 
-      yield* renderer.setEnvironment(planRenderEnvironment(0.25))
+      yield* renderer.setEnvironment(renderEnvironmentPlan(0.25))
       expect(renderer.chunkMaterial.uniforms['uSunIntensity']?.value).toBeCloseTo(0.25)
       expect(cutoutMaterial.uniforms['uSunIntensity']?.value).toBeCloseTo(0.25)
       expect(transparentSolidMaterial.uniforms['uSunIntensity']?.value).toBeCloseTo(0.25)
@@ -419,8 +443,8 @@ describe('makeProductionWorldRenderer (the shipped composition)', () => {
         delete uniforms['uTime']
       }
 
-      applyChunkShaderEnvironment({}, planRenderEnvironment(0.5))
-      yield* renderer.setEnvironment(planRenderEnvironment(0.5))
+      applyChunkShaderEnvironment({}, renderEnvironmentPlan(0.5))
+      yield* renderer.setEnvironment(renderEnvironmentPlan(0.5))
       yield* renderer.advanceFrame({
         ...makeAnimationClockInput(20, 0, 1200),
         deltaSecs: decodeDelta(0.01),

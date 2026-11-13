@@ -3,14 +3,15 @@ import {
   chunkShaderSource,
 } from '../domain/chunk-shader.js'
 import {
-  type MaterialPolicyVerdict,
-  describeMaterialPolicy,
-} from '../domain/material-policy.js'
-import {
+  DEFAULT_RENDER_ENVIRONMENT,
   type RenderEnvironmentPlan,
   type Viewport,
   planRenderEnvironment,
 } from '../domain/render-environment.js'
+import {
+  type MaterialPolicyVerdict,
+  describeMaterialPolicy,
+} from '../domain/material-policy.js'
 import { Result, Schema } from 'effect'
 import {
   THREE_DOUBLE_SIDE,
@@ -220,7 +221,7 @@ const buildChunkShaderMaterialVariant = <
 }): ChunkShaderMaterial<TShaderMaterial> => {
   const { atlasTexture, sunIntensity, three, variant } = options
   const source = chunkShaderSource()
-  const defaultEnvironment = planRenderEnvironment(FULL_SUN_INTENSITY)
+  const defaultEnvironment = DEFAULT_RENDER_ENVIRONMENT
   const alphaTest = chunkAlphaTestFor(variant)
   const uniforms: Record<string, ThreeUniform> = {
     [CHUNK_SHADER_UNIFORMS.atlas]: { value: atlasTexture },
@@ -329,36 +330,43 @@ export const makeTranslucentChunkMaterial = <
   TGeometry extends ThreeBufferGeometry,
   TMaterial extends ThreeMaterial,
   TShaderMaterial extends ThreeMaterial,
->(options: TranslucentChunkMaterialOptions<TCanvas, TGeometry, TMaterial, TShaderMaterial>): ChunkShaderMaterial<TShaderMaterial> => {
-  const { atlasTexture, three, viewport } = options
-  const sunIntensity = options.sunIntensity ?? FULL_SUN_INTENSITY
-  const source = translucentChunkShaderSource()
-  const defaultEnvironment = planRenderEnvironment(sunIntensity)
-  const uniforms: Record<string, ThreeUniform> = {
-    [CHUNK_SHADER_UNIFORMS.atlas]: { value: atlasTexture },
-    [CHUNK_ALPHA_TEST_UNIFORM]: { value: CHUNK_ALPHA_TEST_DISABLED },
-    [CHUNK_SHADER_UNIFORMS.sunIntensity]: { value: sunIntensity },
-    [CHUNK_SHADER_UNIFORMS.fogColor]: { value: [...defaultEnvironment.fogColor] },
-    [CHUNK_SHADER_UNIFORMS.fogNear]: { value: defaultEnvironment.fogNear },
-    [CHUNK_SHADER_UNIFORMS.fogFar]: { value: defaultEnvironment.fogFar },
-    uCameraPosition: { value: [...UNIFORM_ORIGIN] },
-    uRefractionMap: { value: null },
-    uRefractionValid: { value: REFRACTION_UNAVAILABLE },
-    uResolution: { value: [viewport.width, viewport.height] },
-    uTime: { value: ORIGIN_COMPONENT },
+>(options: TranslucentChunkMaterialOptions<TCanvas, TGeometry, TMaterial, TShaderMaterial>): Result.Result<
+  ChunkShaderMaterial<TShaderMaterial>,
+  Schema.SchemaError
+> => {
+  const { atlasTexture, sunIntensity: requestedSunIntensity, three, viewport } = options
+  let sunIntensity = FULL_SUN_INTENSITY
+  if (requestedSunIntensity !== undefined) {
+    sunIntensity = requestedSunIntensity
   }
-  return {
-    material: new three.ShaderMaterial({
-      alphaTest: CHUNK_ALPHA_TEST_DISABLED,
-      depthWrite: WATER_WRITES_DEPTH,
-      forceSinglePass: true,
-      fragmentShader: source.fragmentShader,
-      side: THREE_DOUBLE_SIDE,
-      transparent: WATER_MATERIAL_SPEC.transparent,
+  return Result.map(planRenderEnvironment(sunIntensity), (defaultEnvironment) => {
+    const source = translucentChunkShaderSource()
+    const uniforms: Record<string, ThreeUniform> = {
+      [CHUNK_SHADER_UNIFORMS.atlas]: { value: atlasTexture },
+      [CHUNK_ALPHA_TEST_UNIFORM]: { value: CHUNK_ALPHA_TEST_DISABLED },
+      [CHUNK_SHADER_UNIFORMS.sunIntensity]: { value: sunIntensity },
+      [CHUNK_SHADER_UNIFORMS.fogColor]: { value: [...defaultEnvironment.fogColor] },
+      [CHUNK_SHADER_UNIFORMS.fogNear]: { value: defaultEnvironment.fogNear },
+      [CHUNK_SHADER_UNIFORMS.fogFar]: { value: defaultEnvironment.fogFar },
+      uCameraPosition: { value: [...UNIFORM_ORIGIN] },
+      uRefractionMap: { value: null },
+      uRefractionValid: { value: REFRACTION_UNAVAILABLE },
+      uResolution: { value: [viewport.width, viewport.height] },
+      uTime: { value: ORIGIN_COMPONENT },
+    }
+    return {
+      material: new three.ShaderMaterial({
+        alphaTest: CHUNK_ALPHA_TEST_DISABLED,
+        depthWrite: WATER_WRITES_DEPTH,
+        forceSinglePass: true,
+        fragmentShader: source.fragmentShader,
+        side: THREE_DOUBLE_SIDE,
+        transparent: WATER_MATERIAL_SPEC.transparent,
+        uniforms,
+        vertexColors: true,
+        vertexShader: source.vertexShader,
+      }),
       uniforms,
-      vertexColors: true,
-      vertexShader: source.vertexShader,
-    }),
-    uniforms,
-  }
+    }
+  })
 }
