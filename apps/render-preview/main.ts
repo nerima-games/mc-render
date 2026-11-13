@@ -45,7 +45,12 @@ import {
 } from '../../src/application/render-presentation-assets.js'
 import { createSkyRenderer } from '../../src/application/sky-renderer.js'
 import type { PresentationObject3D } from '../../src/application/render-presentation-surface.js'
-import { makeChunkShaderMaterial, makeWorldRenderer, SKY_CLEAR_COLOR } from '../../src/application/world-renderer.js'
+import {
+  makeChunkShaderMaterial,
+  makeWorldRenderer,
+  SKY_CLEAR_COLOR,
+  type WorldRenderer,
+} from '../../src/application/world-renderer.js'
 import { chunkKeyOf, syncWorld, type ChunkRef } from '../../src/application/world-sync.js'
 import { tileIndexForBlockName, type BlockTextureLookupError } from '../../src/domain/block-texture-map.js'
 import type { GeometryQuad, MeshQuad } from '../../src/domain/meshing-vocabulary.js'
@@ -101,6 +106,28 @@ const PRESENTATION_MOON_PHASE = 5
 const PRESENTATION_BLOCK_NAME = 'grass_block'
 const PRESENTATION_CAMERA_PITCH = -0.4
 const PRESENTATION_CAMERA_Z = 48
+const ENTITY_PREVIEW_HEIGHT = 38
+const ENTITY_PREVIEW_DEPTH = 22
+const ENTITY_PREVIEW_SIMULATION_TICK = 240
+const ENTITY_PREVIEW_PARTIAL_TICK = 0.5
+const ENTITY_PREVIEW_TIME_OF_DAY_TICKS = 7_000
+const ENTITY_PREVIEW_BLOCK_LIGHT = 12
+const ENTITY_PREVIEW_SKY_LIGHT = 15
+const ENTITY_PREVIEW_WALK_PHASE_RADIANS = Math.PI / 2
+const ENTITY_PREVIEW_WALK_AMOUNT = 0.65
+const ENTITY_PREVIEW_ATTACK_PROGRESS = 0.25
+const ENTITY_PREVIEW_BOAT_X = 0
+const ENTITY_PREVIEW_HORSE_X = 5
+const ENTITY_PREVIEW_TNT_X = 17
+const ENTITY_PREVIEW_VILLAGER_X = 11
+const NO_ENTITY_PROGRESS = 0
+const NO_ENTITY_ROTATION = 0
+const ENTITY_PREVIEW_MODELS = [
+  { kind: 'boat', x: ENTITY_PREVIEW_BOAT_X },
+  { kind: 'horse', x: ENTITY_PREVIEW_HORSE_X },
+  { kind: 'villager', x: ENTITY_PREVIEW_VILLAGER_X },
+  { kind: 'tnt', x: ENTITY_PREVIEW_TNT_X },
+] as const
 const STARS_PREVIEW_CAMERA_PITCH = 1.2
 const SKY_PREVIEW_CAMERA_HEIGHT = 188
 const PRESENTATION_TARGET = {
@@ -156,6 +183,52 @@ const skyBytes = (): readonly [number, number, number] => [
   (SKY_CLEAR_COLOR >> 8) & 0xff,
   SKY_CLEAR_COLOR & 0xff,
 ]
+
+const entityPreviewEntity = (id: string, kind: string, x: number) => ({
+  attackProgress: ENTITY_PREVIEW_ATTACK_PROGRESS,
+  blockLight: ENTITY_PREVIEW_BLOCK_LIGHT,
+  bodyYawRadians: NO_ENTITY_ROTATION,
+  deathProgress: NO_ENTITY_PROGRESS,
+  headYawRadians: NO_ENTITY_ROTATION,
+  hurtProgress: NO_ENTITY_PROGRESS,
+  id,
+  kind,
+  pitchRadians: NO_ENTITY_ROTATION,
+  position: { dimension: 'overworld', x, y: ENTITY_PREVIEW_HEIGHT, z: ENTITY_PREVIEW_DEPTH },
+  skyLight: ENTITY_PREVIEW_SKY_LIGHT,
+  walkAmount: ENTITY_PREVIEW_WALK_AMOUNT,
+  walkPhaseRadians: ENTITY_PREVIEW_WALK_PHASE_RADIANS,
+})
+
+const ENTITY_PREVIEW_FRAME = {
+  entities: ENTITY_PREVIEW_MODELS.map(({ kind, x }) => entityPreviewEntity(`preview-${kind}`, kind, x)),
+  partialTick: ENTITY_PREVIEW_PARTIAL_TICK,
+  simulationTick: ENTITY_PREVIEW_SIMULATION_TICK,
+  timeOfDayTicks: ENTITY_PREVIEW_TIME_OF_DAY_TICKS,
+}
+
+type EntityPreviewRenderer = Pick<
+  WorldRenderer,
+  'entityCount' | 'entityModelDiagnostics' | 'syncEntityFrame'
+>
+
+const drawEntityPreview = async (renderer: EntityPreviewRenderer, report: HTMLElement): Promise<boolean> => {
+  await Effect.runPromise(renderer.syncEntityFrame(ENTITY_PREVIEW_FRAME))
+  const { count, diagnostics } = await Effect.runPromise(Effect.all({
+    count: renderer.entityCount,
+    diagnostics: renderer.entityModelDiagnostics,
+  }))
+  const rendered = count === ENTITY_PREVIEW_MODELS.length && diagnostics.length === 0
+  document.body.setAttribute('data-render-entities', rendered ? 'drawn' : 'failed')
+  document.body.setAttribute('data-entity-count', String(count))
+  document.body.setAttribute('data-entity-kinds', ENTITY_PREVIEW_MODELS.map(({ kind }) => kind).join(','))
+  if (!rendered) {
+    document.body.setAttribute('data-render-preview', 'failed')
+    report.textContent = JSON.stringify({ count, diagnostics })
+    return false
+  }
+  return true
+}
 
 type PresentationAttachmentPort = {
   readonly attachSceneObject: (object: PresentationObject3D) => Effect.Effect<void>
@@ -301,6 +374,7 @@ const createPreviewPresentation = async (
 }
 
 const main = async (): Promise<void> => {
+  const entityPreview = new URLSearchParams(window.location.search).get('entities') === '1'
   const canvas = document.getElementById('preview-canvas')
   const report = document.getElementById('preview-report')
   if (!(canvas instanceof HTMLCanvasElement) || report === null) {
@@ -344,6 +418,14 @@ const main = async (): Promise<void> => {
     return
   }
   const presentation = presentationSetupResult.success
+  const previewPose = entityPreview
+    ? {
+        ...presentation.startPose,
+        pitch: PRESENTATION_CAMERA_PITCH,
+        y: START_POSE.y,
+        z: PRESENTATION_CAMERA_Z,
+      }
+    : presentation.startPose
 
   // REAL GENERATED TERRAIN, loaded as data. See this file's header on why it
   // arrives as JSON rather than as a call into mc-worldgen.
@@ -424,14 +506,17 @@ const main = async (): Promise<void> => {
 
   // The first load, around the start pose, before anything is measured.
   await Effect.runPromise(
-    syncWorld(renderer, streamingSource(presentation.startPose), fixtureMesher, { tile: resolveFixtureTile }),
+    syncWorld(renderer, streamingSource(previewPose), fixtureMesher, { tile: resolveFixtureTile }),
   )
-  const initialPresentation = presentation.update(presentation.startPose, 0)
+  const initialPresentation = presentation.update(previewPose, 0)
   if (Result.isFailure(initialPresentation)) {
     document.body.setAttribute('data-render-presentation', 'failed')
     throw new Error('render presentation preview received an invalid fixture frame')
   }
-  await Effect.runPromise(renderer.draw(cameraFrom(presentation.startPose, initialPresentation.success)))
+  if (entityPreview && !(await drawEntityPreview(renderer, report))) {
+    return
+  }
+  await Effect.runPromise(renderer.draw(cameraFrom(previewPose, initialPresentation.success)))
   if (presentation.enabled) {
     document.body.setAttribute('data-render-presentation', 'drawn')
   }
@@ -468,6 +553,10 @@ const main = async (): Promise<void> => {
     `streaming radius ${String(STREAM_RADIUS_CHUNKS)}; loaded now: ${String(loaded.size)}`,
     `pixels drawn: ${String(drawn)} of ${String(VIEWPORT.width * VIEWPORT.height)}`,
     `distinct resolved atlas tiles: ${String(resolvedTileIndices.size)}`,
+    ...(entityPreview ? [
+      `entity models: ${ENTITY_PREVIEW_MODELS.map(({ kind }) => kind).join(', ')}`,
+      `entity meshes: ${String(ENTITY_PREVIEW_MODELS.length)}`,
+    ] : []),
   ].join('\n')
 
   document.body.setAttribute('data-render-preview', drawn > 0 ? 'drawn' : 'empty')
@@ -507,7 +596,7 @@ const main = async (): Promise<void> => {
     })
   })
 
-  const pose = { ...presentation.startPose }
+  const pose = { ...previewPose }
   let previous = 0
   let frames = 0
   let streamed = 0

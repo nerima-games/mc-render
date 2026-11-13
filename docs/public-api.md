@@ -1213,6 +1213,75 @@ yield* renderer.syncEntityFrame({
 `decodeEntityRenderFrameInput`、`decodeEntityRenderEntityInput`、`sampleEntityRenderFrame`、
 `EntityRenderFrameInput`、`EntityRenderEntityInput`、`SampledEntityRenderFrame` をexportする。
 
+### 3.7 エンティティモデルと未対応 kind
+
+ホストは各エンティティの `kind` を `syncEntityFrame` の `entities` に渡すか、
+renderer DTO の `kind` として `syncEntities` に渡す。モデルカタログはその値を
+`EntityModelKindSchema` で空でない文字列かを検証し、`resolveEntityModel` が登録の有無を判定する。
+`ENTITY_MODEL_CATALOG`、`ENTITY_MODEL_KINDS`、`UNSUPPORTED_ENTITY_MODEL_KINDS`、
+`EntityModelKindSchema`、`decodeEntityModelKind`、`entityModelForKind`、`resolveEntityModel`、
+`EntityModelResolutionIssueSchema` はパッケージrootからimportできる。
+関連型として `EntityModelKind`、`EntityModelDescriptor`、
+`EntityModelPartDescriptor`、`EntityModelPartIdentifier`、`EntityModelPartRole`、
+`EntityModelColor`、`EntityModelVector`、`UnsupportedEntityModel`、`InvalidEntityModelKind`、
+`EntityModelResolutionIssue`、`WorldRendererEntityModelDiagnostic` をrootからimportできる。
+
+```ts
+ENTITY_MODEL_CATALOG: ReadonlyArray<EntityModelDescriptor>
+ENTITY_MODEL_KINDS: ReadonlyArray<EntityModelKind>
+UNSUPPORTED_ENTITY_MODEL_KINDS: ReadonlyArray<EntityModelKind> // 現在は空
+resolveEntityModel(input: unknown): Result.Result<EntityModelDescriptor, EntityModelResolutionIssue>
+WorldRenderer.entityModelDiagnostics: Effect.Effect<ReadonlyArray<WorldRendererEntityModelDiagnostic>>
+```
+
+カタログは現行 `mc-kernel` の128種類すべてを収録し、`UNSUPPORTED_ENTITY_MODEL_KINDS` は空である。
+各種類にはパーツを持つ個別モデルがあり、形状・配置・部位・配色の署名は種類ごとに異なる。
+歩行位相と量は脚・腕・翼・尾の対応するパーツを動かし、攻撃は腕、被ダメージと死亡はモデルの傾きに反映する。
+
+`WorldRenderer.entityModelDiagnostics` は直近の同期処理でモデルを解決できなかったエンティティを、
+`{ entityId, issue }` の配列で返す。`issue` は `UnsupportedEntityModel` または
+`InvalidEntityModelKind` である。未知の非空 `kind` は `UnsupportedEntityModel` として記録し、
+そのエンティティを描画しない。空の `kind` は `syncEntityFrame` では入力Schemaの失敗となり、
+低水準の `syncEntities` では `InvalidEntityModelKind` として記録する。未対応モデルを既定モデルで代用しない。
+`category: 'item'` の値は既存のアイテム描画経路で処理する。
+
+モデルの元データは `scripts/entity-models/source/` にあり、
+`scripts/entity-models/generate.ts` が8グループのJSON記述子を
+`src/domain/entity-models/generated/` に生成する。`--check` は既存の8ファイルとマニフェストが
+元データから再生成した内容と一致するかを検証する。`assets/entity-models/manifest.json` は
+生成元と出力の対応、CC0-1.0ライセンス、独自の直方体形状と単色パレットであり
+外部のモデル・テクスチャ・ゲームアートを使っていない来歴を記録する。
+
+開発時は次のコマンドで生成し、`--check` を付けると出力の一致を確認できる。
+
+```sh
+pnpm exec tsx scripts/entity-models/generate.ts
+pnpm exec tsx scripts/entity-models/generate.ts --check
+```
+
+### 3.8 `syncEntities` の入力検証
+
+`syncEntities(entities)` はrenderer DTOの配列を `RenderEntitySchema` で実行時検証し、
+`Effect.Effect<void, Schema.SchemaError>` を返す。DTOや `animation`、`witherState`、
+`witherSkullProjectile` に定義のないキーを含めると失敗する。不正な入力はメッシュの照合前に
+`Schema.SchemaError` となり、その呼び出しではエンティティとモデル診断を更新しない。
+
+`id` は空でない文字列、`feetPosition` と Wither・projectileの位置や方向ベクトルは有限値である。
+体yaw、頭yaw、`facingRadians` はラジアン `[-π, π]`、pitchは `[-π/2, π/2]` に収める。
+アニメーションの位相は `[0, 2π)`、`progress`、歩行量、攻撃・被ダメージ・死亡の進行度は `[0, 1]` である。
+Witherのチャージ残り時間と体力、projectileの爆発力と速度は、有限かつ0以上でなければならない。
+
+ブロック光と天空光は両方とも省略するか、両方を指定する。指定値はそれぞれ整数 `[0, 15]` であり、
+両方省略した場合は全輝度で描画する。体yawがなければ旧形式の `facingRadians` を使い、両方なければ0とする。
+頭yawの省略時は体の向き、pitchの省略時は0を使う。`animation` を省略すると静止状態になる。
+指定する場合は `state` が必須で、位相は0、歩行量は `state: 'walk'` のとき1、それ以外は0を既定値とする。
+攻撃進行度は0、`progress` は `hurt` または `death` の状態なら1、それ以外なら0を既定値とし、
+明示した被ダメージ・死亡の進行度は `progress` より優先する。
+
+`kind: 'wither'` の `witherState` を省略すると、チャージ残り時間0、体力300、状態 `airborne`、
+エンティティ位置と向きから求めた速度を使う。`kind: 'wither_skull'` の `witherSkullProjectile` を省略すると、
+通常型、爆発力と速度0、耐性ブロック破壊なし、エンティティ位置と向きから求めた起点・方向を使う。
+
 ## 4. マテリアル方針
 
 ```typescript

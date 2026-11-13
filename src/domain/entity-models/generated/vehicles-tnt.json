@@ -1,0 +1,2412 @@
+[
+  {
+    "kind": "boat",
+    "parts": [
+      {
+        "id": "hull-floor",
+        "role": "hull-floor",
+        "size": {
+          "x": 0.88,
+          "y": 0.14,
+          "z": 1.55
+        },
+        "center": {
+          "x": 0,
+          "y": 0.16,
+          "z": 0
+        },
+        "color": {
+          "red": 91,
+          "green": 58,
+          "blue": 34
+        },
+        "rotation": null
+      },
+      {
+        "id": "left-hull",
+        "role": "hull-side",
+        "size": {
+          "x": 0.14,
+          "y": 0.3,
+          "z": 1.8
+        },
+        "center": {
+          "x": -0.48,
+          "y": 0.31,
+          "z": 0
+        },
+        "color": {
+          "red": 132,
+          "green": 89,
+          "blue": 48
+        },
+        "rotation": null
+      },
+      {
+        "id": "right-hull",
+        "role": "hull-side",
+        "size": {
+          "x": 0.14,
+          "y": 0.3,
+          "z": 1.8
+        },
+        "center": {
+          "x": 0.48,
+          "y": 0.31,
+          "z": 0
+        },
+        "color": {
+          "red": 132,
+          "green": 89,
+          "blue": 48
+        },
+        "rotation": null
+      },
+      {
+        "id": "bow",
+        "role": "hull-end",
+        "size": {
+          "x": 0.86,
+          "y": 0.28,
+          "z": 0.14
+        },
+        "center": {
+          "x": 0,
+          "y": 0.29,
+          "z": -0.84
+        },
+        "color": {
+          "red": 164,
+          "green": 116,
+          "blue": 68
+        },
+        "rotation": null
+      },
+      {
+        "id": "stern",
+        "role": "hull-end",
+        "size": {
+          "x": 0.86,
+          "y": 0.28,
+          "z": 0.14
+        },
+        "center": {
+          "x": 0,
+          "y": 0.29,
+          "z": 0.84
+        },
+        "color": {
+          "red": 132,
+          "green": 89,
+          "blue": 48
+        },
+        "rotation": null
+      },
+      {
+        "id": "left-oar",
+        "role": "oar",
+        "size": {
+          "x": 0.1,
+          "y": 0.08,
+          "z": 0.88
+        },
+        "center": {
+          "x": -0.83,
+          "y": 0.48,
+          "z": -0.04
+        },
+        "color": {
+          "red": 164,
+          "green": 116,
+          "blue": 68
+        },
+        "rotation": null
+      },
+      {
+        "id": "right-oar",
+        "role": "oar",
+        "size": {
+          "x": 0.1,
+          "y": 0.08,
+          "z": 0.88
+        },
+        "center": {
+          "x": 0.83,
+          "y": 0.48,
+          "z": 0.04
+        },
+        "color": {
+          "red": 164,
+          "green": 116,
+          "blue": 68
+        },
+        "rotation": null
+      }
+    ]
+  },
+  {
+    "kind": "chest_boat",
+    "parts": [
+      {
+        "id": "hull-floor",
+        "role": "hull-floor",
+        "size": {
+          "x": 0.88,
+          "y": 0.14,
+          "z": 1.55
+        },
+        "center": {
+          "x": 0,
+          "y": 0.16,
+          "z": 0
+        },
+        "color": {
+          "red": 91,
+          "green": 58,
+          "blue": 34
+        },
+        "rotation": null
+      },
+      {
+        "id": "left-hull",
+        "role": "hull-side",
+        "size": {
+          "x": 0.14,
+          "y": 0.3,
+          "z": 1.8
+        },
+        "center": {
+          "x": -0.48,
+          "y": 0.31,
+          "z": 0
+        },
+        "color": {
+          "red": 132,
+          "green": 89,
+          "blue": 48
+        },
+        "rotation": null
+      },
+      {
+        "id": "right-hull",
+        "role": "hull-side",
+        "size": {
+          "x": 0.14,
+          "y": 0.3,
+          "z": 1.8
+        },
+        "center": {
+          "x": 0.48,
+          "y": 0.31,
+          "z": 0
+        },
+        "color": {
+          "red": 132,
+          "green": 89,
+          "blue": 48
+        },
+        "rotation": null
+      },
+      {
+        "id": "bow",
+        "role": "hull-end",
+        "size": {
+          "x": 0.86,
+          "y": 0.28,
+          "z": 0.14
+        },
+        "center": {
+          "x": 0,
+          "y": 0.29,
+          "z": -0.84
+        },
+        "color": {
+          "red": 164,
+          "green": 116,
+          "blue": 68
+        },
+        "rotation": null
+      },
+      {
+        "id": "stern",
+        "role": "hull-end",
+        "size": {
+          "x": 0.86,
+          "y": 0.28,
+          "z": 0.14
+        },
+        "center": {
+          "x": 0,
+          "y": 0.29,
+          "z": 0.84
+        },
+        "color": {
+          "red": 132,
+          "green": 89,
+          "blue": 48
+        },
+        "rotation": null
+      },
+      {
+        "id": "boat-cargo-body",
+        "role": "chest",
+        "size": {
+          "x": 0.62,
+          "y": 0.48,
+          "z": 0.64
+        },
+        "center": {
+          "x": 0,
+          "y": 0.66,
+          "z": 0
+        },
+        "color": {
+          "red": 132,
+          "green": 89,
+          "blue": 48
+        },
+        "rotation": null
+      },
+      {
+        "id": "boat-cargo-lid",
+        "role": "chest-lid",
+        "size": {
+          "x": 0.66,
+          "y": 0.12,
+          "z": 0.68
+        },
+        "center": {
+          "x": 0,
+          "y": 0.96,
+          "z": 0
+        },
+        "color": {
+          "red": 164,
+          "green": 116,
+          "blue": 68
+        },
+        "rotation": null
+      },
+      {
+        "id": "boat-cargo-latch",
+        "role": "chest-latch",
+        "size": {
+          "x": 0.12,
+          "y": 0.18,
+          "z": 0.045
+        },
+        "center": {
+          "x": 0,
+          "y": 0.78,
+          "z": -0.345
+        },
+        "color": {
+          "red": 210,
+          "green": 157,
+          "blue": 52
+        },
+        "rotation": null
+      },
+      {
+        "id": "left-oar",
+        "role": "oar",
+        "size": {
+          "x": 0.1,
+          "y": 0.08,
+          "z": 0.88
+        },
+        "center": {
+          "x": -0.83,
+          "y": 0.48,
+          "z": -0.04
+        },
+        "color": {
+          "red": 164,
+          "green": 116,
+          "blue": 68
+        },
+        "rotation": null
+      },
+      {
+        "id": "right-oar",
+        "role": "oar",
+        "size": {
+          "x": 0.1,
+          "y": 0.08,
+          "z": 0.88
+        },
+        "center": {
+          "x": 0.83,
+          "y": 0.48,
+          "z": 0.04
+        },
+        "color": {
+          "red": 164,
+          "green": 116,
+          "blue": 68
+        },
+        "rotation": null
+      }
+    ]
+  },
+  {
+    "kind": "chest_minecart",
+    "parts": [
+      {
+        "id": "cart-floor",
+        "role": "cart-floor",
+        "size": {
+          "x": 0.92,
+          "y": 0.14,
+          "z": 1.12
+        },
+        "center": {
+          "x": 0,
+          "y": 0.52,
+          "z": 0
+        },
+        "color": {
+          "red": 113,
+          "green": 119,
+          "blue": 125
+        },
+        "rotation": null
+      },
+      {
+        "id": "left-bucket-wall",
+        "role": "cart-wall",
+        "size": {
+          "x": 0.12,
+          "y": 0.42,
+          "z": 1.06
+        },
+        "center": {
+          "x": -0.48,
+          "y": 0.77,
+          "z": 0
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "right-bucket-wall",
+        "role": "cart-wall",
+        "size": {
+          "x": 0.12,
+          "y": 0.42,
+          "z": 1.06
+        },
+        "center": {
+          "x": 0.48,
+          "y": 0.77,
+          "z": 0
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "front-bucket-wall",
+        "role": "cart-wall",
+        "size": {
+          "x": 0.84,
+          "y": 0.42,
+          "z": 0.12
+        },
+        "center": {
+          "x": 0,
+          "y": 0.77,
+          "z": -0.5
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "back-bucket-wall",
+        "role": "cart-wall",
+        "size": {
+          "x": 0.84,
+          "y": 0.42,
+          "z": 0.12
+        },
+        "center": {
+          "x": 0,
+          "y": 0.77,
+          "z": 0.5
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "left-front-wheel",
+        "role": "wheel",
+        "size": {
+          "x": 0.16,
+          "y": 0.36,
+          "z": 0.36
+        },
+        "center": {
+          "x": -0.55,
+          "y": 0.23,
+          "z": -0.34
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "left-back-wheel",
+        "role": "wheel",
+        "size": {
+          "x": 0.16,
+          "y": 0.36,
+          "z": 0.36
+        },
+        "center": {
+          "x": -0.55,
+          "y": 0.23,
+          "z": 0.34
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "right-front-wheel",
+        "role": "wheel",
+        "size": {
+          "x": 0.16,
+          "y": 0.36,
+          "z": 0.36
+        },
+        "center": {
+          "x": 0.55,
+          "y": 0.23,
+          "z": -0.34
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "right-back-wheel",
+        "role": "wheel",
+        "size": {
+          "x": 0.16,
+          "y": 0.36,
+          "z": 0.36
+        },
+        "center": {
+          "x": 0.55,
+          "y": 0.23,
+          "z": 0.34
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "cart-cargo-body",
+        "role": "chest",
+        "size": {
+          "x": 0.62,
+          "y": 0.48,
+          "z": 0.64
+        },
+        "center": {
+          "x": 0,
+          "y": 1.04,
+          "z": 0
+        },
+        "color": {
+          "red": 132,
+          "green": 89,
+          "blue": 48
+        },
+        "rotation": null
+      },
+      {
+        "id": "cart-cargo-lid",
+        "role": "chest-lid",
+        "size": {
+          "x": 0.66,
+          "y": 0.12,
+          "z": 0.68
+        },
+        "center": {
+          "x": 0,
+          "y": 1.34,
+          "z": 0
+        },
+        "color": {
+          "red": 164,
+          "green": 116,
+          "blue": 68
+        },
+        "rotation": null
+      },
+      {
+        "id": "cart-cargo-latch",
+        "role": "chest-latch",
+        "size": {
+          "x": 0.12,
+          "y": 0.18,
+          "z": 0.045
+        },
+        "center": {
+          "x": 0,
+          "y": 1.1600000000000001,
+          "z": -0.345
+        },
+        "color": {
+          "red": 210,
+          "green": 157,
+          "blue": 52
+        },
+        "rotation": null
+      }
+    ]
+  },
+  {
+    "kind": "command_block_minecart",
+    "parts": [
+      {
+        "id": "cart-floor",
+        "role": "cart-floor",
+        "size": {
+          "x": 0.92,
+          "y": 0.14,
+          "z": 1.12
+        },
+        "center": {
+          "x": 0,
+          "y": 0.52,
+          "z": 0
+        },
+        "color": {
+          "red": 113,
+          "green": 119,
+          "blue": 125
+        },
+        "rotation": null
+      },
+      {
+        "id": "left-bucket-wall",
+        "role": "cart-wall",
+        "size": {
+          "x": 0.12,
+          "y": 0.42,
+          "z": 1.06
+        },
+        "center": {
+          "x": -0.48,
+          "y": 0.77,
+          "z": 0
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "right-bucket-wall",
+        "role": "cart-wall",
+        "size": {
+          "x": 0.12,
+          "y": 0.42,
+          "z": 1.06
+        },
+        "center": {
+          "x": 0.48,
+          "y": 0.77,
+          "z": 0
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "front-bucket-wall",
+        "role": "cart-wall",
+        "size": {
+          "x": 0.84,
+          "y": 0.42,
+          "z": 0.12
+        },
+        "center": {
+          "x": 0,
+          "y": 0.77,
+          "z": -0.5
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "back-bucket-wall",
+        "role": "cart-wall",
+        "size": {
+          "x": 0.84,
+          "y": 0.42,
+          "z": 0.12
+        },
+        "center": {
+          "x": 0,
+          "y": 0.77,
+          "z": 0.5
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "left-front-wheel",
+        "role": "wheel",
+        "size": {
+          "x": 0.16,
+          "y": 0.36,
+          "z": 0.36
+        },
+        "center": {
+          "x": -0.55,
+          "y": 0.23,
+          "z": -0.34
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "left-back-wheel",
+        "role": "wheel",
+        "size": {
+          "x": 0.16,
+          "y": 0.36,
+          "z": 0.36
+        },
+        "center": {
+          "x": -0.55,
+          "y": 0.23,
+          "z": 0.34
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "right-front-wheel",
+        "role": "wheel",
+        "size": {
+          "x": 0.16,
+          "y": 0.36,
+          "z": 0.36
+        },
+        "center": {
+          "x": 0.55,
+          "y": 0.23,
+          "z": -0.34
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "right-back-wheel",
+        "role": "wheel",
+        "size": {
+          "x": 0.16,
+          "y": 0.36,
+          "z": 0.36
+        },
+        "center": {
+          "x": 0.55,
+          "y": 0.23,
+          "z": 0.34
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "command-block",
+        "role": "command-block",
+        "size": {
+          "x": 0.72,
+          "y": 0.68,
+          "z": 0.72
+        },
+        "center": {
+          "x": 0,
+          "y": 1.09,
+          "z": 0
+        },
+        "color": {
+          "red": 128,
+          "green": 91,
+          "blue": 150
+        },
+        "rotation": null
+      },
+      {
+        "id": "command-screen",
+        "role": "command-face",
+        "size": {
+          "x": 0.48,
+          "y": 0.4,
+          "z": 0.045
+        },
+        "center": {
+          "x": 0,
+          "y": 1.1,
+          "z": -0.382
+        },
+        "color": {
+          "red": 101,
+          "green": 147,
+          "blue": 80
+        },
+        "rotation": null
+      },
+      {
+        "id": "command-glyph",
+        "role": "command-glyph",
+        "size": {
+          "x": 0.25,
+          "y": 0.07,
+          "z": 0.035
+        },
+        "center": {
+          "x": 0,
+          "y": 1.1,
+          "z": -0.408
+        },
+        "color": {
+          "red": 210,
+          "green": 157,
+          "blue": 52
+        },
+        "rotation": null
+      },
+      {
+        "id": "command-side-panel",
+        "role": "command-panel",
+        "size": {
+          "x": 0.045,
+          "y": 0.35,
+          "z": 0.42
+        },
+        "center": {
+          "x": -0.382,
+          "y": 1.09,
+          "z": 0
+        },
+        "color": {
+          "red": 101,
+          "green": 147,
+          "blue": 80
+        },
+        "rotation": null
+      }
+    ]
+  },
+  {
+    "kind": "furnace_minecart",
+    "parts": [
+      {
+        "id": "cart-floor",
+        "role": "cart-floor",
+        "size": {
+          "x": 0.92,
+          "y": 0.14,
+          "z": 1.12
+        },
+        "center": {
+          "x": 0,
+          "y": 0.52,
+          "z": 0
+        },
+        "color": {
+          "red": 113,
+          "green": 119,
+          "blue": 125
+        },
+        "rotation": null
+      },
+      {
+        "id": "left-bucket-wall",
+        "role": "cart-wall",
+        "size": {
+          "x": 0.12,
+          "y": 0.42,
+          "z": 1.06
+        },
+        "center": {
+          "x": -0.48,
+          "y": 0.77,
+          "z": 0
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "right-bucket-wall",
+        "role": "cart-wall",
+        "size": {
+          "x": 0.12,
+          "y": 0.42,
+          "z": 1.06
+        },
+        "center": {
+          "x": 0.48,
+          "y": 0.77,
+          "z": 0
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "front-bucket-wall",
+        "role": "cart-wall",
+        "size": {
+          "x": 0.84,
+          "y": 0.42,
+          "z": 0.12
+        },
+        "center": {
+          "x": 0,
+          "y": 0.77,
+          "z": -0.5
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "back-bucket-wall",
+        "role": "cart-wall",
+        "size": {
+          "x": 0.84,
+          "y": 0.42,
+          "z": 0.12
+        },
+        "center": {
+          "x": 0,
+          "y": 0.77,
+          "z": 0.5
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "left-front-wheel",
+        "role": "wheel",
+        "size": {
+          "x": 0.16,
+          "y": 0.36,
+          "z": 0.36
+        },
+        "center": {
+          "x": -0.55,
+          "y": 0.23,
+          "z": -0.34
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "left-back-wheel",
+        "role": "wheel",
+        "size": {
+          "x": 0.16,
+          "y": 0.36,
+          "z": 0.36
+        },
+        "center": {
+          "x": -0.55,
+          "y": 0.23,
+          "z": 0.34
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "right-front-wheel",
+        "role": "wheel",
+        "size": {
+          "x": 0.16,
+          "y": 0.36,
+          "z": 0.36
+        },
+        "center": {
+          "x": 0.55,
+          "y": 0.23,
+          "z": -0.34
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "right-back-wheel",
+        "role": "wheel",
+        "size": {
+          "x": 0.16,
+          "y": 0.36,
+          "z": 0.36
+        },
+        "center": {
+          "x": 0.55,
+          "y": 0.23,
+          "z": 0.34
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "furnace-body",
+        "role": "furnace-block",
+        "size": {
+          "x": 0.74,
+          "y": 0.68,
+          "z": 0.74
+        },
+        "center": {
+          "x": 0,
+          "y": 1.08,
+          "z": 0
+        },
+        "color": {
+          "red": 91,
+          "green": 91,
+          "blue": 94
+        },
+        "rotation": null
+      },
+      {
+        "id": "furnace-mouth",
+        "role": "furnace-mouth",
+        "size": {
+          "x": 0.4,
+          "y": 0.34,
+          "z": 0.045
+        },
+        "center": {
+          "x": 0,
+          "y": 1.04,
+          "z": -0.392
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "furnace-fire",
+        "role": "furnace-fire",
+        "size": {
+          "x": 0.22,
+          "y": 0.17,
+          "z": 0.035
+        },
+        "center": {
+          "x": 0,
+          "y": 0.97,
+          "z": -0.42
+        },
+        "color": {
+          "red": 231,
+          "green": 105,
+          "blue": 35
+        },
+        "rotation": null
+      },
+      {
+        "id": "furnace-top-vent",
+        "role": "furnace-vent",
+        "size": {
+          "x": 0.26,
+          "y": 0.045,
+          "z": 0.22
+        },
+        "center": {
+          "x": 0,
+          "y": 1.44,
+          "z": 0
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      }
+    ]
+  },
+  {
+    "kind": "hopper_minecart",
+    "parts": [
+      {
+        "id": "cart-floor",
+        "role": "cart-floor",
+        "size": {
+          "x": 0.92,
+          "y": 0.14,
+          "z": 1.12
+        },
+        "center": {
+          "x": 0,
+          "y": 0.52,
+          "z": 0
+        },
+        "color": {
+          "red": 113,
+          "green": 119,
+          "blue": 125
+        },
+        "rotation": null
+      },
+      {
+        "id": "left-bucket-wall",
+        "role": "cart-wall",
+        "size": {
+          "x": 0.12,
+          "y": 0.42,
+          "z": 1.06
+        },
+        "center": {
+          "x": -0.48,
+          "y": 0.77,
+          "z": 0
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "right-bucket-wall",
+        "role": "cart-wall",
+        "size": {
+          "x": 0.12,
+          "y": 0.42,
+          "z": 1.06
+        },
+        "center": {
+          "x": 0.48,
+          "y": 0.77,
+          "z": 0
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "front-bucket-wall",
+        "role": "cart-wall",
+        "size": {
+          "x": 0.84,
+          "y": 0.42,
+          "z": 0.12
+        },
+        "center": {
+          "x": 0,
+          "y": 0.77,
+          "z": -0.5
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "back-bucket-wall",
+        "role": "cart-wall",
+        "size": {
+          "x": 0.84,
+          "y": 0.42,
+          "z": 0.12
+        },
+        "center": {
+          "x": 0,
+          "y": 0.77,
+          "z": 0.5
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "left-front-wheel",
+        "role": "wheel",
+        "size": {
+          "x": 0.16,
+          "y": 0.36,
+          "z": 0.36
+        },
+        "center": {
+          "x": -0.55,
+          "y": 0.23,
+          "z": -0.34
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "left-back-wheel",
+        "role": "wheel",
+        "size": {
+          "x": 0.16,
+          "y": 0.36,
+          "z": 0.36
+        },
+        "center": {
+          "x": -0.55,
+          "y": 0.23,
+          "z": 0.34
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "right-front-wheel",
+        "role": "wheel",
+        "size": {
+          "x": 0.16,
+          "y": 0.36,
+          "z": 0.36
+        },
+        "center": {
+          "x": 0.55,
+          "y": 0.23,
+          "z": -0.34
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "right-back-wheel",
+        "role": "wheel",
+        "size": {
+          "x": 0.16,
+          "y": 0.36,
+          "z": 0.36
+        },
+        "center": {
+          "x": 0.55,
+          "y": 0.23,
+          "z": 0.34
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "hopper-front-rim",
+        "role": "hopper-rim",
+        "size": {
+          "x": 0.82,
+          "y": 0.12,
+          "z": 0.15
+        },
+        "center": {
+          "x": 0,
+          "y": 1.16,
+          "z": -0.34
+        },
+        "color": {
+          "red": 74,
+          "green": 78,
+          "blue": 82
+        },
+        "rotation": null
+      },
+      {
+        "id": "hopper-back-rim",
+        "role": "hopper-rim",
+        "size": {
+          "x": 0.82,
+          "y": 0.12,
+          "z": 0.15
+        },
+        "center": {
+          "x": 0,
+          "y": 1.16,
+          "z": 0.34
+        },
+        "color": {
+          "red": 74,
+          "green": 78,
+          "blue": 82
+        },
+        "rotation": null
+      },
+      {
+        "id": "hopper-left-rim",
+        "role": "hopper-rim",
+        "size": {
+          "x": 0.15,
+          "y": 0.12,
+          "z": 0.55
+        },
+        "center": {
+          "x": -0.34,
+          "y": 1.16,
+          "z": 0
+        },
+        "color": {
+          "red": 74,
+          "green": 78,
+          "blue": 82
+        },
+        "rotation": null
+      },
+      {
+        "id": "hopper-right-rim",
+        "role": "hopper-rim",
+        "size": {
+          "x": 0.15,
+          "y": 0.12,
+          "z": 0.55
+        },
+        "center": {
+          "x": 0.34,
+          "y": 1.16,
+          "z": 0
+        },
+        "color": {
+          "red": 74,
+          "green": 78,
+          "blue": 82
+        },
+        "rotation": null
+      },
+      {
+        "id": "hopper-front-slope",
+        "role": "hopper-funnel",
+        "size": {
+          "x": 0.16,
+          "y": 0.48,
+          "z": 0.58
+        },
+        "center": {
+          "x": -0.23,
+          "y": 0.88,
+          "z": 0
+        },
+        "color": {
+          "red": 74,
+          "green": 78,
+          "blue": 82
+        },
+        "rotation": null
+      },
+      {
+        "id": "hopper-back-slope",
+        "role": "hopper-funnel",
+        "size": {
+          "x": 0.16,
+          "y": 0.48,
+          "z": 0.58
+        },
+        "center": {
+          "x": 0.23,
+          "y": 0.88,
+          "z": 0
+        },
+        "color": {
+          "red": 74,
+          "green": 78,
+          "blue": 82
+        },
+        "rotation": null
+      },
+      {
+        "id": "hopper-neck",
+        "role": "hopper-neck",
+        "size": {
+          "x": 0.28,
+          "y": 0.22,
+          "z": 0.28
+        },
+        "center": {
+          "x": 0,
+          "y": 0.52,
+          "z": 0
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      }
+    ]
+  },
+  {
+    "kind": "minecart",
+    "parts": [
+      {
+        "id": "cart-floor",
+        "role": "cart-floor",
+        "size": {
+          "x": 0.92,
+          "y": 0.14,
+          "z": 1.12
+        },
+        "center": {
+          "x": 0,
+          "y": 0.52,
+          "z": 0
+        },
+        "color": {
+          "red": 113,
+          "green": 119,
+          "blue": 125
+        },
+        "rotation": null
+      },
+      {
+        "id": "left-bucket-wall",
+        "role": "cart-wall",
+        "size": {
+          "x": 0.12,
+          "y": 0.42,
+          "z": 1.06
+        },
+        "center": {
+          "x": -0.48,
+          "y": 0.77,
+          "z": 0
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "right-bucket-wall",
+        "role": "cart-wall",
+        "size": {
+          "x": 0.12,
+          "y": 0.42,
+          "z": 1.06
+        },
+        "center": {
+          "x": 0.48,
+          "y": 0.77,
+          "z": 0
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "front-bucket-wall",
+        "role": "cart-wall",
+        "size": {
+          "x": 0.84,
+          "y": 0.42,
+          "z": 0.12
+        },
+        "center": {
+          "x": 0,
+          "y": 0.77,
+          "z": -0.5
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "back-bucket-wall",
+        "role": "cart-wall",
+        "size": {
+          "x": 0.84,
+          "y": 0.42,
+          "z": 0.12
+        },
+        "center": {
+          "x": 0,
+          "y": 0.77,
+          "z": 0.5
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "left-front-wheel",
+        "role": "wheel",
+        "size": {
+          "x": 0.16,
+          "y": 0.36,
+          "z": 0.36
+        },
+        "center": {
+          "x": -0.55,
+          "y": 0.23,
+          "z": -0.34
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "left-back-wheel",
+        "role": "wheel",
+        "size": {
+          "x": 0.16,
+          "y": 0.36,
+          "z": 0.36
+        },
+        "center": {
+          "x": -0.55,
+          "y": 0.23,
+          "z": 0.34
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "right-front-wheel",
+        "role": "wheel",
+        "size": {
+          "x": 0.16,
+          "y": 0.36,
+          "z": 0.36
+        },
+        "center": {
+          "x": 0.55,
+          "y": 0.23,
+          "z": -0.34
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "right-back-wheel",
+        "role": "wheel",
+        "size": {
+          "x": 0.16,
+          "y": 0.36,
+          "z": 0.36
+        },
+        "center": {
+          "x": 0.55,
+          "y": 0.23,
+          "z": 0.34
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      }
+    ]
+  },
+  {
+    "kind": "spawner_minecart",
+    "parts": [
+      {
+        "id": "cart-floor",
+        "role": "cart-floor",
+        "size": {
+          "x": 0.92,
+          "y": 0.14,
+          "z": 1.12
+        },
+        "center": {
+          "x": 0,
+          "y": 0.52,
+          "z": 0
+        },
+        "color": {
+          "red": 113,
+          "green": 119,
+          "blue": 125
+        },
+        "rotation": null
+      },
+      {
+        "id": "left-bucket-wall",
+        "role": "cart-wall",
+        "size": {
+          "x": 0.12,
+          "y": 0.42,
+          "z": 1.06
+        },
+        "center": {
+          "x": -0.48,
+          "y": 0.77,
+          "z": 0
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "right-bucket-wall",
+        "role": "cart-wall",
+        "size": {
+          "x": 0.12,
+          "y": 0.42,
+          "z": 1.06
+        },
+        "center": {
+          "x": 0.48,
+          "y": 0.77,
+          "z": 0
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "front-bucket-wall",
+        "role": "cart-wall",
+        "size": {
+          "x": 0.84,
+          "y": 0.42,
+          "z": 0.12
+        },
+        "center": {
+          "x": 0,
+          "y": 0.77,
+          "z": -0.5
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "back-bucket-wall",
+        "role": "cart-wall",
+        "size": {
+          "x": 0.84,
+          "y": 0.42,
+          "z": 0.12
+        },
+        "center": {
+          "x": 0,
+          "y": 0.77,
+          "z": 0.5
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "left-front-wheel",
+        "role": "wheel",
+        "size": {
+          "x": 0.16,
+          "y": 0.36,
+          "z": 0.36
+        },
+        "center": {
+          "x": -0.55,
+          "y": 0.23,
+          "z": -0.34
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "left-back-wheel",
+        "role": "wheel",
+        "size": {
+          "x": 0.16,
+          "y": 0.36,
+          "z": 0.36
+        },
+        "center": {
+          "x": -0.55,
+          "y": 0.23,
+          "z": 0.34
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "right-front-wheel",
+        "role": "wheel",
+        "size": {
+          "x": 0.16,
+          "y": 0.36,
+          "z": 0.36
+        },
+        "center": {
+          "x": 0.55,
+          "y": 0.23,
+          "z": -0.34
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "right-back-wheel",
+        "role": "wheel",
+        "size": {
+          "x": 0.16,
+          "y": 0.36,
+          "z": 0.36
+        },
+        "center": {
+          "x": 0.55,
+          "y": 0.23,
+          "z": 0.34
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "spawner-top",
+        "role": "spawner-cage-bar",
+        "size": {
+          "x": 0.74,
+          "y": 0.08,
+          "z": 0.74
+        },
+        "center": {
+          "x": 0,
+          "y": 1.47,
+          "z": 0
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "spawner-bottom",
+        "role": "spawner-cage-bar",
+        "size": {
+          "x": 0.74,
+          "y": 0.08,
+          "z": 0.74
+        },
+        "center": {
+          "x": 0,
+          "y": 0.69,
+          "z": 0
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "spawner-left-bar",
+        "role": "spawner-cage-bar",
+        "size": {
+          "x": 0.08,
+          "y": 0.7,
+          "z": 0.08
+        },
+        "center": {
+          "x": -0.33,
+          "y": 1.08,
+          "z": -0.33
+        },
+        "color": {
+          "red": 57,
+          "green": 111,
+          "blue": 133
+        },
+        "rotation": null
+      },
+      {
+        "id": "spawner-right-bar",
+        "role": "spawner-cage-bar",
+        "size": {
+          "x": 0.08,
+          "y": 0.7,
+          "z": 0.08
+        },
+        "center": {
+          "x": 0.33,
+          "y": 1.08,
+          "z": -0.33
+        },
+        "color": {
+          "red": 57,
+          "green": 111,
+          "blue": 133
+        },
+        "rotation": null
+      },
+      {
+        "id": "spawner-back-left-bar",
+        "role": "spawner-cage-bar",
+        "size": {
+          "x": 0.08,
+          "y": 0.7,
+          "z": 0.08
+        },
+        "center": {
+          "x": -0.33,
+          "y": 1.08,
+          "z": 0.33
+        },
+        "color": {
+          "red": 57,
+          "green": 111,
+          "blue": 133
+        },
+        "rotation": null
+      },
+      {
+        "id": "spawner-back-right-bar",
+        "role": "spawner-cage-bar",
+        "size": {
+          "x": 0.08,
+          "y": 0.7,
+          "z": 0.08
+        },
+        "center": {
+          "x": 0.33,
+          "y": 1.08,
+          "z": 0.33
+        },
+        "color": {
+          "red": 57,
+          "green": 111,
+          "blue": 133
+        },
+        "rotation": null
+      },
+      {
+        "id": "spawner-core",
+        "role": "spawner-core",
+        "size": {
+          "x": 0.3,
+          "y": 0.3,
+          "z": 0.3
+        },
+        "center": {
+          "x": 0,
+          "y": 1.08,
+          "z": 0
+        },
+        "color": {
+          "red": 112,
+          "green": 170,
+          "blue": 118
+        },
+        "rotation": null
+      },
+      {
+        "id": "spawner-flame",
+        "role": "spawner-flame",
+        "size": {
+          "x": 0.15,
+          "y": 0.12,
+          "z": 0.045
+        },
+        "center": {
+          "x": 0,
+          "y": 1.08,
+          "z": -0.18
+        },
+        "color": {
+          "red": 231,
+          "green": 105,
+          "blue": 35
+        },
+        "rotation": null
+      }
+    ]
+  },
+  {
+    "kind": "tnt_minecart",
+    "parts": [
+      {
+        "id": "cart-floor",
+        "role": "cart-floor",
+        "size": {
+          "x": 0.92,
+          "y": 0.14,
+          "z": 1.12
+        },
+        "center": {
+          "x": 0,
+          "y": 0.52,
+          "z": 0
+        },
+        "color": {
+          "red": 113,
+          "green": 119,
+          "blue": 125
+        },
+        "rotation": null
+      },
+      {
+        "id": "left-bucket-wall",
+        "role": "cart-wall",
+        "size": {
+          "x": 0.12,
+          "y": 0.42,
+          "z": 1.06
+        },
+        "center": {
+          "x": -0.48,
+          "y": 0.77,
+          "z": 0
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "right-bucket-wall",
+        "role": "cart-wall",
+        "size": {
+          "x": 0.12,
+          "y": 0.42,
+          "z": 1.06
+        },
+        "center": {
+          "x": 0.48,
+          "y": 0.77,
+          "z": 0
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "front-bucket-wall",
+        "role": "cart-wall",
+        "size": {
+          "x": 0.84,
+          "y": 0.42,
+          "z": 0.12
+        },
+        "center": {
+          "x": 0,
+          "y": 0.77,
+          "z": -0.5
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "back-bucket-wall",
+        "role": "cart-wall",
+        "size": {
+          "x": 0.84,
+          "y": 0.42,
+          "z": 0.12
+        },
+        "center": {
+          "x": 0,
+          "y": 0.77,
+          "z": 0.5
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "left-front-wheel",
+        "role": "wheel",
+        "size": {
+          "x": 0.16,
+          "y": 0.36,
+          "z": 0.36
+        },
+        "center": {
+          "x": -0.55,
+          "y": 0.23,
+          "z": -0.34
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "left-back-wheel",
+        "role": "wheel",
+        "size": {
+          "x": 0.16,
+          "y": 0.36,
+          "z": 0.36
+        },
+        "center": {
+          "x": -0.55,
+          "y": 0.23,
+          "z": 0.34
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "right-front-wheel",
+        "role": "wheel",
+        "size": {
+          "x": 0.16,
+          "y": 0.36,
+          "z": 0.36
+        },
+        "center": {
+          "x": 0.55,
+          "y": 0.23,
+          "z": -0.34
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "right-back-wheel",
+        "role": "wheel",
+        "size": {
+          "x": 0.16,
+          "y": 0.36,
+          "z": 0.36
+        },
+        "center": {
+          "x": 0.55,
+          "y": 0.23,
+          "z": 0.34
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "tnt-cargo",
+        "role": "tnt-cargo",
+        "size": {
+          "x": 0.72,
+          "y": 0.64,
+          "z": 0.72
+        },
+        "center": {
+          "x": 0,
+          "y": 1.08,
+          "z": 0
+        },
+        "color": {
+          "red": 174,
+          "green": 48,
+          "blue": 39
+        },
+        "rotation": null
+      },
+      {
+        "id": "tnt-band-front",
+        "role": "tnt-band",
+        "size": {
+          "x": 0.7,
+          "y": 0.16,
+          "z": 0.035
+        },
+        "center": {
+          "x": 0,
+          "y": 1.08,
+          "z": -0.38
+        },
+        "color": {
+          "red": 222,
+          "green": 214,
+          "blue": 190
+        },
+        "rotation": null
+      },
+      {
+        "id": "tnt-band-back",
+        "role": "tnt-band",
+        "size": {
+          "x": 0.7,
+          "y": 0.16,
+          "z": 0.035
+        },
+        "center": {
+          "x": 0,
+          "y": 1.08,
+          "z": 0.38
+        },
+        "color": {
+          "red": 222,
+          "green": 214,
+          "blue": 190
+        },
+        "rotation": null
+      },
+      {
+        "id": "tnt-band-left",
+        "role": "tnt-band",
+        "size": {
+          "x": 0.035,
+          "y": 0.16,
+          "z": 0.7
+        },
+        "center": {
+          "x": -0.38,
+          "y": 1.08,
+          "z": 0
+        },
+        "color": {
+          "red": 222,
+          "green": 214,
+          "blue": 190
+        },
+        "rotation": null
+      },
+      {
+        "id": "tnt-band-right",
+        "role": "tnt-band",
+        "size": {
+          "x": 0.035,
+          "y": 0.16,
+          "z": 0.7
+        },
+        "center": {
+          "x": 0.38,
+          "y": 1.08,
+          "z": 0
+        },
+        "color": {
+          "red": 222,
+          "green": 214,
+          "blue": 190
+        },
+        "rotation": null
+      }
+    ]
+  },
+  {
+    "kind": "tnt",
+    "parts": [
+      {
+        "id": "primed-tnt-body",
+        "role": "tnt-block",
+        "size": {
+          "x": 0.8,
+          "y": 0.8,
+          "z": 0.8
+        },
+        "center": {
+          "x": 0,
+          "y": 0.72,
+          "z": 0
+        },
+        "color": {
+          "red": 174,
+          "green": 48,
+          "blue": 39
+        },
+        "rotation": null
+      },
+      {
+        "id": "primed-tnt-band-front",
+        "role": "tnt-label-band",
+        "size": {
+          "x": 0.76,
+          "y": 0.18,
+          "z": 0.04
+        },
+        "center": {
+          "x": 0,
+          "y": 0.72,
+          "z": -0.42
+        },
+        "color": {
+          "red": 222,
+          "green": 214,
+          "blue": 190
+        },
+        "rotation": null
+      },
+      {
+        "id": "primed-tnt-band-back",
+        "role": "tnt-label-band",
+        "size": {
+          "x": 0.76,
+          "y": 0.18,
+          "z": 0.04
+        },
+        "center": {
+          "x": 0,
+          "y": 0.72,
+          "z": 0.42
+        },
+        "color": {
+          "red": 222,
+          "green": 214,
+          "blue": 190
+        },
+        "rotation": null
+      },
+      {
+        "id": "primed-tnt-band-left",
+        "role": "tnt-label-band",
+        "size": {
+          "x": 0.04,
+          "y": 0.18,
+          "z": 0.76
+        },
+        "center": {
+          "x": -0.42,
+          "y": 0.72,
+          "z": 0
+        },
+        "color": {
+          "red": 222,
+          "green": 214,
+          "blue": 190
+        },
+        "rotation": null
+      },
+      {
+        "id": "primed-tnt-band-right",
+        "role": "tnt-label-band",
+        "size": {
+          "x": 0.04,
+          "y": 0.18,
+          "z": 0.76
+        },
+        "center": {
+          "x": 0.42,
+          "y": 0.72,
+          "z": 0
+        },
+        "color": {
+          "red": 222,
+          "green": 214,
+          "blue": 190
+        },
+        "rotation": null
+      },
+      {
+        "id": "tnt-fuse",
+        "role": "fuse",
+        "size": {
+          "x": 0.11,
+          "y": 0.24,
+          "z": 0.11
+        },
+        "center": {
+          "x": 0.22,
+          "y": 1.23,
+          "z": 0.08
+        },
+        "color": {
+          "red": 164,
+          "green": 116,
+          "blue": 68
+        },
+        "rotation": null
+      },
+      {
+        "id": "fuse-spark",
+        "role": "fuse-spark",
+        "size": {
+          "x": 0.12,
+          "y": 0.12,
+          "z": 0.12
+        },
+        "center": {
+          "x": 0.22,
+          "y": 1.41,
+          "z": 0.08
+        },
+        "color": {
+          "red": 231,
+          "green": 105,
+          "blue": 35
+        },
+        "rotation": null
+      }
+    ]
+  }
+]

@@ -63,7 +63,7 @@ describe("animal entity model descriptors", () => {
         expect(center, `${descriptor.kind} has a finite cuboid center`).toHaveLength(3)
         expect(center.every(Number.isFinite)).toBe(true)
         expect(color, `${descriptor.kind} has a visible RGB color`).toHaveLength(3)
-        expect(color.every((component) => Number.isFinite(component) && component >= 0 && component <= 1)).toBe(true)
+        expect(color.every((component) => Number.isFinite(component) && component >= 0 && component <= 255)).toBe(true)
       }
     }
   })

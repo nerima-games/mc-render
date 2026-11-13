@@ -1,0 +1,697 @@
+[
+  {
+    "kind": "player",
+    "parts": [
+      {
+        "id": "head",
+        "role": "head",
+        "size": {
+          "x": 0.5,
+          "y": 0.5,
+          "z": 0.5
+        },
+        "center": {
+          "x": 0,
+          "y": 1.55,
+          "z": 0
+        },
+        "color": {
+          "red": 205,
+          "green": 153,
+          "blue": 105
+        },
+        "rotation": null
+      },
+      {
+        "id": "hair",
+        "role": "hair",
+        "size": {
+          "x": 0.52,
+          "y": 0.14,
+          "z": 0.52
+        },
+        "center": {
+          "x": 0,
+          "y": 1.87,
+          "z": 0
+        },
+        "color": {
+          "red": 74,
+          "green": 46,
+          "blue": 31
+        },
+        "rotation": null
+      },
+      {
+        "id": "left-eye",
+        "role": "eye",
+        "size": {
+          "x": 0.075,
+          "y": 0.05,
+          "z": 0.035
+        },
+        "center": {
+          "x": -0.11,
+          "y": 1.57,
+          "z": -0.265
+        },
+        "color": {
+          "red": 31,
+          "green": 36,
+          "blue": 45
+        },
+        "rotation": null
+      },
+      {
+        "id": "right-eye",
+        "role": "eye",
+        "size": {
+          "x": 0.075,
+          "y": 0.05,
+          "z": 0.035
+        },
+        "center": {
+          "x": 0.11,
+          "y": 1.57,
+          "z": -0.265
+        },
+        "color": {
+          "red": 31,
+          "green": 36,
+          "blue": 45
+        },
+        "rotation": null
+      },
+      {
+        "id": "shirt",
+        "role": "body",
+        "size": {
+          "x": 0.55,
+          "y": 0.7,
+          "z": 0.31
+        },
+        "center": {
+          "x": 0,
+          "y": 0.95,
+          "z": 0
+        },
+        "color": {
+          "red": 47,
+          "green": 91,
+          "blue": 158
+        },
+        "rotation": null
+      },
+      {
+        "id": "left-sleeve",
+        "role": "arm",
+        "size": {
+          "x": 0.2,
+          "y": 0.42,
+          "z": 0.29
+        },
+        "center": {
+          "x": -0.38,
+          "y": 1.09,
+          "z": 0
+        },
+        "color": {
+          "red": 42,
+          "green": 82,
+          "blue": 145
+        },
+        "rotation": null
+      },
+      {
+        "id": "right-sleeve",
+        "role": "arm",
+        "size": {
+          "x": 0.2,
+          "y": 0.42,
+          "z": 0.29
+        },
+        "center": {
+          "x": 0.38,
+          "y": 1.09,
+          "z": 0
+        },
+        "color": {
+          "red": 42,
+          "green": 82,
+          "blue": 145
+        },
+        "rotation": null
+      },
+      {
+        "id": "left-hand",
+        "role": "hand",
+        "size": {
+          "x": 0.2,
+          "y": 0.2,
+          "z": 0.26
+        },
+        "center": {
+          "x": -0.38,
+          "y": 0.78,
+          "z": 0
+        },
+        "color": {
+          "red": 205,
+          "green": 153,
+          "blue": 105
+        },
+        "rotation": null
+      },
+      {
+        "id": "right-hand",
+        "role": "hand",
+        "size": {
+          "x": 0.2,
+          "y": 0.2,
+          "z": 0.26
+        },
+        "center": {
+          "x": 0.38,
+          "y": 0.78,
+          "z": 0
+        },
+        "color": {
+          "red": 205,
+          "green": 153,
+          "blue": 105
+        },
+        "rotation": null
+      },
+      {
+        "id": "left-trouser-leg",
+        "role": "leg",
+        "size": {
+          "x": 0.24,
+          "y": 0.72,
+          "z": 0.28
+        },
+        "center": {
+          "x": -0.14,
+          "y": 0.36,
+          "z": 0
+        },
+        "color": {
+          "red": 42,
+          "green": 57,
+          "blue": 104
+        },
+        "rotation": null
+      },
+      {
+        "id": "right-trouser-leg",
+        "role": "leg",
+        "size": {
+          "x": 0.24,
+          "y": 0.72,
+          "z": 0.28
+        },
+        "center": {
+          "x": 0.14,
+          "y": 0.36,
+          "z": 0
+        },
+        "color": {
+          "red": 42,
+          "green": 57,
+          "blue": 104
+        },
+        "rotation": null
+      },
+      {
+        "id": "left-boot",
+        "role": "boot",
+        "size": {
+          "x": 0.25,
+          "y": 0.16,
+          "z": 0.3
+        },
+        "center": {
+          "x": -0.14,
+          "y": 0.08,
+          "z": -0.015
+        },
+        "color": {
+          "red": 58,
+          "green": 43,
+          "blue": 34
+        },
+        "rotation": null
+      },
+      {
+        "id": "right-boot",
+        "role": "boot",
+        "size": {
+          "x": 0.25,
+          "y": 0.16,
+          "z": 0.3
+        },
+        "center": {
+          "x": 0.14,
+          "y": 0.08,
+          "z": -0.015
+        },
+        "color": {
+          "red": 58,
+          "green": 43,
+          "blue": 34
+        },
+        "rotation": null
+      }
+    ]
+  },
+  {
+    "kind": "villager",
+    "parts": [
+      {
+        "id": "head",
+        "role": "head",
+        "size": {
+          "x": 0.56,
+          "y": 0.54,
+          "z": 0.5
+        },
+        "center": {
+          "x": 0,
+          "y": 1.48,
+          "z": 0
+        },
+        "color": {
+          "red": 184,
+          "green": 142,
+          "blue": 102
+        },
+        "rotation": null
+      },
+      {
+        "id": "left-eye",
+        "role": "eye",
+        "size": {
+          "x": 0.065,
+          "y": 0.045,
+          "z": 0.03
+        },
+        "center": {
+          "x": -0.105,
+          "y": 1.51,
+          "z": -0.265
+        },
+        "color": {
+          "red": 38,
+          "green": 32,
+          "blue": 29
+        },
+        "rotation": null
+      },
+      {
+        "id": "right-eye",
+        "role": "eye",
+        "size": {
+          "x": 0.065,
+          "y": 0.045,
+          "z": 0.03
+        },
+        "center": {
+          "x": 0.105,
+          "y": 1.51,
+          "z": -0.265
+        },
+        "color": {
+          "red": 38,
+          "green": 32,
+          "blue": 29
+        },
+        "rotation": null
+      },
+      {
+        "id": "unibrow",
+        "role": "brow",
+        "size": {
+          "x": 0.43,
+          "y": 0.075,
+          "z": 0.045
+        },
+        "center": {
+          "x": 0,
+          "y": 1.66,
+          "z": -0.27
+        },
+        "color": {
+          "red": 79,
+          "green": 58,
+          "blue": 43
+        },
+        "rotation": null
+      },
+      {
+        "id": "nose",
+        "role": "snout",
+        "size": {
+          "x": 0.14,
+          "y": 0.2,
+          "z": 0.25
+        },
+        "center": {
+          "x": 0,
+          "y": 1.42,
+          "z": -0.37
+        },
+        "color": {
+          "red": 157,
+          "green": 114,
+          "blue": 77
+        },
+        "rotation": null
+      },
+      {
+        "id": "robe",
+        "role": "robe",
+        "size": {
+          "x": 0.72,
+          "y": 0.94,
+          "z": 0.48
+        },
+        "center": {
+          "x": 0,
+          "y": 0.75,
+          "z": 0
+        },
+        "color": {
+          "red": 117,
+          "green": 86,
+          "blue": 57
+        },
+        "rotation": null
+      },
+      {
+        "id": "folded-sleeves",
+        "role": "arm",
+        "size": {
+          "x": 0.64,
+          "y": 0.22,
+          "z": 0.28
+        },
+        "center": {
+          "x": 0,
+          "y": 1.1,
+          "z": -0.28
+        },
+        "color": {
+          "red": 139,
+          "green": 103,
+          "blue": 69
+        },
+        "rotation": null
+      },
+      {
+        "id": "belt",
+        "role": "belt",
+        "size": {
+          "x": 0.72,
+          "y": 0.14,
+          "z": 0.5
+        },
+        "center": {
+          "x": 0,
+          "y": 0.67,
+          "z": -0.01
+        },
+        "color": {
+          "red": 78,
+          "green": 55,
+          "blue": 39
+        },
+        "rotation": null
+      },
+      {
+        "id": "left-leg",
+        "role": "leg",
+        "size": {
+          "x": 0.22,
+          "y": 0.5,
+          "z": 0.26
+        },
+        "center": {
+          "x": -0.15,
+          "y": 0.25,
+          "z": 0
+        },
+        "color": {
+          "red": 57,
+          "green": 43,
+          "blue": 33
+        },
+        "rotation": null
+      },
+      {
+        "id": "right-leg",
+        "role": "leg",
+        "size": {
+          "x": 0.22,
+          "y": 0.5,
+          "z": 0.26
+        },
+        "center": {
+          "x": 0.15,
+          "y": 0.25,
+          "z": 0
+        },
+        "color": {
+          "red": 57,
+          "green": 43,
+          "blue": 33
+        },
+        "rotation": null
+      }
+    ]
+  },
+  {
+    "kind": "wandering_trader",
+    "parts": [
+      {
+        "id": "face",
+        "role": "head",
+        "size": {
+          "x": 0.5,
+          "y": 0.5,
+          "z": 0.48
+        },
+        "center": {
+          "x": 0,
+          "y": 1.55,
+          "z": 0
+        },
+        "color": {
+          "red": 197,
+          "green": 151,
+          "blue": 109
+        },
+        "rotation": null
+      },
+      {
+        "id": "hood",
+        "role": "hood",
+        "size": {
+          "x": 0.56,
+          "y": 0.17,
+          "z": 0.54
+        },
+        "center": {
+          "x": 0,
+          "y": 1.87,
+          "z": 0
+        },
+        "color": {
+          "red": 35,
+          "green": 104,
+          "blue": 116
+        },
+        "rotation": null
+      },
+      {
+        "id": "left-eye",
+        "role": "eye",
+        "size": {
+          "x": 0.06,
+          "y": 0.045,
+          "z": 0.03
+        },
+        "center": {
+          "x": -0.1,
+          "y": 1.57,
+          "z": -0.255
+        },
+        "color": {
+          "red": 39,
+          "green": 38,
+          "blue": 35
+        },
+        "rotation": null
+      },
+      {
+        "id": "right-eye",
+        "role": "eye",
+        "size": {
+          "x": 0.06,
+          "y": 0.045,
+          "z": 0.03
+        },
+        "center": {
+          "x": 0.1,
+          "y": 1.57,
+          "z": -0.255
+        },
+        "color": {
+          "red": 39,
+          "green": 38,
+          "blue": 35
+        },
+        "rotation": null
+      },
+      {
+        "id": "nose",
+        "role": "snout",
+        "size": {
+          "x": 0.13,
+          "y": 0.18,
+          "z": 0.23
+        },
+        "center": {
+          "x": 0,
+          "y": 1.48,
+          "z": -0.36
+        },
+        "color": {
+          "red": 164,
+          "green": 119,
+          "blue": 81
+        },
+        "rotation": null
+      },
+      {
+        "id": "blue-coat",
+        "role": "body",
+        "size": {
+          "x": 0.7,
+          "y": 0.94,
+          "z": 0.46
+        },
+        "center": {
+          "x": 0,
+          "y": 0.81,
+          "z": 0
+        },
+        "color": {
+          "red": 36,
+          "green": 117,
+          "blue": 128
+        },
+        "rotation": null
+      },
+      {
+        "id": "gold-collar",
+        "role": "collar",
+        "size": {
+          "x": 0.74,
+          "y": 0.12,
+          "z": 0.48
+        },
+        "center": {
+          "x": 0,
+          "y": 1.34,
+          "z": -0.015
+        },
+        "color": {
+          "red": 202,
+          "green": 165,
+          "blue": 79
+        },
+        "rotation": null
+      },
+      {
+        "id": "crossed-sleeves",
+        "role": "arm",
+        "size": {
+          "x": 0.64,
+          "y": 0.2,
+          "z": 0.28
+        },
+        "center": {
+          "x": 0,
+          "y": 1.14,
+          "z": -0.27
+        },
+        "color": {
+          "red": 27,
+          "green": 88,
+          "blue": 103
+        },
+        "rotation": null
+      },
+      {
+        "id": "gold-sash",
+        "role": "belt",
+        "size": {
+          "x": 0.72,
+          "y": 0.13,
+          "z": 0.48
+        },
+        "center": {
+          "x": 0,
+          "y": 0.7,
+          "z": -0.015
+        },
+        "color": {
+          "red": 202,
+          "green": 165,
+          "blue": 79
+        },
+        "rotation": null
+      },
+      {
+        "id": "left-boot",
+        "role": "leg",
+        "size": {
+          "x": 0.23,
+          "y": 0.52,
+          "z": 0.27
+        },
+        "center": {
+          "x": -0.15,
+          "y": 0.26,
+          "z": -0.015
+        },
+        "color": {
+          "red": 66,
+          "green": 53,
+          "blue": 43
+        },
+        "rotation": null
+      },
+      {
+        "id": "right-boot",
+        "role": "leg",
+        "size": {
+          "x": 0.23,
+          "y": 0.52,
+          "z": 0.27
+        },
+        "center": {
+          "x": 0.15,
+          "y": 0.26,
+          "z": -0.015
+        },
+        "color": {
+          "red": 66,
+          "green": 53,
+          "blue": 43
+        },
+        "rotation": null
+      }
+    ]
+  }
+]

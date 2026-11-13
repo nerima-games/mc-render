@@ -1,0 +1,59 @@
+{
+  "schemaVersion": 1,
+  "license": "CC0-1.0",
+  "provenance": "Original cuboid geometry and flat-color palettes authored for this project. No external model, texture, or game artwork was used.",
+  "generator": "scripts/entity-models/generate.ts",
+  "outputColorEncoding": "RGB byte channels in [0,255], written to the renderer Uint8 color buffer",
+  "sources": [
+    {
+      "name": "animals",
+      "sourcePath": "scripts/entity-models/source/animals.ts",
+      "colorEncoding": "unit-rgb"
+    },
+    {
+      "name": "display-misc",
+      "sourcePath": "scripts/entity-models/source/special-entities/display-misc.ts",
+      "colorEncoding": "unit-rgb"
+    },
+    {
+      "name": "dragon",
+      "sourcePath": "scripts/entity-models/source/dragon.ts",
+      "colorEncoding": "unit-rgb"
+    },
+    {
+      "name": "hostile-mobs",
+      "sourcePath": "scripts/entity-models/source/hostile-mobs.ts",
+      "colorEncoding": "unit-rgb"
+    },
+    {
+      "name": "neutral-mobs",
+      "sourcePath": "scripts/entity-models/source/special-entities/neutral-mobs.ts",
+      "colorEncoding": "unit-rgb"
+    },
+    {
+      "name": "projectiles",
+      "sourcePath": "scripts/entity-models/source/special-entities/projectiles.ts",
+      "colorEncoding": "byte-rgb"
+    },
+    {
+      "name": "vehicles-tnt",
+      "sourcePath": "scripts/entity-models/source/vehicles-tnt.ts",
+      "colorEncoding": "byte-rgb"
+    },
+    {
+      "name": "villagers-player",
+      "sourcePath": "scripts/entity-models/source/villagers-player.ts",
+      "colorEncoding": "byte-rgb"
+    }
+  ],
+  "outputs": [
+    "src/domain/entity-models/generated/animals.json",
+    "src/domain/entity-models/generated/display-misc.json",
+    "src/domain/entity-models/generated/dragon.json",
+    "src/domain/entity-models/generated/hostile-mobs.json",
+    "src/domain/entity-models/generated/neutral-mobs.json",
+    "src/domain/entity-models/generated/projectiles.json",
+    "src/domain/entity-models/generated/vehicles-tnt.json",
+    "src/domain/entity-models/generated/villagers-player.json"
+  ]
+}

@@ -44,10 +44,12 @@ import {
   CAMERA_FOV_DEGREES,
   CAMERA_NEAR_PLANE,
   RenderDistanceCullingErrorSchema,
+  decodeRenderEntities,
   makeProductionWorldRenderer,
   makeWorldRenderer,
   NO_DRAW_TARGET,
   type ProductionFrame,
+  type RenderEntity,
   ProductionFrameElapsedSecsSchema,
   ProductionFrameInputErrorSchema,
   SKY_CLEAR_ALPHA,
@@ -118,6 +120,11 @@ const advanceFrameWithRawInput = (
   frame: unknown,
 ): Effect.Effect<void, ParticlePoolInputError | AnimationClockInputError> =>
   Function.prototype.apply.call(advanceFrame, undefined, [frame])
+const syncEntitiesWithRawInput = (
+  syncEntities: (entities: ReadonlyArray<RenderEntity>) => Effect.Effect<void, Schema.SchemaError>,
+  entities: unknown,
+): Effect.Effect<void, Schema.SchemaError> =>
+  Function.prototype.apply.call(syncEntities, undefined, [entities])
 const spawnBurst = (pool: Parameters<typeof spawnBurstResult>[0], x: number, y: number, z: number, u: number, v: number, count: number) =>
   Result.getOrThrow(spawnBurstResult(
     pool,
@@ -835,6 +842,250 @@ describe('entity meshes in the scene', () => {
     }),
   )
 
+  it.effect('renders generic catalog models with frame pose, byte lighting, and role animation', () =>
+    Effect.gen(function* () {
+      const three = makeFakeThree()
+      const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT, { daylight: 0.5 })
+      const frame: Schema.Codec.Encoded<typeof EntityRenderFrameInputSchema> = {
+        simulationTick: 12,
+        partialTick: 0.5,
+        timeOfDayTicks: 6000,
+        entities: [
+          {
+            id: 'player',
+            kind: 'player',
+            position: { dimension: 'overworld', x: 4, y: 10, z: -2 },
+            bodyYawRadians: Math.PI / 2,
+            headYawRadians: Math.PI / 4,
+            pitchRadians: Math.PI / 6,
+            blockLight: 3,
+            skyLight: 12,
+            walkPhaseRadians: Math.PI / 2,
+            walkAmount: 0.5,
+            attackProgress: 0.5,
+            hurtProgress: 0,
+            deathProgress: 0,
+          },
+          {
+            id: 'dragon',
+            kind: 'ender_dragon',
+            position: { dimension: 'overworld', x: -10, y: 30, z: 5 },
+            bodyYawRadians: 0,
+            headYawRadians: 0,
+            pitchRadians: 0,
+            blockLight: 3,
+            skyLight: 12,
+            walkPhaseRadians: Math.PI / 2,
+            walkAmount: 0.5,
+            attackProgress: 0,
+            hurtProgress: 0,
+            deathProgress: 0,
+          },
+        ],
+      }
+
+      yield* renderer.syncEntityFrame(frame)
+
+      const meshes = three.meshes()
+      const [playerHead, , , , playerBody, leftArm, rightArm, , , leftLeg, rightLeg] = meshes
+      expect(meshes).toHaveLength(52)
+      expect(playerHead?.positions()[0]).toStrictEqual([4, 11.55, -2])
+      expect(playerHead?.rotations()[0]).toStrictEqual([Math.PI / 6, Math.PI / 4, 0, 'YXZ'])
+      expect(playerBody?.rotations()[0]).toStrictEqual([0, Math.PI / 2, 0, 'YXZ'])
+      expect(leftArm?.rotations()[0]?.[0]).toBeCloseTo(0.225 - Math.PI / 4, 12)
+      expect(rightArm?.rotations()[0]?.[0]).toBeCloseTo(-0.225 + Math.PI / 4, 12)
+      expect(leftLeg?.rotations()[0]?.[0]).toBeCloseTo(0.325, 12)
+      expect(rightLeg?.rotations()[0]?.[0]).toBeCloseTo(-0.325, 12)
+      expect(entityColorBytes(playerHead)).toStrictEqual([137, 103, 70])
+
+      const near = (actual: number, expected: number): boolean => Math.abs(actual - expected) < 0.01
+      const wingRoot = meshes.find((mesh) => {
+        const [x, y, z] = mesh.positions().at(-1) ?? [Number.NaN, Number.NaN, Number.NaN]
+        return near(x, -11.43) && near(y, 32.55) && near(z, 4.95)
+      })
+      const tailBase = meshes.find((mesh) => {
+        const [x, y, z] = mesh.positions().at(-1) ?? [Number.NaN, Number.NaN, Number.NaN]
+        return near(x, -10) && near(y, 31.79) && near(z, 3.72)
+      })
+      expect(wingRoot?.rotations()[0]?.[2]).toBeCloseTo(-0.325, 6)
+      expect(tailBase?.rotations()[0]?.[1]).toBeCloseTo(0.175, 6)
+      expect(yield* renderer.entityModelDiagnostics).toStrictEqual([])
+      yield* renderer.dispose
+    }),
+  )
+
+  it.effect('does not render unsupported or empty kinds and retains typed diagnostics', () =>
+    Effect.gen(function* () {
+      const three = makeFakeThree()
+      const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT)
+
+      yield* renderer.syncEntities([{ id: 'same-id', kind: 'player', feetPosition: { x: 1, y: 2, z: 3 } }])
+      expect(three.scene().members()).toHaveLength(13)
+
+      yield* renderer.syncEntities([
+        { id: 'same-id', kind: 'future_entity', feetPosition: { x: 1, y: 2, z: 3 } },
+        { id: 'empty-kind', kind: '', feetPosition: { x: 4, y: 5, z: 6 } },
+      ])
+
+      expect(three.scene().members()).toHaveLength(0)
+      expect(yield* renderer.entityCount).toBe(0)
+      expect(yield* renderer.entityModelDiagnostics).toStrictEqual([
+        { entityId: 'same-id', issue: { _tag: 'UnsupportedEntityModel', kind: 'future_entity' } },
+        { entityId: 'empty-kind', issue: { _tag: 'InvalidEntityModelKind', reason: 'empty' } },
+      ])
+      yield* renderer.dispose
+    }),
+  )
+
+  it('accepts generated finite entity poses, orientation, animation, and paired light', () => {
+    const finitePosition = FastCheck.double({ min: -1000, max: 1000, noNaN: true, noDefaultInfinity: true })
+    const yaw = FastCheck.double({ min: -Math.PI, max: Math.PI, noNaN: true, noDefaultInfinity: true })
+    const pitch = FastCheck.double({ min: -Math.PI / 2, max: Math.PI / 2, noNaN: true, noDefaultInfinity: true })
+    const phase = FastCheck.double({ min: 0, max: 2 * Math.PI - 1e-12, noNaN: true, noDefaultInfinity: true })
+    const progress = FastCheck.double({ min: 0, max: 1, noNaN: true, noDefaultInfinity: true })
+
+    FastCheck.assert(FastCheck.property(
+      FastCheck.record({
+        blockLight: FastCheck.integer({ min: 0, max: 15 }),
+        phase,
+        pitch,
+        progress,
+        skyLight: FastCheck.integer({ min: 0, max: 15 }),
+        x: finitePosition,
+        y: finitePosition,
+        yaw,
+        z: finitePosition,
+      }),
+      ({ blockLight, phase: phaseRadians, pitch: pitchRadians, progress: motionProgress, skyLight, x, y, yaw: yawRadians, z }) =>
+        Result.isSuccess(decodeRenderEntities([{
+          animation: {
+            attackProgress: motionProgress,
+            deathProgress: motionProgress,
+            hurtProgress: motionProgress,
+            phaseRadians,
+            progress: motionProgress,
+            state: 'walk',
+            walkAmount: motionProgress,
+          },
+          blockLight,
+          bodyYawRadians: yawRadians,
+          feetPosition: { x, y, z },
+          headYawRadians: yawRadians,
+          id: 'generated-entity',
+          kind: 'horse',
+          pitchRadians,
+          skyLight,
+        }])),
+    ))
+  })
+
+  it.effect('accepts entity numeric boundaries and applies defaults only to omitted optional fields', () =>
+    Effect.gen(function* () {
+      const three = makeFakeThree()
+      const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT)
+
+      const boundary = yield* Effect.result(syncEntitiesWithRawInput(renderer.syncEntities, [{
+        animation: {
+          attackProgress: 1,
+          deathProgress: 0,
+          hurtProgress: 1,
+          phaseRadians: 0,
+          progress: 1,
+          state: 'walk',
+          walkAmount: 0,
+        },
+        blockLight: 0,
+        bodyYawRadians: -Math.PI,
+        feetPosition: { x: 0, y: -0, z: Number.MAX_VALUE },
+        headYawRadians: Math.PI,
+        id: 'boundary',
+        kind: 'horse',
+        pitchRadians: -Math.PI / 2,
+        skyLight: 15,
+      }]))
+      expect(Result.isSuccess(boundary)).toBe(true)
+      yield* renderer.syncEntities([{ id: 'minimal', kind: 'horse', feetPosition: { x: 1, y: 2, z: 3 } }])
+      expect(yield* renderer.entitySnapshot).toStrictEqual([
+        { feetPosition: { x: 1, y: 2, z: 3 }, id: 'minimal', kind: 'horse' },
+      ])
+      expect(yield* renderer.entityModelDiagnostics).toStrictEqual([])
+      yield* renderer.dispose
+    }),
+  )
+
+  it.effect('rejects invalid numeric entity DTOs as SchemaError before reconciliation', () =>
+    Effect.gen(function* () {
+      const three = makeFakeThree()
+      const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT)
+      const valid = { id: 'stable', kind: 'horse', feetPosition: { x: 1, y: 2, z: 3 } }
+      yield* renderer.syncEntities([valid])
+      const beforeSnapshot = yield* renderer.entitySnapshot
+      const beforeMeshes = three.meshes()
+
+      const wither = {
+        ...valid,
+        kind: 'wither',
+        witherState: {
+          chargeRemainingSecs: 1,
+          feetPosition: { x: 1, y: 2, z: 3 },
+          healthPoints: 300,
+          phase: 'airborne',
+          velocity: { x: 0, y: 0, z: -1 },
+        },
+      }
+      const skull = {
+        ...valid,
+        kind: 'wither_skull',
+        witherSkullProjectile: {
+          destroysResistantBlocks: false,
+          direction: { x: 0, y: 0, z: -1 },
+          explosivePower: 1,
+          kind: 'wither_skull',
+          origin: { x: 1, y: 2, z: 3 },
+          speed: 1,
+          variant: 'normal',
+        },
+      }
+      const invalidInputs: ReadonlyArray<Readonly<{ name: string; entities: unknown }>> = [
+        { entities: [{ ...valid, feetPosition: { ...valid.feetPosition, x: Number.NaN } }], name: 'NaN position' },
+        { entities: [{ ...valid, feetPosition: { ...valid.feetPosition, y: Number.POSITIVE_INFINITY } }], name: 'infinite position' },
+        { entities: [{ ...valid, facingRadians: Math.PI + 0.01 }], name: 'out-of-range facing' },
+        { entities: [{ ...valid, bodyYawRadians: Number.NaN }], name: 'NaN body yaw' },
+        { entities: [{ ...valid, headYawRadians: Number.NEGATIVE_INFINITY }], name: 'infinite head yaw' },
+        { entities: [{ ...valid, pitchRadians: Math.PI / 2 + 0.01 }], name: 'out-of-range pitch' },
+        { entities: [{ ...valid, animation: { state: 'walk', phaseRadians: Number.NaN } }], name: 'NaN animation phase' },
+        { entities: [{ ...valid, animation: { state: 'walk', phaseRadians: 2 * Math.PI } }], name: 'exclusive animation phase endpoint' },
+        { entities: [{ ...valid, animation: { state: 'walk', progress: 1.01 } }], name: 'out-of-range progress' },
+        { entities: [{ ...valid, animation: { state: 'walk', walkAmount: -0.01 } }], name: 'negative walk amount' },
+        { entities: [{ ...valid, animation: { state: 'walk', attackProgress: Number.POSITIVE_INFINITY } }], name: 'infinite attack progress' },
+        { entities: [{ ...valid, animation: { state: 'walk', hurtProgress: Number.NaN } }], name: 'NaN hurt progress' },
+        { entities: [{ ...valid, animation: { state: 'walk', deathProgress: 1.01 } }], name: 'out-of-range death progress' },
+        { entities: [{ ...valid, blockLight: 8 }], name: 'unpaired light field' },
+        { entities: [{ ...valid, blockLight: 16, skyLight: 0 }], name: 'out-of-range block light' },
+        { entities: [{ ...valid, blockLight: 0, skyLight: 1.5 }], name: 'fractional sky light' },
+        { entities: [{ ...wither, witherState: { ...wither.witherState, chargeRemainingSecs: Number.NaN } }], name: 'NaN Wither timer' },
+        { entities: [{ ...wither, witherState: { ...wither.witherState, healthPoints: -1 } }], name: 'negative Wither health' },
+        { entities: [{ ...wither, witherState: { ...wither.witherState, velocity: { x: Number.POSITIVE_INFINITY, y: 0, z: 0 } } }], name: 'infinite Wither velocity' },
+        { entities: [{ ...skull, witherSkullProjectile: { ...skull.witherSkullProjectile, speed: Number.POSITIVE_INFINITY } }], name: 'infinite projectile speed' },
+        { entities: [{ ...skull, witherSkullProjectile: { ...skull.witherSkullProjectile, explosivePower: -1 } }], name: 'negative projectile power' },
+        { entities: [{ ...skull, witherSkullProjectile: { ...skull.witherSkullProjectile, origin: { x: 0, y: Number.NaN, z: 0 } } }], name: 'NaN projectile origin' },
+        { entities: [{ ...valid, facingRadians: undefined }], name: 'present undefined facing' },
+      ]
+
+      for (const { entities, name } of invalidInputs) {
+        const result = yield* Effect.result(syncEntitiesWithRawInput(renderer.syncEntities, entities))
+        if (Result.isSuccess(result) || !Schema.isSchemaError(result.failure)) {
+          throw new Error(`${name} must fail with SchemaError`)
+        }
+      }
+
+      expect(yield* renderer.entitySnapshot).toStrictEqual(beforeSnapshot)
+      expect(three.meshes()).toStrictEqual(beforeMeshes)
+      expect(yield* renderer.entityModelDiagnostics).toStrictEqual([])
+      yield* renderer.dispose
+    }),
+  )
+
   it.effect('reuses every part mesh for an unchanged id and updates its animation transform', () =>
     Effect.gen(function* () {
       const three = makeFakeThree()
@@ -966,6 +1217,14 @@ describe('entity meshes in the scene', () => {
           reason: 'invalid-partial-tick',
         })
       }
+      const invalidEntityNumber = yield* Effect.result(renderer.syncEntityFrame({
+        ...frame,
+        entities: [{ ...mob, walkAmount: 1.01 }, otherDimension],
+      }))
+      expect(Result.isFailure(invalidEntityNumber)).toBe(true)
+      if (Result.isFailure(invalidEntityNumber)) {
+        expect(Schema.isSchemaError(invalidEntityNumber.failure)).toBe(true)
+      }
       expect(yield* renderer.entityCount).toBe(1)
       yield* renderer.dispose
     }),
@@ -1087,7 +1346,7 @@ describe('entity meshes in the scene', () => {
     }),
   )
 
-  it.effect('renders unknown kinds through the stable fallback silhouette', () =>
+  it.effect('does not render unknown kinds through the stable fallback silhouette', () =>
     Effect.gen(function* () {
       const three = makeFakeThree()
       const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT)
@@ -1098,8 +1357,11 @@ describe('entity meshes in the scene', () => {
 
       const fallback = planMobVisual('not-yet-supported')
       expect(fallback.descriptorKind).toBe('unknown')
-      expect(three.scene().members()).toHaveLength(fallback.parts.length)
-      expect(three.meshes()[0]?.positions()).toStrictEqual([[4, 5.65, 6]])
+      expect(three.scene().members()).toHaveLength(0)
+      expect(yield* renderer.entityCount).toBe(0)
+      expect(yield* renderer.entityModelDiagnostics).toStrictEqual([
+        { entityId: 'future', issue: { _tag: 'UnsupportedEntityModel', kind: 'not-yet-supported' } },
+      ])
     }),
   )
 

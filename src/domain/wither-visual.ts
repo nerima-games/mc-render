@@ -1,4 +1,5 @@
 /** Renderer-independent Wither and Wither-skull silhouettes and transforms. */
+import { Result, Schema } from 'effect'
 
 export type WitherVisualPhase = 'charging' | 'airborne' | 'armoured' | 'dead'
 export type WitherSkullVisualVariant = 'normal' | 'blue'
@@ -37,6 +38,35 @@ export type WitherSkullVisualInput = Readonly<{
   explosivePower: number
   destroysResistantBlocks: boolean
 }>
+
+const MINIMUM_NON_NEGATIVE_VISUAL_STATE_VALUE = 0
+const NonNegativeVisualStateValueSchema: Schema.Codec<number> = Schema.Finite.check(
+  Schema.isGreaterThanOrEqualTo(MINIMUM_NON_NEGATIVE_VISUAL_STATE_VALUE),
+)
+
+export const WitherVisualPositionSchema: Schema.Codec<WitherVisualPosition> = Schema.Struct({
+  x: Schema.Finite,
+  y: Schema.Finite,
+  z: Schema.Finite,
+})
+
+export const WitherVisualStateInputSchema: Schema.Codec<WitherVisualStateInput> = Schema.Struct({
+  chargeRemainingSecs: NonNegativeVisualStateValueSchema,
+  feetPosition: WitherVisualPositionSchema,
+  healthPoints: NonNegativeVisualStateValueSchema,
+  phase: Schema.Literals(['charging', 'airborne', 'armoured', 'dead']),
+  velocity: WitherVisualPositionSchema,
+})
+
+export const WitherSkullVisualInputSchema: Schema.Codec<WitherSkullVisualInput> = Schema.Struct({
+  destroysResistantBlocks: Schema.Boolean,
+  direction: WitherVisualPositionSchema,
+  explosivePower: NonNegativeVisualStateValueSchema,
+  kind: Schema.Literal('wither_skull'),
+  origin: WitherVisualPositionSchema,
+  speed: NonNegativeVisualStateValueSchema,
+  variant: Schema.Literals(['normal', 'blue']),
+})
 
 export type WitherVisualVector = readonly [xAxis: number, yAxis: number, zAxis: number]
 export type WitherVisualColor = readonly [red: number, green: number, blue: number]
@@ -389,28 +419,21 @@ export const WITHER_SKULL_VISUAL_DESCRIPTORS: Readonly<
   },
 }
 
-const finiteOrZero = (value: number): number => {
-  if (Number.isFinite(value)) {
-    return value
-  }
-  return ZERO
-}
-
 /**
  * `x`/`y`/`z` keys here construct a `WitherVisualPosition` and must match its
  * field names exactly (see that type's doc comment) -- left un-renamed for the
  * same reason.
  */
 const copyPosition = (value: WitherVisualPosition): WitherVisualPosition => ({
-  x: finiteOrZero(value.x),
-  y: finiteOrZero(value.y),
-  z: finiteOrZero(value.z),
+  x: value.x,
+  y: value.y,
+  z: value.z,
 })
 
 const directionAngles = (direction: WitherVisualPosition): readonly [yaw: number, pitch: number] => {
-  const directionX = finiteOrZero(direction.x)
-  const directionY = finiteOrZero(direction.y)
-  const directionZ = finiteOrZero(direction.z)
+  const directionX = direction.x
+  const directionY = direction.y
+  const directionZ = direction.z
   const horizontalLength = Math.hypot(directionX, directionZ)
   if (horizontalLength === ZERO && directionY === ZERO) {
     return [ZERO, ZERO]
@@ -536,11 +559,19 @@ const witherPartsForPhase = (
 }
 
 /** Plan one Wither frame solely from its simulation state. */
-export const planWitherVisual = (state: WitherVisualStateInput): WitherVisualPlan => {
+export const planWitherVisual = (
+  input: unknown,
+): Result.Result<WitherVisualPlan, Schema.SchemaError> => {
+  const decoded = Schema.decodeUnknownResult(WitherVisualStateInputSchema, { onExcessProperty: 'error' })(input)
+  if (Result.isFailure(decoded)) {
+    return Result.fail(decoded.failure)
+  }
+
+  const state = decoded.success
   const position = copyPosition(state.feetPosition)
   const [yawRadians] = directionAngles(state.velocity)
   if (state.phase === 'dead') {
-    return {
+    return Result.succeed({
       chargingFlashOn: false,
       kind: 'wither',
       parts: [],
@@ -548,16 +579,16 @@ export const planWitherVisual = (state: WitherVisualStateInput): WitherVisualPla
       position,
       visible: false,
       yawRadians,
-    }
+    })
   }
 
-  const remaining = Math.max(ZERO, finiteOrZero(state.chargeRemainingSecs))
+  const remaining = state.chargeRemainingSecs
   const chargingFlashOn =
     state.phase === 'charging' &&
     Math.floor(remaining * WITHER_CHARGE_FLASH_HZ) % WITHER_CHARGE_FLASH_PARITY === ZERO
   const parts = witherPartsForPhase(state.phase, chargingFlashOn)
 
-  return {
+  return Result.succeed({
     chargingFlashOn,
     kind: 'wither',
     parts,
@@ -565,7 +596,7 @@ export const planWitherVisual = (state: WitherVisualStateInput): WitherVisualPla
     position,
     visible: true,
     yawRadians,
-  }
+  })
 }
 
 const pitchPart = (
@@ -585,16 +616,22 @@ const pitchPart = (
 
 /** Plan a projectile transform, deriving yaw and pitch from its direction. */
 export const planWitherSkullVisual = (
-  projectile: WitherSkullVisualInput,
-): WitherSkullVisualPlan => {
+  input: unknown,
+): Result.Result<WitherSkullVisualPlan, Schema.SchemaError> => {
+  const decoded = Schema.decodeUnknownResult(WitherSkullVisualInputSchema, { onExcessProperty: 'error' })(input)
+  if (Result.isFailure(decoded)) {
+    return Result.fail(decoded.failure)
+  }
+
+  const projectile = decoded.success
   const [yawRadians, pitchRadians] = directionAngles(projectile.direction)
   const descriptor = WITHER_SKULL_VISUAL_DESCRIPTORS[projectile.variant]
-  return {
+  return Result.succeed({
     kind: 'wither_skull',
     parts: descriptor.parts.map((source) => pitchPart(source, pitchRadians)),
     pitchRadians,
     position: copyPosition(projectile.origin),
     variant: projectile.variant,
     yawRadians,
-  }
+  })
 }

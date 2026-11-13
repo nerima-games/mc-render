@@ -1,0 +1,2152 @@
+[
+  {
+    "kind": "block_display",
+    "parts": [
+      {
+        "id": "glass-core",
+        "role": "display-block",
+        "size": {
+          "x": 0.9,
+          "y": 0.9,
+          "z": 0.9
+        },
+        "center": {
+          "x": 0,
+          "y": 0.08,
+          "z": 0
+        },
+        "color": {
+          "red": 110,
+          "green": 209,
+          "blue": 232
+        },
+        "rotation": null
+      },
+      {
+        "id": "top-face",
+        "role": "top-face",
+        "size": {
+          "x": 0.72,
+          "y": 0.08,
+          "z": 0.72
+        },
+        "center": {
+          "x": 0,
+          "y": 0.55,
+          "z": 0
+        },
+        "color": {
+          "red": 145,
+          "green": 245,
+          "blue": 255
+        },
+        "rotation": null
+      },
+      {
+        "id": "front-inset",
+        "role": "front-inset",
+        "size": {
+          "x": 0.56,
+          "y": 0.56,
+          "z": 0.07
+        },
+        "center": {
+          "x": 0,
+          "y": 0.08,
+          "z": 0.48
+        },
+        "color": {
+          "red": 38,
+          "green": 107,
+          "blue": 219
+        },
+        "rotation": null
+      },
+      {
+        "id": "left-edge",
+        "role": "edge",
+        "size": {
+          "x": 0.08,
+          "y": 0.78,
+          "z": 0.08
+        },
+        "center": {
+          "x": -0.47,
+          "y": 0.08,
+          "z": 0.47
+        },
+        "color": {
+          "red": 240,
+          "green": 232,
+          "blue": 199
+        },
+        "rotation": null
+      },
+      {
+        "id": "right-edge",
+        "role": "edge",
+        "size": {
+          "x": 0.08,
+          "y": 0.78,
+          "z": 0.08
+        },
+        "center": {
+          "x": 0.47,
+          "y": 0.08,
+          "z": 0.47
+        },
+        "color": {
+          "red": 240,
+          "green": 232,
+          "blue": 199
+        },
+        "rotation": null
+      }
+    ]
+  },
+  {
+    "kind": "interaction",
+    "parts": [
+      {
+        "id": "frame-left",
+        "role": "target-frame",
+        "size": {
+          "x": 0.09,
+          "y": 1.6,
+          "z": 0.08
+        },
+        "center": {
+          "x": -0.72,
+          "y": 0,
+          "z": 0
+        },
+        "color": {
+          "red": 145,
+          "green": 245,
+          "blue": 255
+        },
+        "rotation": null
+      },
+      {
+        "id": "frame-right",
+        "role": "target-frame",
+        "size": {
+          "x": 0.09,
+          "y": 1.6,
+          "z": 0.08
+        },
+        "center": {
+          "x": 0.72,
+          "y": 0,
+          "z": 0
+        },
+        "color": {
+          "red": 145,
+          "green": 245,
+          "blue": 255
+        },
+        "rotation": null
+      },
+      {
+        "id": "frame-top",
+        "role": "target-frame",
+        "size": {
+          "x": 1.52,
+          "y": 0.09,
+          "z": 0.08
+        },
+        "center": {
+          "x": 0,
+          "y": 0.76,
+          "z": 0
+        },
+        "color": {
+          "red": 110,
+          "green": 209,
+          "blue": 232
+        },
+        "rotation": null
+      },
+      {
+        "id": "frame-bottom",
+        "role": "target-frame",
+        "size": {
+          "x": 1.52,
+          "y": 0.09,
+          "z": 0.08
+        },
+        "center": {
+          "x": 0,
+          "y": -0.76,
+          "z": 0
+        },
+        "color": {
+          "red": 110,
+          "green": 209,
+          "blue": 232
+        },
+        "rotation": null
+      },
+      {
+        "id": "center-dot",
+        "role": "target-center",
+        "size": {
+          "x": 0.17,
+          "y": 0.17,
+          "z": 0.1
+        },
+        "center": {
+          "x": 0,
+          "y": 0,
+          "z": 0.08
+        },
+        "color": {
+          "red": 240,
+          "green": 232,
+          "blue": 199
+        },
+        "rotation": null
+      }
+    ]
+  },
+  {
+    "kind": "item_display",
+    "parts": [
+      {
+        "id": "pedestal-base",
+        "role": "display-pedestal",
+        "size": {
+          "x": 0.62,
+          "y": 0.14,
+          "z": 0.62
+        },
+        "center": {
+          "x": 0,
+          "y": -0.52,
+          "z": 0
+        },
+        "color": {
+          "red": 122,
+          "green": 130,
+          "blue": 135
+        },
+        "rotation": null
+      },
+      {
+        "id": "pedestal-stem",
+        "role": "display-stem",
+        "size": {
+          "x": 0.16,
+          "y": 0.62,
+          "z": 0.16
+        },
+        "center": {
+          "x": 0,
+          "y": -0.14,
+          "z": 0
+        },
+        "color": {
+          "red": 245,
+          "green": 173,
+          "blue": 43
+        },
+        "rotation": null
+      },
+      {
+        "id": "item-center",
+        "role": "display-item",
+        "size": {
+          "x": 0.58,
+          "y": 0.7,
+          "z": 0.42
+        },
+        "center": {
+          "x": 0,
+          "y": 0.45,
+          "z": 0
+        },
+        "color": {
+          "red": 122,
+          "green": 41,
+          "blue": 199
+        },
+        "rotation": null
+      },
+      {
+        "id": "item-cap",
+        "role": "display-highlight",
+        "size": {
+          "x": 0.3,
+          "y": 0.18,
+          "z": 0.26
+        },
+        "center": {
+          "x": 0,
+          "y": 0.86,
+          "z": 0
+        },
+        "color": {
+          "red": 191,
+          "green": 107,
+          "blue": 245
+        },
+        "rotation": null
+      },
+      {
+        "id": "support-left",
+        "role": "display-support",
+        "size": {
+          "x": 0.08,
+          "y": 0.32,
+          "z": 0.08
+        },
+        "center": {
+          "x": -0.34,
+          "y": 0.27,
+          "z": 0
+        },
+        "color": {
+          "red": 255,
+          "green": 224,
+          "blue": 97
+        },
+        "rotation": null
+      },
+      {
+        "id": "support-right",
+        "role": "display-support",
+        "size": {
+          "x": 0.08,
+          "y": 0.32,
+          "z": 0.08
+        },
+        "center": {
+          "x": 0.34,
+          "y": 0.27,
+          "z": 0
+        },
+        "color": {
+          "red": 255,
+          "green": 224,
+          "blue": 97
+        },
+        "rotation": null
+      }
+    ]
+  },
+  {
+    "kind": "marker",
+    "parts": [
+      {
+        "id": "marker-stem",
+        "role": "marker-stem",
+        "size": {
+          "x": 0.14,
+          "y": 1.25,
+          "z": 0.14
+        },
+        "center": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "color": {
+          "red": 209,
+          "green": 43,
+          "blue": 31
+        },
+        "rotation": null
+      },
+      {
+        "id": "marker-crossbar",
+        "role": "marker-crossbar",
+        "size": {
+          "x": 0.72,
+          "y": 0.12,
+          "z": 0.14
+        },
+        "center": {
+          "x": 0,
+          "y": 0.37,
+          "z": 0
+        },
+        "color": {
+          "red": 255,
+          "green": 224,
+          "blue": 97
+        },
+        "rotation": null
+      },
+      {
+        "id": "marker-cap",
+        "role": "marker-cap",
+        "size": {
+          "x": 0.3,
+          "y": 0.22,
+          "z": 0.3
+        },
+        "center": {
+          "x": 0,
+          "y": 0.72,
+          "z": 0
+        },
+        "color": {
+          "red": 240,
+          "green": 232,
+          "blue": 199
+        },
+        "rotation": null
+      },
+      {
+        "id": "marker-foot",
+        "role": "marker-foot",
+        "size": {
+          "x": 0.54,
+          "y": 0.12,
+          "z": 0.54
+        },
+        "center": {
+          "x": 0,
+          "y": -0.68,
+          "z": 0
+        },
+        "color": {
+          "red": 122,
+          "green": 130,
+          "blue": 135
+        },
+        "rotation": null
+      }
+    ]
+  },
+  {
+    "kind": "text_display",
+    "parts": [
+      {
+        "id": "panel-back",
+        "role": "text-panel",
+        "size": {
+          "x": 1.25,
+          "y": 0.82,
+          "z": 0.1
+        },
+        "center": {
+          "x": 0,
+          "y": 0,
+          "z": -0.04
+        },
+        "color": {
+          "red": 107,
+          "green": 64,
+          "blue": 33
+        },
+        "rotation": null
+      },
+      {
+        "id": "panel-face",
+        "role": "text-face",
+        "size": {
+          "x": 1.12,
+          "y": 0.68,
+          "z": 0.06
+        },
+        "center": {
+          "x": 0,
+          "y": 0,
+          "z": 0.04
+        },
+        "color": {
+          "red": 184,
+          "green": 189,
+          "blue": 186
+        },
+        "rotation": null
+      },
+      {
+        "id": "text-line-one",
+        "role": "text-line",
+        "size": {
+          "x": 0.84,
+          "y": 0.08,
+          "z": 0.04
+        },
+        "center": {
+          "x": 0,
+          "y": 0.2,
+          "z": 0.09
+        },
+        "color": {
+          "red": 38,
+          "green": 107,
+          "blue": 219
+        },
+        "rotation": null
+      },
+      {
+        "id": "text-line-two",
+        "role": "text-line",
+        "size": {
+          "x": 0.66,
+          "y": 0.07,
+          "z": 0.04
+        },
+        "center": {
+          "x": -0.08,
+          "y": 0,
+          "z": 0.09
+        },
+        "color": {
+          "red": 122,
+          "green": 41,
+          "blue": 199
+        },
+        "rotation": null
+      },
+      {
+        "id": "text-line-three",
+        "role": "text-line",
+        "size": {
+          "x": 0.76,
+          "y": 0.07,
+          "z": 0.04
+        },
+        "center": {
+          "x": 0.04,
+          "y": -0.2,
+          "z": 0.09
+        },
+        "color": {
+          "red": 41,
+          "green": 168,
+          "blue": 89
+        },
+        "rotation": null
+      },
+      {
+        "id": "panel-pin",
+        "role": "text-pin",
+        "size": {
+          "x": 0.12,
+          "y": 0.12,
+          "z": 0.08
+        },
+        "center": {
+          "x": 0.53,
+          "y": 0.35,
+          "z": 0.08
+        },
+        "color": {
+          "red": 245,
+          "green": 173,
+          "blue": 43
+        },
+        "rotation": null
+      }
+    ]
+  },
+  {
+    "kind": "area_effect_cloud",
+    "parts": [
+      {
+        "id": "cloud-center",
+        "role": "cloud-mist",
+        "size": {
+          "x": 0.72,
+          "y": 0.16,
+          "z": 0.72
+        },
+        "center": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "color": {
+          "red": 191,
+          "green": 107,
+          "blue": 245
+        },
+        "rotation": null
+      },
+      {
+        "id": "cloud-north",
+        "role": "cloud-puff",
+        "size": {
+          "x": 0.54,
+          "y": 0.13,
+          "z": 0.48
+        },
+        "center": {
+          "x": 0,
+          "y": 0.06,
+          "z": -0.52
+        },
+        "color": {
+          "red": 110,
+          "green": 209,
+          "blue": 232
+        },
+        "rotation": null
+      },
+      {
+        "id": "cloud-south",
+        "role": "cloud-puff",
+        "size": {
+          "x": 0.57,
+          "y": 0.15,
+          "z": 0.46
+        },
+        "center": {
+          "x": 0,
+          "y": -0.03,
+          "z": 0.52
+        },
+        "color": {
+          "red": 122,
+          "green": 41,
+          "blue": 199
+        },
+        "rotation": null
+      },
+      {
+        "id": "cloud-east",
+        "role": "cloud-puff",
+        "size": {
+          "x": 0.48,
+          "y": 0.14,
+          "z": 0.54
+        },
+        "center": {
+          "x": 0.52,
+          "y": 0.02,
+          "z": 0
+        },
+        "color": {
+          "red": 38,
+          "green": 107,
+          "blue": 219
+        },
+        "rotation": null
+      },
+      {
+        "id": "cloud-west",
+        "role": "cloud-puff",
+        "size": {
+          "x": 0.48,
+          "y": 0.12,
+          "z": 0.54
+        },
+        "center": {
+          "x": -0.52,
+          "y": 0.03,
+          "z": 0
+        },
+        "color": {
+          "red": 110,
+          "green": 209,
+          "blue": 232
+        },
+        "rotation": null
+      },
+      {
+        "id": "cloud-rim",
+        "role": "cloud-rim",
+        "size": {
+          "x": 1.58,
+          "y": 0.07,
+          "z": 0.08
+        },
+        "center": {
+          "x": 0,
+          "y": -0.11,
+          "z": 0
+        },
+        "color": {
+          "red": 145,
+          "green": 245,
+          "blue": 255
+        },
+        "rotation": null
+      }
+    ]
+  },
+  {
+    "kind": "armor_stand",
+    "parts": [
+      {
+        "id": "stand-base",
+        "role": "stand-base",
+        "size": {
+          "x": 0.56,
+          "y": 0.1,
+          "z": 0.56
+        },
+        "center": {
+          "x": 0,
+          "y": -0.85,
+          "z": 0
+        },
+        "color": {
+          "red": 122,
+          "green": 130,
+          "blue": 135
+        },
+        "rotation": null
+      },
+      {
+        "id": "stand-post",
+        "role": "stand-post",
+        "size": {
+          "x": 0.12,
+          "y": 0.38,
+          "z": 0.12
+        },
+        "center": {
+          "x": 0,
+          "y": -0.58,
+          "z": 0
+        },
+        "color": {
+          "red": 173,
+          "green": 112,
+          "blue": 61
+        },
+        "rotation": null
+      },
+      {
+        "id": "torso",
+        "role": "torso",
+        "size": {
+          "x": 0.48,
+          "y": 0.62,
+          "z": 0.24
+        },
+        "center": {
+          "x": 0,
+          "y": 0.05,
+          "z": 0
+        },
+        "color": {
+          "red": 107,
+          "green": 64,
+          "blue": 33
+        },
+        "rotation": null
+      },
+      {
+        "id": "head",
+        "role": "head",
+        "size": {
+          "x": 0.38,
+          "y": 0.4,
+          "z": 0.38
+        },
+        "center": {
+          "x": 0,
+          "y": 0.62,
+          "z": 0
+        },
+        "color": {
+          "red": 173,
+          "green": 112,
+          "blue": 61
+        },
+        "rotation": null
+      },
+      {
+        "id": "left-arm",
+        "role": "arm",
+        "size": {
+          "x": 0.13,
+          "y": 0.66,
+          "z": 0.15
+        },
+        "center": {
+          "x": -0.36,
+          "y": 0.08,
+          "z": 0
+        },
+        "color": {
+          "red": 173,
+          "green": 112,
+          "blue": 61
+        },
+        "rotation": null
+      },
+      {
+        "id": "right-arm",
+        "role": "arm",
+        "size": {
+          "x": 0.13,
+          "y": 0.66,
+          "z": 0.15
+        },
+        "center": {
+          "x": 0.36,
+          "y": 0.08,
+          "z": 0
+        },
+        "color": {
+          "red": 173,
+          "green": 112,
+          "blue": 61
+        },
+        "rotation": null
+      },
+      {
+        "id": "left-leg",
+        "role": "leg",
+        "size": {
+          "x": 0.16,
+          "y": 0.58,
+          "z": 0.18
+        },
+        "center": {
+          "x": -0.16,
+          "y": -0.52,
+          "z": 0
+        },
+        "color": {
+          "red": 94,
+          "green": 54,
+          "blue": 26
+        },
+        "rotation": null
+      },
+      {
+        "id": "right-leg",
+        "role": "leg",
+        "size": {
+          "x": 0.16,
+          "y": 0.58,
+          "z": 0.18
+        },
+        "center": {
+          "x": 0.16,
+          "y": -0.52,
+          "z": 0
+        },
+        "color": {
+          "red": 94,
+          "green": 54,
+          "blue": 26
+        },
+        "rotation": null
+      }
+    ]
+  },
+  {
+    "kind": "end_crystal",
+    "parts": [
+      {
+        "id": "crystal-base",
+        "role": "crystal-base",
+        "size": {
+          "x": 0.7,
+          "y": 0.14,
+          "z": 0.7
+        },
+        "center": {
+          "x": 0,
+          "y": -0.73,
+          "z": 0
+        },
+        "color": {
+          "red": 122,
+          "green": 41,
+          "blue": 199
+        },
+        "rotation": null
+      },
+      {
+        "id": "crystal-core",
+        "role": "crystal-core",
+        "size": {
+          "x": 0.42,
+          "y": 0.8,
+          "z": 0.42
+        },
+        "center": {
+          "x": 0,
+          "y": -0.15,
+          "z": 0
+        },
+        "color": {
+          "red": 191,
+          "green": 107,
+          "blue": 245
+        },
+        "rotation": null
+      },
+      {
+        "id": "crystal-upper",
+        "role": "crystal-facet",
+        "size": {
+          "x": 0.62,
+          "y": 0.5,
+          "z": 0.5
+        },
+        "center": {
+          "x": 0,
+          "y": 0.43,
+          "z": 0
+        },
+        "color": {
+          "red": 110,
+          "green": 209,
+          "blue": 232
+        },
+        "rotation": null
+      },
+      {
+        "id": "crystal-crown",
+        "role": "crystal-crown",
+        "size": {
+          "x": 0.34,
+          "y": 0.28,
+          "z": 0.34
+        },
+        "center": {
+          "x": 0,
+          "y": 0.82,
+          "z": 0
+        },
+        "color": {
+          "red": 145,
+          "green": 245,
+          "blue": 255
+        },
+        "rotation": null
+      },
+      {
+        "id": "crystal-ring-front",
+        "role": "crystal-ring",
+        "size": {
+          "x": 0.95,
+          "y": 0.07,
+          "z": 0.08
+        },
+        "center": {
+          "x": 0,
+          "y": 0.05,
+          "z": 0.28
+        },
+        "color": {
+          "red": 122,
+          "green": 41,
+          "blue": 199
+        },
+        "rotation": null
+      },
+      {
+        "id": "crystal-ring-side",
+        "role": "crystal-ring",
+        "size": {
+          "x": 0.08,
+          "y": 0.07,
+          "z": 0.95
+        },
+        "center": {
+          "x": 0.28,
+          "y": 0.05,
+          "z": 0
+        },
+        "color": {
+          "red": 122,
+          "green": 41,
+          "blue": 199
+        },
+        "rotation": null
+      }
+    ]
+  },
+  {
+    "kind": "evoker_fangs",
+    "parts": [
+      {
+        "id": "fang-jaw",
+        "role": "fang-jaw",
+        "size": {
+          "x": 0.72,
+          "y": 0.12,
+          "z": 0.5
+        },
+        "center": {
+          "x": 0,
+          "y": -0.36,
+          "z": 0
+        },
+        "color": {
+          "red": 94,
+          "green": 54,
+          "blue": 26
+        },
+        "rotation": null
+      },
+      {
+        "id": "fang-left",
+        "role": "fang-tooth",
+        "size": {
+          "x": 0.14,
+          "y": 0.74,
+          "z": 0.16
+        },
+        "center": {
+          "x": -0.25,
+          "y": 0.02,
+          "z": 0.08
+        },
+        "color": {
+          "red": 240,
+          "green": 232,
+          "blue": 199
+        },
+        "rotation": null
+      },
+      {
+        "id": "fang-right",
+        "role": "fang-tooth",
+        "size": {
+          "x": 0.14,
+          "y": 0.74,
+          "z": 0.16
+        },
+        "center": {
+          "x": 0.25,
+          "y": 0.02,
+          "z": 0.08
+        },
+        "color": {
+          "red": 240,
+          "green": 232,
+          "blue": 199
+        },
+        "rotation": null
+      },
+      {
+        "id": "fang-tip-left",
+        "role": "fang-tip",
+        "size": {
+          "x": 0.2,
+          "y": 0.22,
+          "z": 0.2
+        },
+        "center": {
+          "x": -0.25,
+          "y": 0.48,
+          "z": 0.08
+        },
+        "color": {
+          "red": 255,
+          "green": 224,
+          "blue": 97
+        },
+        "rotation": null
+      },
+      {
+        "id": "fang-tip-right",
+        "role": "fang-tip",
+        "size": {
+          "x": 0.2,
+          "y": 0.22,
+          "z": 0.2
+        },
+        "center": {
+          "x": 0.25,
+          "y": 0.48,
+          "z": 0.08
+        },
+        "color": {
+          "red": 255,
+          "green": 224,
+          "blue": 97
+        },
+        "rotation": null
+      },
+      {
+        "id": "fang-back-spur",
+        "role": "fang-spur",
+        "size": {
+          "x": 0.12,
+          "y": 0.46,
+          "z": 0.12
+        },
+        "center": {
+          "x": 0,
+          "y": 0.04,
+          "z": -0.22
+        },
+        "color": {
+          "red": 209,
+          "green": 43,
+          "blue": 31
+        },
+        "rotation": null
+      }
+    ]
+  },
+  {
+    "kind": "experience_orb",
+    "parts": [
+      {
+        "id": "orb-core",
+        "role": "orb-core",
+        "size": {
+          "x": 0.32,
+          "y": 0.32,
+          "z": 0.32
+        },
+        "center": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "color": {
+          "red": 41,
+          "green": 168,
+          "blue": 89
+        },
+        "rotation": null
+      },
+      {
+        "id": "orb-face",
+        "role": "orb-face",
+        "size": {
+          "x": 0.16,
+          "y": 0.16,
+          "z": 0.06
+        },
+        "center": {
+          "x": 0,
+          "y": 0,
+          "z": 0.18
+        },
+        "color": {
+          "red": 255,
+          "green": 224,
+          "blue": 97
+        },
+        "rotation": null
+      },
+      {
+        "id": "orb-shard-top",
+        "role": "orb-shard",
+        "size": {
+          "x": 0.12,
+          "y": 0.34,
+          "z": 0.12
+        },
+        "center": {
+          "x": 0,
+          "y": 0.26,
+          "z": 0
+        },
+        "color": {
+          "red": 122,
+          "green": 235,
+          "blue": 120
+        },
+        "rotation": null
+      },
+      {
+        "id": "orb-shard-left",
+        "role": "orb-shard",
+        "size": {
+          "x": 0.3,
+          "y": 0.1,
+          "z": 0.12
+        },
+        "center": {
+          "x": -0.24,
+          "y": 0.02,
+          "z": 0
+        },
+        "color": {
+          "red": 245,
+          "green": 173,
+          "blue": 43
+        },
+        "rotation": null
+      },
+      {
+        "id": "orb-shard-right",
+        "role": "orb-shard",
+        "size": {
+          "x": 0.3,
+          "y": 0.1,
+          "z": 0.12
+        },
+        "center": {
+          "x": 0.24,
+          "y": -0.03,
+          "z": 0
+        },
+        "color": {
+          "red": 122,
+          "green": 235,
+          "blue": 120
+        },
+        "rotation": null
+      },
+      {
+        "id": "orb-shard-back",
+        "role": "orb-shard",
+        "size": {
+          "x": 0.12,
+          "y": 0.12,
+          "z": 0.32
+        },
+        "center": {
+          "x": 0,
+          "y": -0.1,
+          "z": -0.23
+        },
+        "color": {
+          "red": 245,
+          "green": 173,
+          "blue": 43
+        },
+        "rotation": null
+      }
+    ]
+  },
+  {
+    "kind": "eye_of_ender",
+    "parts": [
+      {
+        "id": "eye-pupil",
+        "role": "eye-pupil",
+        "size": {
+          "x": 0.42,
+          "y": 0.42,
+          "z": 0.3
+        },
+        "center": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "color": {
+          "red": 122,
+          "green": 41,
+          "blue": 199
+        },
+        "rotation": null
+      },
+      {
+        "id": "eye-iris",
+        "role": "eye-iris",
+        "size": {
+          "x": 0.26,
+          "y": 0.26,
+          "z": 0.08
+        },
+        "center": {
+          "x": 0,
+          "y": 0,
+          "z": 0.18
+        },
+        "color": {
+          "red": 122,
+          "green": 235,
+          "blue": 120
+        },
+        "rotation": null
+      },
+      {
+        "id": "eye-glint",
+        "role": "eye-glint",
+        "size": {
+          "x": 0.08,
+          "y": 0.08,
+          "z": 0.04
+        },
+        "center": {
+          "x": -0.07,
+          "y": 0.08,
+          "z": 0.24
+        },
+        "color": {
+          "red": 240,
+          "green": 232,
+          "blue": 199
+        },
+        "rotation": null
+      },
+      {
+        "id": "eye-ring-top",
+        "role": "eye-ring",
+        "size": {
+          "x": 0.66,
+          "y": 0.08,
+          "z": 0.12
+        },
+        "center": {
+          "x": 0,
+          "y": 0.25,
+          "z": 0
+        },
+        "color": {
+          "red": 41,
+          "green": 168,
+          "blue": 89
+        },
+        "rotation": null
+      },
+      {
+        "id": "eye-ring-bottom",
+        "role": "eye-ring",
+        "size": {
+          "x": 0.66,
+          "y": 0.08,
+          "z": 0.12
+        },
+        "center": {
+          "x": 0,
+          "y": -0.25,
+          "z": 0
+        },
+        "color": {
+          "red": 41,
+          "green": 168,
+          "blue": 89
+        },
+        "rotation": null
+      },
+      {
+        "id": "eye-ring-left",
+        "role": "eye-ring",
+        "size": {
+          "x": 0.1,
+          "y": 0.44,
+          "z": 0.12
+        },
+        "center": {
+          "x": -0.28,
+          "y": 0,
+          "z": 0
+        },
+        "color": {
+          "red": 245,
+          "green": 173,
+          "blue": 43
+        },
+        "rotation": null
+      },
+      {
+        "id": "eye-ring-right",
+        "role": "eye-ring",
+        "size": {
+          "x": 0.1,
+          "y": 0.44,
+          "z": 0.12
+        },
+        "center": {
+          "x": 0.28,
+          "y": 0,
+          "z": 0
+        },
+        "color": {
+          "red": 245,
+          "green": 173,
+          "blue": 43
+        },
+        "rotation": null
+      }
+    ]
+  },
+  {
+    "kind": "falling_block",
+    "parts": [
+      {
+        "id": "block-dirt",
+        "role": "falling-block",
+        "size": {
+          "x": 0.86,
+          "y": 0.84,
+          "z": 0.86
+        },
+        "center": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "color": {
+          "red": 94,
+          "green": 54,
+          "blue": 26
+        },
+        "rotation": null
+      },
+      {
+        "id": "block-top",
+        "role": "grass-cap",
+        "size": {
+          "x": 0.92,
+          "y": 0.12,
+          "z": 0.92
+        },
+        "center": {
+          "x": 0,
+          "y": 0.47,
+          "z": 0
+        },
+        "color": {
+          "red": 41,
+          "green": 168,
+          "blue": 89
+        },
+        "rotation": null
+      },
+      {
+        "id": "block-pebble-left",
+        "role": "stone-chip",
+        "size": {
+          "x": 0.18,
+          "y": 0.14,
+          "z": 0.08
+        },
+        "center": {
+          "x": -0.22,
+          "y": 0.06,
+          "z": 0.46
+        },
+        "color": {
+          "red": 122,
+          "green": 130,
+          "blue": 135
+        },
+        "rotation": null
+      },
+      {
+        "id": "block-pebble-right",
+        "role": "stone-chip",
+        "size": {
+          "x": 0.12,
+          "y": 0.18,
+          "z": 0.08
+        },
+        "center": {
+          "x": 0.26,
+          "y": -0.2,
+          "z": 0.46
+        },
+        "color": {
+          "red": 184,
+          "green": 189,
+          "blue": 186
+        },
+        "rotation": null
+      },
+      {
+        "id": "block-root",
+        "role": "root",
+        "size": {
+          "x": 0.12,
+          "y": 0.27,
+          "z": 0.1
+        },
+        "center": {
+          "x": 0.36,
+          "y": -0.54,
+          "z": 0.22
+        },
+        "color": {
+          "red": 173,
+          "green": 112,
+          "blue": 61
+        },
+        "rotation": null
+      }
+    ]
+  },
+  {
+    "kind": "glow_item_frame",
+    "parts": [
+      {
+        "id": "frame-top",
+        "role": "glow-frame",
+        "size": {
+          "x": 1.06,
+          "y": 0.1,
+          "z": 0.12
+        },
+        "center": {
+          "x": 0,
+          "y": 0.52,
+          "z": 0
+        },
+        "color": {
+          "red": 145,
+          "green": 245,
+          "blue": 255
+        },
+        "rotation": null
+      },
+      {
+        "id": "frame-bottom",
+        "role": "glow-frame",
+        "size": {
+          "x": 1.06,
+          "y": 0.1,
+          "z": 0.12
+        },
+        "center": {
+          "x": 0,
+          "y": -0.52,
+          "z": 0
+        },
+        "color": {
+          "red": 145,
+          "green": 245,
+          "blue": 255
+        },
+        "rotation": null
+      },
+      {
+        "id": "frame-left",
+        "role": "glow-frame",
+        "size": {
+          "x": 0.1,
+          "y": 0.94,
+          "z": 0.12
+        },
+        "center": {
+          "x": -0.48,
+          "y": 0,
+          "z": 0
+        },
+        "color": {
+          "red": 110,
+          "green": 209,
+          "blue": 232
+        },
+        "rotation": null
+      },
+      {
+        "id": "frame-right",
+        "role": "glow-frame",
+        "size": {
+          "x": 0.1,
+          "y": 0.94,
+          "z": 0.12
+        },
+        "center": {
+          "x": 0.48,
+          "y": 0,
+          "z": 0
+        },
+        "color": {
+          "red": 110,
+          "green": 209,
+          "blue": 232
+        },
+        "rotation": null
+      },
+      {
+        "id": "frame-item",
+        "role": "glow-item",
+        "size": {
+          "x": 0.4,
+          "y": 0.4,
+          "z": 0.14
+        },
+        "center": {
+          "x": 0,
+          "y": 0,
+          "z": 0.1
+        },
+        "color": {
+          "red": 255,
+          "green": 224,
+          "blue": 97
+        },
+        "rotation": null
+      },
+      {
+        "id": "frame-bloom",
+        "role": "glow-halo",
+        "size": {
+          "x": 0.22,
+          "y": 0.22,
+          "z": 0.1
+        },
+        "center": {
+          "x": 0,
+          "y": 0,
+          "z": 0.2
+        },
+        "color": {
+          "red": 240,
+          "green": 232,
+          "blue": 199
+        },
+        "rotation": null
+      }
+    ]
+  },
+  {
+    "kind": "item",
+    "parts": [
+      {
+        "id": "item-body",
+        "role": "dropped-item",
+        "size": {
+          "x": 0.36,
+          "y": 0.44,
+          "z": 0.32
+        },
+        "center": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "color": {
+          "red": 245,
+          "green": 173,
+          "blue": 43
+        },
+        "rotation": null
+      },
+      {
+        "id": "item-top",
+        "role": "item-top",
+        "size": {
+          "x": 0.28,
+          "y": 0.14,
+          "z": 0.26
+        },
+        "center": {
+          "x": 0,
+          "y": 0.29,
+          "z": 0
+        },
+        "color": {
+          "red": 255,
+          "green": 224,
+          "blue": 97
+        },
+        "rotation": null
+      },
+      {
+        "id": "item-band",
+        "role": "item-band",
+        "size": {
+          "x": 0.39,
+          "y": 0.08,
+          "z": 0.34
+        },
+        "center": {
+          "x": 0,
+          "y": -0.04,
+          "z": 0
+        },
+        "color": {
+          "red": 209,
+          "green": 43,
+          "blue": 31
+        },
+        "rotation": null
+      },
+      {
+        "id": "item-side",
+        "role": "item-mark",
+        "size": {
+          "x": 0.08,
+          "y": 0.18,
+          "z": 0.12
+        },
+        "center": {
+          "x": 0.2,
+          "y": 0.05,
+          "z": 0.16
+        },
+        "color": {
+          "red": 240,
+          "green": 232,
+          "blue": 199
+        },
+        "rotation": null
+      },
+      {
+        "id": "item-shadow",
+        "role": "item-shadow",
+        "size": {
+          "x": 0.43,
+          "y": 0.06,
+          "z": 0.38
+        },
+        "center": {
+          "x": 0,
+          "y": -0.27,
+          "z": 0
+        },
+        "color": {
+          "red": 94,
+          "green": 54,
+          "blue": 26
+        },
+        "rotation": null
+      }
+    ]
+  },
+  {
+    "kind": "item_frame",
+    "parts": [
+      {
+        "id": "wood-top",
+        "role": "frame-rail",
+        "size": {
+          "x": 0.98,
+          "y": 0.12,
+          "z": 0.12
+        },
+        "center": {
+          "x": 0,
+          "y": 0.48,
+          "z": 0
+        },
+        "color": {
+          "red": 173,
+          "green": 112,
+          "blue": 61
+        },
+        "rotation": null
+      },
+      {
+        "id": "wood-bottom",
+        "role": "frame-rail",
+        "size": {
+          "x": 0.98,
+          "y": 0.12,
+          "z": 0.12
+        },
+        "center": {
+          "x": 0,
+          "y": -0.48,
+          "z": 0
+        },
+        "color": {
+          "red": 107,
+          "green": 64,
+          "blue": 33
+        },
+        "rotation": null
+      },
+      {
+        "id": "wood-left",
+        "role": "frame-rail",
+        "size": {
+          "x": 0.12,
+          "y": 0.84,
+          "z": 0.12
+        },
+        "center": {
+          "x": -0.43,
+          "y": 0,
+          "z": 0
+        },
+        "color": {
+          "red": 107,
+          "green": 64,
+          "blue": 33
+        },
+        "rotation": null
+      },
+      {
+        "id": "wood-right",
+        "role": "frame-rail",
+        "size": {
+          "x": 0.12,
+          "y": 0.84,
+          "z": 0.12
+        },
+        "center": {
+          "x": 0.43,
+          "y": 0,
+          "z": 0
+        },
+        "color": {
+          "red": 173,
+          "green": 112,
+          "blue": 61
+        },
+        "rotation": null
+      },
+      {
+        "id": "frame-corner",
+        "role": "frame-corner",
+        "size": {
+          "x": 0.17,
+          "y": 0.17,
+          "z": 0.13
+        },
+        "center": {
+          "x": -0.43,
+          "y": 0.48,
+          "z": 0.02
+        },
+        "color": {
+          "red": 245,
+          "green": 173,
+          "blue": 43
+        },
+        "rotation": null
+      },
+      {
+        "id": "framed-item",
+        "role": "framed-item",
+        "size": {
+          "x": 0.3,
+          "y": 0.3,
+          "z": 0.08
+        },
+        "center": {
+          "x": 0,
+          "y": 0,
+          "z": 0.1
+        },
+        "color": {
+          "red": 38,
+          "green": 107,
+          "blue": 219
+        },
+        "rotation": null
+      }
+    ]
+  },
+  {
+    "kind": "leash_knot",
+    "parts": [
+      {
+        "id": "knot-center",
+        "role": "rope-knot",
+        "size": {
+          "x": 0.24,
+          "y": 0.22,
+          "z": 0.2
+        },
+        "center": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "color": {
+          "red": 209,
+          "green": 43,
+          "blue": 31
+        },
+        "rotation": null
+      },
+      {
+        "id": "knot-loop-left",
+        "role": "rope-loop",
+        "size": {
+          "x": 0.4,
+          "y": 0.1,
+          "z": 0.1
+        },
+        "center": {
+          "x": -0.24,
+          "y": 0.08,
+          "z": 0
+        },
+        "color": {
+          "red": 173,
+          "green": 112,
+          "blue": 61
+        },
+        "rotation": null
+      },
+      {
+        "id": "knot-loop-right",
+        "role": "rope-loop",
+        "size": {
+          "x": 0.4,
+          "y": 0.1,
+          "z": 0.1
+        },
+        "center": {
+          "x": 0.24,
+          "y": -0.08,
+          "z": 0
+        },
+        "color": {
+          "red": 107,
+          "green": 64,
+          "blue": 33
+        },
+        "rotation": null
+      },
+      {
+        "id": "knot-tail-left",
+        "role": "rope-tail",
+        "size": {
+          "x": 0.1,
+          "y": 0.4,
+          "z": 0.1
+        },
+        "center": {
+          "x": -0.08,
+          "y": -0.25,
+          "z": 0
+        },
+        "color": {
+          "red": 173,
+          "green": 112,
+          "blue": 61
+        },
+        "rotation": null
+      },
+      {
+        "id": "knot-tail-right",
+        "role": "rope-tail",
+        "size": {
+          "x": 0.1,
+          "y": 0.34,
+          "z": 0.1
+        },
+        "center": {
+          "x": 0.12,
+          "y": -0.22,
+          "z": 0
+        },
+        "color": {
+          "red": 107,
+          "green": 64,
+          "blue": 33
+        },
+        "rotation": null
+      }
+    ]
+  },
+  {
+    "kind": "lightning_bolt",
+    "parts": [
+      {
+        "id": "bolt-upper",
+        "role": "lightning-segment",
+        "size": {
+          "x": 0.28,
+          "y": 0.62,
+          "z": 0.22
+        },
+        "center": {
+          "x": -0.16,
+          "y": 0.52,
+          "z": 0
+        },
+        "color": {
+          "red": 255,
+          "green": 224,
+          "blue": 97
+        },
+        "rotation": null
+      },
+      {
+        "id": "bolt-middle",
+        "role": "lightning-segment",
+        "size": {
+          "x": 0.25,
+          "y": 0.72,
+          "z": 0.2
+        },
+        "center": {
+          "x": 0.1,
+          "y": 0.05,
+          "z": 0.02
+        },
+        "color": {
+          "red": 240,
+          "green": 232,
+          "blue": 199
+        },
+        "rotation": null
+      },
+      {
+        "id": "bolt-lower",
+        "role": "lightning-segment",
+        "size": {
+          "x": 0.24,
+          "y": 0.72,
+          "z": 0.2
+        },
+        "center": {
+          "x": -0.12,
+          "y": -0.52,
+          "z": -0.02
+        },
+        "color": {
+          "red": 245,
+          "green": 173,
+          "blue": 43
+        },
+        "rotation": null
+      },
+      {
+        "id": "bolt-flare-left",
+        "role": "lightning-flare",
+        "size": {
+          "x": 0.1,
+          "y": 0.26,
+          "z": 0.12
+        },
+        "center": {
+          "x": -0.31,
+          "y": 0.62,
+          "z": 0.02
+        },
+        "color": {
+          "red": 240,
+          "green": 232,
+          "blue": 199
+        },
+        "rotation": null
+      },
+      {
+        "id": "bolt-flare-right",
+        "role": "lightning-flare",
+        "size": {
+          "x": 0.1,
+          "y": 0.24,
+          "z": 0.12
+        },
+        "center": {
+          "x": 0.3,
+          "y": -0.4,
+          "z": 0
+        },
+        "color": {
+          "red": 240,
+          "green": 232,
+          "blue": 199
+        },
+        "rotation": null
+      }
+    ]
+  },
+  {
+    "kind": "painting",
+    "parts": [
+      {
+        "id": "painting-frame",
+        "role": "painting-frame",
+        "size": {
+          "x": 1.28,
+          "y": 1.02,
+          "z": 0.1
+        },
+        "center": {
+          "x": 0,
+          "y": 0,
+          "z": -0.05
+        },
+        "color": {
+          "red": 107,
+          "green": 64,
+          "blue": 33
+        },
+        "rotation": null
+      },
+      {
+        "id": "painting-canvas",
+        "role": "painting-canvas",
+        "size": {
+          "x": 1.1,
+          "y": 0.84,
+          "z": 0.06
+        },
+        "center": {
+          "x": 0,
+          "y": 0,
+          "z": 0.03
+        },
+        "color": {
+          "red": 38,
+          "green": 107,
+          "blue": 219
+        },
+        "rotation": null
+      },
+      {
+        "id": "painting-sky",
+        "role": "painting-sky",
+        "size": {
+          "x": 1.02,
+          "y": 0.3,
+          "z": 0.04
+        },
+        "center": {
+          "x": 0,
+          "y": 0.25,
+          "z": 0.08
+        },
+        "color": {
+          "red": 110,
+          "green": 209,
+          "blue": 232
+        },
+        "rotation": null
+      },
+      {
+        "id": "painting-hill",
+        "role": "painting-hill",
+        "size": {
+          "x": 0.82,
+          "y": 0.28,
+          "z": 0.04
+        },
+        "center": {
+          "x": -0.08,
+          "y": -0.15,
+          "z": 0.09
+        },
+        "color": {
+          "red": 41,
+          "green": 168,
+          "blue": 89
+        },
+        "rotation": null
+      },
+      {
+        "id": "painting-sun",
+        "role": "painting-sun",
+        "size": {
+          "x": 0.18,
+          "y": 0.18,
+          "z": 0.04
+        },
+        "center": {
+          "x": 0.34,
+          "y": 0.25,
+          "z": 0.09
+        },
+        "color": {
+          "red": 255,
+          "green": 224,
+          "blue": 97
+        },
+        "rotation": null
+      },
+      {
+        "id": "painting-frame-pin",
+        "role": "painting-pin",
+        "size": {
+          "x": 0.08,
+          "y": 0.08,
+          "z": 0.08
+        },
+        "center": {
+          "x": -0.57,
+          "y": 0.45,
+          "z": 0.02
+        },
+        "color": {
+          "red": 245,
+          "green": 173,
+          "blue": 43
+        },
+        "rotation": null
+      }
+    ]
+  }
+]

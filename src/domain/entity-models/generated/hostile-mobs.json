@@ -1,0 +1,7510 @@
+[
+  {
+    "kind": "blaze",
+    "parts": [
+      {
+        "id": "core",
+        "role": "body",
+        "size": {
+          "x": 0.42,
+          "y": 0.58,
+          "z": 0.42
+        },
+        "center": {
+          "x": 0,
+          "y": 1.38,
+          "z": 0
+        },
+        "color": {
+          "red": 250,
+          "green": 158,
+          "blue": 31
+        },
+        "rotation": null
+      },
+      {
+        "id": "head",
+        "role": "head",
+        "size": {
+          "x": 0.5,
+          "y": 0.48,
+          "z": 0.5
+        },
+        "center": {
+          "x": 0,
+          "y": 1.88,
+          "z": 0
+        },
+        "color": {
+          "red": 255,
+          "green": 199,
+          "blue": 48
+        },
+        "rotation": null
+      },
+      {
+        "id": "face",
+        "role": "face",
+        "size": {
+          "x": 0.28,
+          "y": 0.13,
+          "z": 0.06
+        },
+        "center": {
+          "x": 0,
+          "y": 1.88,
+          "z": 0.28
+        },
+        "color": {
+          "red": 97,
+          "green": 31,
+          "blue": 10
+        },
+        "rotation": null
+      },
+      {
+        "id": "rod-upper-left",
+        "role": "rod",
+        "size": {
+          "x": 0.16,
+          "y": 0.48,
+          "z": 0.16
+        },
+        "center": {
+          "x": -0.48,
+          "y": 1.94,
+          "z": 0
+        },
+        "color": {
+          "red": 255,
+          "green": 184,
+          "blue": 31
+        },
+        "rotation": null
+      },
+      {
+        "id": "rod-upper-right",
+        "role": "rod",
+        "size": {
+          "x": 0.16,
+          "y": 0.48,
+          "z": 0.16
+        },
+        "center": {
+          "x": 0.48,
+          "y": 1.94,
+          "z": 0
+        },
+        "color": {
+          "red": 255,
+          "green": 184,
+          "blue": 31
+        },
+        "rotation": null
+      },
+      {
+        "id": "rod-upper-front",
+        "role": "rod",
+        "size": {
+          "x": 0.16,
+          "y": 0.48,
+          "z": 0.16
+        },
+        "center": {
+          "x": 0,
+          "y": 1.94,
+          "z": 0.48
+        },
+        "color": {
+          "red": 250,
+          "green": 140,
+          "blue": 20
+        },
+        "rotation": null
+      },
+      {
+        "id": "rod-upper-back",
+        "role": "rod",
+        "size": {
+          "x": 0.16,
+          "y": 0.48,
+          "z": 0.16
+        },
+        "center": {
+          "x": 0,
+          "y": 1.94,
+          "z": -0.48
+        },
+        "color": {
+          "red": 250,
+          "green": 140,
+          "blue": 20
+        },
+        "rotation": null
+      },
+      {
+        "id": "rod-mid-left",
+        "role": "rod",
+        "size": {
+          "x": 0.15,
+          "y": 0.42,
+          "z": 0.15
+        },
+        "center": {
+          "x": -0.6,
+          "y": 1.38,
+          "z": 0.23
+        },
+        "color": {
+          "red": 255,
+          "green": 214,
+          "blue": 61
+        },
+        "rotation": null
+      },
+      {
+        "id": "rod-mid-right",
+        "role": "rod",
+        "size": {
+          "x": 0.15,
+          "y": 0.42,
+          "z": 0.15
+        },
+        "center": {
+          "x": 0.6,
+          "y": 1.38,
+          "z": 0.23
+        },
+        "color": {
+          "red": 255,
+          "green": 214,
+          "blue": 61
+        },
+        "rotation": null
+      },
+      {
+        "id": "rod-low-left",
+        "role": "rod",
+        "size": {
+          "x": 0.15,
+          "y": 0.4,
+          "z": 0.15
+        },
+        "center": {
+          "x": -0.42,
+          "y": 0.84,
+          "z": -0.32
+        },
+        "color": {
+          "red": 255,
+          "green": 173,
+          "blue": 26
+        },
+        "rotation": null
+      },
+      {
+        "id": "rod-low-right",
+        "role": "rod",
+        "size": {
+          "x": 0.15,
+          "y": 0.4,
+          "z": 0.15
+        },
+        "center": {
+          "x": 0.42,
+          "y": 0.84,
+          "z": -0.32
+        },
+        "color": {
+          "red": 255,
+          "green": 173,
+          "blue": 26
+        },
+        "rotation": null
+      }
+    ]
+  },
+  {
+    "kind": "bogged",
+    "parts": [
+      {
+        "id": "robe",
+        "role": "torso",
+        "size": {
+          "x": 0.48,
+          "y": 0.68,
+          "z": 0.34
+        },
+        "center": {
+          "x": 0,
+          "y": 0.92,
+          "z": 0
+        },
+        "color": {
+          "red": 61,
+          "green": 87,
+          "blue": 61
+        },
+        "rotation": null
+      },
+      {
+        "id": "skull",
+        "role": "head",
+        "size": {
+          "x": 0.46,
+          "y": 0.46,
+          "z": 0.4
+        },
+        "center": {
+          "x": 0,
+          "y": 1.54,
+          "z": 0
+        },
+        "color": {
+          "red": 148,
+          "green": 176,
+          "blue": 115
+        },
+        "rotation": null
+      },
+      {
+        "id": "jaw",
+        "role": "jaw",
+        "size": {
+          "x": 0.34,
+          "y": 0.13,
+          "z": 0.36
+        },
+        "center": {
+          "x": 0,
+          "y": 1.31,
+          "z": 0.03
+        },
+        "color": {
+          "red": 107,
+          "green": 135,
+          "blue": 84
+        },
+        "rotation": null
+      },
+      {
+        "id": "moss-cap",
+        "role": "moss",
+        "size": {
+          "x": 0.52,
+          "y": 0.13,
+          "z": 0.46
+        },
+        "center": {
+          "x": 0,
+          "y": 1.82,
+          "z": -0.02
+        },
+        "color": {
+          "red": 61,
+          "green": 99,
+          "blue": 46
+        },
+        "rotation": null
+      },
+      {
+        "id": "moss-drape",
+        "role": "moss",
+        "size": {
+          "x": 0.18,
+          "y": 0.29,
+          "z": 0.18
+        },
+        "center": {
+          "x": 0.19,
+          "y": 1.61,
+          "z": 0.14
+        },
+        "color": {
+          "red": 77,
+          "green": 120,
+          "blue": 51
+        },
+        "rotation": null
+      },
+      {
+        "id": "mushroom",
+        "role": "mushroom",
+        "size": {
+          "x": 0.2,
+          "y": 0.14,
+          "z": 0.2
+        },
+        "center": {
+          "x": -0.22,
+          "y": 1.89,
+          "z": 0
+        },
+        "color": {
+          "red": 158,
+          "green": 82,
+          "blue": 64
+        },
+        "rotation": null
+      },
+      {
+        "id": "left-arm",
+        "role": "arm",
+        "size": {
+          "x": 0.17,
+          "y": 0.68,
+          "z": 0.18
+        },
+        "center": {
+          "x": -0.36,
+          "y": 0.97,
+          "z": 0
+        },
+        "color": {
+          "red": 122,
+          "green": 156,
+          "blue": 102
+        },
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": -0.12
+        }
+      },
+      {
+        "id": "right-arm",
+        "role": "arm",
+        "size": {
+          "x": 0.17,
+          "y": 0.68,
+          "z": 0.18
+        },
+        "center": {
+          "x": 0.36,
+          "y": 0.97,
+          "z": 0
+        },
+        "color": {
+          "red": 122,
+          "green": 156,
+          "blue": 102
+        },
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": 0.22
+        }
+      },
+      {
+        "id": "left-leg",
+        "role": "leg",
+        "size": {
+          "x": 0.19,
+          "y": 0.48,
+          "z": 0.21
+        },
+        "center": {
+          "x": -0.14,
+          "y": 0.24,
+          "z": 0
+        },
+        "color": {
+          "red": 87,
+          "green": 99,
+          "blue": 71
+        },
+        "rotation": null
+      },
+      {
+        "id": "right-leg",
+        "role": "leg",
+        "size": {
+          "x": 0.19,
+          "y": 0.48,
+          "z": 0.21
+        },
+        "center": {
+          "x": 0.14,
+          "y": 0.24,
+          "z": 0
+        },
+        "color": {
+          "red": 87,
+          "green": 99,
+          "blue": 71
+        },
+        "rotation": null
+      },
+      {
+        "id": "bow-grip",
+        "role": "bow",
+        "size": {
+          "x": 0.1,
+          "y": 0.44,
+          "z": 0.1
+        },
+        "center": {
+          "x": 0.51,
+          "y": 0.93,
+          "z": 0.12
+        },
+        "color": {
+          "red": 77,
+          "green": 41,
+          "blue": 20
+        },
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": -0.38
+        }
+      },
+      {
+        "id": "bow-limb",
+        "role": "bow",
+        "size": {
+          "x": 0.08,
+          "y": 0.54,
+          "z": 0.1
+        },
+        "center": {
+          "x": 0.67,
+          "y": 1.03,
+          "z": 0.12
+        },
+        "color": {
+          "red": 122,
+          "green": 64,
+          "blue": 31
+        },
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": 0.3
+        }
+      }
+    ]
+  },
+  {
+    "kind": "breeze",
+    "parts": [
+      {
+        "id": "lower-gust",
+        "role": "wind-ring",
+        "size": {
+          "x": 0.9,
+          "y": 0.2,
+          "z": 0.9
+        },
+        "center": {
+          "x": 0,
+          "y": 0.72,
+          "z": 0
+        },
+        "color": {
+          "red": 94,
+          "green": 219,
+          "blue": 232
+        },
+        "rotation": null
+      },
+      {
+        "id": "lower-gap",
+        "role": "body",
+        "size": {
+          "x": 0.4,
+          "y": 0.46,
+          "z": 0.4
+        },
+        "center": {
+          "x": 0,
+          "y": 1.03,
+          "z": 0
+        },
+        "color": {
+          "red": 196,
+          "green": 250,
+          "blue": 255
+        },
+        "rotation": null
+      },
+      {
+        "id": "upper-gust",
+        "role": "wind-ring",
+        "size": {
+          "x": 0.72,
+          "y": 0.17,
+          "z": 0.72
+        },
+        "center": {
+          "x": 0,
+          "y": 1.45,
+          "z": 0
+        },
+        "color": {
+          "red": 140,
+          "green": 232,
+          "blue": 245
+        },
+        "rotation": null
+      },
+      {
+        "id": "head",
+        "role": "head",
+        "size": {
+          "x": 0.4,
+          "y": 0.38,
+          "z": 0.4
+        },
+        "center": {
+          "x": 0,
+          "y": 1.72,
+          "z": 0
+        },
+        "color": {
+          "red": 212,
+          "green": 250,
+          "blue": 255
+        },
+        "rotation": null
+      },
+      {
+        "id": "eye-left",
+        "role": "eye",
+        "size": {
+          "x": 0.07,
+          "y": 0.08,
+          "z": 0.06
+        },
+        "center": {
+          "x": -0.11,
+          "y": 1.75,
+          "z": 0.21
+        },
+        "color": {
+          "red": 33,
+          "green": 156,
+          "blue": 194
+        },
+        "rotation": null
+      },
+      {
+        "id": "eye-right",
+        "role": "eye",
+        "size": {
+          "x": 0.07,
+          "y": 0.08,
+          "z": 0.06
+        },
+        "center": {
+          "x": 0.11,
+          "y": 1.75,
+          "z": 0.21
+        },
+        "color": {
+          "red": 33,
+          "green": 156,
+          "blue": 194
+        },
+        "rotation": null
+      },
+      {
+        "id": "whirl-left",
+        "role": "wind-vane",
+        "size": {
+          "x": 0.66,
+          "y": 0.1,
+          "z": 0.11
+        },
+        "center": {
+          "x": -0.42,
+          "y": 1.26,
+          "z": 0
+        },
+        "color": {
+          "red": 112,
+          "green": 222,
+          "blue": 240
+        },
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": 0.65
+        }
+      },
+      {
+        "id": "whirl-right",
+        "role": "wind-vane",
+        "size": {
+          "x": 0.66,
+          "y": 0.1,
+          "z": 0.11
+        },
+        "center": {
+          "x": 0.42,
+          "y": 1.26,
+          "z": 0
+        },
+        "color": {
+          "red": 112,
+          "green": 222,
+          "blue": 240
+        },
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": -0.65
+        }
+      },
+      {
+        "id": "gust-tail",
+        "role": "wind-trail",
+        "size": {
+          "x": 0.15,
+          "y": 0.38,
+          "z": 0.15
+        },
+        "center": {
+          "x": 0,
+          "y": 0.36,
+          "z": 0
+        },
+        "color": {
+          "red": 166,
+          "green": 242,
+          "blue": 247
+        },
+        "rotation": null
+      }
+    ]
+  },
+  {
+    "kind": "creeper",
+    "parts": [
+      {
+        "id": "body",
+        "role": "body",
+        "size": {
+          "x": 0.58,
+          "y": 0.82,
+          "z": 0.34
+        },
+        "center": {
+          "x": 0,
+          "y": 0.96,
+          "z": 0
+        },
+        "color": {
+          "red": 71,
+          "green": 158,
+          "blue": 51
+        },
+        "rotation": null
+      },
+      {
+        "id": "head",
+        "role": "head",
+        "size": {
+          "x": 0.62,
+          "y": 0.58,
+          "z": 0.56
+        },
+        "center": {
+          "x": 0,
+          "y": 1.66,
+          "z": 0
+        },
+        "color": {
+          "red": 79,
+          "green": 176,
+          "blue": 56
+        },
+        "rotation": null
+      },
+      {
+        "id": "face-shadow",
+        "role": "face",
+        "size": {
+          "x": 0.42,
+          "y": 0.34,
+          "z": 0.06
+        },
+        "center": {
+          "x": 0,
+          "y": 1.62,
+          "z": 0.3
+        },
+        "color": {
+          "red": 20,
+          "green": 51,
+          "blue": 20
+        },
+        "rotation": null
+      },
+      {
+        "id": "eye-left",
+        "role": "eye",
+        "size": {
+          "x": 0.1,
+          "y": 0.11,
+          "z": 0.04
+        },
+        "center": {
+          "x": -0.13,
+          "y": 1.76,
+          "z": 0.34
+        },
+        "color": {
+          "red": 8,
+          "green": 18,
+          "blue": 8
+        },
+        "rotation": null
+      },
+      {
+        "id": "eye-right",
+        "role": "eye",
+        "size": {
+          "x": 0.1,
+          "y": 0.11,
+          "z": 0.04
+        },
+        "center": {
+          "x": 0.13,
+          "y": 1.76,
+          "z": 0.34
+        },
+        "color": {
+          "red": 8,
+          "green": 18,
+          "blue": 8
+        },
+        "rotation": null
+      },
+      {
+        "id": "leg-front-left",
+        "role": "leg",
+        "size": {
+          "x": 0.25,
+          "y": 0.38,
+          "z": 0.26
+        },
+        "center": {
+          "x": -0.19,
+          "y": 0.21,
+          "z": 0.19
+        },
+        "color": {
+          "red": 64,
+          "green": 148,
+          "blue": 46
+        },
+        "rotation": null
+      },
+      {
+        "id": "leg-front-right",
+        "role": "leg",
+        "size": {
+          "x": 0.25,
+          "y": 0.38,
+          "z": 0.26
+        },
+        "center": {
+          "x": 0.19,
+          "y": 0.21,
+          "z": 0.19
+        },
+        "color": {
+          "red": 89,
+          "green": 173,
+          "blue": 59
+        },
+        "rotation": null
+      },
+      {
+        "id": "leg-back-left",
+        "role": "leg",
+        "size": {
+          "x": 0.25,
+          "y": 0.38,
+          "z": 0.26
+        },
+        "center": {
+          "x": -0.19,
+          "y": 0.21,
+          "z": -0.19
+        },
+        "color": {
+          "red": 89,
+          "green": 173,
+          "blue": 59
+        },
+        "rotation": null
+      },
+      {
+        "id": "leg-back-right",
+        "role": "leg",
+        "size": {
+          "x": 0.25,
+          "y": 0.38,
+          "z": 0.26
+        },
+        "center": {
+          "x": 0.19,
+          "y": 0.21,
+          "z": -0.19
+        },
+        "color": {
+          "red": 64,
+          "green": 148,
+          "blue": 46
+        },
+        "rotation": null
+      }
+    ]
+  },
+  {
+    "kind": "drowned",
+    "parts": [
+      {
+        "id": "tunic",
+        "role": "torso",
+        "size": {
+          "x": 0.5,
+          "y": 0.7,
+          "z": 0.34
+        },
+        "center": {
+          "x": 0,
+          "y": 0.94,
+          "z": 0
+        },
+        "color": {
+          "red": 31,
+          "green": 94,
+          "blue": 99
+        },
+        "rotation": null
+      },
+      {
+        "id": "head",
+        "role": "head",
+        "size": {
+          "x": 0.48,
+          "y": 0.48,
+          "z": 0.43
+        },
+        "center": {
+          "x": 0,
+          "y": 1.55,
+          "z": 0
+        },
+        "color": {
+          "red": 51,
+          "green": 135,
+          "blue": 133
+        },
+        "rotation": null
+      },
+      {
+        "id": "jaw",
+        "role": "jaw",
+        "size": {
+          "x": 0.35,
+          "y": 0.12,
+          "z": 0.36
+        },
+        "center": {
+          "x": 0,
+          "y": 1.31,
+          "z": 0.05
+        },
+        "color": {
+          "red": 28,
+          "green": 105,
+          "blue": 110
+        },
+        "rotation": null
+      },
+      {
+        "id": "seaweed",
+        "role": "seaweed",
+        "size": {
+          "x": 0.5,
+          "y": 0.16,
+          "z": 0.47
+        },
+        "center": {
+          "x": 0,
+          "y": 1.84,
+          "z": -0.02
+        },
+        "color": {
+          "red": 61,
+          "green": 125,
+          "blue": 61
+        },
+        "rotation": null
+      },
+      {
+        "id": "kelp",
+        "role": "seaweed",
+        "size": {
+          "x": 0.12,
+          "y": 0.3,
+          "z": 0.12
+        },
+        "center": {
+          "x": 0.19,
+          "y": 1.67,
+          "z": -0.16
+        },
+        "color": {
+          "red": 79,
+          "green": 148,
+          "blue": 54
+        },
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": -0.15
+        }
+      },
+      {
+        "id": "left-arm",
+        "role": "arm",
+        "size": {
+          "x": 0.17,
+          "y": 0.68,
+          "z": 0.18
+        },
+        "center": {
+          "x": -0.37,
+          "y": 0.99,
+          "z": 0
+        },
+        "color": {
+          "red": 41,
+          "green": 120,
+          "blue": 117
+        },
+        "rotation": {
+          "x": 0.25,
+          "y": 0,
+          "z": 0.1
+        }
+      },
+      {
+        "id": "right-arm",
+        "role": "arm",
+        "size": {
+          "x": 0.17,
+          "y": 0.68,
+          "z": 0.18
+        },
+        "center": {
+          "x": 0.37,
+          "y": 1.02,
+          "z": 0.02
+        },
+        "color": {
+          "red": 41,
+          "green": 120,
+          "blue": 117
+        },
+        "rotation": {
+          "x": 0.25,
+          "y": 0,
+          "z": -0.1
+        }
+      },
+      {
+        "id": "left-leg",
+        "role": "leg",
+        "size": {
+          "x": 0.19,
+          "y": 0.48,
+          "z": 0.2
+        },
+        "center": {
+          "x": -0.14,
+          "y": 0.24,
+          "z": 0
+        },
+        "color": {
+          "red": 26,
+          "green": 82,
+          "blue": 94
+        },
+        "rotation": null
+      },
+      {
+        "id": "right-leg",
+        "role": "leg",
+        "size": {
+          "x": 0.19,
+          "y": 0.48,
+          "z": 0.2
+        },
+        "center": {
+          "x": 0.14,
+          "y": 0.24,
+          "z": 0
+        },
+        "color": {
+          "red": 26,
+          "green": 82,
+          "blue": 94
+        },
+        "rotation": null
+      },
+      {
+        "id": "trident-shaft",
+        "role": "trident",
+        "size": {
+          "x": 0.08,
+          "y": 0.86,
+          "z": 0.08
+        },
+        "center": {
+          "x": 0.55,
+          "y": 0.89,
+          "z": 0.12
+        },
+        "color": {
+          "red": 115,
+          "green": 145,
+          "blue": 133
+        },
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": -0.28
+        }
+      },
+      {
+        "id": "trident-head",
+        "role": "trident",
+        "size": {
+          "x": 0.36,
+          "y": 0.12,
+          "z": 0.08
+        },
+        "center": {
+          "x": 0.66,
+          "y": 1.37,
+          "z": 0.12
+        },
+        "color": {
+          "red": 163,
+          "green": 194,
+          "blue": 168
+        },
+        "rotation": null
+      }
+    ]
+  },
+  {
+    "kind": "elder_guardian",
+    "parts": [
+      {
+        "id": "body",
+        "role": "body",
+        "size": {
+          "x": 1.58,
+          "y": 0.94,
+          "z": 1.08
+        },
+        "center": {
+          "x": 0,
+          "y": 1.34,
+          "z": 0
+        },
+        "color": {
+          "red": 140,
+          "green": 120,
+          "blue": 69
+        },
+        "rotation": null
+      },
+      {
+        "id": "back-hump",
+        "role": "dorsal-fin",
+        "size": {
+          "x": 1.08,
+          "y": 0.4,
+          "z": 0.78
+        },
+        "center": {
+          "x": 0,
+          "y": 1.94,
+          "z": -0.02
+        },
+        "color": {
+          "red": 184,
+          "green": 158,
+          "blue": 79
+        },
+        "rotation": null
+      },
+      {
+        "id": "eye-ring",
+        "role": "eye-ring",
+        "size": {
+          "x": 0.55,
+          "y": 0.55,
+          "z": 0.18
+        },
+        "center": {
+          "x": 0,
+          "y": 1.47,
+          "z": 0.58
+        },
+        "color": {
+          "red": 204,
+          "green": 189,
+          "blue": 120
+        },
+        "rotation": null
+      },
+      {
+        "id": "eye",
+        "role": "eye",
+        "size": {
+          "x": 0.29,
+          "y": 0.29,
+          "z": 0.08
+        },
+        "center": {
+          "x": 0,
+          "y": 1.47,
+          "z": 0.7
+        },
+        "color": {
+          "red": 245,
+          "green": 227,
+          "blue": 173
+        },
+        "rotation": null
+      },
+      {
+        "id": "pupil",
+        "role": "pupil",
+        "size": {
+          "x": 0.11,
+          "y": 0.16,
+          "z": 0.05
+        },
+        "center": {
+          "x": 0.03,
+          "y": 1.47,
+          "z": 0.75
+        },
+        "color": {
+          "red": 26,
+          "green": 38,
+          "blue": 41
+        },
+        "rotation": null
+      },
+      {
+        "id": "tail",
+        "role": "tail",
+        "size": {
+          "x": 0.34,
+          "y": 0.39,
+          "z": 0.84
+        },
+        "center": {
+          "x": 0,
+          "y": 1.22,
+          "z": -0.91
+        },
+        "color": {
+          "red": 148,
+          "green": 125,
+          "blue": 69
+        },
+        "rotation": {
+          "x": 0.22,
+          "y": 0,
+          "z": 0
+        }
+      },
+      {
+        "id": "tail-fin",
+        "role": "fin",
+        "size": {
+          "x": 0.15,
+          "y": 0.65,
+          "z": 0.5
+        },
+        "center": {
+          "x": 0,
+          "y": 1.32,
+          "z": -1.48
+        },
+        "color": {
+          "red": 194,
+          "green": 166,
+          "blue": 82
+        },
+        "rotation": null
+      },
+      {
+        "id": "side-fin-left",
+        "role": "fin",
+        "size": {
+          "x": 0.6,
+          "y": 0.18,
+          "z": 0.56
+        },
+        "center": {
+          "x": -0.98,
+          "y": 1.48,
+          "z": 0
+        },
+        "color": {
+          "red": 194,
+          "green": 166,
+          "blue": 82
+        },
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": 0.2
+        }
+      },
+      {
+        "id": "side-fin-right",
+        "role": "fin",
+        "size": {
+          "x": 0.6,
+          "y": 0.18,
+          "z": 0.56
+        },
+        "center": {
+          "x": 0.98,
+          "y": 1.48,
+          "z": 0
+        },
+        "color": {
+          "red": 194,
+          "green": 166,
+          "blue": 82
+        },
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": -0.2
+        }
+      },
+      {
+        "id": "spine-top",
+        "role": "spine",
+        "size": {
+          "x": 0.16,
+          "y": 0.45,
+          "z": 0.16
+        },
+        "center": {
+          "x": 0,
+          "y": 2.55,
+          "z": -0.08
+        },
+        "color": {
+          "red": 115,
+          "green": 99,
+          "blue": 61
+        },
+        "rotation": null
+      },
+      {
+        "id": "spine-left",
+        "role": "spine",
+        "size": {
+          "x": 0.16,
+          "y": 0.4,
+          "z": 0.16
+        },
+        "center": {
+          "x": -0.83,
+          "y": 1.96,
+          "z": 0
+        },
+        "color": {
+          "red": 115,
+          "green": 99,
+          "blue": 61
+        },
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": 0.8
+        }
+      },
+      {
+        "id": "spine-right",
+        "role": "spine",
+        "size": {
+          "x": 0.16,
+          "y": 0.4,
+          "z": 0.16
+        },
+        "center": {
+          "x": 0.83,
+          "y": 1.96,
+          "z": 0
+        },
+        "color": {
+          "red": 115,
+          "green": 99,
+          "blue": 61
+        },
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": -0.8
+        }
+      },
+      {
+        "id": "spine-low-left",
+        "role": "spine",
+        "size": {
+          "x": 0.13,
+          "y": 0.36,
+          "z": 0.14
+        },
+        "center": {
+          "x": -0.68,
+          "y": 0.88,
+          "z": 0
+        },
+        "color": {
+          "red": 115,
+          "green": 99,
+          "blue": 61
+        },
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": 0.7
+        }
+      },
+      {
+        "id": "spine-low-right",
+        "role": "spine",
+        "size": {
+          "x": 0.13,
+          "y": 0.36,
+          "z": 0.14
+        },
+        "center": {
+          "x": 0.68,
+          "y": 0.88,
+          "z": 0
+        },
+        "color": {
+          "red": 115,
+          "green": 99,
+          "blue": 61
+        },
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": -0.7
+        }
+      }
+    ]
+  },
+  {
+    "kind": "endermite",
+    "parts": [
+      {
+        "id": "abdomen",
+        "role": "segment",
+        "size": {
+          "x": 0.32,
+          "y": 0.22,
+          "z": 0.32
+        },
+        "center": {
+          "x": 0,
+          "y": 0.36,
+          "z": -0.32
+        },
+        "color": {
+          "red": 97,
+          "green": 31,
+          "blue": 128
+        },
+        "rotation": null
+      },
+      {
+        "id": "middle",
+        "role": "segment",
+        "size": {
+          "x": 0.3,
+          "y": 0.24,
+          "z": 0.3
+        },
+        "center": {
+          "x": 0,
+          "y": 0.38,
+          "z": 0
+        },
+        "color": {
+          "red": 140,
+          "green": 51,
+          "blue": 163
+        },
+        "rotation": null
+      },
+      {
+        "id": "thorax",
+        "role": "segment",
+        "size": {
+          "x": 0.27,
+          "y": 0.22,
+          "z": 0.27
+        },
+        "center": {
+          "x": 0,
+          "y": 0.39,
+          "z": 0.27
+        },
+        "color": {
+          "red": 105,
+          "green": 33,
+          "blue": 143
+        },
+        "rotation": null
+      },
+      {
+        "id": "head",
+        "role": "head",
+        "size": {
+          "x": 0.22,
+          "y": 0.21,
+          "z": 0.22
+        },
+        "center": {
+          "x": 0,
+          "y": 0.4,
+          "z": 0.49
+        },
+        "color": {
+          "red": 161,
+          "green": 66,
+          "blue": 179
+        },
+        "rotation": null
+      },
+      {
+        "id": "eye-left",
+        "role": "eye",
+        "size": {
+          "x": 0.045,
+          "y": 0.055,
+          "z": 0.035
+        },
+        "center": {
+          "x": -0.06,
+          "y": 0.43,
+          "z": 0.61
+        },
+        "color": {
+          "red": 242,
+          "green": 161,
+          "blue": 237
+        },
+        "rotation": null
+      },
+      {
+        "id": "eye-right",
+        "role": "eye",
+        "size": {
+          "x": 0.045,
+          "y": 0.055,
+          "z": 0.035
+        },
+        "center": {
+          "x": 0.06,
+          "y": 0.43,
+          "z": 0.61
+        },
+        "color": {
+          "red": 242,
+          "green": 161,
+          "blue": 237
+        },
+        "rotation": null
+      },
+      {
+        "id": "antenna-left",
+        "role": "antenna",
+        "size": {
+          "x": 0.05,
+          "y": 0.18,
+          "z": 0.05
+        },
+        "center": {
+          "x": -0.09,
+          "y": 0.56,
+          "z": 0.54
+        },
+        "color": {
+          "red": 89,
+          "green": 26,
+          "blue": 112
+        },
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": -0.42
+        }
+      },
+      {
+        "id": "antenna-right",
+        "role": "antenna",
+        "size": {
+          "x": 0.05,
+          "y": 0.18,
+          "z": 0.05
+        },
+        "center": {
+          "x": 0.09,
+          "y": 0.56,
+          "z": 0.54
+        },
+        "color": {
+          "red": 89,
+          "green": 26,
+          "blue": 112
+        },
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": 0.42
+        }
+      },
+      {
+        "id": "legs-front",
+        "role": "legs",
+        "size": {
+          "x": 0.52,
+          "y": 0.08,
+          "z": 0.15
+        },
+        "center": {
+          "x": 0,
+          "y": 0.23,
+          "z": 0.23
+        },
+        "color": {
+          "red": 74,
+          "green": 20,
+          "blue": 102
+        },
+        "rotation": null
+      },
+      {
+        "id": "legs-rear",
+        "role": "legs",
+        "size": {
+          "x": 0.54,
+          "y": 0.08,
+          "z": 0.15
+        },
+        "center": {
+          "x": 0,
+          "y": 0.22,
+          "z": -0.28
+        },
+        "color": {
+          "red": 74,
+          "green": 20,
+          "blue": 102
+        },
+        "rotation": null
+      }
+    ]
+  },
+  {
+    "kind": "evoker",
+    "parts": [
+      {
+        "id": "robe",
+        "role": "robe",
+        "size": {
+          "x": 0.56,
+          "y": 0.78,
+          "z": 0.38
+        },
+        "center": {
+          "x": 0,
+          "y": 0.92,
+          "z": 0
+        },
+        "color": {
+          "red": 51,
+          "green": 48,
+          "blue": 69
+        },
+        "rotation": null
+      },
+      {
+        "id": "robe-trim",
+        "role": "trim",
+        "size": {
+          "x": 0.6,
+          "y": 0.12,
+          "z": 0.42
+        },
+        "center": {
+          "x": 0,
+          "y": 0.55,
+          "z": 0
+        },
+        "color": {
+          "red": 110,
+          "green": 97,
+          "blue": 122
+        },
+        "rotation": null
+      },
+      {
+        "id": "head",
+        "role": "head",
+        "size": {
+          "x": 0.49,
+          "y": 0.5,
+          "z": 0.42
+        },
+        "center": {
+          "x": 0,
+          "y": 1.58,
+          "z": 0
+        },
+        "color": {
+          "red": 176,
+          "green": 156,
+          "blue": 125
+        },
+        "rotation": null
+      },
+      {
+        "id": "nose",
+        "role": "nose",
+        "size": {
+          "x": 0.13,
+          "y": 0.24,
+          "z": 0.16
+        },
+        "center": {
+          "x": 0,
+          "y": 1.49,
+          "z": 0.27
+        },
+        "color": {
+          "red": 143,
+          "green": 115,
+          "blue": 94
+        },
+        "rotation": null
+      },
+      {
+        "id": "brow",
+        "role": "brow",
+        "size": {
+          "x": 0.44,
+          "y": 0.1,
+          "z": 0.07
+        },
+        "center": {
+          "x": 0,
+          "y": 1.76,
+          "z": 0.22
+        },
+        "color": {
+          "red": 61,
+          "green": 46,
+          "blue": 46
+        },
+        "rotation": null
+      },
+      {
+        "id": "left-eye",
+        "role": "eye",
+        "size": {
+          "x": 0.06,
+          "y": 0.07,
+          "z": 0.04
+        },
+        "center": {
+          "x": -0.12,
+          "y": 1.66,
+          "z": 0.23
+        },
+        "color": {
+          "red": 20,
+          "green": 18,
+          "blue": 15
+        },
+        "rotation": null
+      },
+      {
+        "id": "right-eye",
+        "role": "eye",
+        "size": {
+          "x": 0.06,
+          "y": 0.07,
+          "z": 0.04
+        },
+        "center": {
+          "x": 0.12,
+          "y": 1.66,
+          "z": 0.23
+        },
+        "color": {
+          "red": 20,
+          "green": 18,
+          "blue": 15
+        },
+        "rotation": null
+      },
+      {
+        "id": "left-arm",
+        "role": "sleeve",
+        "size": {
+          "x": 0.2,
+          "y": 0.66,
+          "z": 0.23
+        },
+        "center": {
+          "x": -0.4,
+          "y": 0.99,
+          "z": 0
+        },
+        "color": {
+          "red": 79,
+          "green": 69,
+          "blue": 92
+        },
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": 0.2
+        }
+      },
+      {
+        "id": "right-arm",
+        "role": "sleeve",
+        "size": {
+          "x": 0.2,
+          "y": 0.66,
+          "z": 0.23
+        },
+        "center": {
+          "x": 0.4,
+          "y": 0.99,
+          "z": 0
+        },
+        "color": {
+          "red": 79,
+          "green": 69,
+          "blue": 92
+        },
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": -0.2
+        }
+      },
+      {
+        "id": "hands",
+        "role": "hands",
+        "size": {
+          "x": 0.42,
+          "y": 0.15,
+          "z": 0.23
+        },
+        "center": {
+          "x": 0,
+          "y": 0.76,
+          "z": 0.14
+        },
+        "color": {
+          "red": 184,
+          "green": 161,
+          "blue": 125
+        },
+        "rotation": null
+      },
+      {
+        "id": "left-leg",
+        "role": "leg",
+        "size": {
+          "x": 0.22,
+          "y": 0.42,
+          "z": 0.23
+        },
+        "center": {
+          "x": -0.15,
+          "y": 0.22,
+          "z": 0
+        },
+        "color": {
+          "red": 41,
+          "green": 38,
+          "blue": 56
+        },
+        "rotation": null
+      },
+      {
+        "id": "right-leg",
+        "role": "leg",
+        "size": {
+          "x": 0.22,
+          "y": 0.42,
+          "z": 0.23
+        },
+        "center": {
+          "x": 0.15,
+          "y": 0.22,
+          "z": 0
+        },
+        "color": {
+          "red": 41,
+          "green": 38,
+          "blue": 56
+        },
+        "rotation": null
+      }
+    ]
+  },
+  {
+    "kind": "ghast",
+    "parts": [
+      {
+        "id": "body",
+        "role": "body",
+        "size": {
+          "x": 1.72,
+          "y": 1.58,
+          "z": 1.48
+        },
+        "center": {
+          "x": 0,
+          "y": 2.02,
+          "z": 0
+        },
+        "color": {
+          "red": 232,
+          "green": 230,
+          "blue": 217
+        },
+        "rotation": null
+      },
+      {
+        "id": "brow",
+        "role": "brow",
+        "size": {
+          "x": 0.72,
+          "y": 0.15,
+          "z": 0.1
+        },
+        "center": {
+          "x": 0,
+          "y": 2.35,
+          "z": 0.79
+        },
+        "color": {
+          "red": 120,
+          "green": 110,
+          "blue": 107
+        },
+        "rotation": null
+      },
+      {
+        "id": "eye-left",
+        "role": "eye",
+        "size": {
+          "x": 0.2,
+          "y": 0.24,
+          "z": 0.09
+        },
+        "center": {
+          "x": -0.27,
+          "y": 2.19,
+          "z": 0.78
+        },
+        "color": {
+          "red": 51,
+          "green": 20,
+          "blue": 18
+        },
+        "rotation": null
+      },
+      {
+        "id": "eye-right",
+        "role": "eye",
+        "size": {
+          "x": 0.2,
+          "y": 0.24,
+          "z": 0.09
+        },
+        "center": {
+          "x": 0.27,
+          "y": 2.19,
+          "z": 0.78
+        },
+        "color": {
+          "red": 51,
+          "green": 20,
+          "blue": 18
+        },
+        "rotation": null
+      },
+      {
+        "id": "mouth",
+        "role": "mouth",
+        "size": {
+          "x": 0.25,
+          "y": 0.08,
+          "z": 0.08
+        },
+        "center": {
+          "x": 0,
+          "y": 1.91,
+          "z": 0.79
+        },
+        "color": {
+          "red": 122,
+          "green": 79,
+          "blue": 79
+        },
+        "rotation": null
+      },
+      {
+        "id": "tentacle-front-left",
+        "role": "tentacle",
+        "size": {
+          "x": 0.13,
+          "y": 0.55,
+          "z": 0.13
+        },
+        "center": {
+          "x": -0.49,
+          "y": 1.08,
+          "z": 0.38
+        },
+        "color": {
+          "red": 217,
+          "green": 214,
+          "blue": 207
+        },
+        "rotation": null
+      },
+      {
+        "id": "tentacle-front-right",
+        "role": "tentacle",
+        "size": {
+          "x": 0.13,
+          "y": 0.68,
+          "z": 0.13
+        },
+        "center": {
+          "x": 0.49,
+          "y": 1.01,
+          "z": 0.38
+        },
+        "color": {
+          "red": 217,
+          "green": 214,
+          "blue": 207
+        },
+        "rotation": null
+      },
+      {
+        "id": "tentacle-back-left",
+        "role": "tentacle",
+        "size": {
+          "x": 0.13,
+          "y": 0.42,
+          "z": 0.13
+        },
+        "center": {
+          "x": -0.49,
+          "y": 1.13,
+          "z": -0.38
+        },
+        "color": {
+          "red": 217,
+          "green": 214,
+          "blue": 207
+        },
+        "rotation": null
+      },
+      {
+        "id": "tentacle-back-right",
+        "role": "tentacle",
+        "size": {
+          "x": 0.13,
+          "y": 0.63,
+          "z": 0.13
+        },
+        "center": {
+          "x": 0.49,
+          "y": 1.03,
+          "z": -0.38
+        },
+        "color": {
+          "red": 217,
+          "green": 214,
+          "blue": 207
+        },
+        "rotation": null
+      },
+      {
+        "id": "tentacle-mid-left",
+        "role": "tentacle",
+        "size": {
+          "x": 0.13,
+          "y": 0.72,
+          "z": 0.13
+        },
+        "center": {
+          "x": -0.17,
+          "y": 1.01,
+          "z": 0.52
+        },
+        "color": {
+          "red": 217,
+          "green": 214,
+          "blue": 207
+        },
+        "rotation": null
+      },
+      {
+        "id": "tentacle-mid-right",
+        "role": "tentacle",
+        "size": {
+          "x": 0.13,
+          "y": 0.48,
+          "z": 0.13
+        },
+        "center": {
+          "x": 0.17,
+          "y": 1.13,
+          "z": -0.52
+        },
+        "color": {
+          "red": 217,
+          "green": 214,
+          "blue": 207
+        },
+        "rotation": null
+      }
+    ]
+  },
+  {
+    "kind": "giant",
+    "parts": [
+      {
+        "id": "shirt",
+        "role": "torso",
+        "size": {
+          "x": 1.48,
+          "y": 2.18,
+          "z": 0.9
+        },
+        "center": {
+          "x": 0,
+          "y": 2.77,
+          "z": 0
+        },
+        "color": {
+          "red": 46,
+          "green": 92,
+          "blue": 166
+        },
+        "rotation": null
+      },
+      {
+        "id": "head",
+        "role": "head",
+        "size": {
+          "x": 1.04,
+          "y": 1.04,
+          "z": 0.9
+        },
+        "center": {
+          "x": 0,
+          "y": 4.39,
+          "z": 0
+        },
+        "color": {
+          "red": 79,
+          "green": 156,
+          "blue": 59
+        },
+        "rotation": null
+      },
+      {
+        "id": "nose",
+        "role": "nose",
+        "size": {
+          "x": 0.21,
+          "y": 0.31,
+          "z": 0.18
+        },
+        "center": {
+          "x": 0,
+          "y": 4.27,
+          "z": 0.52
+        },
+        "color": {
+          "red": 66,
+          "green": 115,
+          "blue": 54
+        },
+        "rotation": null
+      },
+      {
+        "id": "left-arm",
+        "role": "arm",
+        "size": {
+          "x": 0.42,
+          "y": 2.04,
+          "z": 0.43
+        },
+        "center": {
+          "x": -0.98,
+          "y": 2.92,
+          "z": 0
+        },
+        "color": {
+          "red": 74,
+          "green": 143,
+          "blue": 56
+        },
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": 0.09
+        }
+      },
+      {
+        "id": "right-arm",
+        "role": "arm",
+        "size": {
+          "x": 0.42,
+          "y": 2.04,
+          "z": 0.43
+        },
+        "center": {
+          "x": 0.98,
+          "y": 2.92,
+          "z": 0
+        },
+        "color": {
+          "red": 74,
+          "green": 143,
+          "blue": 56
+        },
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": -0.09
+        }
+      },
+      {
+        "id": "left-leg",
+        "role": "leg",
+        "size": {
+          "x": 0.54,
+          "y": 1.9,
+          "z": 0.52
+        },
+        "center": {
+          "x": -0.39,
+          "y": 0.95,
+          "z": 0
+        },
+        "color": {
+          "red": 33,
+          "green": 74,
+          "blue": 140
+        },
+        "rotation": null
+      },
+      {
+        "id": "right-leg",
+        "role": "leg",
+        "size": {
+          "x": 0.54,
+          "y": 1.9,
+          "z": 0.52
+        },
+        "center": {
+          "x": 0.39,
+          "y": 0.95,
+          "z": 0
+        },
+        "color": {
+          "red": 33,
+          "green": 74,
+          "blue": 140
+        },
+        "rotation": null
+      },
+      {
+        "id": "belt",
+        "role": "belt",
+        "size": {
+          "x": 1.5,
+          "y": 0.22,
+          "z": 0.93
+        },
+        "center": {
+          "x": 0,
+          "y": 1.73,
+          "z": 0
+        },
+        "color": {
+          "red": 61,
+          "green": 82,
+          "blue": 122
+        },
+        "rotation": null
+      }
+    ]
+  },
+  {
+    "kind": "guardian",
+    "parts": [
+      {
+        "id": "body",
+        "role": "body",
+        "size": {
+          "x": 0.92,
+          "y": 0.74,
+          "z": 0.86
+        },
+        "center": {
+          "x": 0,
+          "y": 1.06,
+          "z": 0
+        },
+        "color": {
+          "red": 209,
+          "green": 145,
+          "blue": 64
+        },
+        "rotation": null
+      },
+      {
+        "id": "eye-ring",
+        "role": "eye-ring",
+        "size": {
+          "x": 0.45,
+          "y": 0.45,
+          "z": 0.14
+        },
+        "center": {
+          "x": 0,
+          "y": 1.17,
+          "z": 0.47
+        },
+        "color": {
+          "red": 245,
+          "green": 204,
+          "blue": 112
+        },
+        "rotation": null
+      },
+      {
+        "id": "eye",
+        "role": "eye",
+        "size": {
+          "x": 0.27,
+          "y": 0.28,
+          "z": 0.08
+        },
+        "center": {
+          "x": 0,
+          "y": 1.17,
+          "z": 0.58
+        },
+        "color": {
+          "red": 240,
+          "green": 232,
+          "blue": 181
+        },
+        "rotation": null
+      },
+      {
+        "id": "pupil",
+        "role": "pupil",
+        "size": {
+          "x": 0.1,
+          "y": 0.17,
+          "z": 0.05
+        },
+        "center": {
+          "x": 0.02,
+          "y": 1.17,
+          "z": 0.64
+        },
+        "color": {
+          "red": 26,
+          "green": 36,
+          "blue": 41
+        },
+        "rotation": null
+      },
+      {
+        "id": "tail-base",
+        "role": "tail",
+        "size": {
+          "x": 0.23,
+          "y": 0.25,
+          "z": 0.43
+        },
+        "center": {
+          "x": 0,
+          "y": 0.97,
+          "z": -0.59
+        },
+        "color": {
+          "red": 176,
+          "green": 112,
+          "blue": 51
+        },
+        "rotation": null
+      },
+      {
+        "id": "tail-fin",
+        "role": "tail-fin",
+        "size": {
+          "x": 0.16,
+          "y": 0.48,
+          "z": 0.38
+        },
+        "center": {
+          "x": 0,
+          "y": 1.02,
+          "z": -0.94
+        },
+        "color": {
+          "red": 240,
+          "green": 176,
+          "blue": 61
+        },
+        "rotation": null
+      },
+      {
+        "id": "fin-left",
+        "role": "fin",
+        "size": {
+          "x": 0.36,
+          "y": 0.16,
+          "z": 0.42
+        },
+        "center": {
+          "x": -0.64,
+          "y": 1.16,
+          "z": 0
+        },
+        "color": {
+          "red": 245,
+          "green": 176,
+          "blue": 64
+        },
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": 0.14
+        }
+      },
+      {
+        "id": "fin-right",
+        "role": "fin",
+        "size": {
+          "x": 0.36,
+          "y": 0.16,
+          "z": 0.42
+        },
+        "center": {
+          "x": 0.64,
+          "y": 1.16,
+          "z": 0
+        },
+        "color": {
+          "red": 245,
+          "green": 176,
+          "blue": 64
+        },
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": -0.14
+        }
+      },
+      {
+        "id": "spikes-top",
+        "role": "spines",
+        "size": {
+          "x": 0.12,
+          "y": 0.26,
+          "z": 0.12
+        },
+        "center": {
+          "x": 0,
+          "y": 1.65,
+          "z": -0.05
+        },
+        "color": {
+          "red": 122,
+          "green": 82,
+          "blue": 36
+        },
+        "rotation": null
+      },
+      {
+        "id": "spikes-left",
+        "role": "spines",
+        "size": {
+          "x": 0.12,
+          "y": 0.24,
+          "z": 0.12
+        },
+        "center": {
+          "x": -0.5,
+          "y": 1.43,
+          "z": 0
+        },
+        "color": {
+          "red": 122,
+          "green": 82,
+          "blue": 36
+        },
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": 0.75
+        }
+      },
+      {
+        "id": "spikes-right",
+        "role": "spines",
+        "size": {
+          "x": 0.12,
+          "y": 0.24,
+          "z": 0.12
+        },
+        "center": {
+          "x": 0.5,
+          "y": 1.43,
+          "z": 0
+        },
+        "color": {
+          "red": 122,
+          "green": 82,
+          "blue": 36
+        },
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": -0.75
+        }
+      }
+    ]
+  },
+  {
+    "kind": "hoglin",
+    "parts": [
+      {
+        "id": "barrel",
+        "role": "body",
+        "size": {
+          "x": 1.12,
+          "y": 0.94,
+          "z": 1.64
+        },
+        "center": {
+          "x": 0,
+          "y": 1.1,
+          "z": -0.12
+        },
+        "color": {
+          "red": 115,
+          "green": 41,
+          "blue": 43
+        },
+        "rotation": null
+      },
+      {
+        "id": "shoulder",
+        "role": "shoulder",
+        "size": {
+          "x": 1.06,
+          "y": 0.85,
+          "z": 0.73
+        },
+        "center": {
+          "x": 0,
+          "y": 1.37,
+          "z": 0.4
+        },
+        "color": {
+          "red": 143,
+          "green": 54,
+          "blue": 51
+        },
+        "rotation": null
+      },
+      {
+        "id": "head",
+        "role": "head",
+        "size": {
+          "x": 0.83,
+          "y": 0.72,
+          "z": 0.72
+        },
+        "center": {
+          "x": 0,
+          "y": 1.41,
+          "z": 0.83
+        },
+        "color": {
+          "red": 133,
+          "green": 46,
+          "blue": 41
+        },
+        "rotation": null
+      },
+      {
+        "id": "snout",
+        "role": "snout",
+        "size": {
+          "x": 0.54,
+          "y": 0.36,
+          "z": 0.37
+        },
+        "center": {
+          "x": 0,
+          "y": 1.23,
+          "z": 1.31
+        },
+        "color": {
+          "red": 171,
+          "green": 79,
+          "blue": 69
+        },
+        "rotation": null
+      },
+      {
+        "id": "nostrils",
+        "role": "nostrils",
+        "size": {
+          "x": 0.24,
+          "y": 0.08,
+          "z": 0.05
+        },
+        "center": {
+          "x": 0,
+          "y": 1.22,
+          "z": 1.51
+        },
+        "color": {
+          "red": 51,
+          "green": 18,
+          "blue": 15
+        },
+        "rotation": null
+      },
+      {
+        "id": "tusk-left",
+        "role": "tusk",
+        "size": {
+          "x": 0.15,
+          "y": 0.47,
+          "z": 0.15
+        },
+        "center": {
+          "x": -0.36,
+          "y": 1.06,
+          "z": 1.16
+        },
+        "color": {
+          "red": 235,
+          "green": 209,
+          "blue": 150
+        },
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": -0.48
+        }
+      },
+      {
+        "id": "tusk-right",
+        "role": "tusk",
+        "size": {
+          "x": 0.15,
+          "y": 0.47,
+          "z": 0.15
+        },
+        "center": {
+          "x": 0.36,
+          "y": 1.06,
+          "z": 1.16
+        },
+        "color": {
+          "red": 235,
+          "green": 209,
+          "blue": 150
+        },
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": 0.48
+        }
+      },
+      {
+        "id": "ear-left",
+        "role": "ear",
+        "size": {
+          "x": 0.19,
+          "y": 0.5,
+          "z": 0.16
+        },
+        "center": {
+          "x": -0.51,
+          "y": 1.84,
+          "z": 0.56
+        },
+        "color": {
+          "red": 107,
+          "green": 33,
+          "blue": 33
+        },
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": -0.42
+        }
+      },
+      {
+        "id": "ear-right",
+        "role": "ear",
+        "size": {
+          "x": 0.19,
+          "y": 0.5,
+          "z": 0.16
+        },
+        "center": {
+          "x": 0.51,
+          "y": 1.84,
+          "z": 0.56
+        },
+        "color": {
+          "red": 107,
+          "green": 33,
+          "blue": 33
+        },
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": 0.42
+        }
+      },
+      {
+        "id": "leg-front-left",
+        "role": "leg",
+        "size": {
+          "x": 0.28,
+          "y": 0.58,
+          "z": 0.31
+        },
+        "center": {
+          "x": -0.38,
+          "y": 0.31,
+          "z": 0.5
+        },
+        "color": {
+          "red": 92,
+          "green": 28,
+          "blue": 31
+        },
+        "rotation": null
+      },
+      {
+        "id": "leg-front-right",
+        "role": "leg",
+        "size": {
+          "x": 0.28,
+          "y": 0.58,
+          "z": 0.31
+        },
+        "center": {
+          "x": 0.38,
+          "y": 0.31,
+          "z": 0.5
+        },
+        "color": {
+          "red": 92,
+          "green": 28,
+          "blue": 31
+        },
+        "rotation": null
+      },
+      {
+        "id": "leg-back-left",
+        "role": "leg",
+        "size": {
+          "x": 0.3,
+          "y": 0.55,
+          "z": 0.32
+        },
+        "center": {
+          "x": -0.38,
+          "y": 0.28,
+          "z": -0.59
+        },
+        "color": {
+          "red": 92,
+          "green": 28,
+          "blue": 31
+        },
+        "rotation": null
+      },
+      {
+        "id": "leg-back-right",
+        "role": "leg",
+        "size": {
+          "x": 0.3,
+          "y": 0.55,
+          "z": 0.32
+        },
+        "center": {
+          "x": 0.38,
+          "y": 0.28,
+          "z": -0.59
+        },
+        "color": {
+          "red": 92,
+          "green": 28,
+          "blue": 31
+        },
+        "rotation": null
+      }
+    ]
+  },
+  {
+    "kind": "husk",
+    "parts": [
+      {
+        "id": "ragged-tunic",
+        "role": "torso",
+        "size": {
+          "x": 0.52,
+          "y": 0.7,
+          "z": 0.35
+        },
+        "center": {
+          "x": 0,
+          "y": 0.94,
+          "z": 0
+        },
+        "color": {
+          "red": 161,
+          "green": 125,
+          "blue": 64
+        },
+        "rotation": null
+      },
+      {
+        "id": "head",
+        "role": "head",
+        "size": {
+          "x": 0.47,
+          "y": 0.47,
+          "z": 0.42
+        },
+        "center": {
+          "x": 0,
+          "y": 1.55,
+          "z": 0
+        },
+        "color": {
+          "red": 179,
+          "green": 156,
+          "blue": 97
+        },
+        "rotation": null
+      },
+      {
+        "id": "sunken-face",
+        "role": "face",
+        "size": {
+          "x": 0.34,
+          "y": 0.21,
+          "z": 0.06
+        },
+        "center": {
+          "x": 0,
+          "y": 1.51,
+          "z": 0.25
+        },
+        "color": {
+          "red": 112,
+          "green": 89,
+          "blue": 61
+        },
+        "rotation": null
+      },
+      {
+        "id": "head-wrap",
+        "role": "bandage",
+        "size": {
+          "x": 0.49,
+          "y": 0.12,
+          "z": 0.45
+        },
+        "center": {
+          "x": 0,
+          "y": 1.82,
+          "z": -0.01
+        },
+        "color": {
+          "red": 199,
+          "green": 173,
+          "blue": 115
+        },
+        "rotation": null
+      },
+      {
+        "id": "shoulder-wrap",
+        "role": "bandage",
+        "size": {
+          "x": 0.62,
+          "y": 0.17,
+          "z": 0.4
+        },
+        "center": {
+          "x": 0,
+          "y": 1.21,
+          "z": -0.01
+        },
+        "color": {
+          "red": 191,
+          "green": 158,
+          "blue": 99
+        },
+        "rotation": null
+      },
+      {
+        "id": "left-sleeve",
+        "role": "arm",
+        "size": {
+          "x": 0.17,
+          "y": 0.68,
+          "z": 0.18
+        },
+        "center": {
+          "x": -0.37,
+          "y": 0.99,
+          "z": 0
+        },
+        "color": {
+          "red": 153,
+          "green": 115,
+          "blue": 59
+        },
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": 0.1
+        }
+      },
+      {
+        "id": "right-sleeve",
+        "role": "arm",
+        "size": {
+          "x": 0.17,
+          "y": 0.68,
+          "z": 0.18
+        },
+        "center": {
+          "x": 0.37,
+          "y": 0.99,
+          "z": 0
+        },
+        "color": {
+          "red": 153,
+          "green": 115,
+          "blue": 59
+        },
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": -0.1
+        }
+      },
+      {
+        "id": "left-leg",
+        "role": "leg",
+        "size": {
+          "x": 0.2,
+          "y": 0.48,
+          "z": 0.21
+        },
+        "center": {
+          "x": -0.14,
+          "y": 0.24,
+          "z": 0
+        },
+        "color": {
+          "red": 122,
+          "green": 97,
+          "blue": 59
+        },
+        "rotation": null
+      },
+      {
+        "id": "right-leg",
+        "role": "leg",
+        "size": {
+          "x": 0.2,
+          "y": 0.48,
+          "z": 0.21
+        },
+        "center": {
+          "x": 0.14,
+          "y": 0.24,
+          "z": 0
+        },
+        "color": {
+          "red": 122,
+          "green": 97,
+          "blue": 59
+        },
+        "rotation": null
+      }
+    ]
+  },
+  {
+    "kind": "magma_cube",
+    "parts": [
+      {
+        "id": "outer-shell",
+        "role": "cube-shell",
+        "size": {
+          "x": 1.04,
+          "y": 1.04,
+          "z": 1.04
+        },
+        "center": {
+          "x": 0,
+          "y": 0.55,
+          "z": 0
+        },
+        "color": {
+          "red": 48,
+          "green": 15,
+          "blue": 18
+        },
+        "rotation": null
+      },
+      {
+        "id": "upper-layer",
+        "role": "magma-layer",
+        "size": {
+          "x": 0.84,
+          "y": 0.12,
+          "z": 0.84
+        },
+        "center": {
+          "x": 0,
+          "y": 0.98,
+          "z": 0
+        },
+        "color": {
+          "red": 120,
+          "green": 23,
+          "blue": 15
+        },
+        "rotation": null
+      },
+      {
+        "id": "inner-core",
+        "role": "magma-core",
+        "size": {
+          "x": 0.72,
+          "y": 0.59,
+          "z": 0.72
+        },
+        "center": {
+          "x": 0,
+          "y": 0.54,
+          "z": 0
+        },
+        "color": {
+          "red": 245,
+          "green": 66,
+          "blue": 18
+        },
+        "rotation": null
+      },
+      {
+        "id": "hot-face",
+        "role": "face",
+        "size": {
+          "x": 0.52,
+          "y": 0.28,
+          "z": 0.06
+        },
+        "center": {
+          "x": 0,
+          "y": 0.59,
+          "z": 0.55
+        },
+        "color": {
+          "red": 255,
+          "green": 143,
+          "blue": 28
+        },
+        "rotation": null
+      },
+      {
+        "id": "eye-left",
+        "role": "eye",
+        "size": {
+          "x": 0.1,
+          "y": 0.1,
+          "z": 0.04
+        },
+        "center": {
+          "x": -0.16,
+          "y": 0.64,
+          "z": 0.59
+        },
+        "color": {
+          "red": 41,
+          "green": 10,
+          "blue": 8
+        },
+        "rotation": null
+      },
+      {
+        "id": "eye-right",
+        "role": "eye",
+        "size": {
+          "x": 0.1,
+          "y": 0.1,
+          "z": 0.04
+        },
+        "center": {
+          "x": 0.16,
+          "y": 0.64,
+          "z": 0.59
+        },
+        "color": {
+          "red": 41,
+          "green": 10,
+          "blue": 8
+        },
+        "rotation": null
+      },
+      {
+        "id": "lower-layer",
+        "role": "magma-layer",
+        "size": {
+          "x": 0.88,
+          "y": 0.1,
+          "z": 0.88
+        },
+        "center": {
+          "x": 0,
+          "y": 0.12,
+          "z": 0
+        },
+        "color": {
+          "red": 153,
+          "green": 26,
+          "blue": 13
+        },
+        "rotation": null
+      },
+      {
+        "id": "side-seam-left",
+        "role": "magma-seam",
+        "size": {
+          "x": 0.08,
+          "y": 0.53,
+          "z": 0.78
+        },
+        "center": {
+          "x": -0.52,
+          "y": 0.52,
+          "z": 0
+        },
+        "color": {
+          "red": 255,
+          "green": 92,
+          "blue": 20
+        },
+        "rotation": null
+      },
+      {
+        "id": "side-seam-right",
+        "role": "magma-seam",
+        "size": {
+          "x": 0.08,
+          "y": 0.53,
+          "z": 0.78
+        },
+        "center": {
+          "x": 0.52,
+          "y": 0.52,
+          "z": 0
+        },
+        "color": {
+          "red": 255,
+          "green": 92,
+          "blue": 20
+        },
+        "rotation": null
+      }
+    ]
+  },
+  {
+    "kind": "phantom",
+    "parts": [
+      {
+        "id": "body",
+        "role": "body",
+        "size": {
+          "x": 0.45,
+          "y": 0.42,
+          "z": 0.93
+        },
+        "center": {
+          "x": 0,
+          "y": 1.27,
+          "z": 0
+        },
+        "color": {
+          "red": 28,
+          "green": 79,
+          "blue": 110
+        },
+        "rotation": null
+      },
+      {
+        "id": "head",
+        "role": "head",
+        "size": {
+          "x": 0.42,
+          "y": 0.34,
+          "z": 0.36
+        },
+        "center": {
+          "x": 0,
+          "y": 1.36,
+          "z": 0.55
+        },
+        "color": {
+          "red": 20,
+          "green": 61,
+          "blue": 89
+        },
+        "rotation": null
+      },
+      {
+        "id": "eye-left",
+        "role": "eye",
+        "size": {
+          "x": 0.09,
+          "y": 0.1,
+          "z": 0.05
+        },
+        "center": {
+          "x": -0.11,
+          "y": 1.4,
+          "z": 0.74
+        },
+        "color": {
+          "red": 209,
+          "green": 232,
+          "blue": 214
+        },
+        "rotation": null
+      },
+      {
+        "id": "eye-right",
+        "role": "eye",
+        "size": {
+          "x": 0.09,
+          "y": 0.1,
+          "z": 0.05
+        },
+        "center": {
+          "x": 0.11,
+          "y": 1.4,
+          "z": 0.74
+        },
+        "color": {
+          "red": 209,
+          "green": 232,
+          "blue": 214
+        },
+        "rotation": null
+      },
+      {
+        "id": "left-wing-root",
+        "role": "wing",
+        "size": {
+          "x": 0.78,
+          "y": 0.12,
+          "z": 0.4
+        },
+        "center": {
+          "x": -0.58,
+          "y": 1.45,
+          "z": -0.05
+        },
+        "color": {
+          "red": 36,
+          "green": 97,
+          "blue": 130
+        },
+        "rotation": {
+          "x": 0.1,
+          "y": 0,
+          "z": 0.18
+        }
+      },
+      {
+        "id": "left-wing-tip",
+        "role": "wing",
+        "size": {
+          "x": 1.2,
+          "y": 0.1,
+          "z": 0.32
+        },
+        "center": {
+          "x": -1.5,
+          "y": 1.32,
+          "z": 0
+        },
+        "color": {
+          "red": 20,
+          "green": 64,
+          "blue": 89
+        },
+        "rotation": {
+          "x": 0.08,
+          "y": 0,
+          "z": 0.12
+        }
+      },
+      {
+        "id": "right-wing-root",
+        "role": "wing",
+        "size": {
+          "x": 0.78,
+          "y": 0.12,
+          "z": 0.4
+        },
+        "center": {
+          "x": 0.58,
+          "y": 1.45,
+          "z": -0.05
+        },
+        "color": {
+          "red": 36,
+          "green": 97,
+          "blue": 130
+        },
+        "rotation": {
+          "x": 0.1,
+          "y": 0,
+          "z": -0.18
+        }
+      },
+      {
+        "id": "right-wing-tip",
+        "role": "wing",
+        "size": {
+          "x": 1.2,
+          "y": 0.1,
+          "z": 0.32
+        },
+        "center": {
+          "x": 1.5,
+          "y": 1.32,
+          "z": 0
+        },
+        "color": {
+          "red": 20,
+          "green": 64,
+          "blue": 89
+        },
+        "rotation": {
+          "x": 0.08,
+          "y": 0,
+          "z": -0.12
+        }
+      },
+      {
+        "id": "tail",
+        "role": "tail",
+        "size": {
+          "x": 0.21,
+          "y": 0.22,
+          "z": 0.83
+        },
+        "center": {
+          "x": 0,
+          "y": 1.05,
+          "z": -0.77
+        },
+        "color": {
+          "red": 23,
+          "green": 71,
+          "blue": 102
+        },
+        "rotation": null
+      },
+      {
+        "id": "tail-fin",
+        "role": "tail-fin",
+        "size": {
+          "x": 0.65,
+          "y": 0.1,
+          "z": 0.28
+        },
+        "center": {
+          "x": 0,
+          "y": 1.02,
+          "z": -1.24
+        },
+        "color": {
+          "red": 48,
+          "green": 122,
+          "blue": 150
+        },
+        "rotation": null
+      }
+    ]
+  },
+  {
+    "kind": "piglin_brute",
+    "parts": [
+      {
+        "id": "armor",
+        "role": "chest-armor",
+        "size": {
+          "x": 0.68,
+          "y": 0.76,
+          "z": 0.42
+        },
+        "center": {
+          "x": 0,
+          "y": 1,
+          "z": 0
+        },
+        "color": {
+          "red": 140,
+          "green": 107,
+          "blue": 43
+        },
+        "rotation": null
+      },
+      {
+        "id": "belt",
+        "role": "belt",
+        "size": {
+          "x": 0.7,
+          "y": 0.19,
+          "z": 0.44
+        },
+        "center": {
+          "x": 0,
+          "y": 0.6,
+          "z": 0
+        },
+        "color": {
+          "red": 74,
+          "green": 48,
+          "blue": 26
+        },
+        "rotation": null
+      },
+      {
+        "id": "head",
+        "role": "piglin-head",
+        "size": {
+          "x": 0.57,
+          "y": 0.53,
+          "z": 0.49
+        },
+        "center": {
+          "x": 0,
+          "y": 1.65,
+          "z": 0
+        },
+        "color": {
+          "red": 199,
+          "green": 122,
+          "blue": 92
+        },
+        "rotation": null
+      },
+      {
+        "id": "snout",
+        "role": "snout",
+        "size": {
+          "x": 0.3,
+          "y": 0.2,
+          "z": 0.17
+        },
+        "center": {
+          "x": 0,
+          "y": 1.57,
+          "z": 0.31
+        },
+        "color": {
+          "red": 145,
+          "green": 77,
+          "blue": 56
+        },
+        "rotation": null
+      },
+      {
+        "id": "tusk-left",
+        "role": "tusk",
+        "size": {
+          "x": 0.09,
+          "y": 0.25,
+          "z": 0.1
+        },
+        "center": {
+          "x": -0.2,
+          "y": 1.48,
+          "z": 0.34
+        },
+        "color": {
+          "red": 235,
+          "green": 212,
+          "blue": 161
+        },
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": 0.28
+        }
+      },
+      {
+        "id": "tusk-right",
+        "role": "tusk",
+        "size": {
+          "x": 0.09,
+          "y": 0.25,
+          "z": 0.1
+        },
+        "center": {
+          "x": 0.2,
+          "y": 1.48,
+          "z": 0.34
+        },
+        "color": {
+          "red": 235,
+          "green": 212,
+          "blue": 161
+        },
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": -0.28
+        }
+      },
+      {
+        "id": "ear-left",
+        "role": "ear",
+        "size": {
+          "x": 0.17,
+          "y": 0.32,
+          "z": 0.13
+        },
+        "center": {
+          "x": -0.33,
+          "y": 1.98,
+          "z": 0
+        },
+        "color": {
+          "red": 173,
+          "green": 99,
+          "blue": 77
+        },
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": 0.28
+        }
+      },
+      {
+        "id": "ear-right",
+        "role": "ear",
+        "size": {
+          "x": 0.17,
+          "y": 0.32,
+          "z": 0.13
+        },
+        "center": {
+          "x": 0.33,
+          "y": 1.98,
+          "z": 0
+        },
+        "color": {
+          "red": 173,
+          "green": 99,
+          "blue": 77
+        },
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": -0.28
+        }
+      },
+      {
+        "id": "left-arm",
+        "role": "arm",
+        "size": {
+          "x": 0.2,
+          "y": 0.68,
+          "z": 0.23
+        },
+        "center": {
+          "x": -0.46,
+          "y": 0.98,
+          "z": 0
+        },
+        "color": {
+          "red": 179,
+          "green": 99,
+          "blue": 74
+        },
+        "rotation": null
+      },
+      {
+        "id": "right-arm",
+        "role": "arm",
+        "size": {
+          "x": 0.2,
+          "y": 0.68,
+          "z": 0.23
+        },
+        "center": {
+          "x": 0.46,
+          "y": 0.98,
+          "z": 0
+        },
+        "color": {
+          "red": 179,
+          "green": 99,
+          "blue": 74
+        },
+        "rotation": null
+      },
+      {
+        "id": "left-leg",
+        "role": "leg",
+        "size": {
+          "x": 0.23,
+          "y": 0.48,
+          "z": 0.24
+        },
+        "center": {
+          "x": -0.17,
+          "y": 0.24,
+          "z": 0
+        },
+        "color": {
+          "red": 143,
+          "green": 77,
+          "blue": 59
+        },
+        "rotation": null
+      },
+      {
+        "id": "right-leg",
+        "role": "leg",
+        "size": {
+          "x": 0.23,
+          "y": 0.48,
+          "z": 0.24
+        },
+        "center": {
+          "x": 0.17,
+          "y": 0.24,
+          "z": 0
+        },
+        "color": {
+          "red": 143,
+          "green": 77,
+          "blue": 59
+        },
+        "rotation": null
+      },
+      {
+        "id": "axe-handle",
+        "role": "golden-axe",
+        "size": {
+          "x": 0.1,
+          "y": 0.8,
+          "z": 0.1
+        },
+        "center": {
+          "x": 0.63,
+          "y": 0.98,
+          "z": 0.15
+        },
+        "color": {
+          "red": 89,
+          "green": 48,
+          "blue": 23
+        },
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": -0.24
+        }
+      },
+      {
+        "id": "axe-blade",
+        "role": "golden-axe",
+        "size": {
+          "x": 0.37,
+          "y": 0.31,
+          "z": 0.14
+        },
+        "center": {
+          "x": 0.81,
+          "y": 1.31,
+          "z": 0.15
+        },
+        "color": {
+          "red": 237,
+          "green": 173,
+          "blue": 56
+        },
+        "rotation": null
+      }
+    ]
+  },
+  {
+    "kind": "pillager",
+    "parts": [
+      {
+        "id": "coat",
+        "role": "torso",
+        "size": {
+          "x": 0.53,
+          "y": 0.73,
+          "z": 0.37
+        },
+        "center": {
+          "x": 0,
+          "y": 0.93,
+          "z": 0
+        },
+        "color": {
+          "red": 71,
+          "green": 71,
+          "blue": 87
+        },
+        "rotation": null
+      },
+      {
+        "id": "belt",
+        "role": "belt",
+        "size": {
+          "x": 0.56,
+          "y": 0.13,
+          "z": 0.39
+        },
+        "center": {
+          "x": 0,
+          "y": 0.61,
+          "z": 0
+        },
+        "color": {
+          "red": 41,
+          "green": 41,
+          "blue": 51
+        },
+        "rotation": null
+      },
+      {
+        "id": "head",
+        "role": "head",
+        "size": {
+          "x": 0.47,
+          "y": 0.48,
+          "z": 0.42
+        },
+        "center": {
+          "x": 0,
+          "y": 1.55,
+          "z": 0
+        },
+        "color": {
+          "red": 179,
+          "green": 156,
+          "blue": 125
+        },
+        "rotation": null
+      },
+      {
+        "id": "nose",
+        "role": "nose",
+        "size": {
+          "x": 0.13,
+          "y": 0.23,
+          "z": 0.17
+        },
+        "center": {
+          "x": 0,
+          "y": 1.47,
+          "z": 0.27
+        },
+        "color": {
+          "red": 143,
+          "green": 115,
+          "blue": 94
+        },
+        "rotation": null
+      },
+      {
+        "id": "brow",
+        "role": "brow",
+        "size": {
+          "x": 0.44,
+          "y": 0.09,
+          "z": 0.06
+        },
+        "center": {
+          "x": 0,
+          "y": 1.75,
+          "z": 0.21
+        },
+        "color": {
+          "red": 59,
+          "green": 48,
+          "blue": 46
+        },
+        "rotation": null
+      },
+      {
+        "id": "left-arm",
+        "role": "sleeve",
+        "size": {
+          "x": 0.18,
+          "y": 0.7,
+          "z": 0.2
+        },
+        "center": {
+          "x": -0.39,
+          "y": 0.99,
+          "z": 0
+        },
+        "color": {
+          "red": 97,
+          "green": 94,
+          "blue": 107
+        },
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": 0.17
+        }
+      },
+      {
+        "id": "right-arm",
+        "role": "sleeve",
+        "size": {
+          "x": 0.18,
+          "y": 0.7,
+          "z": 0.2
+        },
+        "center": {
+          "x": 0.39,
+          "y": 0.99,
+          "z": 0
+        },
+        "color": {
+          "red": 97,
+          "green": 94,
+          "blue": 107
+        },
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": -0.17
+        }
+      },
+      {
+        "id": "left-leg",
+        "role": "leg",
+        "size": {
+          "x": 0.21,
+          "y": 0.47,
+          "z": 0.22
+        },
+        "center": {
+          "x": -0.14,
+          "y": 0.24,
+          "z": 0
+        },
+        "color": {
+          "red": 54,
+          "green": 51,
+          "blue": 64
+        },
+        "rotation": null
+      },
+      {
+        "id": "right-leg",
+        "role": "leg",
+        "size": {
+          "x": 0.21,
+          "y": 0.47,
+          "z": 0.22
+        },
+        "center": {
+          "x": 0.14,
+          "y": 0.24,
+          "z": 0
+        },
+        "color": {
+          "red": 54,
+          "green": 51,
+          "blue": 64
+        },
+        "rotation": null
+      },
+      {
+        "id": "crossbow-stock",
+        "role": "crossbow",
+        "size": {
+          "x": 0.6,
+          "y": 0.12,
+          "z": 0.12
+        },
+        "center": {
+          "x": 0.43,
+          "y": 1.03,
+          "z": 0.32
+        },
+        "color": {
+          "red": 92,
+          "green": 56,
+          "blue": 26
+        },
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": -0.1
+        }
+      },
+      {
+        "id": "crossbow-grip",
+        "role": "crossbow",
+        "size": {
+          "x": 0.1,
+          "y": 0.32,
+          "z": 0.1
+        },
+        "center": {
+          "x": 0.43,
+          "y": 0.87,
+          "z": 0.32
+        },
+        "color": {
+          "red": 107,
+          "green": 71,
+          "blue": 36
+        },
+        "rotation": null
+      },
+      {
+        "id": "crossbow-limb",
+        "role": "crossbow",
+        "size": {
+          "x": 0.1,
+          "y": 0.44,
+          "z": 0.12
+        },
+        "center": {
+          "x": 0.43,
+          "y": 1.09,
+          "z": 0.32
+        },
+        "color": {
+          "red": 140,
+          "green": 94,
+          "blue": 46
+        },
+        "rotation": null
+      }
+    ]
+  },
+  {
+    "kind": "ravager",
+    "parts": [
+      {
+        "id": "barrel",
+        "role": "body",
+        "size": {
+          "x": 1.22,
+          "y": 1.22,
+          "z": 1.8
+        },
+        "center": {
+          "x": 0,
+          "y": 1.2,
+          "z": -0.1
+        },
+        "color": {
+          "red": 82,
+          "green": 87,
+          "blue": 79
+        },
+        "rotation": null
+      },
+      {
+        "id": "shoulder-plate",
+        "role": "armor",
+        "size": {
+          "x": 1.38,
+          "y": 0.46,
+          "z": 1.12
+        },
+        "center": {
+          "x": 0,
+          "y": 1.83,
+          "z": -0.1
+        },
+        "color": {
+          "red": 97,
+          "green": 99,
+          "blue": 92
+        },
+        "rotation": null
+      },
+      {
+        "id": "neck",
+        "role": "neck",
+        "size": {
+          "x": 0.9,
+          "y": 0.87,
+          "z": 0.74
+        },
+        "center": {
+          "x": 0,
+          "y": 1.52,
+          "z": 0.65
+        },
+        "color": {
+          "red": 105,
+          "green": 105,
+          "blue": 99
+        },
+        "rotation": null
+      },
+      {
+        "id": "head",
+        "role": "head",
+        "size": {
+          "x": 0.88,
+          "y": 0.79,
+          "z": 0.81
+        },
+        "center": {
+          "x": 0,
+          "y": 1.63,
+          "z": 1.04
+        },
+        "color": {
+          "red": 110,
+          "green": 107,
+          "blue": 99
+        },
+        "rotation": null
+      },
+      {
+        "id": "snout",
+        "role": "snout",
+        "size": {
+          "x": 0.62,
+          "y": 0.35,
+          "z": 0.38
+        },
+        "center": {
+          "x": 0,
+          "y": 1.39,
+          "z": 1.56
+        },
+        "color": {
+          "red": 140,
+          "green": 133,
+          "blue": 122
+        },
+        "rotation": null
+      },
+      {
+        "id": "horn-left",
+        "role": "horn",
+        "size": {
+          "x": 0.17,
+          "y": 0.6,
+          "z": 0.17
+        },
+        "center": {
+          "x": -0.54,
+          "y": 2.14,
+          "z": 0.77
+        },
+        "color": {
+          "red": 64,
+          "green": 64,
+          "blue": 59
+        },
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": -0.57
+        }
+      },
+      {
+        "id": "horn-right",
+        "role": "horn",
+        "size": {
+          "x": 0.17,
+          "y": 0.6,
+          "z": 0.17
+        },
+        "center": {
+          "x": 0.54,
+          "y": 2.14,
+          "z": 0.77
+        },
+        "color": {
+          "red": 64,
+          "green": 64,
+          "blue": 59
+        },
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": 0.57
+        }
+      },
+      {
+        "id": "brow",
+        "role": "brow",
+        "size": {
+          "x": 0.78,
+          "y": 0.16,
+          "z": 0.14
+        },
+        "center": {
+          "x": 0,
+          "y": 1.94,
+          "z": 1.42
+        },
+        "color": {
+          "red": 59,
+          "green": 59,
+          "blue": 54
+        },
+        "rotation": null
+      },
+      {
+        "id": "left-eye",
+        "role": "eye",
+        "size": {
+          "x": 0.11,
+          "y": 0.12,
+          "z": 0.06
+        },
+        "center": {
+          "x": -0.19,
+          "y": 1.75,
+          "z": 1.46
+        },
+        "color": {
+          "red": 232,
+          "green": 189,
+          "blue": 140
+        },
+        "rotation": null
+      },
+      {
+        "id": "right-eye",
+        "role": "eye",
+        "size": {
+          "x": 0.11,
+          "y": 0.12,
+          "z": 0.06
+        },
+        "center": {
+          "x": 0.19,
+          "y": 1.75,
+          "z": 1.46
+        },
+        "color": {
+          "red": 232,
+          "green": 189,
+          "blue": 140
+        },
+        "rotation": null
+      },
+      {
+        "id": "leg-front-left",
+        "role": "leg",
+        "size": {
+          "x": 0.31,
+          "y": 0.73,
+          "z": 0.35
+        },
+        "center": {
+          "x": -0.43,
+          "y": 0.36,
+          "z": 0.55
+        },
+        "color": {
+          "red": 64,
+          "green": 69,
+          "blue": 64
+        },
+        "rotation": null
+      },
+      {
+        "id": "leg-front-right",
+        "role": "leg",
+        "size": {
+          "x": 0.31,
+          "y": 0.73,
+          "z": 0.35
+        },
+        "center": {
+          "x": 0.43,
+          "y": 0.36,
+          "z": 0.55
+        },
+        "color": {
+          "red": 64,
+          "green": 69,
+          "blue": 64
+        },
+        "rotation": null
+      },
+      {
+        "id": "leg-back-left",
+        "role": "leg",
+        "size": {
+          "x": 0.33,
+          "y": 0.69,
+          "z": 0.36
+        },
+        "center": {
+          "x": -0.43,
+          "y": 0.34,
+          "z": -0.65
+        },
+        "color": {
+          "red": 69,
+          "green": 71,
+          "blue": 66
+        },
+        "rotation": null
+      },
+      {
+        "id": "leg-back-right",
+        "role": "leg",
+        "size": {
+          "x": 0.33,
+          "y": 0.69,
+          "z": 0.36
+        },
+        "center": {
+          "x": 0.43,
+          "y": 0.34,
+          "z": -0.65
+        },
+        "color": {
+          "red": 69,
+          "green": 71,
+          "blue": 66
+        },
+        "rotation": null
+      }
+    ]
+  },
+  {
+    "kind": "shulker",
+    "parts": [
+      {
+        "id": "base",
+        "role": "shell-base",
+        "size": {
+          "x": 0.88,
+          "y": 0.46,
+          "z": 0.88
+        },
+        "center": {
+          "x": 0,
+          "y": 0.25,
+          "z": 0
+        },
+        "color": {
+          "red": 120,
+          "green": 64,
+          "blue": 150
+        },
+        "rotation": null
+      },
+      {
+        "id": "inner-body",
+        "role": "body",
+        "size": {
+          "x": 0.55,
+          "y": 0.54,
+          "z": 0.55
+        },
+        "center": {
+          "x": 0,
+          "y": 0.64,
+          "z": 0
+        },
+        "color": {
+          "red": 191,
+          "green": 135,
+          "blue": 196
+        },
+        "rotation": null
+      },
+      {
+        "id": "lid",
+        "role": "shell-lid",
+        "size": {
+          "x": 0.92,
+          "y": 0.38,
+          "z": 0.92
+        },
+        "center": {
+          "x": 0,
+          "y": 1.12,
+          "z": 0
+        },
+        "color": {
+          "red": 99,
+          "green": 48,
+          "blue": 128
+        },
+        "rotation": {
+          "x": 0.18,
+          "y": 0,
+          "z": 0
+        }
+      },
+      {
+        "id": "face-plate",
+        "role": "face",
+        "size": {
+          "x": 0.38,
+          "y": 0.28,
+          "z": 0.08
+        },
+        "center": {
+          "x": 0,
+          "y": 0.69,
+          "z": 0.32
+        },
+        "color": {
+          "red": 89,
+          "green": 43,
+          "blue": 112
+        },
+        "rotation": null
+      },
+      {
+        "id": "eye",
+        "role": "eye",
+        "size": {
+          "x": 0.15,
+          "y": 0.16,
+          "z": 0.05
+        },
+        "center": {
+          "x": 0,
+          "y": 0.74,
+          "z": 0.38
+        },
+        "color": {
+          "red": 224,
+          "green": 199,
+          "blue": 235
+        },
+        "rotation": null
+      },
+      {
+        "id": "hinge-left",
+        "role": "hinge",
+        "size": {
+          "x": 0.11,
+          "y": 0.38,
+          "z": 0.13
+        },
+        "center": {
+          "x": -0.4,
+          "y": 0.7,
+          "z": -0.36
+        },
+        "color": {
+          "red": 74,
+          "green": 36,
+          "blue": 94
+        },
+        "rotation": null
+      },
+      {
+        "id": "hinge-right",
+        "role": "hinge",
+        "size": {
+          "x": 0.11,
+          "y": 0.38,
+          "z": 0.13
+        },
+        "center": {
+          "x": 0.4,
+          "y": 0.7,
+          "z": -0.36
+        },
+        "color": {
+          "red": 74,
+          "green": 36,
+          "blue": 94
+        },
+        "rotation": null
+      }
+    ]
+  },
+  {
+    "kind": "silverfish",
+    "parts": [
+      {
+        "id": "rear-one",
+        "role": "segment",
+        "size": {
+          "x": 0.23,
+          "y": 0.2,
+          "z": 0.24
+        },
+        "center": {
+          "x": 0,
+          "y": 0.29,
+          "z": -0.43
+        },
+        "color": {
+          "red": 125,
+          "green": 125,
+          "blue": 120
+        },
+        "rotation": null
+      },
+      {
+        "id": "rear-two",
+        "role": "segment",
+        "size": {
+          "x": 0.25,
+          "y": 0.22,
+          "z": 0.26
+        },
+        "center": {
+          "x": 0,
+          "y": 0.3,
+          "z": -0.22
+        },
+        "color": {
+          "red": 156,
+          "green": 156,
+          "blue": 150
+        },
+        "rotation": null
+      },
+      {
+        "id": "midsection",
+        "role": "segment",
+        "size": {
+          "x": 0.28,
+          "y": 0.24,
+          "z": 0.29
+        },
+        "center": {
+          "x": 0,
+          "y": 0.32,
+          "z": 0.02
+        },
+        "color": {
+          "red": 184,
+          "green": 184,
+          "blue": 179
+        },
+        "rotation": null
+      },
+      {
+        "id": "front",
+        "role": "segment",
+        "size": {
+          "x": 0.25,
+          "y": 0.24,
+          "z": 0.27
+        },
+        "center": {
+          "x": 0,
+          "y": 0.32,
+          "z": 0.26
+        },
+        "color": {
+          "red": 156,
+          "green": 156,
+          "blue": 150
+        },
+        "rotation": null
+      },
+      {
+        "id": "head",
+        "role": "head",
+        "size": {
+          "x": 0.22,
+          "y": 0.22,
+          "z": 0.22
+        },
+        "center": {
+          "x": 0,
+          "y": 0.34,
+          "z": 0.48
+        },
+        "color": {
+          "red": 201,
+          "green": 201,
+          "blue": 194
+        },
+        "rotation": null
+      },
+      {
+        "id": "eye-left",
+        "role": "eye",
+        "size": {
+          "x": 0.045,
+          "y": 0.05,
+          "z": 0.035
+        },
+        "center": {
+          "x": -0.06,
+          "y": 0.37,
+          "z": 0.6
+        },
+        "color": {
+          "red": 41,
+          "green": 31,
+          "blue": 26
+        },
+        "rotation": null
+      },
+      {
+        "id": "eye-right",
+        "role": "eye",
+        "size": {
+          "x": 0.045,
+          "y": 0.05,
+          "z": 0.035
+        },
+        "center": {
+          "x": 0.06,
+          "y": 0.37,
+          "z": 0.6
+        },
+        "color": {
+          "red": 41,
+          "green": 31,
+          "blue": 26
+        },
+        "rotation": null
+      },
+      {
+        "id": "legs-front-left",
+        "role": "legs",
+        "size": {
+          "x": 0.18,
+          "y": 0.08,
+          "z": 0.13
+        },
+        "center": {
+          "x": -0.14,
+          "y": 0.2,
+          "z": 0.35
+        },
+        "color": {
+          "red": 107,
+          "green": 107,
+          "blue": 102
+        },
+        "rotation": null
+      },
+      {
+        "id": "legs-front-right",
+        "role": "legs",
+        "size": {
+          "x": 0.18,
+          "y": 0.08,
+          "z": 0.13
+        },
+        "center": {
+          "x": 0.14,
+          "y": 0.2,
+          "z": 0.35
+        },
+        "color": {
+          "red": 107,
+          "green": 107,
+          "blue": 102
+        },
+        "rotation": null
+      },
+      {
+        "id": "legs-rear-left",
+        "role": "legs",
+        "size": {
+          "x": 0.2,
+          "y": 0.08,
+          "z": 0.13
+        },
+        "center": {
+          "x": -0.14,
+          "y": 0.19,
+          "z": -0.27
+        },
+        "color": {
+          "red": 107,
+          "green": 107,
+          "blue": 102
+        },
+        "rotation": null
+      },
+      {
+        "id": "legs-rear-right",
+        "role": "legs",
+        "size": {
+          "x": 0.2,
+          "y": 0.08,
+          "z": 0.13
+        },
+        "center": {
+          "x": 0.14,
+          "y": 0.19,
+          "z": -0.27
+        },
+        "color": {
+          "red": 107,
+          "green": 107,
+          "blue": 102
+        },
+        "rotation": null
+      }
+    ]
+  },
+  {
+    "kind": "skeleton",
+    "parts": [
+      {
+        "id": "ribcage",
+        "role": "ribcage",
+        "size": {
+          "x": 0.34,
+          "y": 0.62,
+          "z": 0.24
+        },
+        "center": {
+          "x": 0,
+          "y": 1.08,
+          "z": 0
+        },
+        "color": {
+          "red": 196,
+          "green": 191,
+          "blue": 173
+        },
+        "rotation": null
+      },
+      {
+        "id": "pelvis",
+        "role": "pelvis",
+        "size": {
+          "x": 0.38,
+          "y": 0.25,
+          "z": 0.25
+        },
+        "center": {
+          "x": 0,
+          "y": 0.68,
+          "z": 0
+        },
+        "color": {
+          "red": 176,
+          "green": 173,
+          "blue": 161
+        },
+        "rotation": null
+      },
+      {
+        "id": "skull",
+        "role": "skull",
+        "size": {
+          "x": 0.43,
+          "y": 0.45,
+          "z": 0.4
+        },
+        "center": {
+          "x": 0,
+          "y": 1.75,
+          "z": 0
+        },
+        "color": {
+          "red": 219,
+          "green": 214,
+          "blue": 199
+        },
+        "rotation": null
+      },
+      {
+        "id": "jaw",
+        "role": "jaw",
+        "size": {
+          "x": 0.31,
+          "y": 0.11,
+          "z": 0.32
+        },
+        "center": {
+          "x": 0,
+          "y": 1.51,
+          "z": 0.03
+        },
+        "color": {
+          "red": 179,
+          "green": 173,
+          "blue": 158
+        },
+        "rotation": null
+      },
+      {
+        "id": "left-arm",
+        "role": "bone-arm",
+        "size": {
+          "x": 0.13,
+          "y": 0.66,
+          "z": 0.14
+        },
+        "center": {
+          "x": -0.37,
+          "y": 1.03,
+          "z": 0
+        },
+        "color": {
+          "red": 207,
+          "green": 201,
+          "blue": 184
+        },
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": 0.12
+        }
+      },
+      {
+        "id": "right-arm",
+        "role": "bone-arm",
+        "size": {
+          "x": 0.13,
+          "y": 0.66,
+          "z": 0.14
+        },
+        "center": {
+          "x": 0.37,
+          "y": 1.03,
+          "z": 0
+        },
+        "color": {
+          "red": 207,
+          "green": 201,
+          "blue": 184
+        },
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": -0.12
+        }
+      },
+      {
+        "id": "left-leg",
+        "role": "bone-leg",
+        "size": {
+          "x": 0.15,
+          "y": 0.59,
+          "z": 0.16
+        },
+        "center": {
+          "x": -0.14,
+          "y": 0.29,
+          "z": 0
+        },
+        "color": {
+          "red": 191,
+          "green": 186,
+          "blue": 171
+        },
+        "rotation": null
+      },
+      {
+        "id": "right-leg",
+        "role": "bone-leg",
+        "size": {
+          "x": 0.15,
+          "y": 0.59,
+          "z": 0.16
+        },
+        "center": {
+          "x": 0.14,
+          "y": 0.29,
+          "z": 0
+        },
+        "color": {
+          "red": 191,
+          "green": 186,
+          "blue": 171
+        },
+        "rotation": null
+      },
+      {
+        "id": "bow-grip",
+        "role": "bow",
+        "size": {
+          "x": 0.08,
+          "y": 0.43,
+          "z": 0.08
+        },
+        "center": {
+          "x": 0.51,
+          "y": 0.99,
+          "z": 0.08
+        },
+        "color": {
+          "red": 84,
+          "green": 46,
+          "blue": 23
+        },
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": -0.37
+        }
+      },
+      {
+        "id": "bow-limb",
+        "role": "bow",
+        "size": {
+          "x": 0.07,
+          "y": 0.52,
+          "z": 0.08
+        },
+        "center": {
+          "x": 0.65,
+          "y": 1.04,
+          "z": 0.08
+        },
+        "color": {
+          "red": 115,
+          "green": 64,
+          "blue": 31
+        },
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": 0.34
+        }
+      }
+    ]
+  },
+  {
+    "kind": "slime",
+    "parts": [
+      {
+        "id": "gel-shell",
+        "role": "gel-shell",
+        "size": {
+          "x": 0.96,
+          "y": 0.96,
+          "z": 0.96
+        },
+        "center": {
+          "x": 0,
+          "y": 0.52,
+          "z": 0
+        },
+        "color": {
+          "red": 79,
+          "green": 224,
+          "blue": 48
+        },
+        "rotation": null
+      },
+      {
+        "id": "inner-gel",
+        "role": "gel-core",
+        "size": {
+          "x": 0.64,
+          "y": 0.58,
+          "z": 0.64
+        },
+        "center": {
+          "x": 0,
+          "y": 0.5,
+          "z": 0
+        },
+        "color": {
+          "red": 120,
+          "green": 245,
+          "blue": 71
+        },
+        "rotation": null
+      },
+      {
+        "id": "face-panel",
+        "role": "face",
+        "size": {
+          "x": 0.54,
+          "y": 0.24,
+          "z": 0.07
+        },
+        "center": {
+          "x": 0,
+          "y": 0.58,
+          "z": 0.5
+        },
+        "color": {
+          "red": 51,
+          "green": 171,
+          "blue": 36
+        },
+        "rotation": null
+      },
+      {
+        "id": "eye-left",
+        "role": "eye",
+        "size": {
+          "x": 0.13,
+          "y": 0.13,
+          "z": 0.05
+        },
+        "center": {
+          "x": -0.17,
+          "y": 0.67,
+          "z": 0.55
+        },
+        "color": {
+          "red": 10,
+          "green": 31,
+          "blue": 8
+        },
+        "rotation": null
+      },
+      {
+        "id": "eye-right",
+        "role": "eye",
+        "size": {
+          "x": 0.13,
+          "y": 0.13,
+          "z": 0.05
+        },
+        "center": {
+          "x": 0.17,
+          "y": 0.67,
+          "z": 0.55
+        },
+        "color": {
+          "red": 10,
+          "green": 31,
+          "blue": 8
+        },
+        "rotation": null
+      },
+      {
+        "id": "mouth",
+        "role": "mouth",
+        "size": {
+          "x": 0.25,
+          "y": 0.06,
+          "z": 0.04
+        },
+        "center": {
+          "x": 0,
+          "y": 0.44,
+          "z": 0.56
+        },
+        "color": {
+          "red": 13,
+          "green": 64,
+          "blue": 18
+        },
+        "rotation": null
+      },
+      {
+        "id": "foot-left",
+        "role": "gel-foot",
+        "size": {
+          "x": 0.23,
+          "y": 0.16,
+          "z": 0.24
+        },
+        "center": {
+          "x": -0.25,
+          "y": 0.06,
+          "z": 0.15
+        },
+        "color": {
+          "red": 61,
+          "green": 191,
+          "blue": 38
+        },
+        "rotation": null
+      },
+      {
+        "id": "foot-right",
+        "role": "gel-foot",
+        "size": {
+          "x": 0.23,
+          "y": 0.16,
+          "z": 0.24
+        },
+        "center": {
+          "x": 0.25,
+          "y": 0.06,
+          "z": 0.15
+        },
+        "color": {
+          "red": 61,
+          "green": 191,
+          "blue": 38
+        },
+        "rotation": null
+      }
+    ]
+  },
+  {
+    "kind": "stray",
+    "parts": [
+      {
+        "id": "ribcage",
+        "role": "ribcage",
+        "size": {
+          "x": 0.32,
+          "y": 0.6,
+          "z": 0.23
+        },
+        "center": {
+          "x": 0,
+          "y": 1.06,
+          "z": 0
+        },
+        "color": {
+          "red": 161,
+          "green": 194,
+          "blue": 194
+        },
+        "rotation": null
+      },
+      {
+        "id": "pelvis",
+        "role": "pelvis",
+        "size": {
+          "x": 0.36,
+          "y": 0.24,
+          "z": 0.24
+        },
+        "center": {
+          "x": 0,
+          "y": 0.67,
+          "z": 0
+        },
+        "color": {
+          "red": 145,
+          "green": 173,
+          "blue": 179
+        },
+        "rotation": null
+      },
+      {
+        "id": "skull",
+        "role": "skull",
+        "size": {
+          "x": 0.42,
+          "y": 0.43,
+          "z": 0.4
+        },
+        "center": {
+          "x": 0,
+          "y": 1.72,
+          "z": 0
+        },
+        "color": {
+          "red": 194,
+          "green": 214,
+          "blue": 209
+        },
+        "rotation": null
+      },
+      {
+        "id": "hood",
+        "role": "hood",
+        "size": {
+          "x": 0.52,
+          "y": 0.18,
+          "z": 0.48
+        },
+        "center": {
+          "x": 0,
+          "y": 1.94,
+          "z": -0.02
+        },
+        "color": {
+          "red": 74,
+          "green": 120,
+          "blue": 145
+        },
+        "rotation": null
+      },
+      {
+        "id": "ragged-cloak",
+        "role": "cloak",
+        "size": {
+          "x": 0.6,
+          "y": 0.72,
+          "z": 0.15
+        },
+        "center": {
+          "x": 0,
+          "y": 0.99,
+          "z": -0.18
+        },
+        "color": {
+          "red": 79,
+          "green": 128,
+          "blue": 150
+        },
+        "rotation": null
+      },
+      {
+        "id": "left-arm",
+        "role": "bone-arm",
+        "size": {
+          "x": 0.13,
+          "y": 0.65,
+          "z": 0.14
+        },
+        "center": {
+          "x": -0.37,
+          "y": 1.02,
+          "z": 0
+        },
+        "color": {
+          "red": 184,
+          "green": 204,
+          "blue": 204
+        },
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": 0.1
+        }
+      },
+      {
+        "id": "right-arm",
+        "role": "bone-arm",
+        "size": {
+          "x": 0.13,
+          "y": 0.65,
+          "z": 0.14
+        },
+        "center": {
+          "x": 0.37,
+          "y": 1.02,
+          "z": 0
+        },
+        "color": {
+          "red": 184,
+          "green": 204,
+          "blue": 204
+        },
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": -0.1
+        }
+      },
+      {
+        "id": "left-leg",
+        "role": "bone-leg",
+        "size": {
+          "x": 0.15,
+          "y": 0.58,
+          "z": 0.16
+        },
+        "center": {
+          "x": -0.14,
+          "y": 0.28,
+          "z": 0
+        },
+        "color": {
+          "red": 168,
+          "green": 191,
+          "blue": 189
+        },
+        "rotation": null
+      },
+      {
+        "id": "right-leg",
+        "role": "bone-leg",
+        "size": {
+          "x": 0.15,
+          "y": 0.58,
+          "z": 0.16
+        },
+        "center": {
+          "x": 0.14,
+          "y": 0.28,
+          "z": 0
+        },
+        "color": {
+          "red": 168,
+          "green": 191,
+          "blue": 189
+        },
+        "rotation": null
+      },
+      {
+        "id": "bow-grip",
+        "role": "bow",
+        "size": {
+          "x": 0.08,
+          "y": 0.44,
+          "z": 0.08
+        },
+        "center": {
+          "x": 0.52,
+          "y": 0.98,
+          "z": 0.09
+        },
+        "color": {
+          "red": 79,
+          "green": 54,
+          "blue": 33
+        },
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": -0.36
+        }
+      },
+      {
+        "id": "bow-limb",
+        "role": "bow",
+        "size": {
+          "x": 0.07,
+          "y": 0.51,
+          "z": 0.08
+        },
+        "center": {
+          "x": 0.66,
+          "y": 1.04,
+          "z": 0.09
+        },
+        "color": {
+          "red": 117,
+          "green": 79,
+          "blue": 51
+        },
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": 0.33
+        }
+      }
+    ]
+  },
+  {
+    "kind": "vex",
+    "parts": [
+      {
+        "id": "tunic",
+        "role": "torso",
+        "size": {
+          "x": 0.37,
+          "y": 0.49,
+          "z": 0.3
+        },
+        "center": {
+          "x": 0,
+          "y": 0.79,
+          "z": 0
+        },
+        "color": {
+          "red": 171,
+          "green": 191,
+          "blue": 194
+        },
+        "rotation": null
+      },
+      {
+        "id": "head",
+        "role": "head",
+        "size": {
+          "x": 0.38,
+          "y": 0.36,
+          "z": 0.34
+        },
+        "center": {
+          "x": 0,
+          "y": 1.21,
+          "z": 0
+        },
+        "color": {
+          "red": 199,
+          "green": 199,
+          "blue": 191
+        },
+        "rotation": null
+      },
+      {
+        "id": "brow",
+        "role": "brow",
+        "size": {
+          "x": 0.33,
+          "y": 0.08,
+          "z": 0.05
+        },
+        "center": {
+          "x": 0,
+          "y": 1.34,
+          "z": 0.18
+        },
+        "color": {
+          "red": 66,
+          "green": 64,
+          "blue": 59
+        },
+        "rotation": null
+      },
+      {
+        "id": "eye-left",
+        "role": "eye",
+        "size": {
+          "x": 0.06,
+          "y": 0.08,
+          "z": 0.04
+        },
+        "center": {
+          "x": -0.1,
+          "y": 1.25,
+          "z": 0.19
+        },
+        "color": {
+          "red": 43,
+          "green": 31,
+          "blue": 26
+        },
+        "rotation": null
+      },
+      {
+        "id": "eye-right",
+        "role": "eye",
+        "size": {
+          "x": 0.06,
+          "y": 0.08,
+          "z": 0.04
+        },
+        "center": {
+          "x": 0.1,
+          "y": 1.25,
+          "z": 0.19
+        },
+        "color": {
+          "red": 43,
+          "green": 31,
+          "blue": 26
+        },
+        "rotation": null
+      },
+      {
+        "id": "left-wing",
+        "role": "wing",
+        "size": {
+          "x": 0.55,
+          "y": 0.09,
+          "z": 0.27
+        },
+        "center": {
+          "x": -0.43,
+          "y": 0.98,
+          "z": -0.03
+        },
+        "color": {
+          "red": 204,
+          "green": 224,
+          "blue": 217
+        },
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": 0.18
+        }
+      },
+      {
+        "id": "left-wing-tip",
+        "role": "wing",
+        "size": {
+          "x": 0.48,
+          "y": 0.07,
+          "z": 0.2
+        },
+        "center": {
+          "x": -0.91,
+          "y": 0.92,
+          "z": -0.03
+        },
+        "color": {
+          "red": 173,
+          "green": 201,
+          "blue": 194
+        },
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": 0.11
+        }
+      },
+      {
+        "id": "right-wing",
+        "role": "wing",
+        "size": {
+          "x": 0.55,
+          "y": 0.09,
+          "z": 0.27
+        },
+        "center": {
+          "x": 0.43,
+          "y": 0.98,
+          "z": -0.03
+        },
+        "color": {
+          "red": 204,
+          "green": 224,
+          "blue": 217
+        },
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": -0.18
+        }
+      },
+      {
+        "id": "right-wing-tip",
+        "role": "wing",
+        "size": {
+          "x": 0.48,
+          "y": 0.07,
+          "z": 0.2
+        },
+        "center": {
+          "x": 0.91,
+          "y": 0.92,
+          "z": -0.03
+        },
+        "color": {
+          "red": 173,
+          "green": 201,
+          "blue": 194
+        },
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": -0.11
+        }
+      },
+      {
+        "id": "left-arm",
+        "role": "arm",
+        "size": {
+          "x": 0.12,
+          "y": 0.39,
+          "z": 0.13
+        },
+        "center": {
+          "x": -0.29,
+          "y": 0.82,
+          "z": 0
+        },
+        "color": {
+          "red": 184,
+          "green": 189,
+          "blue": 181
+        },
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": 0.3
+        }
+      },
+      {
+        "id": "right-arm",
+        "role": "arm",
+        "size": {
+          "x": 0.12,
+          "y": 0.39,
+          "z": 0.13
+        },
+        "center": {
+          "x": 0.29,
+          "y": 0.82,
+          "z": 0
+        },
+        "color": {
+          "red": 184,
+          "green": 189,
+          "blue": 181
+        },
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": -0.3
+        }
+      },
+      {
+        "id": "sword",
+        "role": "iron-sword",
+        "size": {
+          "x": 0.1,
+          "y": 0.62,
+          "z": 0.09
+        },
+        "center": {
+          "x": 0.39,
+          "y": 0.71,
+          "z": 0.15
+        },
+        "color": {
+          "red": 168,
+          "green": 179,
+          "blue": 173
+        },
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": -0.48
+        }
+      }
+    ]
+  },
+  {
+    "kind": "vindicator",
+    "parts": [
+      {
+        "id": "coat",
+        "role": "torso",
+        "size": {
+          "x": 0.54,
+          "y": 0.72,
+          "z": 0.38
+        },
+        "center": {
+          "x": 0,
+          "y": 0.94,
+          "z": 0
+        },
+        "color": {
+          "red": 74,
+          "green": 77,
+          "blue": 89
+        },
+        "rotation": null
+      },
+      {
+        "id": "belt",
+        "role": "belt",
+        "size": {
+          "x": 0.56,
+          "y": 0.13,
+          "z": 0.39
+        },
+        "center": {
+          "x": 0,
+          "y": 0.61,
+          "z": 0
+        },
+        "color": {
+          "red": 46,
+          "green": 46,
+          "blue": 56
+        },
+        "rotation": null
+      },
+      {
+        "id": "head",
+        "role": "head",
+        "size": {
+          "x": 0.47,
+          "y": 0.48,
+          "z": 0.42
+        },
+        "center": {
+          "x": 0,
+          "y": 1.56,
+          "z": 0
+        },
+        "color": {
+          "red": 181,
+          "green": 158,
+          "blue": 125
+        },
+        "rotation": null
+      },
+      {
+        "id": "nose",
+        "role": "nose",
+        "size": {
+          "x": 0.14,
+          "y": 0.24,
+          "z": 0.17
+        },
+        "center": {
+          "x": 0,
+          "y": 1.47,
+          "z": 0.27
+        },
+        "color": {
+          "red": 145,
+          "green": 115,
+          "blue": 92
+        },
+        "rotation": null
+      },
+      {
+        "id": "brow",
+        "role": "brow",
+        "size": {
+          "x": 0.44,
+          "y": 0.1,
+          "z": 0.06
+        },
+        "center": {
+          "x": 0,
+          "y": 1.76,
+          "z": 0.22
+        },
+        "color": {
+          "red": 64,
+          "green": 46,
+          "blue": 41
+        },
+        "rotation": null
+      },
+      {
+        "id": "left-sleeve",
+        "role": "sleeve",
+        "size": {
+          "x": 0.18,
+          "y": 0.67,
+          "z": 0.21
+        },
+        "center": {
+          "x": -0.39,
+          "y": 0.98,
+          "z": 0
+        },
+        "color": {
+          "red": 92,
+          "green": 89,
+          "blue": 102
+        },
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": 0.1
+        }
+      },
+      {
+        "id": "right-sleeve",
+        "role": "sleeve",
+        "size": {
+          "x": 0.18,
+          "y": 0.67,
+          "z": 0.21
+        },
+        "center": {
+          "x": 0.39,
+          "y": 0.98,
+          "z": 0
+        },
+        "color": {
+          "red": 92,
+          "green": 89,
+          "blue": 102
+        },
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": -0.3
+        }
+      },
+      {
+        "id": "left-leg",
+        "role": "leg",
+        "size": {
+          "x": 0.21,
+          "y": 0.46,
+          "z": 0.22
+        },
+        "center": {
+          "x": -0.14,
+          "y": 0.24,
+          "z": 0
+        },
+        "color": {
+          "red": 54,
+          "green": 51,
+          "blue": 64
+        },
+        "rotation": null
+      },
+      {
+        "id": "right-leg",
+        "role": "leg",
+        "size": {
+          "x": 0.21,
+          "y": 0.46,
+          "z": 0.22
+        },
+        "center": {
+          "x": 0.14,
+          "y": 0.24,
+          "z": 0
+        },
+        "color": {
+          "red": 54,
+          "green": 51,
+          "blue": 64
+        },
+        "rotation": null
+      },
+      {
+        "id": "axe-handle",
+        "role": "iron-axe",
+        "size": {
+          "x": 0.1,
+          "y": 0.76,
+          "z": 0.1
+        },
+        "center": {
+          "x": 0.56,
+          "y": 0.96,
+          "z": 0.14
+        },
+        "color": {
+          "red": 92,
+          "green": 59,
+          "blue": 33
+        },
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": -0.28
+        }
+      },
+      {
+        "id": "axe-head",
+        "role": "iron-axe",
+        "size": {
+          "x": 0.34,
+          "y": 0.35,
+          "z": 0.14
+        },
+        "center": {
+          "x": 0.73,
+          "y": 1.28,
+          "z": 0.14
+        },
+        "color": {
+          "red": 158,
+          "green": 166,
+          "blue": 161
+        },
+        "rotation": null
+      }
+    ]
+  },
+  {
+    "kind": "warden",
+    "parts": [
+      {
+        "id": "torso",
+        "role": "torso",
+        "size": {
+          "x": 1.14,
+          "y": 1.2,
+          "z": 0.63
+        },
+        "center": {
+          "x": 0,
+          "y": 1.61,
+          "z": 0
+        },
+        "color": {
+          "red": 20,
+          "green": 79,
+          "blue": 77
+        },
+        "rotation": null
+      },
+      {
+        "id": "shoulders",
+        "role": "shoulders",
+        "size": {
+          "x": 1.53,
+          "y": 0.55,
+          "z": 0.69
+        },
+        "center": {
+          "x": 0,
+          "y": 2.19,
+          "z": 0
+        },
+        "color": {
+          "red": 28,
+          "green": 99,
+          "blue": 94
+        },
+        "rotation": null
+      },
+      {
+        "id": "head",
+        "role": "head",
+        "size": {
+          "x": 0.92,
+          "y": 0.65,
+          "z": 0.67
+        },
+        "center": {
+          "x": 0,
+          "y": 2.77,
+          "z": 0
+        },
+        "color": {
+          "red": 18,
+          "green": 74,
+          "blue": 71
+        },
+        "rotation": null
+      },
+      {
+        "id": "horn-left",
+        "role": "horn",
+        "size": {
+          "x": 0.23,
+          "y": 0.89,
+          "z": 0.22
+        },
+        "center": {
+          "x": -0.72,
+          "y": 3.1,
+          "z": -0.03
+        },
+        "color": {
+          "red": 26,
+          "green": 92,
+          "blue": 87
+        },
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": -0.43
+        }
+      },
+      {
+        "id": "horn-right",
+        "role": "horn",
+        "size": {
+          "x": 0.23,
+          "y": 0.89,
+          "z": 0.22
+        },
+        "center": {
+          "x": 0.72,
+          "y": 3.1,
+          "z": -0.03
+        },
+        "color": {
+          "red": 26,
+          "green": 92,
+          "blue": 87
+        },
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": 0.43
+        }
+      },
+      {
+        "id": "soul-rib-left",
+        "role": "soul-rib",
+        "size": {
+          "x": 0.16,
+          "y": 0.36,
+          "z": 0.1
+        },
+        "center": {
+          "x": -0.31,
+          "y": 1.67,
+          "z": 0.34
+        },
+        "color": {
+          "red": 79,
+          "green": 237,
+          "blue": 222
+        },
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": -0.12
+        }
+      },
+      {
+        "id": "soul-rib-right",
+        "role": "soul-rib",
+        "size": {
+          "x": 0.16,
+          "y": 0.36,
+          "z": 0.1
+        },
+        "center": {
+          "x": 0.31,
+          "y": 1.67,
+          "z": 0.34
+        },
+        "color": {
+          "red": 79,
+          "green": 237,
+          "blue": 222
+        },
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": 0.12
+        }
+      },
+      {
+        "id": "soul-core",
+        "role": "soul-core",
+        "size": {
+          "x": 0.45,
+          "y": 0.42,
+          "z": 0.12
+        },
+        "center": {
+          "x": 0,
+          "y": 1.66,
+          "z": 0.36
+        },
+        "color": {
+          "red": 28,
+          "green": 199,
+          "blue": 207
+        },
+        "rotation": null
+      },
+      {
+        "id": "left-arm",
+        "role": "arm",
+        "size": {
+          "x": 0.32,
+          "y": 1,
+          "z": 0.36
+        },
+        "center": {
+          "x": -0.89,
+          "y": 1.61,
+          "z": 0
+        },
+        "color": {
+          "red": 20,
+          "green": 87,
+          "blue": 84
+        },
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": 0.06
+        }
+      },
+      {
+        "id": "right-arm",
+        "role": "arm",
+        "size": {
+          "x": 0.32,
+          "y": 1,
+          "z": 0.36
+        },
+        "center": {
+          "x": 0.89,
+          "y": 1.61,
+          "z": 0
+        },
+        "color": {
+          "red": 20,
+          "green": 87,
+          "blue": 84
+        },
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": -0.06
+        }
+      },
+      {
+        "id": "left-leg",
+        "role": "leg",
+        "size": {
+          "x": 0.39,
+          "y": 0.94,
+          "z": 0.43
+        },
+        "center": {
+          "x": -0.34,
+          "y": 0.47,
+          "z": 0
+        },
+        "color": {
+          "red": 15,
+          "green": 66,
+          "blue": 64
+        },
+        "rotation": null
+      },
+      {
+        "id": "right-leg",
+        "role": "leg",
+        "size": {
+          "x": 0.39,
+          "y": 0.94,
+          "z": 0.43
+        },
+        "center": {
+          "x": 0.34,
+          "y": 0.47,
+          "z": 0
+        },
+        "color": {
+          "red": 15,
+          "green": 66,
+          "blue": 64
+        },
+        "rotation": null
+      }
+    ]
+  },
+  {
+    "kind": "witch",
+    "parts": [
+      {
+        "id": "robe",
+        "role": "robe",
+        "size": {
+          "x": 0.62,
+          "y": 0.82,
+          "z": 0.44
+        },
+        "center": {
+          "x": 0,
+          "y": 0.87,
+          "z": 0
+        },
+        "color": {
+          "red": 89,
+          "green": 61,
+          "blue": 102
+        },
+        "rotation": null
+      },
+      {
+        "id": "robe-skirt",
+        "role": "skirt",
+        "size": {
+          "x": 0.82,
+          "y": 0.3,
+          "z": 0.61
+        },
+        "center": {
+          "x": 0,
+          "y": 0.42,
+          "z": 0
+        },
+        "color": {
+          "red": 74,
+          "green": 46,
+          "blue": 87
+        },
+        "rotation": null
+      },
+      {
+        "id": "head",
+        "role": "head",
+        "size": {
+          "x": 0.47,
+          "y": 0.46,
+          "z": 0.42
+        },
+        "center": {
+          "x": 0,
+          "y": 1.57,
+          "z": 0
+        },
+        "color": {
+          "red": 184,
+          "green": 158,
+          "blue": 128
+        },
+        "rotation": null
+      },
+      {
+        "id": "nose",
+        "role": "nose",
+        "size": {
+          "x": 0.12,
+          "y": 0.26,
+          "z": 0.16
+        },
+        "center": {
+          "x": 0,
+          "y": 1.47,
+          "z": 0.28
+        },
+        "color": {
+          "red": 148,
+          "green": 112,
+          "blue": 87
+        },
+        "rotation": null
+      },
+      {
+        "id": "hat-brim",
+        "role": "hat",
+        "size": {
+          "x": 0.67,
+          "y": 0.1,
+          "z": 0.62
+        },
+        "center": {
+          "x": 0,
+          "y": 1.84,
+          "z": 0
+        },
+        "color": {
+          "red": 48,
+          "green": 38,
+          "blue": 61
+        },
+        "rotation": null
+      },
+      {
+        "id": "hat-crown",
+        "role": "hat",
+        "size": {
+          "x": 0.43,
+          "y": 0.36,
+          "z": 0.4
+        },
+        "center": {
+          "x": 0,
+          "y": 2.07,
+          "z": 0
+        },
+        "color": {
+          "red": 61,
+          "green": 48,
+          "blue": 77
+        },
+        "rotation": null
+      },
+      {
+        "id": "hat-tip",
+        "role": "hat",
+        "size": {
+          "x": 0.19,
+          "y": 0.28,
+          "z": 0.19
+        },
+        "center": {
+          "x": 0.09,
+          "y": 2.36,
+          "z": 0
+        },
+        "color": {
+          "red": 74,
+          "green": 59,
+          "blue": 89
+        },
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": -0.28
+        }
+      },
+      {
+        "id": "hat-buckle",
+        "role": "buckle",
+        "size": {
+          "x": 0.24,
+          "y": 0.09,
+          "z": 0.08
+        },
+        "center": {
+          "x": 0,
+          "y": 2.08,
+          "z": 0.21
+        },
+        "color": {
+          "red": 191,
+          "green": 161,
+          "blue": 54
+        },
+        "rotation": null
+      },
+      {
+        "id": "left-sleeve",
+        "role": "sleeve",
+        "size": {
+          "x": 0.2,
+          "y": 0.68,
+          "z": 0.22
+        },
+        "center": {
+          "x": -0.4,
+          "y": 0.95,
+          "z": 0
+        },
+        "color": {
+          "red": 97,
+          "green": 66,
+          "blue": 107
+        },
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": 0.18
+        }
+      },
+      {
+        "id": "right-sleeve",
+        "role": "sleeve",
+        "size": {
+          "x": 0.2,
+          "y": 0.68,
+          "z": 0.22
+        },
+        "center": {
+          "x": 0.4,
+          "y": 0.95,
+          "z": 0
+        },
+        "color": {
+          "red": 97,
+          "green": 66,
+          "blue": 107
+        },
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": -0.18
+        }
+      },
+      {
+        "id": "hands",
+        "role": "hands",
+        "size": {
+          "x": 0.2,
+          "y": 0.18,
+          "z": 0.25
+        },
+        "center": {
+          "x": 0,
+          "y": 0.7,
+          "z": 0.17
+        },
+        "color": {
+          "red": 181,
+          "green": 150,
+          "blue": 120
+        },
+        "rotation": null
+      },
+      {
+        "id": "left-leg",
+        "role": "leg",
+        "size": {
+          "x": 0.21,
+          "y": 0.4,
+          "z": 0.23
+        },
+        "center": {
+          "x": -0.15,
+          "y": 0.21,
+          "z": 0
+        },
+        "color": {
+          "red": 51,
+          "green": 43,
+          "blue": 64
+        },
+        "rotation": null
+      },
+      {
+        "id": "right-leg",
+        "role": "leg",
+        "size": {
+          "x": 0.21,
+          "y": 0.4,
+          "z": 0.23
+        },
+        "center": {
+          "x": 0.15,
+          "y": 0.21,
+          "z": 0
+        },
+        "color": {
+          "red": 51,
+          "green": 43,
+          "blue": 64
+        },
+        "rotation": null
+      }
+    ]
+  },
+  {
+    "kind": "wither_skeleton",
+    "parts": [
+      {
+        "id": "ribcage",
+        "role": "ribcage",
+        "size": {
+          "x": 0.38,
+          "y": 0.71,
+          "z": 0.27
+        },
+        "center": {
+          "x": 0,
+          "y": 1.25,
+          "z": 0
+        },
+        "color": {
+          "red": 48,
+          "green": 46,
+          "blue": 48
+        },
+        "rotation": null
+      },
+      {
+        "id": "pelvis",
+        "role": "pelvis",
+        "size": {
+          "x": 0.4,
+          "y": 0.27,
+          "z": 0.27
+        },
+        "center": {
+          "x": 0,
+          "y": 0.82,
+          "z": 0
+        },
+        "color": {
+          "red": 41,
+          "green": 38,
+          "blue": 41
+        },
+        "rotation": null
+      },
+      {
+        "id": "skull",
+        "role": "skull",
+        "size": {
+          "x": 0.46,
+          "y": 0.46,
+          "z": 0.43
+        },
+        "center": {
+          "x": 0,
+          "y": 1.93,
+          "z": 0
+        },
+        "color": {
+          "red": 69,
+          "green": 64,
+          "blue": 66
+        },
+        "rotation": null
+      },
+      {
+        "id": "jaw",
+        "role": "jaw",
+        "size": {
+          "x": 0.34,
+          "y": 0.13,
+          "z": 0.33
+        },
+        "center": {
+          "x": 0,
+          "y": 1.69,
+          "z": 0.04
+        },
+        "color": {
+          "red": 31,
+          "green": 28,
+          "blue": 33
+        },
+        "rotation": null
+      },
+      {
+        "id": "eye-left",
+        "role": "eye",
+        "size": {
+          "x": 0.08,
+          "y": 0.09,
+          "z": 0.05
+        },
+        "center": {
+          "x": -0.12,
+          "y": 1.99,
+          "z": 0.24
+        },
+        "color": {
+          "red": 15,
+          "green": 13,
+          "blue": 15
+        },
+        "rotation": null
+      },
+      {
+        "id": "eye-right",
+        "role": "eye",
+        "size": {
+          "x": 0.08,
+          "y": 0.09,
+          "z": 0.05
+        },
+        "center": {
+          "x": 0.12,
+          "y": 1.99,
+          "z": 0.24
+        },
+        "color": {
+          "red": 15,
+          "green": 13,
+          "blue": 15
+        },
+        "rotation": null
+      },
+      {
+        "id": "left-arm",
+        "role": "bone-arm",
+        "size": {
+          "x": 0.14,
+          "y": 0.72,
+          "z": 0.15
+        },
+        "center": {
+          "x": -0.4,
+          "y": 1.2,
+          "z": 0
+        },
+        "color": {
+          "red": 54,
+          "green": 51,
+          "blue": 54
+        },
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": 0.1
+        }
+      },
+      {
+        "id": "right-arm",
+        "role": "bone-arm",
+        "size": {
+          "x": 0.14,
+          "y": 0.72,
+          "z": 0.15
+        },
+        "center": {
+          "x": 0.4,
+          "y": 1.2,
+          "z": 0
+        },
+        "color": {
+          "red": 54,
+          "green": 51,
+          "blue": 54
+        },
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": -0.1
+        }
+      },
+      {
+        "id": "left-leg",
+        "role": "bone-leg",
+        "size": {
+          "x": 0.16,
+          "y": 0.7,
+          "z": 0.17
+        },
+        "center": {
+          "x": -0.15,
+          "y": 0.34,
+          "z": 0
+        },
+        "color": {
+          "red": 43,
+          "green": 41,
+          "blue": 43
+        },
+        "rotation": null
+      },
+      {
+        "id": "right-leg",
+        "role": "bone-leg",
+        "size": {
+          "x": 0.16,
+          "y": 0.7,
+          "z": 0.17
+        },
+        "center": {
+          "x": 0.15,
+          "y": 0.34,
+          "z": 0
+        },
+        "color": {
+          "red": 43,
+          "green": 41,
+          "blue": 43
+        },
+        "rotation": null
+      },
+      {
+        "id": "sword-grip",
+        "role": "stone-sword",
+        "size": {
+          "x": 0.09,
+          "y": 0.27,
+          "z": 0.09
+        },
+        "center": {
+          "x": 0.51,
+          "y": 0.94,
+          "z": 0.12
+        },
+        "color": {
+          "red": 82,
+          "green": 59,
+          "blue": 41
+        },
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": -0.24
+        }
+      },
+      {
+        "id": "sword-blade",
+        "role": "stone-sword",
+        "size": {
+          "x": 0.13,
+          "y": 0.68,
+          "z": 0.08
+        },
+        "center": {
+          "x": 0.61,
+          "y": 1.36,
+          "z": 0.12
+        },
+        "color": {
+          "red": 87,
+          "green": 84,
+          "blue": 82
+        },
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": -0.13
+        }
+      }
+    ]
+  },
+  {
+    "kind": "zoglin",
+    "parts": [
+      {
+        "id": "rotting-body",
+        "role": "body",
+        "size": {
+          "x": 1.13,
+          "y": 0.94,
+          "z": 1.62
+        },
+        "center": {
+          "x": 0,
+          "y": 1.09,
+          "z": -0.12
+        },
+        "color": {
+          "red": 74,
+          "green": 110,
+          "blue": 71
+        },
+        "rotation": null
+      },
+      {
+        "id": "wound-patch",
+        "role": "rot",
+        "size": {
+          "x": 0.38,
+          "y": 0.26,
+          "z": 0.08
+        },
+        "center": {
+          "x": -0.19,
+          "y": 1.32,
+          "z": 0.72
+        },
+        "color": {
+          "red": 28,
+          "green": 46,
+          "blue": 33
+        },
+        "rotation": null
+      },
+      {
+        "id": "head",
+        "role": "head",
+        "size": {
+          "x": 0.82,
+          "y": 0.71,
+          "z": 0.72
+        },
+        "center": {
+          "x": 0,
+          "y": 1.4,
+          "z": 0.82
+        },
+        "color": {
+          "red": 92,
+          "green": 125,
+          "blue": 79
+        },
+        "rotation": null
+      },
+      {
+        "id": "snout",
+        "role": "snout",
+        "size": {
+          "x": 0.53,
+          "y": 0.33,
+          "z": 0.37
+        },
+        "center": {
+          "x": 0,
+          "y": 1.21,
+          "z": 1.29
+        },
+        "color": {
+          "red": 79,
+          "green": 99,
+          "blue": 66
+        },
+        "rotation": null
+      },
+      {
+        "id": "tusk-left",
+        "role": "tusk",
+        "size": {
+          "x": 0.14,
+          "y": 0.48,
+          "z": 0.14
+        },
+        "center": {
+          "x": -0.35,
+          "y": 1.05,
+          "z": 1.15
+        },
+        "color": {
+          "red": 222,
+          "green": 207,
+          "blue": 156
+        },
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": -0.48
+        }
+      },
+      {
+        "id": "tusk-right",
+        "role": "tusk",
+        "size": {
+          "x": 0.14,
+          "y": 0.48,
+          "z": 0.14
+        },
+        "center": {
+          "x": 0.35,
+          "y": 1.05,
+          "z": 1.15
+        },
+        "color": {
+          "red": 222,
+          "green": 207,
+          "blue": 156
+        },
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": 0.48
+        }
+      },
+      {
+        "id": "ear-left",
+        "role": "ear",
+        "size": {
+          "x": 0.18,
+          "y": 0.49,
+          "z": 0.16
+        },
+        "center": {
+          "x": -0.5,
+          "y": 1.82,
+          "z": 0.55
+        },
+        "color": {
+          "red": 69,
+          "green": 94,
+          "blue": 66
+        },
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": -0.42
+        }
+      },
+      {
+        "id": "ear-right",
+        "role": "ear",
+        "size": {
+          "x": 0.18,
+          "y": 0.49,
+          "z": 0.16
+        },
+        "center": {
+          "x": 0.5,
+          "y": 1.82,
+          "z": 0.55
+        },
+        "color": {
+          "red": 69,
+          "green": 94,
+          "blue": 66
+        },
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": 0.42
+        }
+      },
+      {
+        "id": "leg-front-left",
+        "role": "leg",
+        "size": {
+          "x": 0.28,
+          "y": 0.56,
+          "z": 0.3
+        },
+        "center": {
+          "x": -0.38,
+          "y": 0.3,
+          "z": 0.49
+        },
+        "color": {
+          "red": 64,
+          "green": 92,
+          "blue": 59
+        },
+        "rotation": null
+      },
+      {
+        "id": "leg-front-right",
+        "role": "leg",
+        "size": {
+          "x": 0.28,
+          "y": 0.56,
+          "z": 0.3
+        },
+        "center": {
+          "x": 0.38,
+          "y": 0.3,
+          "z": 0.49
+        },
+        "color": {
+          "red": 64,
+          "green": 92,
+          "blue": 59
+        },
+        "rotation": null
+      },
+      {
+        "id": "leg-back-left",
+        "role": "leg",
+        "size": {
+          "x": 0.29,
+          "y": 0.53,
+          "z": 0.31
+        },
+        "center": {
+          "x": -0.38,
+          "y": 0.27,
+          "z": -0.59
+        },
+        "color": {
+          "red": 64,
+          "green": 92,
+          "blue": 59
+        },
+        "rotation": null
+      },
+      {
+        "id": "leg-back-right",
+        "role": "leg",
+        "size": {
+          "x": 0.29,
+          "y": 0.53,
+          "z": 0.31
+        },
+        "center": {
+          "x": 0.38,
+          "y": 0.27,
+          "z": -0.59
+        },
+        "color": {
+          "red": 64,
+          "green": 92,
+          "blue": 59
+        },
+        "rotation": null
+      }
+    ]
+  },
+  {
+    "kind": "zombie",
+    "parts": [
+      {
+        "id": "shirt",
+        "role": "torso",
+        "size": {
+          "x": 0.52,
+          "y": 0.7,
+          "z": 0.34
+        },
+        "center": {
+          "x": 0,
+          "y": 0.93,
+          "z": 0
+        },
+        "color": {
+          "red": 41,
+          "green": 102,
+          "blue": 59
+        },
+        "rotation": null
+      },
+      {
+        "id": "head",
+        "role": "head",
+        "size": {
+          "x": 0.47,
+          "y": 0.47,
+          "z": 0.42
+        },
+        "center": {
+          "x": 0,
+          "y": 1.55,
+          "z": 0
+        },
+        "color": {
+          "red": 79,
+          "green": 156,
+          "blue": 71
+        },
+        "rotation": null
+      },
+      {
+        "id": "face",
+        "role": "face",
+        "size": {
+          "x": 0.33,
+          "y": 0.2,
+          "z": 0.06
+        },
+        "center": {
+          "x": 0,
+          "y": 1.5,
+          "z": 0.25
+        },
+        "color": {
+          "red": 59,
+          "green": 128,
+          "blue": 56
+        },
+        "rotation": null
+      },
+      {
+        "id": "left-arm",
+        "role": "arm",
+        "size": {
+          "x": 0.17,
+          "y": 0.72,
+          "z": 0.18
+        },
+        "center": {
+          "x": -0.37,
+          "y": 1.14,
+          "z": 0.12
+        },
+        "color": {
+          "red": 64,
+          "green": 140,
+          "blue": 61
+        },
+        "rotation": {
+          "x": 0.18,
+          "y": 0,
+          "z": 0.05
+        }
+      },
+      {
+        "id": "right-arm",
+        "role": "arm",
+        "size": {
+          "x": 0.17,
+          "y": 0.72,
+          "z": 0.18
+        },
+        "center": {
+          "x": 0.37,
+          "y": 1.14,
+          "z": 0.12
+        },
+        "color": {
+          "red": 64,
+          "green": 140,
+          "blue": 61
+        },
+        "rotation": {
+          "x": 0.18,
+          "y": 0,
+          "z": -0.05
+        }
+      },
+      {
+        "id": "left-leg",
+        "role": "leg",
+        "size": {
+          "x": 0.2,
+          "y": 0.48,
+          "z": 0.21
+        },
+        "center": {
+          "x": -0.14,
+          "y": 0.24,
+          "z": 0
+        },
+        "color": {
+          "red": 26,
+          "green": 69,
+          "blue": 92
+        },
+        "rotation": null
+      },
+      {
+        "id": "right-leg",
+        "role": "leg",
+        "size": {
+          "x": 0.2,
+          "y": 0.48,
+          "z": 0.21
+        },
+        "center": {
+          "x": 0.14,
+          "y": 0.24,
+          "z": 0
+        },
+        "color": {
+          "red": 26,
+          "green": 69,
+          "blue": 92
+        },
+        "rotation": null
+      },
+      {
+        "id": "shirt-sleeve-left",
+        "role": "sleeve",
+        "size": {
+          "x": 0.2,
+          "y": 0.23,
+          "z": 0.2
+        },
+        "center": {
+          "x": -0.37,
+          "y": 1.38,
+          "z": 0
+        },
+        "color": {
+          "red": 48,
+          "green": 112,
+          "blue": 71
+        },
+        "rotation": null
+      },
+      {
+        "id": "shirt-sleeve-right",
+        "role": "sleeve",
+        "size": {
+          "x": 0.2,
+          "y": 0.23,
+          "z": 0.2
+        },
+        "center": {
+          "x": 0.37,
+          "y": 1.38,
+          "z": 0
+        },
+        "color": {
+          "red": 48,
+          "green": 112,
+          "blue": 71
+        },
+        "rotation": null
+      }
+    ]
+  },
+  {
+    "kind": "zombie_villager",
+    "parts": [
+      {
+        "id": "tattered-robe",
+        "role": "robe",
+        "size": {
+          "x": 0.56,
+          "y": 0.75,
+          "z": 0.4
+        },
+        "center": {
+          "x": 0,
+          "y": 0.91,
+          "z": 0
+        },
+        "color": {
+          "red": 77,
+          "green": 87,
+          "blue": 51
+        },
+        "rotation": null
+      },
+      {
+        "id": "head",
+        "role": "villager-head",
+        "size": {
+          "x": 0.49,
+          "y": 0.48,
+          "z": 0.44
+        },
+        "center": {
+          "x": 0,
+          "y": 1.56,
+          "z": 0
+        },
+        "color": {
+          "red": 77,
+          "green": 140,
+          "blue": 66
+        },
+        "rotation": null
+      },
+      {
+        "id": "long-nose",
+        "role": "nose",
+        "size": {
+          "x": 0.14,
+          "y": 0.28,
+          "z": 0.2
+        },
+        "center": {
+          "x": 0,
+          "y": 1.49,
+          "z": 0.3
+        },
+        "color": {
+          "red": 56,
+          "green": 110,
+          "blue": 51
+        },
+        "rotation": null
+      },
+      {
+        "id": "brow",
+        "role": "brow",
+        "size": {
+          "x": 0.45,
+          "y": 0.11,
+          "z": 0.06
+        },
+        "center": {
+          "x": 0,
+          "y": 1.77,
+          "z": 0.22
+        },
+        "color": {
+          "red": 41,
+          "green": 79,
+          "blue": 41
+        },
+        "rotation": null
+      },
+      {
+        "id": "left-eye",
+        "role": "eye",
+        "size": {
+          "x": 0.07,
+          "y": 0.08,
+          "z": 0.04
+        },
+        "center": {
+          "x": -0.12,
+          "y": 1.65,
+          "z": 0.24
+        },
+        "color": {
+          "red": 20,
+          "green": 31,
+          "blue": 18
+        },
+        "rotation": null
+      },
+      {
+        "id": "right-eye",
+        "role": "eye",
+        "size": {
+          "x": 0.07,
+          "y": 0.08,
+          "z": 0.04
+        },
+        "center": {
+          "x": 0.12,
+          "y": 1.65,
+          "z": 0.24
+        },
+        "color": {
+          "red": 20,
+          "green": 31,
+          "blue": 18
+        },
+        "rotation": null
+      },
+      {
+        "id": "left-arm",
+        "role": "sleeve",
+        "size": {
+          "x": 0.19,
+          "y": 0.68,
+          "z": 0.22
+        },
+        "center": {
+          "x": -0.39,
+          "y": 0.97,
+          "z": 0
+        },
+        "color": {
+          "red": 71,
+          "green": 97,
+          "blue": 56
+        },
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": 0.2
+        }
+      },
+      {
+        "id": "right-arm",
+        "role": "sleeve",
+        "size": {
+          "x": 0.19,
+          "y": 0.68,
+          "z": 0.22
+        },
+        "center": {
+          "x": 0.39,
+          "y": 0.97,
+          "z": 0
+        },
+        "color": {
+          "red": 71,
+          "green": 97,
+          "blue": 56
+        },
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": -0.2
+        }
+      },
+      {
+        "id": "folded-hands",
+        "role": "hands",
+        "size": {
+          "x": 0.38,
+          "y": 0.15,
+          "z": 0.23
+        },
+        "center": {
+          "x": 0,
+          "y": 0.74,
+          "z": 0.13
+        },
+        "color": {
+          "red": 64,
+          "green": 122,
+          "blue": 56
+        },
+        "rotation": null
+      },
+      {
+        "id": "left-leg",
+        "role": "leg",
+        "size": {
+          "x": 0.21,
+          "y": 0.45,
+          "z": 0.22
+        },
+        "center": {
+          "x": -0.14,
+          "y": 0.23,
+          "z": 0
+        },
+        "color": {
+          "red": 61,
+          "green": 74,
+          "blue": 51
+        },
+        "rotation": null
+      },
+      {
+        "id": "right-leg",
+        "role": "leg",
+        "size": {
+          "x": 0.21,
+          "y": 0.45,
+          "z": 0.22
+        },
+        "center": {
+          "x": 0.14,
+          "y": 0.23,
+          "z": 0
+        },
+        "color": {
+          "red": 61,
+          "green": 74,
+          "blue": 51
+        },
+        "rotation": null
+      }
+    ]
+  },
+  {
+    "kind": "wither",
+    "parts": [
+      {
+        "id": "spine",
+        "role": "ribcage",
+        "size": {
+          "x": 0.92,
+          "y": 0.44,
+          "z": 0.39
+        },
+        "center": {
+          "x": 0,
+          "y": 1.52,
+          "z": 0
+        },
+        "color": {
+          "red": 33,
+          "green": 33,
+          "blue": 36
+        },
+        "rotation": null
+      },
+      {
+        "id": "rib-left",
+        "role": "rib",
+        "size": {
+          "x": 0.22,
+          "y": 0.68,
+          "z": 0.29
+        },
+        "center": {
+          "x": -0.3,
+          "y": 1.4,
+          "z": 0
+        },
+        "color": {
+          "red": 48,
+          "green": 46,
+          "blue": 48
+        },
+        "rotation": null
+      },
+      {
+        "id": "rib-right",
+        "role": "rib",
+        "size": {
+          "x": 0.22,
+          "y": 0.68,
+          "z": 0.29
+        },
+        "center": {
+          "x": 0.3,
+          "y": 1.4,
+          "z": 0
+        },
+        "color": {
+          "red": 48,
+          "green": 46,
+          "blue": 48
+        },
+        "rotation": null
+      },
+      {
+        "id": "head-center",
+        "role": "skull",
+        "size": {
+          "x": 0.54,
+          "y": 0.51,
+          "z": 0.47
+        },
+        "center": {
+          "x": 0,
+          "y": 2.03,
+          "z": 0.03
+        },
+        "color": {
+          "red": 59,
+          "green": 56,
+          "blue": 59
+        },
+        "rotation": null
+      },
+      {
+        "id": "head-left",
+        "role": "skull",
+        "size": {
+          "x": 0.48,
+          "y": 0.45,
+          "z": 0.43
+        },
+        "center": {
+          "x": -0.72,
+          "y": 1.98,
+          "z": 0
+        },
+        "color": {
+          "red": 51,
+          "green": 48,
+          "blue": 51
+        },
+        "rotation": null
+      },
+      {
+        "id": "head-right",
+        "role": "skull",
+        "size": {
+          "x": 0.48,
+          "y": 0.45,
+          "z": 0.43
+        },
+        "center": {
+          "x": 0.72,
+          "y": 1.98,
+          "z": 0
+        },
+        "color": {
+          "red": 51,
+          "green": 48,
+          "blue": 51
+        },
+        "rotation": null
+      },
+      {
+        "id": "jaw-center",
+        "role": "jaw",
+        "size": {
+          "x": 0.36,
+          "y": 0.12,
+          "z": 0.36
+        },
+        "center": {
+          "x": 0,
+          "y": 1.76,
+          "z": 0.08
+        },
+        "color": {
+          "red": 28,
+          "green": 26,
+          "blue": 28
+        },
+        "rotation": null
+      },
+      {
+        "id": "jaw-left",
+        "role": "jaw",
+        "size": {
+          "x": 0.32,
+          "y": 0.11,
+          "z": 0.33
+        },
+        "center": {
+          "x": -0.72,
+          "y": 1.74,
+          "z": 0.08
+        },
+        "color": {
+          "red": 28,
+          "green": 26,
+          "blue": 28
+        },
+        "rotation": null
+      },
+      {
+        "id": "jaw-right",
+        "role": "jaw",
+        "size": {
+          "x": 0.32,
+          "y": 0.11,
+          "z": 0.33
+        },
+        "center": {
+          "x": 0.72,
+          "y": 1.74,
+          "z": 0.08
+        },
+        "color": {
+          "red": 28,
+          "green": 26,
+          "blue": 28
+        },
+        "rotation": null
+      },
+      {
+        "id": "eye-left",
+        "role": "eye",
+        "size": {
+          "x": 0.08,
+          "y": 0.1,
+          "z": 0.05
+        },
+        "center": {
+          "x": -0.85,
+          "y": 2.04,
+          "z": 0.23
+        },
+        "color": {
+          "red": 10,
+          "green": 8,
+          "blue": 10
+        },
+        "rotation": null
+      },
+      {
+        "id": "eye-right",
+        "role": "eye",
+        "size": {
+          "x": 0.08,
+          "y": 0.1,
+          "z": 0.05
+        },
+        "center": {
+          "x": 0.59,
+          "y": 2.04,
+          "z": 0.23
+        },
+        "color": {
+          "red": 10,
+          "green": 8,
+          "blue": 10
+        },
+        "rotation": null
+      },
+      {
+        "id": "tail",
+        "role": "spine",
+        "size": {
+          "x": 0.22,
+          "y": 0.57,
+          "z": 0.25
+        },
+        "center": {
+          "x": 0,
+          "y": 0.93,
+          "z": -0.04
+        },
+        "color": {
+          "red": 41,
+          "green": 38,
+          "blue": 41
+        },
+        "rotation": null
+      }
+    ]
+  }
+]

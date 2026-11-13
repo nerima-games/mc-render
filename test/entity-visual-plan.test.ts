@@ -1,9 +1,12 @@
 import { describe, expect, it } from '@effect/vitest'
+import { Result, Schema } from 'effect'
+import { EntityRenderProgressSchema } from '../src/domain/entity-render-input'
 import { planMobVisual } from '../src/domain/mob-visual'
 import { planWitherSkullVisual, planWitherVisual } from '../src/domain/wither-visual'
 import { copyRenderEntity, planEntityVisual, type RenderEntity } from '../src/application/entity-visual-plan'
 
 const position = { x: 4, y: 70, z: -2 }
+const entityRenderProgress = Schema.decodeUnknownSync(EntityRenderProgressSchema)
 
 const entity = (overrides: Partial<RenderEntity> = {}): RenderEntity => ({
   feetPosition: position,
@@ -12,22 +15,30 @@ const entity = (overrides: Partial<RenderEntity> = {}): RenderEntity => ({
   ...overrides,
 })
 
+const expectPlannedVisual = (source: RenderEntity, expected: unknown): void => {
+  const planned = planEntityVisual(source)
+  expect(Result.isSuccess(planned)).toBe(true)
+  if (Result.isSuccess(planned)) {
+    expect(planned.success).toStrictEqual(expected)
+  }
+}
+
 describe('entity visual planning', () => {
   it('plans an item as a small gold cube at the entity position', () => {
-    const plan = planEntityVisual(entity({ category: 'item', facingRadians: Math.PI / 2 }))
-
-    expect(plan.position).toBe(position)
-    expect(plan.facingRadians).toBe(Math.PI / 2)
-    expect(plan.parts).toStrictEqual([
-      {
-        center: [0, 0.15, 0],
-        color: [225, 165, 65],
-        id: 'item',
-        role: 'body',
-        rotation: [0, 0, 0],
-        size: [0.3, 0.3, 0.3],
-      },
-    ])
+    expectPlannedVisual(entity({ category: 'item', facingRadians: Math.PI / 2 }), {
+      facingRadians: Math.PI / 2,
+      parts: [
+        {
+          center: [0, 0.15, 0],
+          color: [225, 165, 65],
+          id: 'item',
+          role: 'body',
+          rotation: [0, 0, 0],
+          size: [0.3, 0.3, 0.3],
+        },
+      ],
+      position,
+    })
   })
 
   it('adapts the wither domain plan without duplicating its state rules', () => {
@@ -40,7 +51,7 @@ describe('entity visual planning', () => {
     }
     const visual = planWitherVisual(witherState)
 
-    expect(planEntityVisual(entity({ kind: 'wither', witherState }))).toStrictEqual({
+    expectPlannedVisual(entity({ kind: 'wither', witherState }), {
       facingRadians: visual.yawRadians,
       parts: visual.parts,
       position: visual.position,
@@ -59,7 +70,7 @@ describe('entity visual planning', () => {
     }
     const visual = planWitherSkullVisual(projectile)
 
-    expect(planEntityVisual(entity({ kind: 'wither_skull', witherSkullProjectile: projectile }))).toStrictEqual({
+    expectPlannedVisual(entity({ kind: 'wither_skull', witherSkullProjectile: projectile }), {
       facingRadians: visual.yawRadians,
       parts: visual.parts,
       position: visual.position,
@@ -80,7 +91,7 @@ describe('entity visual planning', () => {
       velocity: { x: -Math.sin(facingRadians), y: 0, z: -Math.cos(facingRadians) },
     })
 
-    expect(planEntityVisual(entity({ facingRadians, kind: 'wither' }))).toStrictEqual({
+    expectPlannedVisual(entity({ facingRadians, kind: 'wither' }), {
       facingRadians: visual.yawRadians,
       parts: visual.parts,
       position: visual.position,
@@ -101,21 +112,64 @@ describe('entity visual planning', () => {
       variant: 'normal',
     })
 
-    expect(planEntityVisual(entity({ facingRadians, kind: 'wither_skull' }))).toStrictEqual({
+    expectPlannedVisual(entity({ facingRadians, kind: 'wither_skull' }), {
       facingRadians: visual.yawRadians,
       parts: visual.parts,
       position: visual.position,
     })
   })
 
-  it('uses a finite default facing for the ordinary mob path', () => {
+  it('uses the default facing only when the ordinary mob omits orientation', () => {
     const animation = { phaseRadians: Math.PI / 2, state: 'walk' as const }
 
-    expect(planEntityVisual(entity({ animation, facingRadians: Number.NaN }))).toStrictEqual({
+    expectPlannedVisual(entity({ animation }), {
       facingRadians: 0,
       parts: planMobVisual('zombie', animation).parts,
       position,
     })
+  })
+
+  it('uses catalog models for generic kinds and animates role parts from frame inputs', () => {
+    const planned = planEntityVisual(entity({
+      animation: {
+        attackProgress: entityRenderProgress(0.5),
+        phaseRadians: Math.PI / 2,
+        progress: 0.5,
+        state: 'walk',
+        walkAmount: entityRenderProgress(0.5),
+      },
+      bodyYawRadians: Math.PI / 2,
+      kind: 'horse',
+    }))
+
+    expect(Result.isSuccess(planned)).toBe(true)
+    if (Result.isFailure(planned)) {
+      return
+    }
+    expect(planned.success.facingRadians).toBe(Math.PI / 2)
+    const legRotations = planned.success.parts
+      .filter((part) => part.role === 'leg')
+      .map((part) => part.rotation[0])
+    expect(legRotations.length).toBeGreaterThanOrEqual(2)
+    expect(legRotations[0]).toBeCloseTo(0.65 * 0.5, 12)
+    expect(legRotations[1]).toBeCloseTo(-0.65 * 0.5, 12)
+  })
+
+  it('reports invalid and unknown generic kinds as typed planning failures', () => {
+    const empty = planEntityVisual(entity({ kind: '' }))
+    const unknown = planEntityVisual(entity({ kind: 'future_entity' }))
+
+    expect(Result.isFailure(empty)).toBe(true)
+    if (Result.isFailure(empty)) {
+      expect(empty.failure).toStrictEqual({ _tag: 'InvalidEntityModelKind', reason: 'empty' })
+    }
+    expect(Result.isFailure(unknown)).toBe(true)
+    if (Result.isFailure(unknown)) {
+      expect(unknown.failure).toStrictEqual({
+        _tag: 'UnsupportedEntityModel',
+        kind: 'future_entity',
+      })
+    }
   })
 
   it('copies a minimal entity without inventing any of the optional fields', () => {

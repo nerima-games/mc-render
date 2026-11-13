@@ -19,7 +19,7 @@ describe('villager and player entity model descriptors', () => {
 
   it('gives each kind visible cuboids for a recognizable human figure and outfit', () => {
     for (const descriptor of VILLAGER_PLAYER_ENTITY_MODELS) {
-      const roles = new Set(descriptor.parts.map(({ role }) => role))
+      const roles = new Set<string>(descriptor.parts.map(({ role }) => role))
       const torsoBottom = Math.min(...descriptor.parts
         .filter(({ role }) => role === 'body' || role === 'robe')
         .map(({ center, size }) => center[1] - size[1] / 2))

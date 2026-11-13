@@ -42,10 +42,12 @@ describe('vehicle and TNT entity model descriptors', () => {
   })
 
   it('shows the defining cargo and block geometry of each vehicle variant', () => {
-    const rolesByKind = new Map(VEHICLES_TNT_ENTITY_MODELS.map(({ kind, parts }) => [
-      kind,
-      new Set(parts.map(({ role }) => role)),
-    ]))
+    const rolesByKind = new Map<string, Set<string>>(
+      VEHICLES_TNT_ENTITY_MODELS.map(({ kind, parts }): readonly [string, Set<string>] => [
+        kind,
+        new Set<string>(parts.map(({ role }) => role)),
+      ]),
+    )
 
     expect(rolesByKind.get('chest_boat')?.has('chest')).toBe(true)
     expect(rolesByKind.get('chest_boat')?.has('chest-latch')).toBe(true)

@@ -188,6 +188,17 @@ casts ([`docs/design-notes.md`](./docs/design-notes.md) DN-15). The published
   `worldRenderer.syncEntities` を呼ぶ。`sampleEntityRenderFrame` はアニメーション秒を
   `(simulationTick + partialTick) / 20` で返し、描画アニメーションには入力の歩行位相と進行度を使う。
   型と入力例は [`docs/public-api.md`](./docs/public-api.md) §3.6 を参照。
+- **128種のエンティティモデル。** `ENTITY_MODEL_CATALOG` は現行の `mc-kernel` の128種すべてを収録し、
+  `UNSUPPORTED_ENTITY_MODEL_KINDS` は空である。種類ごとに異なるパーツ形状・配置・配色を持ち、
+  歩行位相、攻撃・被ダメージ・死亡の入力でパーツが動く。カタログにない非アイテムの種類は
+  `WorldRenderer.entityModelDiagnostics` に `UnsupportedEntityModel` と `entityId` を記録して描画を省き、
+  既定モデルへ置き換えない。モデル元データから `scripts/entity-models/generate.ts` がJSONを決定的に生成し、
+  `assets/entity-models/manifest.json` に CC0-1.0 と来歴を記録する。詳細は
+  [`docs/public-api.md`](./docs/public-api.md) §3.7 を参照。
+- **`syncEntities` はrenderer DTOを実行時検証する。** 未知のキーや不正な数値がある入力は
+  `Schema.SchemaError` で失敗し、メッシュ同期の前に検出する。ブロック光と天空光は両方省略すると全輝度になり、
+  指定する場合は両方とも整数 0..15 を渡す。向き・アニメーション・Wither・projectileの制約と省略時の既定値は
+  [`docs/public-api.md`](./docs/public-api.md) §3.8 を参照。
 - **空・日照・地形フォグは同じ決定的 plan で同期する。**
   `planRenderEnvironment(daylight, farPlane, dimension)` は Schema で入力を検証し、
   有効なら空色、日照強度、フォグ色と距離を `Result` で返す。不正な値は

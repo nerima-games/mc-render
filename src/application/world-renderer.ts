@@ -91,16 +91,25 @@ import {
 } from '@nerima-games/mc-kernel'
 import { Effect, Ref, Result, Schema } from 'effect'
 import {
+  type EntityVisualPartPlan,
+  type EntityVisualPlan,
+  planEntityVisual,
+} from './entity-visual-plan.js'
+import {
   type EntityRenderLightLevel,
   type EntityRenderPitchRadians,
   type EntityRenderYawRadians,
+  EntityRenderIdentifierSchema,
+  EntityRenderLightLevelSchema,
+  EntityRenderPitchRadiansSchema,
+  EntityRenderYawRadiansSchema,
   sampleEntityRenderFrame,
 } from '../domain/entity-render-input.js'
 import {
   type MobAnimationInput,
-  type MobVisualPartPlan,
-  planMobVisual,
+  MobAnimationInputSchema,
 } from '../domain/mob-visual.js'
+import type { EntityModelResolutionIssue } from '../domain/entity-model-catalog.js'
 import {
   type ParticlePool,
   type ParticlePoolInputError,
@@ -132,11 +141,9 @@ import { type WeatherFrameOptions, decodeWeatherFrameOptions } from '../domain/w
 import { type WeatherRenderer, makeWeatherRenderer } from './weather-renderer.js'
 import {
   type WitherSkullVisualInput,
-  type WitherVisualPartDescriptor,
-  type WitherVisualPosition,
   type WitherVisualStateInput,
-  planWitherSkullVisual,
-  planWitherVisual,
+  WitherSkullVisualInputSchema,
+  WitherVisualStateInputSchema,
 } from '../domain/wither-visual.js'
 import {
   applyWaterFrameUniforms,
@@ -841,6 +848,68 @@ export type RenderEntity = {
   readonly witherSkullProjectile?: WitherSkullVisualInput
 }
 
+type RenderEntityEncoded = Readonly<{
+  readonly animation?: Schema.Codec.Encoded<typeof MobAnimationInputSchema>
+  readonly blockLight?: number
+  readonly bodyYawRadians?: number
+  readonly category?: EntityRenderCategory
+  readonly dimension?: Dimension
+  readonly feetPosition: Readonly<{ readonly x: number; readonly y: number; readonly z: number }>
+  readonly facingRadians?: number
+  readonly headYawRadians?: number
+  readonly id: string
+  readonly kind: string
+  readonly pitchRadians?: number
+  readonly skyLight?: number
+  readonly witherSkullProjectile?: WitherSkullVisualInput
+  readonly witherState?: WitherVisualStateInput
+}>
+
+const RenderEntityPositionSchema: Schema.Codec<RenderEntity['feetPosition']> = Schema.Struct({
+  x: Schema.Finite,
+  y: Schema.Finite,
+  z: Schema.Finite,
+})
+
+const LIGHT_FIELDS_ARE_BOTH_PRESENT_OR_OMITTED =
+  'Block and sky light must both be present or both be omitted'
+
+/** Runtime validation for the complete entity DTO accepted by `syncEntities`. */
+export const RenderEntitySchema: Schema.Codec<RenderEntity, RenderEntityEncoded> = Schema.Struct({
+  animation: Schema.optionalKey(MobAnimationInputSchema),
+  blockLight: Schema.optionalKey(EntityRenderLightLevelSchema),
+  bodyYawRadians: Schema.optionalKey(EntityRenderYawRadiansSchema),
+  category: Schema.optionalKey(Schema.Literals(['hostile', 'passive', 'item'])),
+  dimension: Schema.optionalKey(Schema.Literals(['overworld', 'nether', 'end'])),
+  facingRadians: Schema.optionalKey(EntityRenderYawRadiansSchema),
+  feetPosition: RenderEntityPositionSchema,
+  headYawRadians: Schema.optionalKey(EntityRenderYawRadiansSchema),
+  id: EntityRenderIdentifierSchema,
+  kind: Schema.String,
+  pitchRadians: Schema.optionalKey(EntityRenderPitchRadiansSchema),
+  skyLight: Schema.optionalKey(EntityRenderLightLevelSchema),
+  witherSkullProjectile: Schema.optionalKey(WitherSkullVisualInputSchema),
+  witherState: Schema.optionalKey(WitherVisualStateInputSchema),
+}).check(Schema.makeFilter<RenderEntity>((entity) =>
+  entity.blockLight === undefined && entity.skyLight === undefined ||
+    entity.blockLight !== undefined && entity.skyLight !== undefined ||
+    LIGHT_FIELDS_ARE_BOTH_PRESENT_OR_OMITTED,
+))
+
+const RenderEntityArraySchema: Schema.Codec<ReadonlyArray<RenderEntity>, ReadonlyArray<RenderEntityEncoded>> =
+  Schema.Array(RenderEntitySchema)
+
+/** Decode untrusted `syncEntities` input and reject unknown keys throughout the DTO. */
+export const decodeRenderEntities = (
+  input: unknown,
+): Result.Result<ReadonlyArray<RenderEntity>, Schema.SchemaError> =>
+  Schema.decodeUnknownResult(RenderEntityArraySchema, { onExcessProperty: 'error' })(input)
+
+export type WorldRendererEntityModelDiagnostic = Readonly<{
+  readonly entityId: string
+  readonly issue: EntityModelResolutionIssue
+}>
+
 /**
  * The renderer, as its owner holds it.
  *
@@ -883,7 +952,7 @@ export type WorldRenderer = DrawPort & {
   /** Which chunks are currently in the scene. Diagnostics and tests. */
   readonly chunkKeys: Effect.Effect<ReadonlyArray<ChunkKey>>
   /** Reconcile the complete visible entity set by stable entity id. */
-  readonly syncEntities: (entities: ReadonlyArray<RenderEntity>) => Effect.Effect<void>
+  readonly syncEntities: (entities: ReadonlyArray<RenderEntity>) => Effect.Effect<void, Schema.SchemaError>
   /** Validate a complete host frame and reconcile only entities in the configured scene dimension. */
   readonly syncEntityFrame: (
     input: unknown,
@@ -892,6 +961,8 @@ export type WorldRenderer = DrawPort & {
   readonly entityCount: Effect.Effect<number>
   /** Last reconciled renderer DTOs, detached from caller-owned values. */
   readonly entitySnapshot: Effect.Effect<ReadonlyArray<RenderEntity>>
+  /** Typed catalog failures from the latest entity reconciliation pass. */
+  readonly entityModelDiagnostics: Effect.Effect<ReadonlyArray<WorldRendererEntityModelDiagnostic>>
   /** Frames actually submitted to the GPU by this renderer. */
   readonly framesRendered: Effect.Effect<number>
   /** The latest post-processing plan supplied by the frame pipeline. */
@@ -1155,8 +1226,14 @@ type EntityPartEntry = {
 /** A synced entity's own projection and its current live parts. */
 type EntityEntry = {
   readonly entity: RenderEntity
+  readonly visual: EntityVisualPlan
   readonly parts: ReadonlyArray<EntityPartEntry>
 }
+
+type PlannedEntity = Readonly<{
+  readonly entity: RenderEntity
+  readonly visual: EntityVisualPlan
+}>
 
 /** Working state for one `syncEntities` reconciliation pass. */
 type ReconcileContext = {
@@ -1164,56 +1241,7 @@ type ReconcileContext = {
   readonly next: Map<string, EntityEntry>
 }
 
-type EntityVisualPartPlan = MobVisualPartPlan | WitherVisualPartDescriptor
-
-type EntityVisualPlan = Readonly<{
-  position: WitherVisualPosition
-  facingRadians: number
-  parts: ReadonlyArray<EntityVisualPartPlan>
-}>
-
-/** The item visual's part centre: slightly above the feet position, on no horizontal offset. */
-const ITEM_CENTER_X = 0
-const ITEM_CENTER_Y = 0.15
-const ITEM_CENTER_Z = 0
-
-/** The dropped-item colour: a warm gold, standing in for a real per-item texture. */
-const ITEM_COLOR_RED = 225
-const ITEM_COLOR_GREEN = 165
-const ITEM_COLOR_BLUE = 65
-
-/** No rotation on any axis: the item cube is drawn axis-aligned. */
-const ITEM_ROTATION_X = 0
-const ITEM_ROTATION_Y = 0
-const ITEM_ROTATION_Z = 0
-
-/** The item visual's cube size: smaller than a full block on every axis. */
-const ITEM_SIZE_X = 0.3
-const ITEM_SIZE_Y = 0.3
-const ITEM_SIZE_Z = 0.3
-
-const ITEM_VISUAL_PARTS: ReadonlyArray<EntityVisualPartPlan> = [
-  {
-    center: [ITEM_CENTER_X, ITEM_CENTER_Y, ITEM_CENTER_Z],
-    color: [ITEM_COLOR_RED, ITEM_COLOR_GREEN, ITEM_COLOR_BLUE],
-    id: 'item',
-    role: 'body',
-    rotation: [ITEM_ROTATION_X, ITEM_ROTATION_Y, ITEM_ROTATION_Z],
-    size: [ITEM_SIZE_X, ITEM_SIZE_Y, ITEM_SIZE_Z],
-  },
-]
-
-/** The facing this repository assumes for an entity that reports none. */
-const DEFAULT_FACING_RADIANS = 0
 const NO_ENTITY_ROTATION = 0
-
-const entityFacing = (entity: RenderEntity): number => {
-  const requestedFacing = entity.bodyYawRadians ?? entity.facingRadians
-  if (typeof requestedFacing === 'number' && Number.isFinite(requestedFacing)) {
-    return requestedFacing
-  }
-  return DEFAULT_FACING_RADIANS
-}
 
 const isHeadPart = (part: EntityVisualPartPlan): boolean =>
   part.role === 'head' || part.role === 'eye' || part.role === 'beak' || part.role === 'snout'
@@ -1248,72 +1276,6 @@ const entityPartPitchAndYaw = (
     return [NO_ENTITY_ROTATION, facing]
   }
   return [entity.pitchRadians ?? NO_ENTITY_ROTATION, entity.headYawRadians ?? facing]
-}
-
-const facingDirection = (facingRadians: number): WitherVisualPosition => ({
-  x: -Math.sin(facingRadians),
-  y: 0,
-  z: -Math.cos(facingRadians),
-})
-
-const planItemVisual = (entity: RenderEntity, facingRadians: number): EntityVisualPlan => ({
-  facingRadians,
-  parts: ITEM_VISUAL_PARTS,
-  position: entity.feetPosition,
-})
-
-const planWitherEntityVisual = (entity: RenderEntity, facingRadians: number): EntityVisualPlan => {
-  const state: WitherVisualStateInput = entity.witherState ?? {
-    chargeRemainingSecs: 0,
-    feetPosition: entity.feetPosition,
-    healthPoints: 300,
-    phase: 'airborne',
-    velocity: facingDirection(facingRadians),
-  }
-  const visual = planWitherVisual(state)
-  return {
-    facingRadians: visual.yawRadians,
-    parts: visual.parts,
-    position: visual.position,
-  }
-}
-
-const planWitherSkullEntityVisual = (entity: RenderEntity, facingRadians: number): EntityVisualPlan => {
-  const projectile: WitherSkullVisualInput = entity.witherSkullProjectile ?? {
-    destroysResistantBlocks: false,
-    direction: facingDirection(facingRadians),
-    explosivePower: 0,
-    kind: 'wither_skull',
-    origin: entity.feetPosition,
-    speed: 0,
-    variant: 'normal',
-  }
-  const visual = planWitherSkullVisual(projectile)
-  return {
-    facingRadians: visual.yawRadians,
-    parts: visual.parts,
-    position: visual.position,
-  }
-}
-
-const planDefaultEntityVisual = (entity: RenderEntity, facingRadians: number): EntityVisualPlan => ({
-  facingRadians,
-  parts: planMobVisual(entity.kind, entity.animation).parts,
-  position: entity.feetPosition,
-})
-
-const planEntityVisual = (entity: RenderEntity): EntityVisualPlan => {
-  const facingRadians = entityFacing(entity)
-  if (entity.category === 'item') {
-    return planItemVisual(entity, facingRadians)
-  }
-  if (entity.kind === 'wither') {
-    return planWitherEntityVisual(entity, facingRadians)
-  }
-  if (entity.kind === 'wither_skull') {
-    return planWitherSkullEntityVisual(entity, facingRadians)
-  }
-  return planDefaultEntityVisual(entity, facingRadians)
 }
 
 const matchingEntityParts = (
@@ -1616,10 +1578,11 @@ export const makeWorldRenderer = <
      */
     const materials = createChunkMaterials()
 
-    const [chunks, viewportAspect, entities, framesRendered, postProcessingChain] = yield* Effect.all([
+    const [chunks, viewportAspect, entities, entityModelDiagnostics, framesRendered, postProcessingChain] = yield* Effect.all([
       Ref.make(new Map<ChunkKey, ChunkEntry<TGeometry>>()),
       Ref.make(initialAspect),
       Ref.make(new Map<string, EntityEntry>()),
+      Ref.make<ReadonlyArray<WorldRendererEntityModelDiagnostic>>([]),
       Ref.make(INITIAL_FRAMES_RENDERED),
       Ref.make<ReadonlyArray<PostProcessingStep>>([]),
     ])
@@ -1770,8 +1733,7 @@ export const makeWorldRenderer = <
         return { bounds, geometry, mesh, transparentSort: sortStateForBounds(sortState, bounds) }
       },
 
-      buildEntity: (entity: RenderEntity): EntityEntry => {
-        const visual = planEntityVisual(entity)
+      buildEntity: (entity: RenderEntity, visual: EntityVisualPlan): EntityEntry => {
         const brightnessFactor = entityBrightnessFactor(entity, ops.entityFrameState.sunIntensity)
         const parts = visual.parts.map((part): EntityPartEntry => {
           const geometry = ops.buildEntityGeometry(part.color, brightnessFactor)
@@ -1780,7 +1742,7 @@ export const makeWorldRenderer = <
           scene.add(mesh)
           return { brightnessFactor, color: part.color, geometry, id: part.id, mesh }
         })
-        return { entity, parts }
+        return { entity, parts, visual }
       },
 
       buildEntityCubeGeometry: (color: readonly [number, number, number], brightnessFactor: number): TGeometry => {
@@ -1871,17 +1833,41 @@ export const makeWorldRenderer = <
       },
 
       entitySync: (() => {
-        const syncEntities = (incoming: ReadonlyArray<RenderEntity>): Effect.Effect<void> =>
-          Ref.update(entities, (current) => {
-            const desired = new Map(incoming.map((entity) => [entity.id, copyEntity(entity)]))
-            const next = new Map<string, EntityEntry>()
-            const context: ReconcileContext = { current, next }
-            for (const [id, entity] of desired) {
-              ops.reconcileEntity(context, id, entity)
+        const planIncomingEntities = (incoming: ReadonlyArray<RenderEntity>): Result.Result<Readonly<{
+          readonly desired: Map<string, PlannedEntity>
+          readonly diagnostics: ReadonlyArray<WorldRendererEntityModelDiagnostic>
+        }>, Schema.SchemaError> => {
+          const incomingById = new Map(incoming.map((entity) => [entity.id, copyEntity(entity)]))
+          const desired = new Map<string, PlannedEntity>()
+          const diagnostics: Array<WorldRendererEntityModelDiagnostic> = []
+          for (const [id, entity] of incomingById) {
+            const visual = planEntityVisual(entity)
+            if (Result.isFailure(visual)) {
+              if (Schema.isSchemaError(visual.failure)) {
+                return Result.fail(visual.failure)
+              }
+              diagnostics.push({ entityId: id, issue: visual.failure })
+            } else {
+              desired.set(id, { entity, visual: visual.success })
             }
-            ops.releaseStaleEntities(current, desired)
-            ops.disposeUnusedLitEntityGeometries(next)
-            return next
+          }
+          return Result.succeed({ desired, diagnostics })
+        }
+        const syncEntities = (input: ReadonlyArray<RenderEntity>): Effect.Effect<void, Schema.SchemaError> =>
+          Effect.gen(function* reconcileEntities() {
+            const incoming = yield* Effect.fromResult(decodeRenderEntities(input))
+            const { desired, diagnostics } = yield* Effect.fromResult(planIncomingEntities(incoming))
+            yield* Ref.update(entities, (current) => {
+              const next = new Map<string, EntityEntry>()
+              const context: ReconcileContext = { current, next }
+              for (const [id, planned] of desired) {
+                ops.reconcileEntity(context, id, planned.entity, planned.visual)
+              }
+              ops.releaseStaleEntities(current, desired)
+              ops.disposeUnusedLitEntityGeometries(next)
+              return next
+            })
+            yield* Ref.set(entityModelDiagnostics, diagnostics)
           })
         const syncEntityFrame = (
           input: unknown,
@@ -1923,17 +1909,17 @@ export const makeWorldRenderer = <
         return entityAssets.entityMaterial
       },
 
-      reconcileEntity: (context: ReconcileContext, id: string, entity: RenderEntity): void => {
+      reconcileEntity: (context: ReconcileContext, id: string, entity: RenderEntity, visual: EntityVisualPlan): void => {
         const { current, next } = context
         const previous = current.get(id)
         if (previous && previous.entity.kind === entity.kind && previous.entity.category === entity.category) {
-          next.set(id, ops.updateEntity(previous, entity))
+          next.set(id, ops.updateEntity(previous, entity, visual))
           return
         }
         if (previous) {
           ops.releaseEntity(previous)
         }
-        next.set(id, ops.buildEntity(entity))
+        next.set(id, ops.buildEntity(entity, visual))
       },
 
       releaseChunk: (entry: ChunkEntry<TGeometry>): void => {
@@ -1951,7 +1937,7 @@ export const makeWorldRenderer = <
 
       releaseStaleEntities: (
         current: ReadonlyMap<string, EntityEntry>,
-        desired: ReadonlyMap<string, RenderEntity>,
+        desired: ReadonlyMap<string, PlannedEntity>,
       ): void => {
         for (const [id, entry] of current) {
           if (!desired.has(id)) {
@@ -1989,7 +1975,7 @@ export const makeWorldRenderer = <
           yield* Ref.update(entities, (current) => {
             const next = new Map<string, EntityEntry>()
             for (const [id, entry] of current) {
-              next.set(id, ops.updateEntity(entry, entry.entity))
+              next.set(id, ops.updateEntity(entry, entry.entity, entry.visual))
             }
             ops.disposeUnusedLitEntityGeometries(next)
             return next
@@ -2015,19 +2001,18 @@ export const makeWorldRenderer = <
         return Result.succeed(undefined)
       },
 
-      updateEntity: (entry: EntityEntry, entity: RenderEntity): EntityEntry => {
-        const visual = planEntityVisual(entity)
+      updateEntity: (entry: EntityEntry, entity: RenderEntity, visual: EntityVisualPlan): EntityEntry => {
         const plans = visual.parts
         const brightnessFactor = entityBrightnessFactor(entity, ops.entityFrameState.sunIntensity)
         const matchingParts = matchingEntityParts(entry, plans, brightnessFactor)
         if (matchingParts === undefined) {
           ops.releaseEntity(entry)
-          return ops.buildEntity(entity)
+          return ops.buildEntity(entity, visual)
         }
         for (const [part, plan] of matchingParts) {
           ops.applyEntityPartTransform(part.mesh, visual, plan, entity)
         }
-        return { ...entry, entity }
+        return { ...entry, entity, visual }
       },
 
       updateTransparentSort: (
@@ -2101,6 +2086,7 @@ export const makeWorldRenderer = <
           yield* Ref.update(framesRendered, (drawn) => drawn + FRAME_STEP)
         }),
       entityCount: Ref.get(entities).pipe(Effect.map((current) => current.size)),
+      entityModelDiagnostics: Ref.get(entityModelDiagnostics),
       entitySnapshot: Ref.get(entities).pipe(
         Effect.map((current) => [...current.values()].map(({ entity }) => copyEntity(entity))),
       ),

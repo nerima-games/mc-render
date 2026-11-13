@@ -341,6 +341,25 @@ test('render preview draws the fixed fixture with more than one atlas tile', asy
     .toBeGreaterThan(ONE)
 })
 
+const expectEntityPreviewPixelsDifferFromTerrain = async (page: Page): Promise<void> => {
+  const withEntities = await page.locator('#preview-canvas').screenshot()
+  await page.goto(`${WEB_ORIGIN}/apps/render-preview/`)
+  await expect(page.locator('body')).toHaveAttribute('data-render-preview', 'drawn')
+  const terrainOnly = await page.locator('#preview-canvas').screenshot()
+  expect(withEntities.equals(terrainOnly)).toBe(false)
+}
+
+test('render preview draws generated entity models through the host frame API', async ({ page }) => {
+  await page.goto(`${WEB_ORIGIN}/apps/render-preview/?entities=1`)
+
+  const body = page.locator('body')
+  await expect(body).toHaveAttribute('data-render-preview', 'drawn')
+  await expect(body).toHaveAttribute('data-render-entities', 'drawn')
+  await expect(body).toHaveAttribute('data-entity-count', '4')
+  await expect(body).toHaveAttribute('data-entity-kinds', 'boat,horse,villager,tnt')
+  await expectEntityPreviewPixelsDifferFromTerrain(page)
+})
+
 test('render preview stays above 0.95 SSIM against the pinned baseline', async ({ page }) => {
   await page.goto(`${WEB_ORIGIN}/apps/render-preview/`)
   await expect(page.locator('body')).toHaveAttribute('data-render-preview', 'drawn')

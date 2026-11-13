@@ -1,6 +1,10 @@
 /** Renderer-independent mob silhouettes and deterministic animation planning. */
-import { Brand } from 'effect'
-import type { EntityRenderProgress } from './entity-render-input.js'
+import { Brand, Result, Schema } from 'effect'
+import {
+  type EntityRenderProgress,
+  EntityRenderProgressSchema,
+  EntityRenderWalkPhaseRadiansSchema,
+} from './entity-render-input.js'
 
 export const MOB_VISUAL_KINDS = [
   'zombie',
@@ -71,6 +75,27 @@ export type MobAnimationInput = {
   readonly hurtProgress?: EntityRenderProgress
   readonly deathProgress?: EntityRenderProgress
 }
+
+type MobAnimationInputEncoded = Readonly<{
+  readonly attackProgress?: number
+  readonly deathProgress?: number
+  readonly hurtProgress?: number
+  readonly phaseRadians?: number
+  readonly progress?: number
+  readonly state: MobAnimationState
+  readonly walkAmount?: number
+}>
+
+/** Validate animation samples without changing supplied phases or progress. */
+export const MobAnimationInputSchema: Schema.Codec<MobAnimationInput, MobAnimationInputEncoded> = Schema.Struct({
+  attackProgress: Schema.optionalKey(EntityRenderProgressSchema),
+  deathProgress: Schema.optionalKey(EntityRenderProgressSchema),
+  hurtProgress: Schema.optionalKey(EntityRenderProgressSchema),
+  phaseRadians: Schema.optionalKey(EntityRenderWalkPhaseRadiansSchema),
+  progress: Schema.optionalKey(EntityRenderProgressSchema),
+  state: Schema.Literals(['idle', 'walk', 'hurt', 'death']),
+  walkAmount: Schema.optionalKey(EntityRenderProgressSchema),
+})
 
 export type MobVisualPartPlan = {
   readonly id: string
@@ -969,18 +994,6 @@ export const mobVisualDescriptor = (kind: string): MobVisualDescriptor => {
   return UNKNOWN_MOB_VISUAL
 }
 
-const finiteOr = (value: number | undefined, fallback: number): number => {
-  if (typeof value === 'number' && Number.isFinite(value)) {
-    return value
-  }
-  return fallback
-}
-
-const UNIT_INTERVAL_MIN = 0
-const UNIT_INTERVAL_MAX = 1
-
-const clamp01 = (value: number): number => Math.max(UNIT_INTERVAL_MIN, Math.min(UNIT_INTERVAL_MAX, value))
-
 const scaleVector = (vector: MobVisualVector, scale: MobVisualVector): MobVisualVector => [
   vector[X_AXIS_INDEX] * scale[X_AXIS_INDEX],
   vector[Y_AXIS_INDEX] * scale[Y_AXIS_INDEX],
@@ -1044,18 +1057,16 @@ type AnimationSample = Readonly<Omit<Required<MobAnimationInput>,
 const makeEntityRenderProgress = Brand.nominal<EntityRenderProgress>()
 
 const resolveAnimationSample = (input: MobAnimationInput): AnimationSample => {
-  const phaseRadians = finiteOr(input.phaseRadians, DEFAULT_PHASE_RADIANS)
-  const progress = clamp01(finiteOr(input.progress, resolveDefaultProgress(input.state)))
-  const walkAmount = makeEntityRenderProgress(clamp01(finiteOr(input.walkAmount, defaultWalkAmountFor(input.state))))
-  const attackProgress = makeEntityRenderProgress(clamp01(finiteOr(input.attackProgress, NO_PROGRESS)))
-  const hurtProgress = makeEntityRenderProgress(clamp01(finiteOr(
-    input.hurtProgress,
+  const phaseRadians = input.phaseRadians ?? DEFAULT_PHASE_RADIANS
+  const progress = input.progress ?? resolveDefaultProgress(input.state)
+  const walkAmount = input.walkAmount ?? makeEntityRenderProgress(defaultWalkAmountFor(input.state))
+  const attackProgress = input.attackProgress ?? makeEntityRenderProgress(NO_PROGRESS)
+  const hurtProgress = input.hurtProgress ?? makeEntityRenderProgress(
     progressForState(input.state, 'hurt', progress),
-  )))
-  const deathProgress = makeEntityRenderProgress(clamp01(finiteOr(
-    input.deathProgress,
+  )
+  const deathProgress = input.deathProgress ?? makeEntityRenderProgress(
     progressForState(input.state, 'death', progress),
-  )))
+  )
   return { attackProgress, deathProgress, hurtProgress, phaseRadians, progress, state: input.state, walkAmount }
 }
 
@@ -1214,13 +1225,21 @@ const buildPartPlan = (
 }
 
 /** Resolve a mob kind and animation sample into immutable cuboid transforms. */
-export const planMobVisual = (kind: string, input: MobAnimationInput = DEFAULT_ANIMATION_INPUT): MobVisualPlan => {
+export function planMobVisual(kind: string): Result.Result<MobVisualPlan, Schema.SchemaError>
+export function planMobVisual(kind: string, input: unknown): Result.Result<MobVisualPlan, Schema.SchemaError>
+export function planMobVisual(kind: string, input?: unknown): Result.Result<MobVisualPlan, Schema.SchemaError> {
+  const inputValue = arguments.length === 1 ? DEFAULT_ANIMATION_INPUT : input
+  const decodedInput = Schema.decodeUnknownResult(MobAnimationInputSchema, { onExcessProperty: 'error' })(inputValue)
+  if (Result.isFailure(decodedInput)) {
+    return Result.fail(decodedInput.failure)
+  }
+
   const descriptor = mobVisualDescriptor(kind)
-  const animation = resolveAnimationSample(input)
+  const animation = resolveAnimationSample(decodedInput.success)
   const context = partPlanContextFor(animation)
   const parts = descriptor.parts.map((source): MobVisualPartPlan =>
     buildPartPlan(source, descriptor.scale, context),
   )
 
-  return { animation, descriptorKind: descriptor.kind, parts, temperament: descriptor.temperament }
+  return Result.succeed({ animation, descriptorKind: descriptor.kind, parts, temperament: descriptor.temperament })
 }

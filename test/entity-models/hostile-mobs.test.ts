@@ -49,7 +49,7 @@ describe('hostile entity models', () => {
         expect(role.length, `${descriptor.kind} role`).toBeGreaterThan(0)
         expect(size.every((axis) => Number.isFinite(axis) && axis > 0), `${descriptor.kind} size`).toBe(true)
         expect(center.every(Number.isFinite), `${descriptor.kind} center`).toBe(true)
-        expect(color.every((channel) => Number.isFinite(channel) && channel >= 0 && channel <= 1), `${descriptor.kind} color`).toBe(true)
+        expect(color.every((channel) => Number.isFinite(channel) && channel >= 0 && channel <= 255), `${descriptor.kind} color`).toBe(true)
         expect(color.some((channel) => channel > 0), `${descriptor.kind} visible color`).toBe(true)
       }
     }
