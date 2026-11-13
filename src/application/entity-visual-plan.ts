@@ -1,9 +1,3 @@
-import { Result, Schema } from 'effect'
-import {
-  type EntityModelResolutionIssue,
-  decodeEntityModelKind,
-  entityModelForKind,
-} from '../domain/entity-model-catalog.js'
 import type {
   EntityModelKind,
   EntityModelPartDescriptor,
@@ -11,12 +5,18 @@ import type {
   EntityModelPartRole,
 } from '../domain/entity-models/types.js'
 import {
+  type EntityModelResolutionIssue,
+  decodeEntityModelKind,
+  entityModelForKind,
+} from '../domain/entity-model-catalog.js'
+import {
   MOB_VISUAL_KINDS,
   type MobAnimationInput,
   type MobVisualKind,
   type MobVisualPartPlan,
   planMobVisual,
 } from '../domain/mob-visual.js'
+import { Result, Schema } from 'effect'
 import {
   type WitherSkullVisualInput,
   type WitherVisualPartDescriptor,

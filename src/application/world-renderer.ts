@@ -90,12 +90,6 @@ import {
   decodeChunkKey,
 } from '@nerima-games/mc-kernel'
 import { Effect, Ref, Result, Schema } from 'effect'
-import { type EntityModelResolutionIssue } from '../domain/entity-model-catalog.js'
-import {
-  type EntityVisualPartPlan,
-  type EntityVisualPlan,
-  planEntityVisual,
-} from './entity-visual-plan.js'
 import {
   type EntityRenderIdentifier,
   EntityRenderIdentifierSchema,
@@ -107,6 +101,11 @@ import {
   EntityRenderYawRadiansSchema,
   sampleEntityRenderFrame,
 } from '../domain/entity-render-input.js'
+import {
+  type EntityVisualPartPlan,
+  type EntityVisualPlan,
+  planEntityVisual,
+} from './entity-visual-plan.js'
 import {
   type MobAnimationInput,
   MobAnimationInputSchema,
@@ -152,6 +151,7 @@ import {
 } from './world-renderer-materials.js'
 import { CHUNK_HEIGHT } from '@nerima-games/mc-worldgen'
 import { CHUNK_SIZE } from '@nerima-games/mc-meshing'
+import { type EntityModelResolutionIssue } from '../domain/entity-model-catalog.js'
 import type { MirroredCameraState } from '../domain/camera-mirror.js'
 import type { PostProcessingStep } from '../domain/post-processing.js'
 import { makeThreeWeatherPrecipitation } from './three-weather-runtime.js'
