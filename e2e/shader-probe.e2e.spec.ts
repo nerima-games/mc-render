@@ -16,6 +16,15 @@ const VISIBLE_PIXEL_RGB_DISTANCE = 48
 const ENTITY_GALLERY_CELL_HORIZONTAL_INSET = 0.125
 const ENTITY_GALLERY_CELL_VERTICAL_TOP_INSET = 0.25
 const ENTITY_GALLERY_CELL_VERTICAL_BOTTOM_INSET = 0.125
+const ENTITY_GALLERY_PIXEL_CONSTANTS = {
+  four: FOUR,
+  horizontalInset: ENTITY_GALLERY_CELL_HORIZONTAL_INSET,
+  one: ONE,
+  two: TWO,
+  verticalBottomInset: ENTITY_GALLERY_CELL_VERTICAL_BOTTOM_INSET,
+  verticalTopInset: ENTITY_GALLERY_CELL_VERTICAL_TOP_INSET,
+  zero: ZERO,
+}
 const WINDOW_SIZE = 8
 const LUMA_RANGE = 255
 const LUMA_RED = 0.299
@@ -78,6 +87,7 @@ type CompareImagesOptions = Readonly<{
 }>
 
 type EntityGalleryPixelsOptions = Readonly<{
+  constants: typeof ENTITY_GALLERY_PIXEL_CONSTANTS
   imageBase64: string
   segmentCount: number
   visibleColorDistance: number
@@ -203,86 +213,61 @@ const compareScreenshotSsim = async (images: CompareImagesOptions): Promise<numb
   return tools.compare(images)
 }
 
-const decodeScreenshotImage = async (imageBase64: string): Promise<ImageBitmapLike> => {
-  const browser = globalThis as unknown as BrowserImageTools
-  const decoded = Uint8Array.from(browser.atob(imageBase64), (character) => character.charCodeAt(ZERO))
-  return browser.createImageBitmap(new browser.Blob([decoded], { type: 'image/png' }))
-}
-
-const readScreenshotPixels = async (imageBase64: string): Promise<ImagePixels> => {
-  const browser = globalThis as unknown as BrowserImageTools
-  const image = await decodeScreenshotImage(imageBase64)
-  const canvas = browser.document.createElement('canvas')
-  canvas.width = image.width
-  canvas.height = image.height
-  const context = canvas.getContext('2d')
-  if (context === null) {
-    throw new Error('entity preview pixel canvas has no 2D context')
-  }
-  context.drawImage(image, ZERO, ZERO)
-  return context.getImageData(ZERO, ZERO, canvas.width, canvas.height)
-}
-
-const entityGalleryCellBounds = (options: Readonly<{
-  imageHeight: number
-  imageWidth: number
-  segmentCount: number
-  segmentIndex: number
-}>): Readonly<{ left: number; right: number; top: number; bottom: number }> => {
-  const segmentWidth = options.imageWidth / options.segmentCount
-  return {
-    bottom: Math.floor(options.imageHeight * (ONE - ENTITY_GALLERY_CELL_VERTICAL_BOTTOM_INSET)),
-    left: Math.floor(options.segmentIndex * segmentWidth + segmentWidth * ENTITY_GALLERY_CELL_HORIZONTAL_INSET),
-    right: Math.floor((options.segmentIndex + ONE) * segmentWidth - segmentWidth * ENTITY_GALLERY_CELL_HORIZONTAL_INSET),
-    top: Math.floor(options.imageHeight * ENTITY_GALLERY_CELL_VERTICAL_TOP_INSET),
-  }
-}
-
-const countVisibleSegmentPixels = (options: Readonly<{
-  background: ReadonlyArray<number>
-  image: ImagePixels
-  segmentCount: number
-  segmentIndex: number
-  visibleColorDistance: number
-}>): number => {
-  const bounds = entityGalleryCellBounds({
-    imageHeight: options.image.height,
-    imageWidth: options.image.width,
-    segmentCount: options.segmentCount,
-    segmentIndex: options.segmentIndex,
-  })
-  let visiblePixels = ZERO
-  for (let pixelY = bounds.top; pixelY < bounds.bottom; pixelY += ONE) {
-    for (let pixelX = bounds.left; pixelX < bounds.right; pixelX += ONE) {
-      const offset = (pixelY * options.image.width + pixelX) * FOUR
-      const distance = Math.abs((options.image.data[offset] ?? ZERO) - (options.background[ZERO] ?? ZERO)) +
-        Math.abs((options.image.data[offset + ONE] ?? ZERO) - (options.background[ONE] ?? ZERO)) +
-        Math.abs((options.image.data[offset + TWO] ?? ZERO) - (options.background[TWO] ?? ZERO))
-      visiblePixels += Number(distance > options.visibleColorDistance)
-    }
-  }
-  return visiblePixels
-}
-
 const countEntityGalleryPixels = async (options: EntityGalleryPixelsOptions): Promise<ReadonlyArray<number>> => {
-  const image = await readScreenshotPixels(options.imageBase64)
-  const background = [image.data[ZERO] ?? ZERO, image.data[ONE] ?? ZERO, image.data[TWO] ?? ZERO]
-  const counts: Array<number> = []
-  for (let segmentIndex = ZERO; segmentIndex < options.segmentCount; segmentIndex += ONE) {
-    counts.push(countVisibleSegmentPixels({
-      background,
-      image,
-      segmentCount: options.segmentCount,
-      segmentIndex,
-      visibleColorDistance: options.visibleColorDistance,
-    }))
+  const browser = globalThis as unknown as BrowserImageTools
+  const tools = {
+    cellBounds: (values: Readonly<{ imageHeight: number; imageWidth: number; segmentIndex: number }>) => {
+      const segmentWidth = values.imageWidth / options.segmentCount
+      return {
+        bottom: Math.floor(values.imageHeight * (options.constants.one - options.constants.verticalBottomInset)),
+        left: Math.floor(values.segmentIndex * segmentWidth + segmentWidth * options.constants.horizontalInset),
+        right: Math.floor((values.segmentIndex + options.constants.one) * segmentWidth - segmentWidth * options.constants.horizontalInset),
+        top: Math.floor(values.imageHeight * options.constants.verticalTopInset),
+      }
+    },
+    countVisibleSegmentPixels: (values: Readonly<{
+      background: ReadonlyArray<number>
+      image: ImagePixels
+      segmentIndex: number
+    }>): number => {
+      const bounds = tools.cellBounds({ imageHeight: values.image.height, imageWidth: values.image.width, segmentIndex: values.segmentIndex })
+      let visiblePixels = options.constants.zero
+      for (let pixelY = bounds.top; pixelY < bounds.bottom; pixelY += options.constants.one) {
+        for (let pixelX = bounds.left; pixelX < bounds.right; pixelX += options.constants.one) {
+          const offset = (pixelY * values.image.width + pixelX) * options.constants.four
+          const distance = Math.abs((values.image.data[offset] ?? options.constants.zero) - (values.background[options.constants.zero] ?? options.constants.zero)) +
+            Math.abs((values.image.data[offset + options.constants.one] ?? options.constants.zero) - (values.background[options.constants.one] ?? options.constants.zero)) +
+            Math.abs((values.image.data[offset + options.constants.two] ?? options.constants.zero) - (values.background[options.constants.two] ?? options.constants.zero))
+          visiblePixels += Number(distance > options.visibleColorDistance)
+        }
+      }
+      return visiblePixels
+    },
+    readPixels: async (imageBase64: string): Promise<ImagePixels> => {
+      const decoded = Uint8Array.from(browser.atob(imageBase64), (character) => character.charCodeAt(options.constants.zero))
+      const image = await browser.createImageBitmap(new browser.Blob([decoded], { type: 'image/png' }))
+      const canvas = browser.document.createElement('canvas')
+      canvas.width = image.width
+      canvas.height = image.height
+      const context = canvas.getContext('2d')
+      if (context === null) {
+        throw new Error('entity preview pixel canvas has no 2D context')
+      }
+      context.drawImage(image, options.constants.zero, options.constants.zero)
+      return context.getImageData(options.constants.zero, options.constants.zero, canvas.width, canvas.height)
+    },
   }
-  return counts
+
+  const image = await tools.readPixels(options.imageBase64)
+  const background = [image.data[options.constants.zero] ?? options.constants.zero, image.data[options.constants.one] ?? options.constants.zero, image.data[options.constants.two] ?? options.constants.zero]
+  return Array.from(Array.from({ length: options.segmentCount }).keys(), (segmentIndex) =>
+    tools.countVisibleSegmentPixels({ background, image, segmentIndex }))
 }
 
 const expectEntityGalleryVisible = async (page: Page): Promise<void> => {
   const image = await page.locator('#preview-canvas').screenshot()
   const visiblePixels = await page.evaluate(countEntityGalleryPixels, {
+    constants: ENTITY_GALLERY_PIXEL_CONSTANTS,
     imageBase64: image.toString('base64'),
     segmentCount: ENTITY_GALLERY_SEGMENTS,
     visibleColorDistance: VISIBLE_PIXEL_RGB_DISTANCE,
