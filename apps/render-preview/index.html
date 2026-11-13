@@ -5,8 +5,9 @@
   Adapted from mc-compose's `apps/render-preview`. `main.ts` imports
   mc-render's source modules so the fixture exercises this package's render path.
 
-  This page fetches `terrain-fixture.json`, pre-generated terrain data. It
-  exercises mc-render's render path without invoking worldgen at runtime.
+  The default page fetches `terrain-fixture.json`, pre-generated terrain data.
+  The `states=main` and `states=rn6` views mesh a small block fixture through
+  mc-render's chunk-store path. Main omits block states; RN6 encodes them.
   `pnpm test:browser` separately covers the browser runtime.
 -->
 <html lang="en">
@@ -51,6 +52,10 @@
       #presentation-links a {
         color: inherit;
       }
+      #state-preview-legend {
+        color: #b9e3f4;
+        padding: 0 0.75rem 0.75rem;
+      }
     </style>
   </head>
   <body data-render-preview="running">
@@ -67,6 +72,13 @@
       <a href="?entities=1">Show entity models</a>
       ·
       <a href="?entity-gallery=1">Show all 128 entity models</a>
+      ·
+      <a href="?states=main">Show main baseline without block states</a>
+      ·
+      <a href="?states=rn6">Show RN6 state geometry</a>
+    </p>
+    <p id="state-preview-legend" hidden>
+      Main omits the block-state sidecar; RN6 uses encoded per-cell states. Closed/open doors · east straight and north outer-corner stairs · shallow water, source and flow · curved and ascending rails
     </p>
   <script type="module" src="./main.ts"></script>
   </body>

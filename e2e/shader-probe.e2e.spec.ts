@@ -442,6 +442,24 @@ test('render preview draws generated entity models through the host frame API', 
   await expectEntityGalleryVisible(page)
 })
 
+test('render preview state views draw and differ with encoded block states', async ({ page }) => {
+  const sidecarByMode = { main: 'omitted', rn6: 'encoded' } as const
+  const screenshotFor = async (mode: 'main' | 'rn6'): Promise<Buffer> => {
+    await page.goto(`${WEB_ORIGIN}/apps/render-preview/?states=${mode}`)
+    const body = page.locator('body')
+    await expect(body).toHaveAttribute('data-state-preview', 'drawn')
+    await expect(body).toHaveAttribute('data-state-mode', mode)
+    await expect(body).toHaveAttribute('data-state-sidecar', sidecarByMode[mode])
+    await expect.poll(async () => Number(await body.getAttribute('data-pixels-drawn'))).toBeGreaterThan(ZERO)
+    return page.locator('#preview-canvas').screenshot()
+  }
+
+  const mainScreenshot = await screenshotFor('main')
+  const rn6Screenshot = await screenshotFor('rn6')
+
+  expect(rn6Screenshot.equals(mainScreenshot)).toBe(false)
+})
+
 test('render preview stays above 0.95 SSIM against the pinned baseline', async ({ page }) => {
   await page.goto(`${WEB_ORIGIN}/apps/render-preview/`)
   await expect(page.locator('body')).toHaveAttribute('data-render-preview', 'drawn')
