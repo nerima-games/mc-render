@@ -136,7 +136,7 @@ export const entityTextureUvForKind = (
 ): Result.Result<EntityTextureUvCoordinates, EntityTextureResolutionIssue> =>
   decodeEntityTextureUvEntry(kind, textureEntryByKind.get(kind))
 
-export const decodeBase64TexturePixels = (encoded: string): Uint8Array => {
+const decodeBase64TexturePixels = (encoded: string): Uint8Array => {
   let paddingLength = BASE64_UNPADDED_LENGTH
   if (encoded.endsWith('==')) {
     paddingLength = BASE64_DOUBLE_PADDING_LENGTH

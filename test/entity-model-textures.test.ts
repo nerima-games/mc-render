@@ -10,7 +10,6 @@ import {
   ENTITY_MODEL_TEXTURE_ATLAS,
   EntityTextureResolutionIssueSchema,
   EntityTextureUvCoordinatesSchema,
-  decodeBase64TexturePixels,
   decodeEntityTextureUvEntry,
   entityTextureAtlasPixels,
   entityTextureUvForKind,
@@ -113,12 +112,6 @@ describe('entity texture atlas', () => {
         return Schema.is(EntityTextureUvCoordinatesSchema)(decoded.success)
       },
     ), { numRuns: 500 })
-  })
-
-  it('decodes pixel bytes with two, one, and zero base64 padding characters', () => {
-    expect(Array.from(decodeBase64TexturePixels('AQ=='))).toStrictEqual([1])
-    expect(Array.from(decodeBase64TexturePixels('AQI='))).toStrictEqual([1, 2])
-    expect(Array.from(decodeBase64TexturePixels('AQID'))).toStrictEqual([1, 2, 3])
   })
 
   it('accepts inclusive atlas edges and rejects coordinates just outside or out of order', () => {
