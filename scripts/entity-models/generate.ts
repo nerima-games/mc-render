@@ -1,10 +1,17 @@
 // SPDX-License-Identifier: CC0-1.0
+import { Buffer } from 'node:buffer'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { Euler, Box3, Vector3 } from 'three'
 import { Result, Schema } from 'effect'
 import collisionDimensionInput from './collision-dimensions.json' with { type: 'json' }
+import { encodeRgbaPng } from './png-encoder.js'
+import {
+  entityTexturePixelsForPng,
+  makeEntityTextureAtlas,
+  type EntityTextureSourceModel,
+} from './texture-atlas.js'
 import {
   ANIMAL_ENTITY_MODELS,
 } from './source/animals.js'
@@ -29,6 +36,9 @@ const TWO = 2
 const ROOT_DIRECTORY = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
 const MANIFEST_PATH = resolve(ROOT_DIRECTORY, 'assets/entity-models/manifest.json')
 const BOUNDS_REPORT_PATH = resolve(ROOT_DIRECTORY, 'docs/entity-model-bounds.md')
+const ENTITY_TEXTURE_ATLAS_PATH = resolve(ROOT_DIRECTORY, 'assets/entity-models/entity-textures.png')
+const ENTITY_TEXTURE_DATA_PATH = resolve(ROOT_DIRECTORY, 'src/domain/entity-models/generated/textures.json')
+const ENTITY_TEXTURE_COUNT = 128
 const MODEL_BOUNDS_RELATIVE_TOLERANCE = 0.1
 const MODEL_BOUNDS_FIT_ATTEMPTS = 8
 
@@ -464,7 +474,7 @@ const entityBoundsReport = (
   ].join('\n'))
 }
 
-type GeneratedFile = Readonly<{ path: string; contents: string }>
+type GeneratedFile = Readonly<{ path: string; contents: string | Uint8Array }>
 
 const outputFiles = (
   fittedModels: ReadonlyMap<string, FittedEntityModel>,
@@ -485,6 +495,22 @@ const outputFiles = (
   if (Result.isFailure(boundsReport)) {
     return Result.fail(boundsReport.failure)
   }
+  const textureModels: ReadonlyArray<EntityTextureSourceModel> = MODEL_GROUPS.flatMap(({ colorEncoding, models, name }) =>
+    models.map((model) => ({ colorEncoding, group: name, model })),
+  )
+  if (textureModels.length !== ENTITY_TEXTURE_COUNT) {
+    return Result.fail(`Entity texture catalog requires ${ENTITY_TEXTURE_COUNT} models, received ${textureModels.length}`)
+  }
+  const textureAtlas = makeEntityTextureAtlas(textureModels)
+  const textureData = `${JSON.stringify({
+    ...textureAtlas,
+    pixels: Buffer.from(entityTexturePixelsForPng(textureAtlas)).toString('base64'),
+  }, null, 2)}\n`
+  const texturePng = encodeRgbaPng(
+    textureAtlas.width,
+    textureAtlas.height,
+    entityTexturePixelsForPng(textureAtlas),
+  )
   const manifest = {
     schemaVersion: 1,
     license: 'CC0-1.0',
@@ -498,7 +524,7 @@ const outputFiles = (
       repositoryLicense: 'MIT',
       repositoryRelationship: 'CC0-1.0 applies only to the listed entity-model scripts and generated assets. The rest of this repository remains under MIT.',
     },
-    provenance: 'Original cuboid geometry and flat-color palettes authored for this project. No external model, texture, or game artwork was used.',
+    provenance: 'Original cuboid geometry, color palettes, and pixel-art texture atlas authored for this project. No external model, texture, or game artwork was used.',
     generator: 'scripts/entity-models/generate.ts',
     collisionDimensionReference: {
       input: 'scripts/entity-models/collision-dimensions.json',
@@ -510,12 +536,22 @@ const outputFiles = (
     outputColorEncoding: 'RGB byte channels in [0,255], written to the renderer Uint8 color buffer',
     sources: MODEL_GROUPS.map(({ name, sourcePath, colorEncoding }) => ({ name, sourcePath, colorEncoding })),
     outputs: MODEL_GROUPS.map(({ name }) => `src/domain/entity-models/generated/${name}.json`),
+    textureAtlas: {
+      source: 'scripts/entity-models/texture-atlas.ts',
+      png: 'assets/entity-models/entity-textures.png',
+      runtimeData: 'src/domain/entity-models/generated/textures.json',
+      kindCount: textureAtlas.entries.length,
+      dimensions: `${textureAtlas.width}x${textureAtlas.height}`,
+      tileSize: `${textureAtlas.tileSize}x${textureAtlas.tileSize}`,
+    },
     reports: ['docs/entity-model-bounds.md'],
   }
   return Result.succeed([
     ...modelFiles,
     { path: MANIFEST_PATH, contents: `${JSON.stringify(manifest, null, 2)}\n` },
     { path: BOUNDS_REPORT_PATH, contents: boundsReport.success },
+    { path: ENTITY_TEXTURE_DATA_PATH, contents: textureData },
+    { path: ENTITY_TEXTURE_ATLAS_PATH, contents: texturePng },
   ])
 }
 
@@ -552,12 +588,11 @@ const runCli = async (arguments_: ReadonlyArray<string>): Promise<number> => {
   const outputs = preparedOutputs.success
   try {
     if (checkOnly) {
-      const existingOutputs = await Promise.all(
-        outputs.map(({ path }) => readFile(path, 'utf8')),
-      )
+      const existingOutputs = await Promise.all(outputs.map(({ path }) => readFile(path)))
       for (const [index, output] of outputs.entries()) {
         const existing = existingOutputs[index]
-        if (existing !== output.contents) {
+        const expected = Buffer.from(output.contents)
+        if (existing === undefined || !existing.equals(expected)) {
           console.error(`Generated model asset is stale: ${output.path}`)
           return 1
         }

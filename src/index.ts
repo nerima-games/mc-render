@@ -63,6 +63,7 @@ export type {
 } from './domain/animation-clock.js'
 export * from './domain/entity-render-input.js'
 export * from './domain/entity-model-catalog.js'
+export * from './domain/entity-model-textures.js'
 export type {
   EntityModelColor,
   EntityModelDescriptor,

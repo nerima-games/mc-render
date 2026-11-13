@@ -116,8 +116,8 @@ export type ProductionWorldRenderer<TShaderMaterial extends ThreeMaterial> = Wor
   readonly advanceFrame: (frame: ProductionFrame) => Effect.Effect<void, ParticlePoolInputError | AnimationClockInputError>
 }
 
-export type ProductionWorldRendererOptions = Omit<
-  WorldRendererOptions<ThreeMaterial>,
+export type ProductionWorldRendererOptions<TEntityMaterial extends ThreeMaterial = ThreeMaterial> = Omit<
+  WorldRendererOptions<ThreeMaterial, TEntityMaterial>,
   'material' | 'cutoutMaterial' | 'transparentMaterial' | 'applyMaterialEnvironment' | 'beforeDraw'
 > & {
   readonly particles?: ParticlePoolOptions
@@ -308,7 +308,7 @@ export const makeProductionWorldRenderer = <
   canvas: TCanvas,
   viewport: Viewport,
   atlasTexture: TTexture,
-  options: ProductionWorldRendererOptions = {},
+  options: ProductionWorldRendererOptions<TMaterial> = {},
   presentationSurface?: ProductionPresentationSurface<
     TTexture,
     TPresentationGeometry,
@@ -357,7 +357,7 @@ export const makeProductionWorldRenderer = <
     const presentation = createProductionPresentation(presentationSurface, atlasTexture)
     const beforeDraw = makeBeforeDraw(presentation, () => frameState.latestFrame, () => frameState.activeDimension)
     const { particles: _particles, ...rendererOptions } = options
-    const renderer = yield* makeWorldRenderer(three, canvas, viewport, {
+    const renderer = yield* makeWorldRenderer<TCanvas, TGeometry, TMaterial, TShaderMaterial, TMaterial>(three, canvas, viewport, {
       ...rendererOptions,
       applyMaterialEnvironment: (environment) => {
         applyChunkShaderEnvironment(chunkMaterials.opaque.uniforms, environment)

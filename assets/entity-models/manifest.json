@@ -11,7 +11,7 @@
     "repositoryLicense": "MIT",
     "repositoryRelationship": "CC0-1.0 applies only to the listed entity-model scripts and generated assets. The rest of this repository remains under MIT."
   },
-  "provenance": "Original cuboid geometry and flat-color palettes authored for this project. No external model, texture, or game artwork was used.",
+  "provenance": "Original cuboid geometry, color palettes, and pixel-art texture atlas authored for this project. No external model, texture, or game artwork was used.",
   "generator": "scripts/entity-models/generate.ts",
   "collisionDimensionReference": {
     "input": "scripts/entity-models/collision-dimensions.json",
@@ -73,6 +73,14 @@
     "src/domain/entity-models/generated/vehicles-tnt.json",
     "src/domain/entity-models/generated/villagers-player.json"
   ],
+  "textureAtlas": {
+    "source": "scripts/entity-models/texture-atlas.ts",
+    "png": "assets/entity-models/entity-textures.png",
+    "runtimeData": "src/domain/entity-models/generated/textures.json",
+    "kindCount": 128,
+    "dimensions": "320x160",
+    "tileSize": "16x16"
+  },
   "reports": [
     "docs/entity-model-bounds.md"
   ]

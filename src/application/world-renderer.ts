@@ -106,6 +106,7 @@ import {
   type EntityVisualPlan,
   planEntityVisual,
 } from './entity-visual-plan.js'
+import type { EntityTextureResolutionIssue } from '../domain/entity-model-textures.js'
 import {
   type MobAnimationInput,
   MobAnimationInputSchema,
@@ -908,7 +909,7 @@ export const decodeRenderEntities = (
 
 export type WorldRendererEntityModelDiagnostic = Readonly<{
   readonly entityId: EntityRenderIdentifier
-  readonly issue: EntityModelResolutionIssue
+  readonly issue: EntityModelResolutionIssue | EntityTextureResolutionIssue
 }>
 
 /**
@@ -998,7 +999,10 @@ export type WorldRenderer = DrawPort & {
 export type MaterialFactory<TMaterial extends ThreeMaterial> = () => TMaterial
 
 /** Everything a caller may vary. Each field's default is documented above. */
-export type WorldRendererOptions<TMaterial extends ThreeMaterial = ThreeMaterial> = {
+export type WorldRendererOptions<
+  TMaterial extends ThreeMaterial = ThreeMaterial,
+  TEntityMaterial extends ThreeMaterial = TMaterial,
+> = {
   readonly fovDegrees?: number
   readonly nearPlane?: number
   readonly farPlane?: number
@@ -1030,6 +1034,8 @@ export type WorldRendererOptions<TMaterial extends ThreeMaterial = ThreeMaterial
    * geometry, and the geometry is the same on both paths.
    */
   readonly material?: MaterialFactory<TMaterial>
+  /** Build the shared entity material, including its texture atlas when supplied. */
+  readonly entityMaterial?: MaterialFactory<TEntityMaterial>
   /** Material for alpha-tested atlas tiles. Defaults to `material`. */
   readonly cutoutMaterial?: MaterialFactory<TMaterial>
   /** Blended, face-sorted glass, fluids, and water. Defaults to `material`. */
@@ -1299,7 +1305,7 @@ const matchingEntityParts = (
 const CUBE_MIN = -0.5
 const CUBE_MAX = 0.5
 
-/** The unit cube's eight corners, in the winding order `unitCubeBuffers`'s index list assumes. */
+/** The unit cube's eight corners, in the winding order `unitCubeBuffers`'s face list assumes. */
 const CUBE_VERTEX_0 = 0
 const CUBE_VERTEX_1 = 1
 const CUBE_VERTEX_2 = 2
@@ -1309,8 +1315,12 @@ const CUBE_VERTEX_5 = 5
 const CUBE_VERTEX_6 = 6
 const CUBE_VERTEX_7 = 7
 
-/** Vertices in `unitCubeBuffers`'s position array: one per cube corner. */
-const UNIT_CUBE_VERTEX_COUNT = 8
+/** Each face needs its own four vertices so all six faces can use the complete atlas tile. */
+const UNIT_CUBE_VERTEX_COUNT = 24
+const UNIT_CUBE_FACE_VERTEX_COUNT = 4
+const UNIT_CUBE_FACE_COUNT = 6
+const UNIT_CUBE_FACE_TRIANGLE_INDEX_COUNT = 6
+const ENTITY_UV_COMPONENTS = 2
 const RED_COLOR_COMPONENT_INDEX = 0
 const GREEN_COLOR_COMPONENT_INDEX = 1
 const BLUE_COLOR_COMPONENT_INDEX = 2
@@ -1319,6 +1329,7 @@ const BASE_ENTITY_LIGHT_FACTOR = 0.45
 const SKY_ENTITY_LIGHT_FACTOR = 0.55
 const FULL_ENTITY_BRIGHTNESS_FACTOR = 1
 const ENTITY_LIGHT_GEOMETRY_SEPARATOR = '|'
+const ENTITY_MODEL_GEOMETRY_SEPARATOR = ':'
 const NO_ENTITY_WALK_AMOUNT = 0
 
 const entityAnimationStateFor = (walkAmount: number): MobAnimationInput['state'] => {
@@ -1338,40 +1349,73 @@ const entityBrightnessFactor = (entity: RenderEntity, sunIntensity: number): num
 }
 
 const entityGeometryKey = (
+  kind: string,
   color: readonly [number, number, number],
   brightnessFactor: number,
 ): string => {
   const colorKey = color.join(',')
   if (brightnessFactor === FULL_ENTITY_BRIGHTNESS_FACTOR) {
-    return colorKey
+    return `${kind}${ENTITY_MODEL_GEOMETRY_SEPARATOR}${colorKey}`
   }
-  return `${colorKey}${ENTITY_LIGHT_GEOMETRY_SEPARATOR}${brightnessFactor}`
+  return `${kind}${ENTITY_MODEL_GEOMETRY_SEPARATOR}${colorKey}${ENTITY_LIGHT_GEOMETRY_SEPARATOR}${brightnessFactor}`
 }
 
-const unitCubeBuffers = (color: readonly [number, number, number], brightnessFactor: number) => {
-  const positions = new Float32Array([
-    CUBE_MIN, CUBE_MIN, CUBE_MIN, CUBE_MAX, CUBE_MIN, CUBE_MIN, CUBE_MAX, CUBE_MAX, CUBE_MIN, CUBE_MIN, CUBE_MAX, CUBE_MIN,
-    CUBE_MIN, CUBE_MIN, CUBE_MAX, CUBE_MAX, CUBE_MIN, CUBE_MAX, CUBE_MAX, CUBE_MAX, CUBE_MAX, CUBE_MIN, CUBE_MAX, CUBE_MAX,
-  ])
+const unitCubeBuffers = (
+  color: readonly [number, number, number],
+  brightnessFactor: number,
+  textureCoordinates: EntityVisualPlan['textureCoordinates'],
+) => {
+  type CubeVertex = typeof CUBE_VERTEX_0 | typeof CUBE_VERTEX_1 | typeof CUBE_VERTEX_2 | typeof CUBE_VERTEX_3 |
+    typeof CUBE_VERTEX_4 | typeof CUBE_VERTEX_5 | typeof CUBE_VERTEX_6 | typeof CUBE_VERTEX_7
+  const cubeCorners: Readonly<Record<CubeVertex, readonly [number, number, number]>> = {
+    [CUBE_VERTEX_0]: [CUBE_MIN, CUBE_MIN, CUBE_MIN], [CUBE_VERTEX_1]: [CUBE_MAX, CUBE_MIN, CUBE_MIN],
+    [CUBE_VERTEX_2]: [CUBE_MAX, CUBE_MAX, CUBE_MIN], [CUBE_VERTEX_3]: [CUBE_MIN, CUBE_MAX, CUBE_MIN],
+    [CUBE_VERTEX_4]: [CUBE_MIN, CUBE_MIN, CUBE_MAX], [CUBE_VERTEX_5]: [CUBE_MAX, CUBE_MIN, CUBE_MAX],
+    [CUBE_VERTEX_6]: [CUBE_MAX, CUBE_MAX, CUBE_MAX], [CUBE_VERTEX_7]: [CUBE_MIN, CUBE_MAX, CUBE_MAX],
+  }
+  const cubeFaces: ReadonlyArray<readonly [CubeVertex, CubeVertex, CubeVertex, CubeVertex]> = [
+    [CUBE_VERTEX_0, CUBE_VERTEX_2, CUBE_VERTEX_1, CUBE_VERTEX_3],
+    [CUBE_VERTEX_4, CUBE_VERTEX_5, CUBE_VERTEX_6, CUBE_VERTEX_7],
+    [CUBE_VERTEX_0, CUBE_VERTEX_4, CUBE_VERTEX_7, CUBE_VERTEX_3],
+    [CUBE_VERTEX_1, CUBE_VERTEX_2, CUBE_VERTEX_6, CUBE_VERTEX_5],
+    [CUBE_VERTEX_0, CUBE_VERTEX_1, CUBE_VERTEX_5, CUBE_VERTEX_4],
+    [CUBE_VERTEX_3, CUBE_VERTEX_7, CUBE_VERTEX_6, CUBE_VERTEX_2],
+  ]
+  const [uMinimum, vMinimum, uMaximum, vMaximum] = textureCoordinates
+  const faceUvs: ReadonlyArray<readonly [number, number]> = [
+    [uMinimum, vMinimum], [uMinimum, vMaximum], [uMaximum, vMaximum], [uMaximum, vMinimum],
+  ]
+  const faceIndices = [0, 1, 2, 0, 3, 1] as const
+  const positions = new Float32Array(UNIT_CUBE_VERTEX_COUNT * POSITION_COMPONENTS)
   const colors = new Uint8Array(UNIT_CUBE_VERTEX_COUNT * COLOR_COMPONENTS)
-  for (let offset = 0; offset < colors.length; offset += COLOR_COMPONENTS) {
-    colors.set([
-      Math.round(color[RED_COLOR_COMPONENT_INDEX] * brightnessFactor),
-      Math.round(color[GREEN_COLOR_COMPONENT_INDEX] * brightnessFactor),
-      Math.round(color[BLUE_COLOR_COMPONENT_INDEX] * brightnessFactor),
-    ], offset)
+  const uvs = new Float32Array(UNIT_CUBE_VERTEX_COUNT * ENTITY_UV_COMPONENTS)
+  const indices = new Uint32Array(UNIT_CUBE_FACE_COUNT * UNIT_CUBE_FACE_TRIANGLE_INDEX_COUNT)
+  for (const [faceIndex, face] of cubeFaces.entries()) {
+    for (const [cornerIndex, cubeCornerIndex] of face.entries()) {
+      const vertexIndex = faceIndex * UNIT_CUBE_FACE_VERTEX_COUNT + cornerIndex
+      const positionOffset = vertexIndex * POSITION_COMPONENTS
+      const colorOffset = vertexIndex * COLOR_COMPONENTS
+      const uvOffset = vertexIndex * ENTITY_UV_COMPONENTS
+      positions.set(cubeCorners[cubeCornerIndex], positionOffset)
+      colors.set([
+        Math.round(color[RED_COLOR_COMPONENT_INDEX] * brightnessFactor),
+        Math.round(color[GREEN_COLOR_COMPONENT_INDEX] * brightnessFactor),
+        Math.round(color[BLUE_COLOR_COMPONENT_INDEX] * brightnessFactor),
+      ], colorOffset)
+      const faceUv = faceUvs[cornerIndex]
+      if (faceUv !== undefined) {
+        uvs.set(faceUv, uvOffset)
+      }
+    }
+    for (const [index, cornerIndex] of faceIndices.entries()) {
+      indices[faceIndex * UNIT_CUBE_FACE_TRIANGLE_INDEX_COUNT + index] = faceIndex * UNIT_CUBE_FACE_VERTEX_COUNT + cornerIndex
+    }
   }
   return {
     colors,
-    indices: new Uint32Array([
-      CUBE_VERTEX_0, CUBE_VERTEX_2, CUBE_VERTEX_1, CUBE_VERTEX_0, CUBE_VERTEX_3, CUBE_VERTEX_2,
-      CUBE_VERTEX_4, CUBE_VERTEX_5, CUBE_VERTEX_6, CUBE_VERTEX_4, CUBE_VERTEX_6, CUBE_VERTEX_7,
-      CUBE_VERTEX_0, CUBE_VERTEX_4, CUBE_VERTEX_7, CUBE_VERTEX_0, CUBE_VERTEX_7, CUBE_VERTEX_3,
-      CUBE_VERTEX_1, CUBE_VERTEX_2, CUBE_VERTEX_6, CUBE_VERTEX_1, CUBE_VERTEX_6, CUBE_VERTEX_5,
-      CUBE_VERTEX_0, CUBE_VERTEX_1, CUBE_VERTEX_5, CUBE_VERTEX_0, CUBE_VERTEX_5, CUBE_VERTEX_4,
-      CUBE_VERTEX_3, CUBE_VERTEX_7, CUBE_VERTEX_6, CUBE_VERTEX_3, CUBE_VERTEX_6, CUBE_VERTEX_2,
-    ]),
+    indices,
     positions,
+    uvs,
   }
 }
 
@@ -1530,16 +1574,17 @@ export const makeWorldRenderer = <
    * is unchanged and infers it from `MeshBasicMaterial` exactly as before.
    */
   TUsedMaterial extends ThreeMaterial = TMaterial,
+  TEntityMaterial extends ThreeMaterial = TMaterial,
 >(
   three: Omit<ThreeSurface<TCanvas, TGeometry, TMaterial>, 'Mesh'> & {
     readonly Mesh: new (
       geometry: TGeometry,
-      material: TUsedMaterial | TMaterial,
+      material: TUsedMaterial | TMaterial | TEntityMaterial,
     ) => TransformableThreeMesh
   },
   canvas: TCanvas,
   viewport: Viewport,
-  options: WorldRendererOptions<TUsedMaterial> = {},
+  options: WorldRendererOptions<TUsedMaterial, TEntityMaterial> = {},
 ): Effect.Effect<WorldRenderer, Schema.SchemaError> => {
   const createChunkMaterials = () => {
     const opaque = options.material?.() ??
@@ -1627,7 +1672,7 @@ export const makeWorldRenderer = <
       Ref.make(INITIAL_FRAMES_RENDERED),
       Ref.make<ReadonlyArray<PostProcessingStep>>([]),
     ])
-    const entityAssets: { readonly entityGeometries: Map<string, TGeometry>; entityMaterial: TMaterial | null } = {
+    const entityAssets: { readonly entityGeometries: Map<string, TGeometry>; entityMaterial: TEntityMaterial | TMaterial | null } = {
       entityGeometries: new Map<string, TGeometry>(),
       entityMaterial: null,
     }
@@ -1777,7 +1822,7 @@ export const makeWorldRenderer = <
       buildEntity: (entity: RenderEntity, visual: EntityVisualPlan): EntityEntry => {
         const brightnessFactor = entityBrightnessFactor(entity, ops.entityFrameState.sunIntensity)
         const parts = visual.parts.map((part): EntityPartEntry => {
-          const geometry = ops.buildEntityGeometry(part.color, brightnessFactor)
+          const geometry = ops.buildEntityGeometry(entity.kind, part.color, brightnessFactor, visual.textureCoordinates)
           const mesh = new three.Mesh(geometry, ops.getEntityMaterial())
           ops.applyEntityPartTransform(mesh, visual, part, entity)
           scene.add(mesh)
@@ -1786,8 +1831,12 @@ export const makeWorldRenderer = <
         return { entity, parts, visual }
       },
 
-      buildEntityCubeGeometry: (color: readonly [number, number, number], brightnessFactor: number): TGeometry => {
-        const buffers = unitCubeBuffers(color, brightnessFactor)
+      buildEntityCubeGeometry: (
+        color: readonly [number, number, number],
+        brightnessFactor: number,
+        textureCoordinates: EntityVisualPlan['textureCoordinates'],
+      ): TGeometry => {
+        const buffers = unitCubeBuffers(color, brightnessFactor, textureCoordinates)
         const geometry = new three.BufferGeometry()
         geometry.setAttribute(
           'position',
@@ -1797,16 +1846,22 @@ export const makeWorldRenderer = <
           'color',
           new three.BufferAttribute(buffers.colors, COLOR_COMPONENTS, true),
         )
+        geometry.setAttribute('uv', new three.BufferAttribute(buffers.uvs, ENTITY_UV_COMPONENTS, false))
         geometry.setIndex(new three.BufferAttribute(buffers.indices, INDEX_ITEM_SIZE, false))
         geometry.computeBoundingSphere()
         return geometry
       },
 
-      buildEntityGeometry: (color: readonly [number, number, number], brightnessFactor: number): TGeometry => {
-        const key = entityGeometryKey(color, brightnessFactor)
+      buildEntityGeometry: (
+        kind: string,
+        color: readonly [number, number, number],
+        brightnessFactor: number,
+        textureCoordinates: EntityVisualPlan['textureCoordinates'],
+      ): TGeometry => {
+        const key = entityGeometryKey(kind, color, brightnessFactor)
         const cached = entityAssets.entityGeometries.get(key)
         if (cached) {return cached}
-        const geometry = ops.buildEntityCubeGeometry(color, brightnessFactor)
+        const geometry = ops.buildEntityCubeGeometry(color, brightnessFactor, textureCoordinates)
         entityAssets.entityGeometries.set(key, geometry)
         return geometry
       },
@@ -1921,8 +1976,9 @@ export const makeWorldRenderer = <
         return { syncEntities, syncEntityFrame }
       })(),
 
-      getEntityMaterial: (): TMaterial => {
-        entityAssets.entityMaterial ??= new three.MeshBasicMaterial({ vertexColors: true, wireframe: false })
+      getEntityMaterial: (): TEntityMaterial | TMaterial => {
+        entityAssets.entityMaterial ??= options.entityMaterial?.() ??
+          new three.MeshBasicMaterial({ vertexColors: true, wireframe: false })
         return entityAssets.entityMaterial
       },
 
@@ -2198,8 +2254,8 @@ export type ProductionWorldRenderer<TShaderMaterial extends ThreeMaterial> = Wor
   readonly advanceFrame: (frame: ProductionFrame) => Effect.Effect<void, ParticlePoolInputError | AnimationClockInputError>
 }
 
-export type ProductionWorldRendererOptions = Omit<
-  WorldRendererOptions<ThreeMaterial>,
+export type ProductionWorldRendererOptions<TEntityMaterial extends ThreeMaterial = ThreeMaterial> = Omit<
+  WorldRendererOptions<ThreeMaterial, TEntityMaterial>,
   'material' | 'cutoutMaterial' | 'transparentMaterial' | 'applyMaterialEnvironment'
 > & {
   readonly particles?: ParticlePoolOptions
@@ -2223,7 +2279,7 @@ export const makeProductionWorldRenderer = <
   canvas: TCanvas,
   viewport: Viewport,
   atlasTexture: unknown,
-  options: ProductionWorldRendererOptions = {},
+  options: ProductionWorldRendererOptions<TMaterial> = {},
 ): Effect.Effect<ProductionWorldRenderer<TShaderMaterial>, ParticlePoolInputError | Schema.SchemaError> =>
   Effect.gen(function* buildProductionRenderer() {
     const particlePool = yield* Effect.fromResult(makeParticlePool(options.particles))
@@ -2233,7 +2289,7 @@ export const makeProductionWorldRenderer = <
     const water = makeWaterMaterial(three, viewport)
     const particles = yield* makeParticleSystem(three, particlePool, atlasTexture)
     const { particles: _particles, ...rendererOptions } = options
-    const renderer = yield* makeWorldRenderer(three, canvas, viewport, {
+    const renderer = yield* makeWorldRenderer<TCanvas, TGeometry, TMaterial, TShaderMaterial, TMaterial>(three, canvas, viewport, {
       ...rendererOptions,
       applyMaterialEnvironment: (environment) => {
         applyChunkShaderEnvironment(chunk.uniforms, environment)

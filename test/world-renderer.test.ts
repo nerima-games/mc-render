@@ -19,6 +19,7 @@ import * as FastCheck from 'fast-check'
 import { vi } from 'vitest'
 import * as entityVisualPlanner from '../src/application/entity-visual-plan'
 import { EntityRenderFrameInputSchema } from '../src/index'
+import { ENTITY_MODEL_CATALOG } from '../src/domain/entity-model-catalog'
 import { mirroredCameraState } from '../src/domain/camera-mirror'
 import type { AnimationClockInputError } from '../src/domain/animation-clock'
 import {
@@ -902,15 +903,13 @@ describe('entity meshes in the scene', () => {
       expect(rightLeg?.rotations()[0]?.[0]).toBeCloseTo(-0.325, 12)
       expect(entityColorBytes(playerHead)).toStrictEqual([137, 103, 70])
 
-      const near = (actual: number, expected: number): boolean => Math.abs(actual - expected) < 0.01
-      const wingRoot = meshes.find((mesh) => {
-        const [x, y, z] = mesh.positions().at(-1) ?? [Number.NaN, Number.NaN, Number.NaN]
-        return near(x, -11.43) && near(y, 32.55) && near(z, 4.95)
-      })
-      const tailBase = meshes.find((mesh) => {
-        const [x, y, z] = mesh.positions().at(-1) ?? [Number.NaN, Number.NaN, Number.NaN]
-        return near(x, -10) && near(y, 31.79) && near(z, 3.72)
-      })
+      const dragon = ENTITY_MODEL_CATALOG.find(({ kind }) => kind === 'ender_dragon')
+      expect(dragon).toBeDefined()
+      const playerPartCount = ENTITY_MODEL_CATALOG.find(({ kind }) => kind === 'player')?.parts.length ?? 0
+      const wingRootIndex = dragon?.parts.findIndex(({ id }) => id === 'left-wing-root') ?? -1
+      const tailBaseIndex = dragon?.parts.findIndex(({ id }) => id === 'tail-base') ?? -1
+      const wingRoot = meshes[playerPartCount + wingRootIndex]
+      const tailBase = meshes[playerPartCount + tailBaseIndex]
       expect(wingRoot?.rotations()[0]?.[2]).toBeCloseTo(-0.325, 6)
       expect(tailBase?.rotations()[0]?.[1]).toBeCloseTo(0.175, 6)
       expect(yield* renderer.entityModelDiagnostics).toStrictEqual([])
