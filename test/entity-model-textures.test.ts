@@ -10,6 +10,7 @@ import {
   ENTITY_MODEL_TEXTURE_ATLAS,
   EntityTextureResolutionIssueSchema,
   EntityTextureUvCoordinatesSchema,
+  decodeEntityTextureUvEntry,
   entityTextureAtlasPixels,
   entityTextureUvForKind,
 } from '../src/domain/entity-model-textures.js'
@@ -73,6 +74,42 @@ describe('entity texture atlas', () => {
           return Schema.is(EntityTextureResolutionIssueSchema)(uv.failure)
         }
         return Schema.is(EntityTextureUvCoordinatesSchema)(uv.success)
+      },
+    ), { numRuns: 500 })
+  })
+
+  it('returns schema-valid typed failures for missing or malformed texture entries', () => {
+    for (const kind of ENTITY_MODEL_KINDS) {
+      const missing = decodeEntityTextureUvEntry(kind, undefined)
+      expect(Result.isFailure(missing), String(kind)).toBe(true)
+      if (Result.isFailure(missing)) {
+        expect(Schema.is(EntityTextureResolutionIssueSchema)(missing.failure), String(kind)).toBe(true)
+      }
+
+      const malformedEntry = decodeEntityTextureUvEntry(kind, { uv: 'not a numeric array' })
+      expect(Result.isFailure(malformedEntry), String(kind)).toBe(true)
+      if (Result.isFailure(malformedEntry)) {
+        expect(Schema.is(EntityTextureResolutionIssueSchema)(malformedEntry.failure), String(kind)).toBe(true)
+      }
+
+      const malformed = decodeEntityTextureUvEntry(kind, { uv: [0, 0, 1] })
+      expect(Result.isFailure(malformed), String(kind)).toBe(true)
+      if (Result.isFailure(malformed)) {
+        expect(Schema.is(EntityTextureResolutionIssueSchema)(malformed.failure), String(kind)).toBe(true)
+      }
+    }
+  })
+
+  it('decodes arbitrary atlas entries without throwing', () => {
+    FastCheck.assert(FastCheck.property(
+      FastCheck.constantFrom(...ENTITY_MODEL_KINDS),
+      FastCheck.oneof(FastCheck.constant(undefined), FastCheck.jsonValue()),
+      (kind, input) => {
+        const decoded = decodeEntityTextureUvEntry(kind, input)
+        if (Result.isFailure(decoded)) {
+          return Schema.is(EntityTextureResolutionIssueSchema)(decoded.failure)
+        }
+        return Schema.is(EntityTextureUvCoordinatesSchema)(decoded.success)
       },
     ), { numRuns: 500 })
   })

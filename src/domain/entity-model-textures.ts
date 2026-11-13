@@ -80,6 +80,10 @@ const InvalidEntityTextureCoordinatesSchema: Schema.Codec<InvalidEntityTextureCo
   kind: EntityModelKindSchema,
 })
 
+const EntityTextureUvEntrySchema = Schema.Struct({
+  uv: Schema.Array(Schema.Finite),
+})
+
 export const EntityTextureResolutionIssueSchema: Schema.Codec<
   EntityTextureResolutionIssue,
   Schema.Codec.Encoded<typeof UnsupportedEntityTextureSchema> |
@@ -109,19 +113,28 @@ export const ENTITY_MODEL_TEXTURE_ATLAS: EntityModelTextureAtlas = entityTexture
 
 const textureEntryByKind = new Map(ENTITY_MODEL_TEXTURE_ATLAS.entries.map((entry) => [entry.kind, entry]))
 
-export const entityTextureUvForKind = (
+export const decodeEntityTextureUvEntry = (
   kind: EntityModelKind,
+  input: unknown,
 ): Result.Result<EntityTextureUvCoordinates, EntityTextureResolutionIssue> => {
-  const entry = textureEntryByKind.get(kind)
-  if (entry === undefined) {
+  if (input === undefined) {
     return Result.fail({ _tag: 'UnsupportedEntityTexture', kind })
   }
-  const coordinates = Schema.decodeUnknownResult(EntityTextureUvCoordinatesSchema)(entry.uv)
+  const entry = Schema.decodeUnknownResult(EntityTextureUvEntrySchema)(input)
+  if (Result.isFailure(entry)) {
+    return Result.fail({ _tag: 'InvalidEntityTextureCoordinates', kind })
+  }
+  const coordinates = Schema.decodeUnknownResult(EntityTextureUvCoordinatesSchema)(entry.success.uv)
   if (Result.isFailure(coordinates)) {
     return Result.fail({ _tag: 'InvalidEntityTextureCoordinates', kind })
   }
   return Result.succeed(coordinates.success)
 }
+
+export const entityTextureUvForKind = (
+  kind: EntityModelKind,
+): Result.Result<EntityTextureUvCoordinates, EntityTextureResolutionIssue> =>
+  decodeEntityTextureUvEntry(kind, textureEntryByKind.get(kind))
 
 export const entityTextureAtlasPixels = (): Uint8Array => {
   const encoded = ENTITY_MODEL_TEXTURE_ATLAS.pixels
