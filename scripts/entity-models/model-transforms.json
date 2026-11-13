@@ -1,0 +1,514 @@
+{
+  "allay": {
+    "horizontal": 0.3465346534653465,
+    "vertical": 0.4580152671755725
+  },
+  "armadillo": {
+    "horizontal": 0.5511811023622046,
+    "vertical": 0.6341463414634148
+  },
+  "axolotl": {
+    "horizontal": 0.5813953488372093,
+    "vertical": 0.5526315789473684
+  },
+  "bat": {
+    "horizontal": 0.33783783783783783,
+    "vertical": 0.8737864077669902
+  },
+  "camel": {
+    "horizontal": 1.317829457364341,
+    "vertical": 1
+  },
+  "cat": {
+    "horizontal": 0.5970149253731344,
+    "vertical": 0.5263157894736842
+  },
+  "chicken": {
+    "horizontal": 0.5063291139240507,
+    "vertical": 0.5405405405405405
+  },
+  "cod": {
+    "horizontal": 0.37878787878787884,
+    "vertical": 0.3896103896103896
+  },
+  "cow": {
+    "horizontal": 0.7758620689655173,
+    "vertical": 0.8588957055214724
+  },
+  "dolphin": {
+    "horizontal": 0.4225352112676057,
+    "vertical": 0.6666666666666667
+  },
+  "donkey": {
+    "horizontal": 1.144672131147541,
+    "vertical": 0.6437768240343348
+  },
+  "fox": {
+    "horizontal": 0.32171581769436997,
+    "vertical": 0.5577689243027889
+  },
+  "frog": {
+    "horizontal": 0.49504950495049505,
+    "vertical": 0.4854368932038836
+  },
+  "glow_squid": {
+    "horizontal": 0.6779661016949153,
+    "vertical": 0.5095541401273886
+  },
+  "horse": {
+    "horizontal": 1,
+    "vertical": 0.7191011235955058
+  },
+  "mooshroom": {
+    "horizontal": 0.8490566037735849,
+    "vertical": 0.8333333333333333
+  },
+  "mule": {
+    "horizontal": 1.219650655021834,
+    "vertical": 0.6956521739130436
+  },
+  "ocelot": {
+    "horizontal": 0.5714285714285715,
+    "vertical": 0.5737704918032787
+  },
+  "parrot": {
+    "horizontal": 0.4854368932038835,
+    "vertical": 0.6474820143884892
+  },
+  "pig": {
+    "horizontal": 0.7228915662650602,
+    "vertical": 0.6741573033707865
+  },
+  "pufferfish": {
+    "horizontal": 0.29411764705882354,
+    "vertical": 0.3211009174311927
+  },
+  "rabbit": {
+    "horizontal": 0.4123711340206186,
+    "vertical": 0.33222591362126247
+  },
+  "salmon": {
+    "horizontal": 0.45751633986928103,
+    "vertical": 0.5095541401273885
+  },
+  "sheep": {
+    "horizontal": 0.7964601769911506,
+    "vertical": 0.9027777777777778
+  },
+  "skeleton_horse": {
+    "horizontal": 1.1541322314049587,
+    "vertical": 0.7494145199063234
+  },
+  "sniffer": {
+    "horizontal": 0.7723577235772358,
+    "vertical": 0.8928571428571429
+  },
+  "squid": {
+    "horizontal": 0.7142857142857144,
+    "vertical": 0.5047318611987383
+  },
+  "strider": {
+    "horizontal": 0.7860262008733625,
+    "vertical": 1
+  },
+  "tadpole": {
+    "horizontal": 0.372093023255814,
+    "vertical": 1
+  },
+  "tropical_fish": {
+    "horizontal": 0.3802281368821293,
+    "vertical": 0.4878048780487805
+  },
+  "turtle": {
+    "horizontal": 0.7766990291262136,
+    "vertical": 0.4819277108433735
+  },
+  "zombie_horse": {
+    "horizontal": 1.219650655021834,
+    "vertical": 0.7390300230946882
+  },
+  "bee": {
+    "horizontal": 0.4827586206896551,
+    "vertical": 0.6185567010309277
+  },
+  "goat": {
+    "horizontal": 0.8219178082191781,
+    "vertical": 0.5764966740576497
+  },
+  "llama": {
+    "horizontal": 1,
+    "vertical": 0.7333333333333334
+  },
+  "trader_llama": {
+    "horizontal": 0.9045226130653267,
+    "vertical": 0.7333333333333334
+  },
+  "panda": {
+    "horizontal": 1.3,
+    "vertical": 0.6775067750677506
+  },
+  "polar_bear": {
+    "horizontal": 0.880503144654088,
+    "vertical": 0.8115942028985507
+  },
+  "wolf": {
+    "horizontal": 0.396039603960396,
+    "vertical": 0.5592105263157895
+  },
+  "block_display": {
+    "horizontal": 1,
+    "vertical": 1
+  },
+  "interaction": {
+    "horizontal": 1,
+    "vertical": 1
+  },
+  "item_display": {
+    "horizontal": 1,
+    "vertical": 1
+  },
+  "marker": {
+    "horizontal": 1,
+    "vertical": 1
+  },
+  "text_display": {
+    "horizontal": 1,
+    "vertical": 1
+  },
+  "area_effect_cloud": {
+    "horizontal": 1,
+    "vertical": 1.8518518518518516
+  },
+  "armor_stand": {
+    "horizontal": 0.5882352941176471,
+    "vertical": 1.1482558139534884
+  },
+  "end_crystal": {
+    "horizontal": 2.1052631578947367,
+    "vertical": 1.1363636363636362
+  },
+  "evoker_fangs": {
+    "horizontal": 0.6944444444444444,
+    "vertical": 0.7920792079207921
+  },
+  "experience_orb": {
+    "horizontal": 0.641025641025641,
+    "vertical": 0.8474576271186439
+  },
+  "eye_of_ender": {
+    "horizontal": 0.3787878787878788,
+    "vertical": 0.43103448275862066
+  },
+  "falling_block": {
+    "horizontal": 1,
+    "vertical": 0.8132780082987551
+  },
+  "glow_item_frame": {
+    "horizontal": 1,
+    "vertical": 1
+  },
+  "item": {
+    "horizontal": 0.5494505494505494,
+    "vertical": 0.37878787878787873
+  },
+  "item_frame": {
+    "horizontal": 1,
+    "vertical": 1
+  },
+  "leash_knot": {
+    "horizontal": 0.42613636363636365,
+    "vertical": 0.8620689655172413
+  },
+  "lightning_bolt": {
+    "horizontal": 1.4084507042253522,
+    "vertical": 74.85380116959064
+  },
+  "painting": {
+    "horizontal": 1,
+    "vertical": 1
+  },
+  "ender_dragon": {
+    "horizontal": 1.946727028519037,
+    "vertical": 2.513592576610762
+  },
+  "blaze": {
+    "horizontal": 0.4444444444444445,
+    "vertical": 1.1688311688311688
+  },
+  "bogged": {
+    "horizontal": 0.42605575868616635,
+    "vertical": 1
+  },
+  "breeze": {
+    "horizontal": 0.4207768536566087,
+    "vertical": 1
+  },
+  "creeper": {
+    "horizontal": 0.8823529411764705,
+    "vertical": 0.8808290155440415
+  },
+  "drowned": {
+    "horizontal": 0.4516308222876598,
+    "vertical": 1
+  },
+  "elder_guardian": {
+    "horizontal": 0.7730860246434476,
+    "vertical": 1
+  },
+  "endermite": {
+    "horizontal": 0.36117381489841993,
+    "vertical": 0.6350926597413744
+  },
+  "evoker": {
+    "horizontal": 0.4829622184372184,
+    "vertical": 1
+  },
+  "ghast": {
+    "horizontal": 2.3255813953488373,
+    "vertical": 1.8518518518518516
+  },
+  "giant": {
+    "horizontal": 1.4053429015358678,
+    "vertical": 2.4439918533604885
+  },
+  "guardian": {
+    "horizontal": 0.4735376044568245,
+    "vertical": 0.779816513761468
+  },
+  "hoglin": {
+    "horizontal": 0.5642424242424243,
+    "vertical": 0.6660293469527914
+  },
+  "husk": {
+    "horizontal": 0.6141013442338155,
+    "vertical": 1
+  },
+  "magma_cube": {
+    "horizontal": 1,
+    "vertical": 1
+  },
+  "phantom": {
+    "horizontal": 0.11895297825248506,
+    "vertical": 0.847457627118644
+  },
+  "piglin_brute": {
+    "horizontal": 0.38585209003215426,
+    "vertical": 0.9039247996529869
+  },
+  "pillager": {
+    "horizontal": 0.4715469713643079,
+    "vertical": 1
+  },
+  "ravager": {
+    "horizontal": 0.7090909090909091,
+    "vertical": 0.900370332540267
+  },
+  "shulker": {
+    "horizontal": 1,
+    "vertical": 0.7303087373277571
+  },
+  "silverfish": {
+    "horizontal": 0.34261241970021417,
+    "vertical": 1
+  },
+  "skeleton": {
+    "horizontal": 0.4350495379554811,
+    "vertical": 1
+  },
+  "slime": {
+    "horizontal": 0.49075471698113204,
+    "vertical": 0.5098039215686274
+  },
+  "stray": {
+    "horizontal": 0.48275611824161774,
+    "vertical": 1
+  },
+  "vex": {
+    "horizontal": 0.17355209977565697,
+    "vertical": 0.8179479163505055
+  },
+  "vindicator": {
+    "horizontal": 0.4246300820765508,
+    "vertical": 1
+  },
+  "warden": {
+    "horizontal": 0.37882660180142946,
+    "vertical": 0.8163426389575753
+  },
+  "witch": {
+    "horizontal": 0.5364284786942161,
+    "vertical": 0.776644415235077
+  },
+  "wither_skeleton": {
+    "horizontal": 0.5718405519028099,
+    "vertical": 1
+  },
+  "zoglin": {
+    "horizontal": 0.5806652806652807,
+    "vertical": 0.6745670575490368
+  },
+  "zombie": {
+    "horizontal": 0.6344020054795438,
+    "vertical": 1
+  },
+  "zombie_villager": {
+    "horizontal": 0.49416003996431795,
+    "vertical": 1
+  },
+  "wither": {
+    "horizontal": 0.46875000000000006,
+    "vertical": 2.134146341463415
+  },
+  "cave_spider": {
+    "horizontal": 0.42682926829268286,
+    "vertical": 1.4492753623188408
+  },
+  "enderman": {
+    "horizontal": 0.48387096774193544,
+    "vertical": 1.2159329140461217
+  },
+  "iron_golem": {
+    "horizontal": 0.7865168539325842,
+    "vertical": 1
+  },
+  "piglin": {
+    "horizontal": 0.6178894909521526,
+    "vertical": 1
+  },
+  "snow_golem": {
+    "horizontal": 0.3056768558951965,
+    "vertical": 1
+  },
+  "spider": {
+    "horizontal": 0.6422018348623852,
+    "vertical": 2.195121951219512
+  },
+  "zombified_piglin": {
+    "horizontal": 0.5194805194805194,
+    "vertical": 1
+  },
+  "arrow": {
+    "horizontal": 0.4166666666666667,
+    "vertical": 1.645666854346819
+  },
+  "breeze_wind_charge": {
+    "horizontal": 0.3004807692307692,
+    "vertical": 0.3004807692307692
+  },
+  "dragon_fireball": {
+    "horizontal": 0.6802721088435373,
+    "vertical": 0.591715976331361
+  },
+  "egg": {
+    "horizontal": 0.5208333333333334,
+    "vertical": 0.3787878787878788
+  },
+  "ender_pearl": {
+    "horizontal": 0.4366812227074236,
+    "vertical": 0.4629629629629629
+  },
+  "experience_bottle": {
+    "horizontal": 0.6578947368421053,
+    "vertical": 0.30864197530864196
+  },
+  "fireball": {
+    "horizontal": 0.8620689655172414,
+    "vertical": 1
+  },
+  "firework_rocket": {
+    "horizontal": 0.5434782608695652,
+    "vertical": 0.1633986928104575
+  },
+  "fishing_bobber": {
+    "horizontal": 0.78125,
+    "vertical": 0.23809523809523808
+  },
+  "llama_spit": {
+    "horizontal": 0.3968253968253968,
+    "vertical": 0.6024096385542168
+  },
+  "potion": {
+    "horizontal": 0.6578947368421053,
+    "vertical": 0.29069767441860467
+  },
+  "shulker_bullet": {
+    "horizontal": 0.3434065934065934,
+    "vertical": 0.5787037037037037
+  },
+  "small_fireball": {
+    "horizontal": 0.48828125,
+    "vertical": 0.6510416666666667
+  },
+  "snowball": {
+    "horizontal": 0.49019607843137253,
+    "vertical": 0.5434782608695652
+  },
+  "spectral_arrow": {
+    "horizontal": 0.390625,
+    "vertical": 1.3888888888888888
+  },
+  "trident": {
+    "horizontal": 0.78125,
+    "vertical": 0.23923444976076558
+  },
+  "wind_charge": {
+    "horizontal": 0.3633720930232558,
+    "vertical": 0.3633720930232558
+  },
+  "wither_skull": {
+    "horizontal": 0.31565656565656564,
+    "vertical": 0.36127167630057805
+  },
+  "boat": {
+    "horizontal": 0.7240947531359668,
+    "vertical": 1.308139534883721
+  },
+  "chest_boat": {
+    "horizontal": 0.7240947531359668,
+    "vertical": 0.6048387096774194
+  },
+  "chest_minecart": {
+    "horizontal": 0.7777777777777778,
+    "vertical": 0.5185185185185185
+  },
+  "command_block_minecart": {
+    "horizontal": 0.7777777777777778,
+    "vertical": 0.5072463768115941
+  },
+  "furnace_minecart": {
+    "horizontal": 0.7777777777777778,
+    "vertical": 0.49557522123893805
+  },
+  "hopper_minecart": {
+    "horizontal": 0.7777777777777778,
+    "vertical": 0.5982905982905983
+  },
+  "minecart": {
+    "horizontal": 0.7777777777777778,
+    "vertical": 0.7526881720430108
+  },
+  "spawner_minecart": {
+    "horizontal": 0.7777777777777778,
+    "vertical": 0.4794520547945205
+  },
+  "tnt_minecart": {
+    "horizontal": 0.7777777777777778,
+    "vertical": 0.5185185185185185
+  },
+  "tnt": {
+    "horizontal": 1.1136363636363635,
+    "vertical": 0.8521739130434783
+  },
+  "player": {
+    "horizontal": 0.6042755439200431,
+    "vertical": 1
+  },
+  "villager": {
+    "horizontal": 0.8053691275167785,
+    "vertical": 1.1142857142857143
+  },
+  "wandering_trader": {
+    "horizontal": 0.8053691275167785,
+    "vertical": 1
+  }
+}

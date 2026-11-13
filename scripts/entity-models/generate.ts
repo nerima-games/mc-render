@@ -6,6 +6,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import { Euler, Box3, Vector3 } from 'three'
 import { Result, Schema } from 'effect'
 import collisionDimensionInput from './collision-dimensions.json' with { type: 'json' }
+import modelTransformsInput from './model-transforms.json' with { type: 'json' }
 import { encodeRgbaPng } from './png-encoder.js'
 import {
   entityTexturePixelsForPng,
@@ -40,7 +41,6 @@ const ENTITY_TEXTURE_ATLAS_PATH = resolve(ROOT_DIRECTORY, 'assets/entity-models/
 const ENTITY_TEXTURE_DATA_PATH = resolve(ROOT_DIRECTORY, 'src/domain/entity-models/generated/textures.json')
 const ENTITY_TEXTURE_COUNT = 128
 const MODEL_BOUNDS_RELATIVE_TOLERANCE = 0.1
-const MODEL_BOUNDS_FIT_ATTEMPTS = 8
 
 type ColorEncoding = 'unit-rgb' | 'byte-rgb'
 type ModelGroup = Readonly<{
@@ -69,6 +69,7 @@ type CollisionDimension = Readonly<{
   height: number | null
   state?: string | undefined
 }>
+type EntityModelTransform = Readonly<{ horizontal: number; vertical: number }>
 type CollisionDimensionInput = Readonly<{
   source: string
   edition: string
@@ -159,6 +160,13 @@ const COLLISION_DIMENSION_INPUT_SCHEMA = Schema.Struct({
 const collisionDimensionSchemaResult = Schema.decodeUnknownResult(COLLISION_DIMENSION_INPUT_SCHEMA)(
   collisionDimensionInput,
 )
+const ENTITY_MODEL_TRANSFORM_SCHEMA = Schema.Struct({
+  horizontal: Schema.Finite.check(Schema.isGreaterThan(ZERO)),
+  vertical: Schema.Finite.check(Schema.isGreaterThan(ZERO)),
+})
+const modelTransformsSchemaResult = Schema.decodeUnknownResult(
+  Schema.Record(Schema.String, ENTITY_MODEL_TRANSFORM_SCHEMA),
+)(modelTransformsInput)
 
 const modelBoundsFor = (parts: ReadonlyArray<EntityModelPartDescriptor>): ModelBounds => {
   const bounds = new Box3()
@@ -193,9 +201,6 @@ const modelBoundsFor = (parts: ReadonlyArray<EntityModelPartDescriptor>): ModelB
 const modelWidthFor = (bounds: ModelBounds): number =>
   Math.max(bounds.maxX - bounds.minX, bounds.maxZ - bounds.minZ)
 
-const relativeDimensionError = (actual: number, expected: number): number =>
-  Math.abs(actual - expected) / expected
-
 const scaleModelParts = (
   parts: ReadonlyArray<EntityModelPartDescriptor>,
   horizontalScale: number,
@@ -210,46 +215,18 @@ const scaleModelParts = (
   }
 })
 
-const fitModelToCollisionDimensions = (
+const transformModel = (
   model: EntityModelDescriptor,
-  dimensions: CollisionDimension,
-): Result.Result<FittedEntityModel, string> => {
-  let { parts } = model
-  for (let attempt = 0; attempt < MODEL_BOUNDS_FIT_ATTEMPTS; attempt += 1) {
-    const bounds = modelBoundsFor(parts)
-    const width = modelWidthFor(bounds)
-    const height = bounds.maxY - bounds.minY
-    const horizontalScale = dimensions.width !== null &&
-        relativeDimensionError(width, dimensions.width) > MODEL_BOUNDS_RELATIVE_TOLERANCE
-      ? dimensions.width / width
-      : ONE
-    const verticalScale = dimensions.height !== null &&
-        relativeDimensionError(height, dimensions.height) > MODEL_BOUNDS_RELATIVE_TOLERANCE
-      ? dimensions.height / height
-      : ONE
-    if (horizontalScale === ONE && verticalScale === ONE) {
-      break
-    }
-    parts = scaleModelParts(parts, horizontalScale, verticalScale)
-  }
-
+  transform: EntityModelTransform,
+): FittedEntityModel => {
+  const parts = scaleModelParts(model.parts, transform.horizontal, transform.vertical)
   const minimumY = modelBoundsFor(parts).minY
   const groundedParts = parts.map((part) => ({
     ...part,
     center: [part.center[ZERO], part.center[ONE] - minimumY, part.center[TWO]] as EntityModelVector,
   }))
   const bounds = modelBoundsFor(groundedParts)
-  const width = modelWidthFor(bounds)
-  const height = bounds.maxY - bounds.minY
-  if (dimensions.width !== null &&
-    relativeDimensionError(width, dimensions.width) > MODEL_BOUNDS_RELATIVE_TOLERANCE) {
-    return Result.fail(`${model.kind}: model width ${width} is outside 10% of collision width ${dimensions.width}`)
-  }
-  if (dimensions.height !== null &&
-    relativeDimensionError(height, dimensions.height) > MODEL_BOUNDS_RELATIVE_TOLERANCE) {
-    return Result.fail(`${model.kind}: model height ${height} is outside 10% of collision height ${dimensions.height}`)
-  }
-  return Result.succeed({ model: { ...model, parts: groundedParts }, bounds })
+  return { model: { ...model, parts: groundedParts }, bounds }
 }
 
 const validateCollisionDimensions = (
@@ -290,21 +267,18 @@ const validateCollisionDimensions = (
 
 const fitAllModels = (
   models: ReadonlyArray<EntityModelDescriptor>,
-  dimensions: ReadonlyArray<CollisionDimension>,
+  transforms: Readonly<Record<string, EntityModelTransform>>,
 ): Result.Result<ReadonlyMap<string, FittedEntityModel>, string> => {
-  const dimensionsByKind = new Map(dimensions.map((dimension) => [dimension.kind, dimension]))
   const fittedModels = new Map<string, FittedEntityModel>()
   for (const model of models) {
-    const collisionDimensions = dimensionsByKind.get(model.kind)
-    if (collisionDimensions === undefined) {
-      return Result.fail(`${model.kind}: collision dimensions are missing`)
+    const transform = transforms[model.kind]
+    if (transform === undefined) {
+      return Result.fail(`${model.kind}: authored model transform is missing`)
     }
-    const fitted = fitModelToCollisionDimensions(model, collisionDimensions)
-    if (Result.isFailure(fitted)) {
-      return Result.fail(fitted.failure)
-    }
-    fittedModels.set(model.kind, fitted.success)
+    fittedModels.set(model.kind, transformModel(model, transform))
   }
+  const extraTransforms = Object.keys(transforms).filter((kind) => !models.some((model) => model.kind === kind))
+  if (extraTransforms.length > 0) return Result.fail(`authored transforms without models: ${extraTransforms.join(', ')}`)
   return Result.succeed(fittedModels)
 }
 
@@ -530,7 +504,7 @@ const outputFiles = (
         'scripts/entity-models/texture-atlas.ts',
         'scripts/entity-models/source/**/*.ts',
         'src/domain/entity-models/generated/**',
-        'assets/entity-models/manifest.json',
+        'scripts/entity-models/model-transforms.json',
         'assets/entity-models/entity-textures.png',
       ],
       excludes: [
@@ -594,6 +568,10 @@ const runCli = async (arguments_: ReadonlyArray<string>): Promise<number> => {
     console.error(`EntityCollisionDimensionsSchemaError: ${String(collisionDimensionSchemaResult.failure)}`)
     return 1
   }
+  if (Result.isFailure(modelTransformsSchemaResult)) {
+    console.error(`EntityModelTransformSchemaError: ${String(modelTransformsSchemaResult.failure)}`)
+    return 1
+  }
   const dimensions = collisionDimensionSchemaResult.success
   const allModels = MODEL_GROUPS.flatMap(({ models }) => models)
   const collisionCoverageFailure = validateCollisionDimensions(allModels, dimensions.entities)
@@ -601,9 +579,9 @@ const runCli = async (arguments_: ReadonlyArray<string>): Promise<number> => {
     console.error(`EntityCollisionDimensionCoverageError: ${collisionCoverageFailure}`)
     return 1
   }
-  const fittedModels = fitAllModels(allModels, dimensions.entities)
+  const fittedModels = fitAllModels(allModels, modelTransformsSchemaResult.success)
   if (Result.isFailure(fittedModels)) {
-    console.error(`EntityModelBoundsFitError: ${fittedModels.failure}`)
+    console.error(`EntityModelTransformError: ${fittedModels.failure}`)
     return 1
   }
   const preparedOutputs = outputFiles(fittedModels.success, dimensions)

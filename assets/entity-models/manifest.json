@@ -9,7 +9,7 @@
       "scripts/entity-models/texture-atlas.ts",
       "scripts/entity-models/source/**/*.ts",
       "src/domain/entity-models/generated/**",
-      "assets/entity-models/manifest.json",
+      "scripts/entity-models/model-transforms.json",
       "assets/entity-models/entity-textures.png"
     ],
     "excludes": [
