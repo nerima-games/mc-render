@@ -33,27 +33,28 @@ const partVerticalHalfExtent = ({ size, rotation }: EntityModelPartDescriptor): 
   )
 }
 
-const partMinimumY = (part: EntityModelPartDescriptor): number =>
-  part.center[1] - partVerticalHalfExtent(part)
+const partMinimumY = (descriptor: EntityModelPartDescriptor): number =>
+  descriptor.center[1] - partVerticalHalfExtent(descriptor)
 
 const model = (
   kind: string,
   ...parts: EntityModelPartDescriptor[]
 ): EntityModelDescriptor => {
-  const lowestPart = parts.reduce((lowest, part) =>
-    partMinimumY(part) < partMinimumY(lowest) ? part : lowest)
+  const lowestPart = parts.reduce((lowest, descriptor) =>
+    partMinimumY(descriptor) < partMinimumY(lowest) ? descriptor : lowest)
   const minimumY = partMinimumY(lowestPart)
   const verticalOffset = partVerticalHalfExtent(lowestPart) - lowestPart.center[1]
   return {
     kind: modelKind(kind),
-    parts: parts.map(part => {
-      const isLowest = partMinimumY(part) === minimumY
+    parts: parts.map((descriptor) => {
+      const isLowest = partMinimumY(descriptor) === minimumY
+      const [centerX, centerY, centerZ] = descriptor.center
       return {
-        ...part,
+        ...descriptor,
         center: [
-          part.center[0],
-          isLowest ? partVerticalHalfExtent(part) : part.center[1] + verticalOffset,
-          part.center[2],
+          centerX,
+          isLowest ? partVerticalHalfExtent(descriptor) : centerY + verticalOffset,
+          centerZ,
         ],
       }
     }),

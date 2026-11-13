@@ -25,25 +25,29 @@ const part = (
 
 const partRotationMatrix = new Matrix4()
 
-const partMinimumY = (part: EntityModelPartDescriptor): number => {
-  const [rotationX, rotationY, rotationZ] = part.rotation ?? [0, 0, 0]
+const partMinimumY = ({ center, size, rotation }: EntityModelPartDescriptor): number => {
+  const [rotationX, rotationY, rotationZ] = rotation ?? [0, 0, 0]
+  const [sizeX, sizeY, sizeZ] = size
   // Match the renderer's YXZ order when measuring the static cuboid bounds.
-  const elements = partRotationMatrix.makeRotationFromEuler(new Euler(rotationX, rotationY, rotationZ, 'YXZ')).elements
+  const { elements } = partRotationMatrix.makeRotationFromEuler(new Euler(rotationX, rotationY, rotationZ, 'YXZ'))
   const yExtent =
-    Math.abs(elements[1]!) * part.size[0] / 2 +
-    Math.abs(elements[5]!) * part.size[1] / 2 +
-    Math.abs(elements[9]!) * part.size[2] / 2
-  return part.center[1] - yExtent
+    Math.abs(elements[1]!) * sizeX / 2 +
+    Math.abs(elements[5]!) * sizeY / 2 +
+    Math.abs(elements[9]!) * sizeZ / 2
+  return center[1] - yExtent
 }
 
 const translatePartsVertically = (
   parts: ReadonlyArray<EntityModelPartDescriptor>,
   offsetY: number,
 ): ReadonlyArray<EntityModelPartDescriptor> =>
-  parts.map((part) => ({
-    ...part,
-    center: [part.center[0], part.center[1] + offsetY, part.center[2]],
-  }))
+  parts.map((descriptor) => {
+    const [centerX, centerY, centerZ] = descriptor.center
+    return {
+      ...descriptor,
+      center: [centerX, centerY + offsetY, centerZ],
+    }
+  })
 
 const model = (kind: string, ...parts: EntityModelPartDescriptor[]): EntityModelDescriptor => {
   const lowestPoint = Math.min(...parts.map(partMinimumY))

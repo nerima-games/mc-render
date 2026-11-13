@@ -78,25 +78,24 @@ describe('entity model bounds', () => {
       const kind = String(model.kind)
       const reference = collisionDimensions.entities.find((entry) => entry.kind === kind)
       expect(reference, `${kind} collision reference`).toBeDefined()
-      if (reference === undefined) {
-        continue
-      }
-      const bounds = boundsFor(model.parts)
-      const modelWidth = Math.max(bounds.widthX, bounds.depthZ)
-      if (typeof reference.width === 'number') {
-        expect(
-          relativeError(modelWidth, reference.width),
-          `${kind} model width ${modelWidth} vs reference ${reference.width}`,
-        ).toBeLessThanOrEqual(COLLISION_DIMENSION_RELATIVE_TOLERANCE)
-      }
-      if (typeof reference.height === 'number') {
-        expect(
-          relativeError(bounds.height, reference.height),
-          `${kind} model height ${bounds.height} vs reference ${reference.height}`,
-        ).toBeLessThanOrEqual(COLLISION_DIMENSION_RELATIVE_TOLERANCE)
-      }
-      if (reference.width === null || reference.height === null) {
-        expect(NON_NUMERIC_REFERENCE_STATUSES.has(reference.status)).toBe(true)
+      if (reference !== undefined) {
+        const bounds = boundsFor(model.parts)
+        const modelWidth = Math.max(bounds.widthX, bounds.depthZ)
+        if (typeof reference.width === 'number') {
+          expect(
+            relativeError(modelWidth, reference.width),
+            `${kind} model width ${modelWidth} vs reference ${reference.width}`,
+          ).toBeLessThanOrEqual(COLLISION_DIMENSION_RELATIVE_TOLERANCE)
+        }
+        if (typeof reference.height === 'number') {
+          expect(
+            relativeError(bounds.height, reference.height),
+            `${kind} model height ${bounds.height} vs reference ${reference.height}`,
+          ).toBeLessThanOrEqual(COLLISION_DIMENSION_RELATIVE_TOLERANCE)
+        }
+        if (reference.width === null || reference.height === null) {
+          expect(NON_NUMERIC_REFERENCE_STATUSES.has(reference.status)).toBe(true)
+        }
       }
     }
   })

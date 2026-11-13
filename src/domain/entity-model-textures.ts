@@ -1,12 +1,44 @@
 import { Result, Schema } from 'effect'
-import entityTextureAtlas from './entity-models/generated/textures.json' with { type: 'json' }
 import type { EntityModelKind } from './entity-models/types.js'
 import { EntityModelKindSchema } from './entity-model-catalog.js'
+import entityTextureAtlas from './entity-models/generated/textures.json' with { type: 'json' }
 
 export type EntityTextureUvCoordinates = readonly [uMinimum: number, vMinimum: number, uMaximum: number, vMaximum: number]
 
 const UV_ATLAS_MINIMUM = 0
 const UV_ATLAS_MAXIMUM = 1
+const BASE64_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
+const BASE64_GROUP_LENGTH = 4
+const BASE64_GROUP_BYTE_LENGTH = 3
+const BASE64_SYMBOL_BIT_LENGTH = 6
+const BASE64_BYTE_BIT_LENGTH = 8
+const BASE64_BYTE_MASK = 0xff
+const BASE64_SINGLE_PADDING_LENGTH = 1
+const BASE64_DOUBLE_PADDING_LENGTH = 2
+const BASE64_UNPADDED_LENGTH = 0
+
+type Base64DecoderState = {
+  bitBuffer: number
+  bitsAvailable: number
+  outputOffset: number
+}
+
+const appendBase64Symbol = (
+  character: string,
+  pixels: Uint8Array,
+  state: Base64DecoderState,
+): void => {
+  const value = BASE64_ALPHABET.indexOf(character)
+  if (value >= BASE64_UNPADDED_LENGTH) {
+    state.bitBuffer = (state.bitBuffer << BASE64_SYMBOL_BIT_LENGTH) | value
+    state.bitsAvailable += BASE64_SYMBOL_BIT_LENGTH
+    if (state.bitsAvailable >= BASE64_BYTE_BIT_LENGTH) {
+      state.bitsAvailable -= BASE64_BYTE_BIT_LENGTH
+      pixels[state.outputOffset] = (state.bitBuffer >> state.bitsAvailable) & BASE64_BYTE_MASK
+      state.outputOffset += 1
+    }
+  }
+}
 
 export const EntityTextureUvCoordinatesSchema: Schema.Codec<EntityTextureUvCoordinates> = Schema.Tuple([
   Schema.Finite,
@@ -84,28 +116,28 @@ export const entityTextureUvForKind = (
   if (entry === undefined) {
     return Result.fail({ _tag: 'UnsupportedEntityTexture', kind })
   }
-  if (entry.uv.length !== 4) {
+  const coordinates = Schema.decodeUnknownResult(EntityTextureUvCoordinatesSchema)(entry.uv)
+  if (Result.isFailure(coordinates)) {
     return Result.fail({ _tag: 'InvalidEntityTextureCoordinates', kind })
   }
-  const uMinimum = entry.uv[0]
-  const vMinimum = entry.uv[1]
-  const uMaximum = entry.uv[2]
-  const vMaximum = entry.uv[3]
-  if (uMinimum === undefined || vMinimum === undefined || uMaximum === undefined || vMaximum === undefined ||
-    ![uMinimum, vMinimum, uMaximum, vMaximum].every(Number.isFinite) ||
-    uMinimum < UV_ATLAS_MINIMUM || vMinimum < UV_ATLAS_MINIMUM ||
-    uMaximum > UV_ATLAS_MAXIMUM || vMaximum > UV_ATLAS_MAXIMUM ||
-    uMinimum >= uMaximum || vMinimum >= vMaximum) {
-    return Result.fail({ _tag: 'InvalidEntityTextureCoordinates', kind })
-  }
-  return Result.succeed([uMinimum, vMinimum, uMaximum, vMaximum])
+  return Result.succeed(coordinates.success)
 }
 
 export const entityTextureAtlasPixels = (): Uint8Array => {
-  const decoded = atob(ENTITY_MODEL_TEXTURE_ATLAS.pixels)
-  const pixels = new Uint8Array(decoded.length)
-  for (let index = 0; index < decoded.length; index += 1) {
-    pixels[index] = decoded.charCodeAt(index)
+  const encoded = ENTITY_MODEL_TEXTURE_ATLAS.pixels
+  let paddingLength = BASE64_UNPADDED_LENGTH
+  if (encoded.endsWith('==')) {
+    paddingLength = BASE64_DOUBLE_PADDING_LENGTH
+  } else if (encoded.endsWith('=')) {
+    paddingLength = BASE64_SINGLE_PADDING_LENGTH
   }
+  const pixels = new Uint8Array(
+    encoded.length / BASE64_GROUP_LENGTH * BASE64_GROUP_BYTE_LENGTH - paddingLength,
+  )
+  const state = { bitBuffer: 0, bitsAvailable: 0, outputOffset: 0 }
+  for (const character of encoded) {
+    appendBase64Symbol(character, pixels, state)
+  }
+
   return pixels
 }

@@ -200,17 +200,21 @@ const scaleModelParts = (
   parts: ReadonlyArray<EntityModelPartDescriptor>,
   horizontalScale: number,
   verticalScale: number,
-): ReadonlyArray<EntityModelPartDescriptor> => parts.map((part) => ({
-  ...part,
-  size: [part.size[ZERO] * horizontalScale, part.size[ONE] * verticalScale, part.size[TWO] * horizontalScale] as EntityModelVector,
-  center: [part.center[ZERO] * horizontalScale, part.center[ONE] * verticalScale, part.center[TWO] * horizontalScale] as EntityModelVector,
-}))
+): ReadonlyArray<EntityModelPartDescriptor> => parts.map((part) => {
+  const [sizeX, sizeY, sizeZ] = part.size
+  const [centerX, centerY, centerZ] = part.center
+  return {
+    ...part,
+    size: [sizeX * horizontalScale, sizeY * verticalScale, sizeZ * horizontalScale] as EntityModelVector,
+    center: [centerX * horizontalScale, centerY * verticalScale, centerZ * horizontalScale] as EntityModelVector,
+  }
+})
 
 const fitModelToCollisionDimensions = (
   model: EntityModelDescriptor,
   dimensions: CollisionDimension,
 ): Result.Result<FittedEntityModel, string> => {
-  let parts = model.parts
+  let { parts } = model
   for (let attempt = 0; attempt < MODEL_BOUNDS_FIT_ATTEMPTS; attempt += 1) {
     const bounds = modelBoundsFor(parts)
     const width = modelWidthFor(bounds)
@@ -440,6 +444,10 @@ const collisionDimensionDisplay = (dimension: CollisionDimension, value: number 
     case 'variable': return 'Varies'
     case 'fixed':
     case 'baseline': return 'N/A'
+    default: {
+      const unreachableStatus: never = dimension.status
+      return unreachableStatus
+    }
   }
 }
 

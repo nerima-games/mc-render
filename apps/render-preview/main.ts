@@ -32,7 +32,7 @@
  */
 import * as THREE from 'three'
 import { Context, Effect, Layer, Result, Scope } from 'effect'
-import { ChunkAxis, ChunkKey, blockTypeOfId, chunkCoord, chunkCoordOfKey } from '@nerima-games/mc-kernel'
+import { ChunkAxis, ChunkKey, PositionAxis, blockTypeOfId, chunkCoord, chunkCoordOfKey } from '@nerima-games/mc-kernel'
 import {
   browserInputLayer,
 } from '../../src/application/browser-input-adapter.js'
@@ -68,6 +68,7 @@ const VIEWPORT = { width: 640, height: 360 }
 const ENTITY_GALLERY_VIEWPORT = { width: 128, height: 128 }
 const ENTITY_GALLERY_COLUMNS = 16
 const ENTITY_GALLERY_ROWS = 8
+const ENTITY_GALLERY_EXPECTED_MODEL_COUNT = 128
 const ENTITY_GALLERY_CELL_HEIGHT = 128
 const ENTITY_GALLERY_LABEL_HEIGHT = 20
 const ENTITY_GALLERY_FIELD_OF_VIEW = 34
@@ -291,6 +292,126 @@ const loadEntityTexture = async (): Promise<THREE.Texture> => {
   }
 }
 
+type EntityGalleryContext = Readonly<{
+  readonly renderer: EntityGalleryRenderer
+  readonly gl: WebGL2RenderingContext
+  readonly context: CanvasRenderingContext2D
+  readonly pixels: Uint8Array
+  readonly cellStrideY: number
+}>
+
+const entityGalleryFailure = (report: HTMLElement, message: string): Result.Result<void, string> => {
+  document.body.setAttribute('data-entity-gallery', 'failed')
+  report.textContent = message
+  return Result.fail(message)
+}
+
+const entityGalleryPose = (parts: Parameters<typeof entityModelBounds>[0]): typeof START_POSE => {
+  const bounds = entityModelBounds(parts)
+  const size = bounds.getSize(new THREE.Vector3())
+  const center = bounds.getCenter(new THREE.Vector3())
+  const halfExtent = Math.max(size.x / 2, size.y / 2, size.z / 2)
+  const distance = Math.max(
+    ENTITY_GALLERY_ONE,
+    halfExtent / Math.tan(THREE.MathUtils.degToRad(ENTITY_GALLERY_FIELD_OF_VIEW / 2)) * ENTITY_GALLERY_FRAME_MARGIN,
+  )
+  const cameraRise = distance * ENTITY_GALLERY_CAMERA_ELEVATION_FACTOR
+  return {
+    x: center.x,
+    y: center.y + cameraRise,
+    z: center.z + distance,
+    yaw: ENTITY_GALLERY_ZERO,
+    pitch: -Math.atan2(cameraRise, distance),
+  }
+}
+
+const entityGalleryHasVisiblePixels = (pixels: Uint8Array): boolean => {
+  const [skyRed, skyGreen, skyBlue] = skyBytes()
+  let visiblePixels = 0
+  for (let pixel = 0; pixel < pixels.length; pixel += 4) {
+    const isSky = Math.abs((pixels[pixel] ?? 0) - skyRed) <= ENTITY_GALLERY_BACKGROUND_TOLERANCE &&
+      Math.abs((pixels[pixel + 1] ?? 0) - skyGreen) <= ENTITY_GALLERY_BACKGROUND_TOLERANCE &&
+      Math.abs((pixels[pixel + 2] ?? 0) - skyBlue) <= ENTITY_GALLERY_BACKGROUND_TOLERANCE
+    if (!isSky) {
+      visiblePixels += 1
+    }
+  }
+  return visiblePixels > 0
+}
+
+const paintEntityGalleryCell = (
+  { context, pixels, cellStrideY }: EntityGalleryContext,
+  kind: string,
+  index: number,
+): void => {
+  const image = context.createImageData(ENTITY_GALLERY_VIEWPORT.width, ENTITY_GALLERY_VIEWPORT.height)
+  for (let y = 0; y < ENTITY_GALLERY_VIEWPORT.height; y += 1) {
+    const sourceY = ENTITY_GALLERY_VIEWPORT.height - y - 1
+    const sourceStart = sourceY * ENTITY_GALLERY_VIEWPORT.width * 4
+    const targetStart = y * ENTITY_GALLERY_VIEWPORT.width * 4
+    image.data.set(pixels.subarray(sourceStart, sourceStart + ENTITY_GALLERY_VIEWPORT.width * 4), targetStart)
+  }
+  const column = index % ENTITY_GALLERY_COLUMNS
+  const row = Math.floor(index / ENTITY_GALLERY_COLUMNS)
+  const targetX = column * ENTITY_GALLERY_VIEWPORT.width
+  const targetY = row * cellStrideY
+  context.putImageData(image, targetX, targetY)
+  context.fillStyle = '#d8dee9'
+  context.fillText(
+    kind.replaceAll('_', ' '),
+    targetX + ENTITY_GALLERY_VIEWPORT.width / 2,
+    targetY + ENTITY_GALLERY_CELL_HEIGHT + ENTITY_GALLERY_LABEL_HEIGHT / 2,
+  )
+}
+
+const drawEntityContactSheetCell = async (
+  gallery: EntityGalleryContext,
+  report: HTMLElement,
+  model: (typeof ENTITY_MODEL_CATALOG)[number],
+  index: number,
+): Promise<Result.Result<void, string>> => {
+  const { renderer, gl, pixels } = gallery
+  const kind = String(model.kind)
+  const feetPosition = {
+    x: PositionAxis(ENTITY_GALLERY_ZERO),
+    y: PositionAxis(ENTITY_GALLERY_ZERO),
+    z: PositionAxis(ENTITY_GALLERY_ZERO),
+  }
+  const plannedVisual = planEntityVisual({ id: `gallery-${kind}`, kind, feetPosition })
+  if (Result.isFailure(plannedVisual)) {
+    return entityGalleryFailure(report, JSON.stringify({ kind, issue: plannedVisual.failure }))
+  }
+  await Effect.runPromise(renderer.syncEntities([{
+    id: `gallery-${kind}`,
+    kind,
+    feetPosition,
+    blockLight: ENTITY_GALLERY_LIGHT_LEVEL,
+    skyLight: ENTITY_GALLERY_LIGHT_LEVEL,
+  }]))
+  const [entityCount, diagnostics] = await Effect.runPromise(Effect.all([
+    renderer.entityCount,
+    renderer.entityModelDiagnostics,
+  ]))
+  if (entityCount !== 1 || diagnostics.length !== 0) {
+    return entityGalleryFailure(report, JSON.stringify({ kind, entityCount, diagnostics }))
+  }
+  await Effect.runPromise(renderer.draw(cameraFrom(entityGalleryPose(plannedVisual.success.parts))))
+  gl.readPixels(
+    0,
+    0,
+    ENTITY_GALLERY_VIEWPORT.width,
+    ENTITY_GALLERY_VIEWPORT.height,
+    gl.RGBA,
+    gl.UNSIGNED_BYTE,
+    pixels,
+  )
+  if (!entityGalleryHasVisiblePixels(pixels)) {
+    return entityGalleryFailure(report, `${kind} produced no visible pixels in its gallery cell.`)
+  }
+  paintEntityGalleryCell(gallery, kind, index)
+  return Result.succeed(undefined)
+}
+
 const drawEntityContactSheet = async (
   renderer: EntityGalleryRenderer,
   webglCanvas: HTMLCanvasElement,
@@ -300,8 +421,7 @@ const drawEntityContactSheet = async (
   const context = contactCanvas.getContext('2d')
   const gl = webglCanvas.getContext('webgl2')
   if (context === null || gl === null) {
-    document.body.setAttribute('data-entity-gallery', 'failed')
-    report.textContent = 'Contact sheet requires 2D canvas and WebGL2 contexts.'
+    entityGalleryFailure(report, 'Contact sheet requires 2D canvas and WebGL2 contexts.')
     return false
   }
 
@@ -313,100 +433,34 @@ const drawEntityContactSheet = async (
   context.font = '10px ui-monospace, monospace'
   context.textAlign = 'center'
   context.textBaseline = 'middle'
-  const pixels = new Uint8Array(ENTITY_GALLERY_VIEWPORT.width * ENTITY_GALLERY_VIEWPORT.height * 4)
-  let renderedModels = 0
-
-  for (const [index, model] of ENTITY_MODEL_CATALOG.entries()) {
-    const kind = String(model.kind)
-    const feetPosition = { x: ENTITY_GALLERY_ZERO, y: ENTITY_GALLERY_ZERO, z: ENTITY_GALLERY_ZERO }
-    const plannedVisual = planEntityVisual({ id: `gallery-${kind}`, kind, feetPosition })
-    if (Result.isFailure(plannedVisual)) {
-      document.body.setAttribute('data-entity-gallery', 'failed')
-      report.textContent = JSON.stringify({ kind, issue: plannedVisual.failure })
-      return false
-    }
-    await Effect.runPromise(renderer.syncEntities([{
-      id: `gallery-${kind}`,
-      kind,
-      feetPosition,
-      blockLight: ENTITY_GALLERY_LIGHT_LEVEL,
-      skyLight: ENTITY_GALLERY_LIGHT_LEVEL,
-    }]))
-    const [entityCount, diagnostics] = await Effect.runPromise(Effect.all([
-      renderer.entityCount,
-      renderer.entityModelDiagnostics,
-    ]))
-    if (entityCount !== 1 || diagnostics.length !== 0) {
-      document.body.setAttribute('data-entity-gallery', 'failed')
-      report.textContent = JSON.stringify({ kind, entityCount, diagnostics })
-      return false
-    }
-
-    const bounds = entityModelBounds(plannedVisual.success.parts)
-    const size = bounds.getSize(new THREE.Vector3())
-    const center = bounds.getCenter(new THREE.Vector3())
-    const halfExtent = Math.max(size.x / 2, size.y / 2, size.z / 2)
-    const distance = Math.max(
-      ENTITY_GALLERY_ONE,
-      halfExtent / Math.tan(THREE.MathUtils.degToRad(ENTITY_GALLERY_FIELD_OF_VIEW / 2)) * ENTITY_GALLERY_FRAME_MARGIN,
-    )
-    const cameraRise = distance * ENTITY_GALLERY_CAMERA_ELEVATION_FACTOR
-    const pose = {
-      x: center.x,
-      y: center.y + cameraRise,
-      z: center.z + distance,
-      yaw: ENTITY_GALLERY_ZERO,
-      pitch: -Math.atan2(cameraRise, distance),
-    }
-    await Effect.runPromise(renderer.draw(cameraFrom(pose)))
-    gl.readPixels(
-      0,
-      0,
-      ENTITY_GALLERY_VIEWPORT.width,
-      ENTITY_GALLERY_VIEWPORT.height,
-      gl.RGBA,
-      gl.UNSIGNED_BYTE,
-      pixels,
-    )
-
-    const [skyRed, skyGreen, skyBlue] = skyBytes()
-    let visiblePixels = 0
-    for (let pixel = 0; pixel < pixels.length; pixel += 4) {
-      const isSky = Math.abs((pixels[pixel] ?? 0) - skyRed) <= ENTITY_GALLERY_BACKGROUND_TOLERANCE &&
-        Math.abs((pixels[pixel + 1] ?? 0) - skyGreen) <= ENTITY_GALLERY_BACKGROUND_TOLERANCE &&
-        Math.abs((pixels[pixel + 2] ?? 0) - skyBlue) <= ENTITY_GALLERY_BACKGROUND_TOLERANCE
-      if (!isSky) {
-        visiblePixels += 1
-      }
-    }
-    if (visiblePixels === 0) {
-      document.body.setAttribute('data-entity-gallery', 'failed')
-      report.textContent = `${kind} produced no visible pixels in its gallery cell.`
-      return false
-    }
-
-    const image = context.createImageData(ENTITY_GALLERY_VIEWPORT.width, ENTITY_GALLERY_VIEWPORT.height)
-    for (let y = 0; y < ENTITY_GALLERY_VIEWPORT.height; y += 1) {
-      const sourceY = ENTITY_GALLERY_VIEWPORT.height - y - 1
-      const sourceStart = sourceY * ENTITY_GALLERY_VIEWPORT.width * 4
-      const targetStart = y * ENTITY_GALLERY_VIEWPORT.width * 4
-      image.data.set(pixels.subarray(sourceStart, sourceStart + ENTITY_GALLERY_VIEWPORT.width * 4), targetStart)
-    }
-    const column = index % ENTITY_GALLERY_COLUMNS
-    const row = Math.floor(index / ENTITY_GALLERY_COLUMNS)
-    const targetX = column * ENTITY_GALLERY_VIEWPORT.width
-    const targetY = row * cellStrideY
-    context.putImageData(image, targetX, targetY)
-    context.fillStyle = '#d8dee9'
-    context.fillText(kind.replaceAll('_', ' '), targetX + ENTITY_GALLERY_VIEWPORT.width / 2, targetY + ENTITY_GALLERY_CELL_HEIGHT + ENTITY_GALLERY_LABEL_HEIGHT / 2)
-    renderedModels += 1
+  const gallery = {
+    cellStrideY,
+    context,
+    gl,
+    pixels: new Uint8Array(ENTITY_GALLERY_VIEWPORT.width * ENTITY_GALLERY_VIEWPORT.height * 4),
+    renderer,
   }
-
-  const complete = renderedModels === ENTITY_MODEL_CATALOG.length && renderedModels === 128
-  document.body.setAttribute('data-entity-gallery', complete ? 'drawn' : 'failed')
-  document.body.setAttribute('data-entity-gallery-count', String(renderedModels))
-  report.textContent = `Rendered ${String(renderedModels)} entity models through WorldRenderer.syncEntities with the generated CC0 texture atlas.`
-  return complete
+  const allModelsRendered = await ENTITY_MODEL_CATALOG.reduce<Promise<boolean>>(
+    (previous, model, index) => previous.then(async (wasComplete) => {
+      if (!wasComplete) {
+        return false
+      }
+      const rendered = await drawEntityContactSheetCell(gallery, report, model, index)
+      return Result.isSuccess(rendered)
+    }),
+    Promise.resolve(true),
+  )
+  if (!allModelsRendered) {
+    return false
+  }
+  if (ENTITY_MODEL_CATALOG.length !== ENTITY_GALLERY_EXPECTED_MODEL_COUNT) {
+    entityGalleryFailure(report, `Expected ${String(ENTITY_GALLERY_EXPECTED_MODEL_COUNT)} entity models.`)
+    return false
+  }
+  document.body.setAttribute('data-entity-gallery', 'drawn')
+  document.body.setAttribute('data-entity-gallery-count', String(ENTITY_MODEL_CATALOG.length))
+  report.textContent = `Rendered ${String(ENTITY_MODEL_CATALOG.length)} entity models through WorldRenderer.syncEntities with the generated CC0 texture atlas.`
+  return true
 }
 
 const drawEntityPreview = async (renderer: EntityPreviewRenderer, report: HTMLElement): Promise<boolean> => {
@@ -570,7 +624,23 @@ const createPreviewPresentation = async (
   return Result.succeed({ dispose, enabled, startPose, update })
 }
 
-const main = async (): Promise<void> => {
+type PreviewRequest = Readonly<{
+  readonly canvas: HTMLCanvasElement
+  readonly contactCanvas: HTMLCanvasElement | undefined
+  readonly entityGallery: boolean
+  readonly entityPreview: boolean
+  readonly entityRendering: boolean
+  readonly report: HTMLElement
+  readonly viewport: Readonly<{ readonly width: number; readonly height: number }>
+}>
+
+type PreviewSetup = Readonly<{
+  readonly atlasTexture: THREE.Texture
+  readonly renderer: WorldRenderer
+  readonly request: PreviewRequest
+}>
+
+const resolvePreviewRequest = (): PreviewRequest | undefined => {
   const search = new URLSearchParams(window.location.search)
   const entityPreview = search.get('entities') === '1'
   const entityGallery = search.get('entity-gallery') === '1'
@@ -581,7 +651,7 @@ const main = async (): Promise<void> => {
   if (!(canvas instanceof HTMLCanvasElement) || report === null ||
     (entityGallery && !(contactCanvas instanceof HTMLCanvasElement))) {
     document.body.setAttribute('data-render-preview', 'failed')
-    return
+    return undefined
   }
   const viewport = entityGallery ? ENTITY_GALLERY_VIEWPORT : VIEWPORT
   canvas.width = viewport.width
@@ -589,7 +659,18 @@ const main = async (): Promise<void> => {
   if (entityGallery) {
     document.body.setAttribute('data-entity-gallery', 'running')
   }
+  return {
+    canvas,
+    contactCanvas: contactCanvas instanceof HTMLCanvasElement ? contactCanvas : undefined,
+    entityGallery,
+    entityPreview,
+    entityRendering,
+    report,
+    viewport,
+  }
+}
 
+const loadBlockTextureAtlas = async (): Promise<THREE.Texture> => {
   const atlasUrl = new URL('../../src/assets/block-textures/atlas.png', import.meta.url).href
   const atlasTexture = await new THREE.TextureLoader().loadAsync(atlasUrl)
   atlasTexture.colorSpace = THREE.SRGBColorSpace
@@ -600,22 +681,32 @@ const main = async (): Promise<void> => {
   atlasTexture.wrapS = THREE.ClampToEdgeWrapping
   atlasTexture.wrapT = THREE.ClampToEdgeWrapping
   atlasTexture.needsUpdate = true
-  const entityAtlasTexture = entityRendering ? await loadEntityTexture() : undefined
-  const renderer = await Effect.runPromise(
+  return atlasTexture
+}
+
+const makePreviewRenderer = async (
+  request: PreviewRequest,
+  atlasTexture: THREE.Texture,
+): Promise<WorldRenderer> => {
+  const entityAtlasTexture = request.entityRendering ? await loadEntityTexture() : undefined
+  let projectionOptions = {}
+  if (request.entityGallery) {
+    projectionOptions = { farPlane: ENTITY_GALLERY_CAMERA_FAR_PLANE, fovDegrees: ENTITY_GALLERY_FIELD_OF_VIEW }
+  } else if (request.entityPreview) {
+    projectionOptions = { fovDegrees: ENTITY_PREVIEW_FOV_DEGREES }
+  }
+  const entityOptions = entityAtlasTexture === undefined ? {} : {
+    entityMaterial: () => new THREE.MeshBasicMaterial({ map: entityAtlasTexture, vertexColors: true }),
+  }
+  return Effect.runPromise(
     makeWorldRenderer<
       HTMLCanvasElement,
       THREE.BufferGeometry,
       THREE.MeshBasicMaterial,
       THREE.ShaderMaterial
-    >(THREE, canvas, viewport, {
-      ...(entityGallery
-        ? { farPlane: ENTITY_GALLERY_CAMERA_FAR_PLANE, fovDegrees: ENTITY_GALLERY_FIELD_OF_VIEW }
-        : entityPreview
-          ? { fovDegrees: ENTITY_PREVIEW_FOV_DEGREES }
-          : {}),
-      ...(entityAtlasTexture === undefined ? {} : {
-        entityMaterial: () => new THREE.MeshBasicMaterial({ map: entityAtlasTexture, vertexColors: true }),
-      }),
+    >(THREE, request.canvas, request.viewport, {
+      ...projectionOptions,
+      ...entityOptions,
       material: () =>
         makeChunkShaderMaterial<
           HTMLCanvasElement,
@@ -625,15 +716,38 @@ const main = async (): Promise<void> => {
         >(THREE, atlasTexture).material,
     }),
   )
+}
 
-  if (entityGallery && contactCanvas instanceof HTMLCanvasElement) {
-    const complete = await drawEntityContactSheet(renderer, canvas, contactCanvas, report)
+const initializePreview = async (): Promise<PreviewSetup | undefined> => {
+  const request = resolvePreviewRequest()
+  if (request === undefined) {
+    return undefined
+  }
+  const atlasTexture = await loadBlockTextureAtlas()
+  const renderer = await makePreviewRenderer(request, atlasTexture)
+  if (request.entityGallery) {
+    const { contactCanvas } = request
+    if (contactCanvas === undefined) {
+      document.body.setAttribute('data-entity-gallery', 'failed')
+      return undefined
+    }
+    const complete = await drawEntityContactSheet(renderer, request.canvas, contactCanvas, request.report)
     await Effect.runPromise(renderer.dispose)
     if (!complete) {
       document.body.setAttribute('data-render-preview', 'failed')
     }
+    return undefined
+  }
+  return { atlasTexture, renderer, request }
+}
+
+const main = async (): Promise<void> => {
+  const previewSetup = await initializePreview()
+  if (previewSetup === undefined) {
     return
   }
+  const { atlasTexture, renderer, request } = previewSetup
+  const { canvas, entityPreview, report } = request
 
   const presentationSetupResult = await createPreviewPresentation(renderer, atlasTexture)
   if (Result.isFailure(presentationSetupResult)) {

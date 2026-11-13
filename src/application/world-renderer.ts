@@ -106,7 +106,6 @@ import {
   type EntityVisualPlan,
   planEntityVisual,
 } from './entity-visual-plan.js'
-import type { EntityTextureResolutionIssue } from '../domain/entity-model-textures.js'
 import {
   type MobAnimationInput,
   MobAnimationInputSchema,
@@ -153,6 +152,7 @@ import {
 import { CHUNK_HEIGHT } from '@nerima-games/mc-worldgen'
 import { CHUNK_SIZE } from '@nerima-games/mc-meshing'
 import { type EntityModelResolutionIssue } from '../domain/entity-model-catalog.js'
+import type { EntityTextureResolutionIssue } from '../domain/entity-model-textures.js'
 import type { MirroredCameraState } from '../domain/camera-mirror.js'
 import type { PostProcessingStep } from '../domain/post-processing.js'
 import { makeThreeWeatherPrecipitation } from './three-weather-runtime.js'
@@ -1314,6 +1314,18 @@ const CUBE_VERTEX_4 = 4
 const CUBE_VERTEX_5 = 5
 const CUBE_VERTEX_6 = 6
 const CUBE_VERTEX_7 = 7
+const CUBE_FACE_CORNER_0 = 0
+const CUBE_FACE_CORNER_1 = 1
+const CUBE_FACE_CORNER_2 = 2
+const CUBE_FACE_CORNER_3 = 3
+const CUBE_FACE_TRIANGLE_CORNER_INDICES = [
+  CUBE_FACE_CORNER_0,
+  CUBE_FACE_CORNER_1,
+  CUBE_FACE_CORNER_2,
+  CUBE_FACE_CORNER_0,
+  CUBE_FACE_CORNER_3,
+  CUBE_FACE_CORNER_1,
+] as const
 
 /** Each face needs its own four vertices so all six faces can use the complete atlas tile. */
 const UNIT_CUBE_VERTEX_COUNT = 24
@@ -1360,63 +1372,80 @@ const entityGeometryKey = (
   return `${kind}${ENTITY_MODEL_GEOMETRY_SEPARATOR}${colorKey}${ENTITY_LIGHT_GEOMETRY_SEPARATOR}${brightnessFactor}`
 }
 
+type CubeVertex = typeof CUBE_VERTEX_0 | typeof CUBE_VERTEX_1 | typeof CUBE_VERTEX_2 | typeof CUBE_VERTEX_3 |
+  typeof CUBE_VERTEX_4 | typeof CUBE_VERTEX_5 | typeof CUBE_VERTEX_6 | typeof CUBE_VERTEX_7
+
+const CUBE_CORNERS: Readonly<Record<CubeVertex, readonly [number, number, number]>> = {
+  [CUBE_VERTEX_0]: [CUBE_MIN, CUBE_MIN, CUBE_MIN], [CUBE_VERTEX_1]: [CUBE_MAX, CUBE_MIN, CUBE_MIN],
+  [CUBE_VERTEX_2]: [CUBE_MAX, CUBE_MAX, CUBE_MIN], [CUBE_VERTEX_3]: [CUBE_MIN, CUBE_MAX, CUBE_MIN],
+  [CUBE_VERTEX_4]: [CUBE_MIN, CUBE_MIN, CUBE_MAX], [CUBE_VERTEX_5]: [CUBE_MAX, CUBE_MIN, CUBE_MAX],
+  [CUBE_VERTEX_6]: [CUBE_MAX, CUBE_MAX, CUBE_MAX], [CUBE_VERTEX_7]: [CUBE_MIN, CUBE_MAX, CUBE_MAX],
+}
+
+const CUBE_FACES: ReadonlyArray<readonly [CubeVertex, CubeVertex, CubeVertex, CubeVertex]> = [
+  [CUBE_VERTEX_0, CUBE_VERTEX_2, CUBE_VERTEX_1, CUBE_VERTEX_3],
+  [CUBE_VERTEX_4, CUBE_VERTEX_5, CUBE_VERTEX_6, CUBE_VERTEX_7],
+  [CUBE_VERTEX_0, CUBE_VERTEX_4, CUBE_VERTEX_7, CUBE_VERTEX_3],
+  [CUBE_VERTEX_1, CUBE_VERTEX_2, CUBE_VERTEX_6, CUBE_VERTEX_5],
+  [CUBE_VERTEX_0, CUBE_VERTEX_1, CUBE_VERTEX_5, CUBE_VERTEX_4],
+  [CUBE_VERTEX_3, CUBE_VERTEX_7, CUBE_VERTEX_6, CUBE_VERTEX_2],
+]
+
+const entityFaceUvs = (
+  [uMinimum, vMinimum, uMaximum, vMaximum]: EntityVisualPlan['textureCoordinates'],
+): ReadonlyArray<readonly [number, number]> => [
+  [uMinimum, vMinimum], [uMinimum, vMaximum], [uMaximum, vMaximum], [uMaximum, vMinimum],
+]
+
+const writeCubeFace = (
+  faceIndex: number,
+  face: ReadonlyArray<CubeVertex>,
+  color: readonly [number, number, number],
+  brightnessFactor: number,
+  faceUvs: ReadonlyArray<readonly [number, number]>,
+  buffers: { positions: Float32Array; colors: Uint8Array; uvs: Float32Array },
+): void => {
+  for (const [cornerIndex, cubeCornerIndex] of face.entries()) {
+    const vertexIndex = faceIndex * UNIT_CUBE_FACE_VERTEX_COUNT + cornerIndex
+    const positionOffset = vertexIndex * POSITION_COMPONENTS
+    const colorOffset = vertexIndex * COLOR_COMPONENTS
+    const uvOffset = vertexIndex * ENTITY_UV_COMPONENTS
+    buffers.positions.set(CUBE_CORNERS[cubeCornerIndex], positionOffset)
+    buffers.colors.set([
+      Math.round(color[RED_COLOR_COMPONENT_INDEX] * brightnessFactor),
+      Math.round(color[GREEN_COLOR_COMPONENT_INDEX] * brightnessFactor),
+      Math.round(color[BLUE_COLOR_COMPONENT_INDEX] * brightnessFactor),
+    ], colorOffset)
+    const faceUv = faceUvs[cornerIndex]
+    if (faceUv !== undefined) {
+      buffers.uvs.set(faceUv, uvOffset)
+    }
+  }
+}
+
+const writeCubeFaceIndices = (faceIndex: number, indices: Uint32Array): void => {
+  for (const [index, cornerIndex] of CUBE_FACE_TRIANGLE_CORNER_INDICES.entries()) {
+    indices[faceIndex * UNIT_CUBE_FACE_TRIANGLE_INDEX_COUNT + index] =
+      faceIndex * UNIT_CUBE_FACE_VERTEX_COUNT + cornerIndex
+  }
+}
+
 const unitCubeBuffers = (
   color: readonly [number, number, number],
   brightnessFactor: number,
   textureCoordinates: EntityVisualPlan['textureCoordinates'],
 ) => {
-  type CubeVertex = typeof CUBE_VERTEX_0 | typeof CUBE_VERTEX_1 | typeof CUBE_VERTEX_2 | typeof CUBE_VERTEX_3 |
-    typeof CUBE_VERTEX_4 | typeof CUBE_VERTEX_5 | typeof CUBE_VERTEX_6 | typeof CUBE_VERTEX_7
-  const cubeCorners: Readonly<Record<CubeVertex, readonly [number, number, number]>> = {
-    [CUBE_VERTEX_0]: [CUBE_MIN, CUBE_MIN, CUBE_MIN], [CUBE_VERTEX_1]: [CUBE_MAX, CUBE_MIN, CUBE_MIN],
-    [CUBE_VERTEX_2]: [CUBE_MAX, CUBE_MAX, CUBE_MIN], [CUBE_VERTEX_3]: [CUBE_MIN, CUBE_MAX, CUBE_MIN],
-    [CUBE_VERTEX_4]: [CUBE_MIN, CUBE_MIN, CUBE_MAX], [CUBE_VERTEX_5]: [CUBE_MAX, CUBE_MIN, CUBE_MAX],
-    [CUBE_VERTEX_6]: [CUBE_MAX, CUBE_MAX, CUBE_MAX], [CUBE_VERTEX_7]: [CUBE_MIN, CUBE_MAX, CUBE_MAX],
-  }
-  const cubeFaces: ReadonlyArray<readonly [CubeVertex, CubeVertex, CubeVertex, CubeVertex]> = [
-    [CUBE_VERTEX_0, CUBE_VERTEX_2, CUBE_VERTEX_1, CUBE_VERTEX_3],
-    [CUBE_VERTEX_4, CUBE_VERTEX_5, CUBE_VERTEX_6, CUBE_VERTEX_7],
-    [CUBE_VERTEX_0, CUBE_VERTEX_4, CUBE_VERTEX_7, CUBE_VERTEX_3],
-    [CUBE_VERTEX_1, CUBE_VERTEX_2, CUBE_VERTEX_6, CUBE_VERTEX_5],
-    [CUBE_VERTEX_0, CUBE_VERTEX_1, CUBE_VERTEX_5, CUBE_VERTEX_4],
-    [CUBE_VERTEX_3, CUBE_VERTEX_7, CUBE_VERTEX_6, CUBE_VERTEX_2],
-  ]
-  const [uMinimum, vMinimum, uMaximum, vMaximum] = textureCoordinates
-  const faceUvs: ReadonlyArray<readonly [number, number]> = [
-    [uMinimum, vMinimum], [uMinimum, vMaximum], [uMaximum, vMaximum], [uMaximum, vMinimum],
-  ]
-  const faceIndices = [0, 1, 2, 0, 3, 1] as const
   const positions = new Float32Array(UNIT_CUBE_VERTEX_COUNT * POSITION_COMPONENTS)
   const colors = new Uint8Array(UNIT_CUBE_VERTEX_COUNT * COLOR_COMPONENTS)
   const uvs = new Float32Array(UNIT_CUBE_VERTEX_COUNT * ENTITY_UV_COMPONENTS)
   const indices = new Uint32Array(UNIT_CUBE_FACE_COUNT * UNIT_CUBE_FACE_TRIANGLE_INDEX_COUNT)
-  for (const [faceIndex, face] of cubeFaces.entries()) {
-    for (const [cornerIndex, cubeCornerIndex] of face.entries()) {
-      const vertexIndex = faceIndex * UNIT_CUBE_FACE_VERTEX_COUNT + cornerIndex
-      const positionOffset = vertexIndex * POSITION_COMPONENTS
-      const colorOffset = vertexIndex * COLOR_COMPONENTS
-      const uvOffset = vertexIndex * ENTITY_UV_COMPONENTS
-      positions.set(cubeCorners[cubeCornerIndex], positionOffset)
-      colors.set([
-        Math.round(color[RED_COLOR_COMPONENT_INDEX] * brightnessFactor),
-        Math.round(color[GREEN_COLOR_COMPONENT_INDEX] * brightnessFactor),
-        Math.round(color[BLUE_COLOR_COMPONENT_INDEX] * brightnessFactor),
-      ], colorOffset)
-      const faceUv = faceUvs[cornerIndex]
-      if (faceUv !== undefined) {
-        uvs.set(faceUv, uvOffset)
-      }
-    }
-    for (const [index, cornerIndex] of faceIndices.entries()) {
-      indices[faceIndex * UNIT_CUBE_FACE_TRIANGLE_INDEX_COUNT + index] = faceIndex * UNIT_CUBE_FACE_VERTEX_COUNT + cornerIndex
-    }
+  const faceUvs = entityFaceUvs(textureCoordinates)
+  const buffers = { colors, positions, uvs }
+  for (const [faceIndex, face] of CUBE_FACES.entries()) {
+    writeCubeFace(faceIndex, face, color, brightnessFactor, faceUvs, buffers)
+    writeCubeFaceIndices(faceIndex, indices)
   }
-  return {
-    colors,
-    indices,
-    positions,
-    uvs,
-  }
+  return { colors, indices, positions, uvs }
 }
 
 /** `entity.category`, present only when the source entity has one. */

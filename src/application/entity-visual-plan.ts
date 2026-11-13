@@ -9,7 +9,11 @@ import {
   decodeEntityModelKind,
   entityModelForKind,
 } from '../domain/entity-model-catalog.js'
-import { entityTextureUvForKind, type EntityTextureResolutionIssue, type EntityTextureUvCoordinates } from '../domain/entity-model-textures.js'
+import {
+  type EntityTextureResolutionIssue,
+  type EntityTextureUvCoordinates,
+  entityTextureUvForKind,
+} from '../domain/entity-model-textures.js'
 import {
   MOB_VISUAL_KINDS,
   type MobAnimationInput,
@@ -518,23 +522,46 @@ const planDedicatedEntityVisual = (
   return undefined
 }
 
-export const planEntityVisual = (
-  entity: RenderEntity,
-): Result.Result<EntityVisualPlan, EntityModelResolutionIssue | EntityTextureResolutionIssue | Schema.SchemaError> => {
-  const modelKindInput = entity.category === 'item' ? 'item' : entity.kind
-  const decodedKind = decodeEntityModelKind(modelKindInput)
-  if (Result.isFailure(decodedKind)) {
-    return Result.fail(decodedKind.failure)
+const modelKindInputFor = (entity: RenderEntity): string => {
+  if (entity.category === 'item') {
+    return 'item'
   }
+  return entity.kind
+}
+
+const untexturedVisualFor = (
+  entity: RenderEntity,
+  kind: EntityModelKind,
+): Result.Result<UntexturedEntityVisualPlan, EntityModelResolutionIssue | Schema.SchemaError> => {
   const facingRadians = entityFacing(entity)
   const dedicatedVisual = planDedicatedEntityVisual(entity, facingRadians)
-  const visual = dedicatedVisual ?? planDefaultEntityVisual(entity, facingRadians, decodedKind.success)
-  if (Result.isFailure(visual)) {
-    return Result.fail(visual.failure)
+  if (dedicatedVisual !== undefined) {
+    return dedicatedVisual
   }
-  const textureCoordinates = entityTextureUvForKind(decodedKind.success)
+  return planDefaultEntityVisual(entity, facingRadians, kind)
+}
+
+const withEntityTextureCoordinates = (
+  visual: UntexturedEntityVisualPlan,
+  kind: EntityModelKind,
+): Result.Result<EntityVisualPlan, EntityTextureResolutionIssue> => {
+  const textureCoordinates = entityTextureUvForKind(kind)
   if (Result.isFailure(textureCoordinates)) {
     return Result.fail(textureCoordinates.failure)
   }
-  return Result.succeed({ ...visual.success, textureCoordinates: textureCoordinates.success })
+  return Result.succeed({ ...visual, textureCoordinates: textureCoordinates.success })
+}
+
+export const planEntityVisual = (
+  entity: RenderEntity,
+): Result.Result<EntityVisualPlan, EntityModelResolutionIssue | EntityTextureResolutionIssue | Schema.SchemaError> => {
+  const decodedKind = decodeEntityModelKind(modelKindInputFor(entity))
+  if (Result.isFailure(decodedKind)) {
+    return Result.fail(decodedKind.failure)
+  }
+  const visual = untexturedVisualFor(entity, decodedKind.success)
+  if (Result.isFailure(visual)) {
+    return Result.fail(visual.failure)
+  }
+  return withEntityTextureCoordinates(visual.success, decodedKind.success)
 }

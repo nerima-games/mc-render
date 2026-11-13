@@ -81,7 +81,7 @@ import type { ThreeObject3D, ThreeScene } from '../src/application/three-surface
 import { angleRadians, blockId, chunkCoord, position } from './support/kernel-brands'
 import { makeAnimationClockInput } from './support/animation-clock'
 
-const requiredWeatherValue = <Value>(value: Value | undefined): Value => {
+const requiredTestValue = <Value>(value: Value | undefined): Value => {
   if (typeof value === 'undefined') {
     throw new Error('expected a weather resource to exist')
   }
@@ -91,14 +91,14 @@ const requiredWeatherValue = <Value>(value: Value | undefined): Value => {
 const readWeatherResources = (three: ReturnType<typeof makeFakeThree>) => {
   const [particleGeometry, lightningGeometry] = three.geometries()
   const [particleMesh, lightningMesh] = three.meshes()
-  const particlePositionAttribute = requiredWeatherValue(particleGeometry?.attributes.get('position'))
-  const lightningPositionAttribute = requiredWeatherValue(lightningGeometry?.attributes.get('position'))
+  const particlePositionAttribute = requiredTestValue(particleGeometry?.attributes.get('position'))
+  const lightningPositionAttribute = requiredTestValue(lightningGeometry?.attributes.get('position'))
   return {
-    lightningGeometry: requiredWeatherValue(lightningGeometry),
-    lightningMesh: requiredWeatherValue(lightningMesh),
+    lightningGeometry: requiredTestValue(lightningGeometry),
+    lightningMesh: requiredTestValue(lightningMesh),
     lightningPositionAttribute,
-    particleGeometry: requiredWeatherValue(particleGeometry),
-    particleMesh: requiredWeatherValue(particleMesh),
+    particleGeometry: requiredTestValue(particleGeometry),
+    particleMesh: requiredTestValue(particleMesh),
     particlePositionAttribute,
   }
 }
@@ -834,7 +834,8 @@ describe('entity meshes in the scene', () => {
         { id: 'textured-zombie', kind: 'zombie', feetPosition: { x: 1, y: 2, z: 3 } },
       ])
 
-      const firstMesh = three.meshes()[0]
+      const [unverifiedFirstMesh] = three.meshes()
+      const firstMesh = requiredTestValue(unverifiedFirstMesh)
       const uvAttribute = firstMesh?.geometry.attributes.get('uv')
       const zombieTexture = ENTITY_MODEL_TEXTURE_ATLAS.entries.find(({ kind }) => kind === 'zombie')
       expect(firstMesh?.material).toBe(entityMaterial)
@@ -916,26 +917,31 @@ describe('entity meshes in the scene', () => {
       yield* renderer.syncEntityFrame(frame)
 
       const meshes = three.meshes()
-      const [playerHead, , , , playerBody, leftArm, rightArm, , , leftLeg, rightLeg] = meshes
+      const [unverifiedPlayerHead, , , , unverifiedPlayerBody, unverifiedLeftArm, unverifiedRightArm, , , unverifiedLeftLeg, unverifiedRightLeg] = meshes
+      const playerHead = requiredTestValue(unverifiedPlayerHead)
+      const playerBody = requiredTestValue(unverifiedPlayerBody)
+      const leftArm = requiredTestValue(unverifiedLeftArm)
+      const rightArm = requiredTestValue(unverifiedRightArm)
+      const leftLeg = requiredTestValue(unverifiedLeftLeg)
+      const rightLeg = requiredTestValue(unverifiedRightLeg)
       expect(meshes).toHaveLength(52)
-      expect(playerHead?.positions()[0]).toStrictEqual([4, 11.55, -2])
-      expect(playerHead?.rotations()[0]).toStrictEqual([Math.PI / 6, Math.PI / 4, 0, 'YXZ'])
-      expect(playerBody?.rotations()[0]).toStrictEqual([0, Math.PI / 2, 0, 'YXZ'])
-      expect(leftArm?.rotations()[0]?.[0]).toBeCloseTo(0.225 - Math.PI / 4, 12)
-      expect(rightArm?.rotations()[0]?.[0]).toBeCloseTo(-0.225 + Math.PI / 4, 12)
-      expect(leftLeg?.rotations()[0]?.[0]).toBeCloseTo(0.325, 12)
-      expect(rightLeg?.rotations()[0]?.[0]).toBeCloseTo(-0.325, 12)
+      expect(playerHead.positions()[0]).toStrictEqual([4, 11.55, -2])
+      expect(requiredTestValue(playerHead.rotations()[0])).toStrictEqual([Math.PI / 6, Math.PI / 4, 0, 'YXZ'])
+      expect(requiredTestValue(playerBody.rotations()[0])).toStrictEqual([0, Math.PI / 2, 0, 'YXZ'])
+      expect(requiredTestValue(leftArm.rotations()[0])[0]).toBeCloseTo(0.225 - Math.PI / 4, 12)
+      expect(requiredTestValue(rightArm.rotations()[0])[0]).toBeCloseTo(-0.225 + Math.PI / 4, 12)
+      expect(requiredTestValue(leftLeg.rotations()[0])[0]).toBeCloseTo(0.325, 12)
+      expect(requiredTestValue(rightLeg.rotations()[0])[0]).toBeCloseTo(-0.325, 12)
       expect(entityColorBytes(playerHead)).toStrictEqual([137, 103, 70])
 
-      const dragon = ENTITY_MODEL_CATALOG.find(({ kind }) => kind === 'ender_dragon')
-      expect(dragon).toBeDefined()
-      const playerPartCount = ENTITY_MODEL_CATALOG.find(({ kind }) => kind === 'player')?.parts.length ?? 0
-      const wingRootIndex = dragon?.parts.findIndex(({ id }) => id === 'left-wing-root') ?? -1
-      const tailBaseIndex = dragon?.parts.findIndex(({ id }) => id === 'tail-base') ?? -1
-      const wingRoot = meshes[playerPartCount + wingRootIndex]
-      const tailBase = meshes[playerPartCount + tailBaseIndex]
-      expect(wingRoot?.rotations()[0]?.[2]).toBeCloseTo(-0.325, 6)
-      expect(tailBase?.rotations()[0]?.[1]).toBeCloseTo(0.175, 6)
+      const dragon = requiredTestValue(ENTITY_MODEL_CATALOG.find(({ kind }) => kind === 'ender_dragon'))
+      const player = requiredTestValue(ENTITY_MODEL_CATALOG.find(({ kind }) => kind === 'player'))
+      const wingRootIndex = dragon.parts.findIndex(({ id }) => id === 'left-wing-root')
+      const tailBaseIndex = dragon.parts.findIndex(({ id }) => id === 'tail-base')
+      const wingRoot = requiredTestValue(meshes[player.parts.length + wingRootIndex])
+      const tailBase = requiredTestValue(meshes[player.parts.length + tailBaseIndex])
+      expect(requiredTestValue(wingRoot.rotations()[0])[2]).toBeCloseTo(-0.325, 6)
+      expect(requiredTestValue(tailBase.rotations()[0])[1]).toBeCloseTo(0.175, 6)
       expect(yield* renderer.entityModelDiagnostics).toStrictEqual([])
       yield* renderer.dispose
     }),
