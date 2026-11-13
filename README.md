@@ -196,7 +196,8 @@ casts ([`docs/design-notes.md`](./docs/design-notes.md) DN-15). The published
   `entityMaterial` factoryでテクスチャ付きマテリアルを渡し、PNGを読み込めない場合は
   `entityTextureAtlasPixels()` が返す生成済み画素を `DataTexture` に使える。モデルとテクスチャは
   `scripts/entity-models/generate.ts` が決定的に生成し、`assets/entity-models/manifest.json` に
-  CC0-1.0の適用範囲と来歴を記録する。詳細は
+  CC0-1.0の適用範囲と来歴を記録する。各モデルの幅と高さは元の形状を基準に決め、
+  `scripts/entity-models/model-design-dimensions.json` に記録する。詳細は
   [`docs/public-api.md`](./docs/public-api.md) §3.7 を参照。
 - **`syncEntities` はrenderer DTOを実行時検証する。** 未知のキーや不正な数値がある入力は
   `Schema.SchemaError` で失敗し、メッシュ同期の前に検出する。ブロック光と天空光は両方省略すると全輝度になり、

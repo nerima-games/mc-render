@@ -1249,9 +1249,9 @@ WorldRenderer.entityModelDiagnostics: Effect.Effect<ReadonlyArray<WorldRendererE
 
 モデルの元データは `scripts/entity-models/source/` にあり、
 `scripts/entity-models/generate.ts` が8グループのモデル記述子、128タイルのテクスチャ atlas、
-PNGと境界一覧を決定的に生成する。`--check` は生成物とマニフェストが元データに一致するかを検証する。
-`assets/entity-models/manifest.json` は独自の生成スクリプトとモデル・テクスチャ生成物にCC0-1.0を適用する。
-衝突寸法の参照データとその比較一覧はMinecraft WikiのCC BY-NC-SA 3.0で、CC0の範囲から除外する。
+PNGを決定的に生成する。各モデルの幅と高さは元の形状を基準に決め、
+`scripts/entity-models/model-design-dimensions.json` に記録する。`--check` は生成物とマニフェストが元データに一致するかを検証する。
+`assets/entity-models/manifest.json` は独自の生成スクリプト、寸法設計表、モデル・テクスチャ生成物にCC0-1.0を適用する。
 それ以外のリポジトリ所有ファイルはMITである。モデルとテクスチャの素材は独自制作で、
 外部のモデル・テクスチャ・ゲームアートは使っていない。
 
