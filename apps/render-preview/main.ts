@@ -65,11 +65,11 @@ import {
 } from '../../src/domain/entity-model-textures.js'
 
 const VIEWPORT = { width: 640, height: 360 }
-const ENTITY_GALLERY_VIEWPORT = { width: 128, height: 128 }
+const ENTITY_GALLERY_VIEWPORT = { width: 256, height: 256 }
 const ENTITY_GALLERY_COLUMNS = 16
 const ENTITY_GALLERY_ROWS = 8
 const ENTITY_GALLERY_EXPECTED_MODEL_COUNT = 128
-const ENTITY_GALLERY_CELL_HEIGHT = 128
+const ENTITY_GALLERY_CELL_HEIGHT = 256
 const ENTITY_GALLERY_LABEL_HEIGHT = 20
 const ENTITY_GALLERY_FIELD_OF_VIEW = 34
 const ENTITY_GALLERY_FRAME_MARGIN = 1.3
