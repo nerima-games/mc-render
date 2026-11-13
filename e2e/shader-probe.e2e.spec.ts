@@ -13,6 +13,9 @@ const FOUR = 4
 const ENTITY_GALLERY_SEGMENTS = 4
 const MIN_VISIBLE_ENTITY_PIXELS = 100
 const VISIBLE_PIXEL_RGB_DISTANCE = 48
+const ENTITY_GALLERY_CELL_HORIZONTAL_INSET = 0.125
+const ENTITY_GALLERY_CELL_VERTICAL_TOP_INSET = 0.25
+const ENTITY_GALLERY_CELL_VERTICAL_BOTTOM_INSET = 0.125
 const WINDOW_SIZE = 8
 const LUMA_RANGE = 255
 const LUMA_RED = 0.299
@@ -220,6 +223,21 @@ const readScreenshotPixels = async (imageBase64: string): Promise<ImagePixels> =
   return context.getImageData(ZERO, ZERO, canvas.width, canvas.height)
 }
 
+const entityGalleryCellBounds = (options: Readonly<{
+  imageHeight: number
+  imageWidth: number
+  segmentCount: number
+  segmentIndex: number
+}>): Readonly<{ left: number; right: number; top: number; bottom: number }> => {
+  const segmentWidth = options.imageWidth / options.segmentCount
+  return {
+    bottom: Math.floor(options.imageHeight * (ONE - ENTITY_GALLERY_CELL_VERTICAL_BOTTOM_INSET)),
+    left: Math.floor(options.segmentIndex * segmentWidth + segmentWidth * ENTITY_GALLERY_CELL_HORIZONTAL_INSET),
+    right: Math.floor((options.segmentIndex + ONE) * segmentWidth - segmentWidth * ENTITY_GALLERY_CELL_HORIZONTAL_INSET),
+    top: Math.floor(options.imageHeight * ENTITY_GALLERY_CELL_VERTICAL_TOP_INSET),
+  }
+}
+
 const countVisibleSegmentPixels = (options: Readonly<{
   background: ReadonlyArray<number>
   image: ImagePixels
@@ -227,11 +245,15 @@ const countVisibleSegmentPixels = (options: Readonly<{
   segmentIndex: number
   visibleColorDistance: number
 }>): number => {
-  const left = Math.floor(options.segmentIndex * options.image.width / options.segmentCount)
-  const right = Math.floor((options.segmentIndex + ONE) * options.image.width / options.segmentCount)
+  const bounds = entityGalleryCellBounds({
+    imageHeight: options.image.height,
+    imageWidth: options.image.width,
+    segmentCount: options.segmentCount,
+    segmentIndex: options.segmentIndex,
+  })
   let visiblePixels = ZERO
-  for (let pixelY = ZERO; pixelY < options.image.height; pixelY += ONE) {
-    for (let pixelX = left; pixelX < right; pixelX += ONE) {
+  for (let pixelY = bounds.top; pixelY < bounds.bottom; pixelY += ONE) {
+    for (let pixelX = bounds.left; pixelX < bounds.right; pixelX += ONE) {
       const offset = (pixelY * options.image.width + pixelX) * FOUR
       const distance = Math.abs((options.image.data[offset] ?? ZERO) - (options.background[ZERO] ?? ZERO)) +
         Math.abs((options.image.data[offset + ONE] ?? ZERO) - (options.background[ONE] ?? ZERO)) +
