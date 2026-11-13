@@ -1382,7 +1382,18 @@ const CUBE_CORNERS: Readonly<Record<CubeVertex, readonly [number, number, number
   [CUBE_VERTEX_6]: [CUBE_MAX, CUBE_MAX, CUBE_MAX], [CUBE_VERTEX_7]: [CUBE_MIN, CUBE_MAX, CUBE_MAX],
 }
 
-const CUBE_FACES: ReadonlyArray<readonly [CubeVertex, CubeVertex, CubeVertex, CubeVertex]> = [
+type CubeFace = readonly [CubeVertex, CubeVertex, CubeVertex, CubeVertex]
+type EntityFaceUv = readonly [number, number]
+type EntityFaceUvSet = readonly [EntityFaceUv, EntityFaceUv, EntityFaceUv, EntityFaceUv]
+
+const ENTITY_CUBE_FACE_CORNER_INDICES = [
+  CUBE_VERTEX_0,
+  CUBE_VERTEX_1,
+  CUBE_VERTEX_2,
+  CUBE_VERTEX_3,
+] as const
+
+const CUBE_FACES: ReadonlyArray<CubeFace> = [
   [CUBE_VERTEX_0, CUBE_VERTEX_2, CUBE_VERTEX_1, CUBE_VERTEX_3],
   [CUBE_VERTEX_4, CUBE_VERTEX_5, CUBE_VERTEX_6, CUBE_VERTEX_7],
   [CUBE_VERTEX_0, CUBE_VERTEX_4, CUBE_VERTEX_7, CUBE_VERTEX_3],
@@ -1393,19 +1404,20 @@ const CUBE_FACES: ReadonlyArray<readonly [CubeVertex, CubeVertex, CubeVertex, Cu
 
 const entityFaceUvs = (
   [uMinimum, vMinimum, uMaximum, vMaximum]: EntityVisualPlan['textureCoordinates'],
-): ReadonlyArray<readonly [number, number]> => [
+): EntityFaceUvSet => [
   [uMinimum, vMinimum], [uMinimum, vMaximum], [uMaximum, vMaximum], [uMaximum, vMinimum],
 ]
 
 const writeCubeFace = (
   faceIndex: number,
-  face: ReadonlyArray<CubeVertex>,
+  face: CubeFace,
   color: readonly [number, number, number],
   brightnessFactor: number,
-  faceUvs: ReadonlyArray<readonly [number, number]>,
+  faceUvs: EntityFaceUvSet,
   buffers: { positions: Float32Array; colors: Uint8Array; uvs: Float32Array },
 ): void => {
-  for (const [cornerIndex, cubeCornerIndex] of face.entries()) {
+  for (const cornerIndex of ENTITY_CUBE_FACE_CORNER_INDICES) {
+    const cubeCornerIndex = face[cornerIndex]
     const vertexIndex = faceIndex * UNIT_CUBE_FACE_VERTEX_COUNT + cornerIndex
     const positionOffset = vertexIndex * POSITION_COMPONENTS
     const colorOffset = vertexIndex * COLOR_COMPONENTS
@@ -1417,9 +1429,7 @@ const writeCubeFace = (
       Math.round(color[BLUE_COLOR_COMPONENT_INDEX] * brightnessFactor),
     ], colorOffset)
     const faceUv = faceUvs[cornerIndex]
-    if (faceUv !== undefined) {
-      buffers.uvs.set(faceUv, uvOffset)
-    }
+    buffers.uvs.set(faceUv, uvOffset)
   }
 }
 

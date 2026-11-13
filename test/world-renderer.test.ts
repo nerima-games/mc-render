@@ -104,6 +104,7 @@ const readWeatherResources = (three: ReturnType<typeof makeFakeThree>) => {
 }
 
 const VIEWPORT = { width: 1280, height: 720 }
+const ENTITY_CUBE_FACE_COUNT = 6
 const entityColorBytes = (mesh: FakeMesh | undefined): ReadonlyArray<number> | undefined => {
   if (mesh === undefined) {
     return undefined
@@ -842,6 +843,11 @@ describe('entity meshes in the scene', () => {
       expect(uvAttribute?.itemSize).toBe(2)
       expect(uvAttribute?.array).toHaveLength(48)
       expect(Array.from(uvAttribute?.array.slice(0, 2) ?? [])).toStrictEqual(zombieTexture?.uv.slice(0, 2))
+      const [uMinimum, vMinimum, uMaximum, vMaximum] = zombieTexture?.uv ?? []
+      const faceUvs = [uMinimum, vMinimum, uMinimum, vMaximum, uMaximum, vMaximum, uMaximum, vMinimum]
+      expect(Array.from(uvAttribute?.array ?? [])).toStrictEqual(
+        Array.from({ length: ENTITY_CUBE_FACE_COUNT }, () => faceUvs).flat(),
+      )
       yield* renderer.dispose
     }),
   )
