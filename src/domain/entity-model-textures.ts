@@ -86,7 +86,7 @@ export const EntityTextureResolutionIssueSchema: Schema.Codec<
     Schema.Codec.Encoded<typeof InvalidEntityTextureCoordinatesSchema>
 > = Schema.Union([UnsupportedEntityTextureSchema, InvalidEntityTextureCoordinatesSchema])
 
-export type EntityModelTextureEntry = Readonly<{
+type EntityModelTextureEntry = Readonly<{
   readonly kind: string
   readonly tile: number
   readonly uv: ReadonlyArray<number>
@@ -95,7 +95,7 @@ export type EntityModelTextureEntry = Readonly<{
   readonly accentColor: ReadonlyArray<number>
 }>
 
-export type EntityModelTextureAtlas = Readonly<{
+type EntityModelTextureAtlas = Readonly<{
   readonly width: number
   readonly height: number
   readonly tileSize: number

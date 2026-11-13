@@ -20,17 +20,19 @@ const entity = (overrides: Partial<RenderEntity> = {}): RenderEntity => ({
   ...overrides,
 })
 
-const expectPlannedVisual = (source: RenderEntity, expected: unknown): void => {
+const expectVisualShape = (source: RenderEntity, expected: unknown): void => {
   const planned = planEntityVisual(source)
   expect(Result.isSuccess(planned)).toBe(true)
   if (Result.isSuccess(planned)) {
-    expect(planned.success).toStrictEqual(expected)
+    const { textureCoordinates, ...visualShape } = planned.success
+    expect(visualShape).toStrictEqual(expected)
+    expect(textureCoordinates).toHaveLength(4)
   }
 }
 
 describe('entity visual planning', () => {
   it('plans an item as a small gold cube at the entity position', () => {
-    expectPlannedVisual(entity({ category: 'item', facingRadians: Math.PI / 2 }), {
+    expectVisualShape(entity({ category: 'item', facingRadians: Math.PI / 2 }), {
       facingRadians: Math.PI / 2,
       parts: [
         {
@@ -56,7 +58,7 @@ describe('entity visual planning', () => {
     }
     const visual = resolvedWitherPlan(witherState)
 
-    expectPlannedVisual(entity({ kind: 'wither', witherState }), {
+    expectVisualShape(entity({ kind: 'wither', witherState }), {
       facingRadians: visual.yawRadians,
       parts: visual.parts,
       position: visual.position,
@@ -75,7 +77,7 @@ describe('entity visual planning', () => {
     }
     const visual = resolvedSkullPlan(projectile)
 
-    expectPlannedVisual(entity({ kind: 'wither_skull', witherSkullProjectile: projectile }), {
+    expectVisualShape(entity({ kind: 'wither_skull', witherSkullProjectile: projectile }), {
       facingRadians: visual.yawRadians,
       parts: visual.parts,
       position: visual.position,
@@ -96,7 +98,7 @@ describe('entity visual planning', () => {
       velocity: { x: -Math.sin(facingRadians), y: 0, z: -Math.cos(facingRadians) },
     })
 
-    expectPlannedVisual(entity({ facingRadians, kind: 'wither' }), {
+    expectVisualShape(entity({ facingRadians, kind: 'wither' }), {
       facingRadians: visual.yawRadians,
       parts: visual.parts,
       position: visual.position,
@@ -117,7 +119,7 @@ describe('entity visual planning', () => {
       variant: 'normal',
     })
 
-    expectPlannedVisual(entity({ facingRadians, kind: 'wither_skull' }), {
+    expectVisualShape(entity({ facingRadians, kind: 'wither_skull' }), {
       facingRadians: visual.yawRadians,
       parts: visual.parts,
       position: visual.position,
@@ -127,7 +129,7 @@ describe('entity visual planning', () => {
   it('uses the default facing only when the ordinary mob omits orientation', () => {
     const animation = { phaseRadians: Math.PI / 2, state: 'walk' as const }
 
-    expectPlannedVisual(entity({ animation }), {
+    expectVisualShape(entity({ animation }), {
       facingRadians: 0,
       parts: resolvedMobPlan('zombie', animation).parts,
       position,
