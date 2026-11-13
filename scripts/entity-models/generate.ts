@@ -278,7 +278,9 @@ const fitAllModels = (
     fittedModels.set(model.kind, transformModel(model, transform))
   }
   const extraTransforms = Object.keys(transforms).filter((kind) => !models.some((model) => model.kind === kind))
-  if (extraTransforms.length > 0) return Result.fail(`authored transforms without models: ${extraTransforms.join(', ')}`)
+  if (extraTransforms.length > 0) {
+    return Result.fail(`authored transforms without models: ${extraTransforms.join(', ')}`)
+  }
   return Result.succeed(fittedModels)
 }
 
