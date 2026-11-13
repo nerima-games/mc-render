@@ -10,6 +10,9 @@ const THREE = 3
 const TEN = 10
 const TWENTY = 20
 const FOUR = 4
+const ENTITY_GALLERY_SEGMENTS = 4
+const MIN_VISIBLE_ENTITY_PIXELS = 100
+const VISIBLE_PIXEL_RGB_DISTANCE = 48
 const WINDOW_SIZE = 8
 const LUMA_RANGE = 255
 const LUMA_RED = 0.299
@@ -69,6 +72,12 @@ type CompareImagesOptions = Readonly<{
   actualBase64: string
   constants: typeof SSIM_CONSTANTS
   referenceBase64: string
+}>
+
+type EntityGalleryPixelsOptions = Readonly<{
+  imageBase64: string
+  segmentCount: number
+  visibleColorDistance: number
 }>
 
 type AtlasMipReadback = Readonly<{
@@ -189,6 +198,77 @@ const compareScreenshotSsim = async (images: CompareImagesOptions): Promise<numb
   }
 
   return tools.compare(images)
+}
+
+const decodeScreenshotImage = async (imageBase64: string): Promise<ImageBitmapLike> => {
+  const browser = globalThis as unknown as BrowserImageTools
+  const decoded = Uint8Array.from(browser.atob(imageBase64), (character) => character.charCodeAt(ZERO))
+  return browser.createImageBitmap(new browser.Blob([decoded], { type: 'image/png' }))
+}
+
+const readScreenshotPixels = async (imageBase64: string): Promise<ImagePixels> => {
+  const browser = globalThis as unknown as BrowserImageTools
+  const image = await decodeScreenshotImage(imageBase64)
+  const canvas = browser.document.createElement('canvas')
+  canvas.width = image.width
+  canvas.height = image.height
+  const context = canvas.getContext('2d')
+  if (context === null) {
+    throw new Error('entity preview pixel canvas has no 2D context')
+  }
+  context.drawImage(image, ZERO, ZERO)
+  return context.getImageData(ZERO, ZERO, canvas.width, canvas.height)
+}
+
+const countVisibleSegmentPixels = (options: Readonly<{
+  background: ReadonlyArray<number>
+  image: ImagePixels
+  segmentCount: number
+  segmentIndex: number
+  visibleColorDistance: number
+}>): number => {
+  const left = Math.floor(options.segmentIndex * options.image.width / options.segmentCount)
+  const right = Math.floor((options.segmentIndex + ONE) * options.image.width / options.segmentCount)
+  let visiblePixels = ZERO
+  for (let pixelY = ZERO; pixelY < options.image.height; pixelY += ONE) {
+    for (let pixelX = left; pixelX < right; pixelX += ONE) {
+      const offset = (pixelY * options.image.width + pixelX) * FOUR
+      const distance = Math.abs((options.image.data[offset] ?? ZERO) - (options.background[ZERO] ?? ZERO)) +
+        Math.abs((options.image.data[offset + ONE] ?? ZERO) - (options.background[ONE] ?? ZERO)) +
+        Math.abs((options.image.data[offset + TWO] ?? ZERO) - (options.background[TWO] ?? ZERO))
+      visiblePixels += Number(distance > options.visibleColorDistance)
+    }
+  }
+  return visiblePixels
+}
+
+const countEntityGalleryPixels = async (options: EntityGalleryPixelsOptions): Promise<ReadonlyArray<number>> => {
+  const image = await readScreenshotPixels(options.imageBase64)
+  const background = [image.data[ZERO] ?? ZERO, image.data[ONE] ?? ZERO, image.data[TWO] ?? ZERO]
+  const counts: Array<number> = []
+  for (let segmentIndex = ZERO; segmentIndex < options.segmentCount; segmentIndex += ONE) {
+    counts.push(countVisibleSegmentPixels({
+      background,
+      image,
+      segmentCount: options.segmentCount,
+      segmentIndex,
+      visibleColorDistance: options.visibleColorDistance,
+    }))
+  }
+  return counts
+}
+
+const expectEntityGalleryVisible = async (page: Page): Promise<void> => {
+  const image = await page.locator('#preview-canvas').screenshot()
+  const visiblePixels = await page.evaluate(countEntityGalleryPixels, {
+    imageBase64: image.toString('base64'),
+    segmentCount: ENTITY_GALLERY_SEGMENTS,
+    visibleColorDistance: VISIBLE_PIXEL_RGB_DISTANCE,
+  })
+  expect(visiblePixels).toHaveLength(ENTITY_GALLERY_SEGMENTS)
+  for (const segmentPixels of visiblePixels) {
+    expect(segmentPixels).toBeGreaterThan(MIN_VISIBLE_ENTITY_PIXELS)
+  }
 }
 
 const expectMipReadbackMatchesAverage = (mipPixel: AtlasMipReadback): void => {
@@ -341,14 +421,6 @@ test('render preview draws the fixed fixture with more than one atlas tile', asy
     .toBeGreaterThan(ONE)
 })
 
-const expectEntityPreviewPixelsDifferFromTerrain = async (page: Page): Promise<void> => {
-  const withEntities = await page.locator('#preview-canvas').screenshot()
-  await page.goto(`${WEB_ORIGIN}/apps/render-preview/`)
-  await expect(page.locator('body')).toHaveAttribute('data-render-preview', 'drawn')
-  const terrainOnly = await page.locator('#preview-canvas').screenshot()
-  expect(withEntities.equals(terrainOnly)).toBe(false)
-}
-
 test('render preview draws generated entity models through the host frame API', async ({ page }) => {
   await page.goto(`${WEB_ORIGIN}/apps/render-preview/?entities=1`)
 
@@ -357,7 +429,7 @@ test('render preview draws generated entity models through the host frame API', 
   await expect(body).toHaveAttribute('data-render-entities', 'drawn')
   await expect(body).toHaveAttribute('data-entity-count', '4')
   await expect(body).toHaveAttribute('data-entity-kinds', 'boat,horse,villager,tnt')
-  await expectEntityPreviewPixelsDifferFromTerrain(page)
+  await expectEntityGalleryVisible(page)
 })
 
 test('render preview stays above 0.95 SSIM against the pinned baseline', async ({ page }) => {

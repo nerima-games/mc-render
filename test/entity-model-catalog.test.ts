@@ -14,8 +14,8 @@ import {
   resolveEntityModel,
 } from '../src/domain/entity-model-catalog.js'
 
-// Kernel 0.14.0's `ENTITY_TYPES` source list is the independent completeness contract.
-const KERNEL_014_ENTITY_KINDS = [
+// `ENTITY_TYPES` from mc-kernel 0.17.0 at d75d1ad0 is the independent completeness contract.
+const KERNEL_017_ENTITY_KINDS = [
   'player',
   'allay',
   'armadillo',
@@ -152,18 +152,18 @@ const visualSignature = (model: (typeof ENTITY_MODEL_CATALOG)[number]): string =
   .join('|')
 
 describe('entity model catalog', () => {
-  it('resolves each kernel 0.14.0 kind to its own visibly distinct descriptor', () => {
-    const expectedKinds = [...KERNEL_014_ENTITY_KINDS].toSorted()
+  it('resolves each kernel 0.17.0 kind to its own visibly distinct descriptor', () => {
+    const expectedKinds = [...KERNEL_017_ENTITY_KINDS].toSorted()
     const actualKinds = ENTITY_MODEL_KINDS.map(String).toSorted()
     const signatures = ENTITY_MODEL_CATALOG.map(visualSignature)
 
-    expect(ENTITY_MODEL_CATALOG).toHaveLength(KERNEL_014_ENTITY_KINDS.length)
+    expect(ENTITY_MODEL_CATALOG).toHaveLength(KERNEL_017_ENTITY_KINDS.length)
     expect(actualKinds).toStrictEqual(expectedKinds)
-    expect(new Set(actualKinds)).toHaveLength(KERNEL_014_ENTITY_KINDS.length)
-    expect(new Set(signatures)).toHaveLength(KERNEL_014_ENTITY_KINDS.length)
+    expect(new Set(actualKinds)).toHaveLength(KERNEL_017_ENTITY_KINDS.length)
+    expect(new Set(signatures)).toHaveLength(KERNEL_017_ENTITY_KINDS.length)
     expect(UNSUPPORTED_ENTITY_MODEL_KINDS).toStrictEqual([])
 
-    for (const kind of KERNEL_014_ENTITY_KINDS) {
+    for (const kind of KERNEL_017_ENTITY_KINDS) {
       const resolved = resolveEntityModel(kind)
       expect(Result.isSuccess(resolved)).toBe(true)
       if (Result.isSuccess(resolved)) {

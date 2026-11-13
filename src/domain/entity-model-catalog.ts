@@ -67,7 +67,7 @@ export const ENTITY_MODEL_CATALOG: ReadonlyArray<EntityModelDescriptor> = [
 
 export const ENTITY_MODEL_KINDS: ReadonlyArray<EntityModelKind> = ENTITY_MODEL_CATALOG.map(({ kind }) => kind)
 
-/** Known kernel kinds without authored models. Every 0.14.0 entity kind is currently covered. */
+/** Known kernel kinds without authored models. Every 0.17.0 entity kind is currently covered. */
 export const UNSUPPORTED_ENTITY_MODEL_KINDS: ReadonlyArray<EntityModelKind> = []
 
 const modelByKind = new Map(ENTITY_MODEL_CATALOG.map((model) => [model.kind, model]))
