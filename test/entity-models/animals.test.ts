@@ -46,7 +46,7 @@ const EXPECTED_KINDS = [
 const visualSignature = (descriptor: (typeof ANIMAL_ENTITY_MODELS)[number]): string =>
   JSON.stringify(
     descriptor.parts
-      .map(({ role, size, center, color }) => ({ role, size, center, color }))
+      .map(({ role, size, center, color, rotation }) => ({ role, size, center, color, rotation }))
       .sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right))),
   )
 

@@ -120,7 +120,11 @@
           "green": 116,
           "blue": 68
         },
-        "rotation": null
+        "rotation": {
+          "x": 0,
+          "y": 0.16,
+          "z": 0
+        }
       },
       {
         "id": "right-oar",
@@ -140,7 +144,11 @@
           "green": 116,
           "blue": 68
         },
-        "rotation": null
+        "rotation": {
+          "x": 0,
+          "y": -0.16,
+          "z": 0
+        }
       }
     ]
   },
@@ -325,7 +333,11 @@
           "green": 116,
           "blue": 68
         },
-        "rotation": null
+        "rotation": {
+          "x": 0,
+          "y": 0.16,
+          "z": 0
+        }
       },
       {
         "id": "right-oar",
@@ -345,7 +357,11 @@
           "green": 116,
           "blue": 68
         },
-        "rotation": null
+        "rotation": {
+          "x": 0,
+          "y": -0.16,
+          "z": 0
+        }
       }
     ]
   },

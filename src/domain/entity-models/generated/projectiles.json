@@ -60,7 +60,11 @@
           "green": 218,
           "blue": 201
         },
-        "rotation": null
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": 0.12
+        }
       },
       {
         "id": "right-fletching",
@@ -80,7 +84,11 @@
           "green": 218,
           "blue": 201
         },
-        "rotation": null
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": -0.12
+        }
       }
     ]
   },

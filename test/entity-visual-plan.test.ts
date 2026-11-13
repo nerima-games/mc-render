@@ -160,6 +160,44 @@ describe('entity visual planning', () => {
     expect(legRotations[1]).toBeCloseTo(-0.65 * 0.5, 12)
   })
 
+  it('animates unnamed bee wings in opposite directions when progress is omitted', () => {
+    const staticPlan = Result.getOrThrow(planEntityVisual(entity({ kind: 'bee' })))
+    const animatedPlan = Result.getOrThrow(planEntityVisual(entity({
+      animation: { phaseRadians: Math.PI / 2, state: 'idle' },
+      kind: 'bee',
+    })))
+    const staticWings = staticPlan.parts.filter((part) => part.role === 'wing')
+    const animatedWings = animatedPlan.parts.filter((part) => part.role === 'wing')
+    const rotationChanges = animatedWings.map((part, index) => part.rotation[2] - staticWings[index]!.rotation[2])
+
+    expect(animatedWings).toHaveLength(2)
+    expect(rotationChanges[0]).toBeLessThan(0)
+    expect(rotationChanges[1]).toBeGreaterThan(0)
+  })
+
+  it('applies the default hurt progress to generic catalog models', () => {
+    const planned = Result.getOrThrow(planEntityVisual(entity({
+      animation: { phaseRadians: 0, state: 'hurt' },
+      kind: 'piglin',
+    })))
+    const torso = planned.parts.find((part) => part.role === 'torso')
+
+    expect(torso?.rotation[2]).toBeCloseTo(0.24, 12)
+  })
+
+  it('uses walk state as the default amount for generic catalog models', () => {
+    const planned = Result.getOrThrow(planEntityVisual(entity({
+      animation: { phaseRadians: Math.PI / 2, state: 'walk' },
+      kind: 'piglin',
+    })))
+    const legRotations = planned.parts
+      .filter((part) => part.role === 'leg')
+      .map((part) => part.rotation[0])
+
+    expect(legRotations).toHaveLength(2)
+    expect(legRotations.some((rotation) => rotation !== 0)).toBe(true)
+  })
+
   it('reports invalid and unknown generic kinds as typed planning failures', () => {
     const empty = planEntityVisual(entity({ kind: '' }))
     const unknown = planEntityVisual(entity({ kind: 'future_entity' }))
@@ -225,11 +263,14 @@ describe('entity visual planning', () => {
   it('copies nested entity projections without retaining source references', () => {
     const source: RenderEntity = {
       animation: { phaseRadians: 1, state: 'walk' },
+      bodyYawRadians: 0.5,
       category: 'hostile',
       facingRadians: 2,
       feetPosition: position,
+      headYawRadians: -0.5,
       id: 'wither-skull-1',
       kind: 'wither_skull',
+      pitchRadians: 0.25,
       witherSkullProjectile: {
         destroysResistantBlocks: true,
         direction: { x: 1, y: 2, z: 3 },

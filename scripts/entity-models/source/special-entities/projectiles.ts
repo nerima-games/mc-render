@@ -54,8 +54,14 @@ const arrow: EntityModelDescriptor = model(
   'arrow',
   part('shaft', 'arrow-shaft', [0.09, 0.09, 0.86], [0, 0, 0], WOOD),
   part('arrowhead', 'arrowhead', [0.24, 0.18, 0.28], [0, 0, -0.57], IRON),
-  part('left-fletching', 'fletching', [0.05, 0.3, 0.2], [-0.1, 0, 0.39], FEATHER),
-  part('right-fletching', 'fletching', [0.05, 0.3, 0.2], [0.1, 0, 0.39], FEATHER),
+  {
+    ...part('left-fletching', 'fletching', [0.05, 0.3, 0.2], [-0.1, 0, 0.39], FEATHER),
+    rotation: [0, 0, 0.12],
+  },
+  {
+    ...part('right-fletching', 'fletching', [0.05, 0.3, 0.2], [0.1, 0, 0.39], FEATHER),
+    rotation: [0, 0, -0.12],
+  },
 )
 
 const breezeWindCharge: EntityModelDescriptor = model(

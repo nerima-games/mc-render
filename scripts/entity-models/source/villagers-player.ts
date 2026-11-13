@@ -54,8 +54,14 @@ const player: EntityModelDescriptor = {
     part('left-eye', 'eye', [0.075, 0.05, 0.035], [-0.11, 1.57, -0.265], PLAYER_EYE),
     part('right-eye', 'eye', [0.075, 0.05, 0.035], [0.11, 1.57, -0.265], PLAYER_EYE),
     part('shirt', 'body', [0.55, 0.7, 0.31], [0, 0.95, 0], PLAYER_SHIRT),
-    part('left-sleeve', 'arm', [0.2, 0.42, 0.29], [-0.38, 1.09, 0], PLAYER_SLEEVE),
-    part('right-sleeve', 'arm', [0.2, 0.42, 0.29], [0.38, 1.09, 0], PLAYER_SLEEVE),
+    {
+      ...part('left-sleeve', 'arm', [0.2, 0.42, 0.29], [-0.38, 1.09, 0], PLAYER_SLEEVE),
+      rotation: [0, 0, 0.08],
+    },
+    {
+      ...part('right-sleeve', 'arm', [0.2, 0.42, 0.29], [0.38, 1.09, 0], PLAYER_SLEEVE),
+      rotation: [0, 0, -0.08],
+    },
     part('left-hand', 'hand', [0.2, 0.2, 0.26], [-0.38, 0.78, 0], PLAYER_SKIN),
     part('right-hand', 'hand', [0.2, 0.2, 0.26], [0.38, 0.78, 0], PLAYER_SKIN),
     part('left-trouser-leg', 'leg', [0.24, 0.72, 0.28], [-0.14, 0.36, 0], PLAYER_PANTS),

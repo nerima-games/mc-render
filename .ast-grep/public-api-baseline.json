@@ -288,16 +288,10 @@
     "text": "string"
   },
   {
-    "count": 5,
+    "count": 1,
     "file": "src/application/entity-visual-plan.ts",
     "ruleId": "no-raw-exported-type-field",
     "text": "number"
-  },
-  {
-    "count": 2,
-    "file": "src/application/entity-visual-plan.ts",
-    "ruleId": "no-raw-exported-type-field",
-    "text": "string"
   },
   {
     "count": 7,
@@ -372,7 +366,7 @@
     "text": "number"
   },
   {
-    "count": 4,
+    "count": 3,
     "file": "src/application/world-renderer.ts",
     "ruleId": "no-raw-exported-type-field",
     "text": "string"

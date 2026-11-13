@@ -112,7 +112,10 @@ export const DISPLAY_MISC_ENTITY_MODELS: ReadonlyArray<EntityModelDescriptor> = 
     part('crystal-upper', 'crystal-facet', [0.62, 0.5, 0.5], [0, 0.43, 0], GLASS),
     part('crystal-crown', 'crystal-crown', [0.34, 0.28, 0.34], [0, 0.82, 0], GLOW),
     part('crystal-ring-front', 'crystal-ring', [0.95, 0.07, 0.08], [0, 0.05, 0.28], PURPLE),
-    part('crystal-ring-side', 'crystal-ring', [0.08, 0.07, 0.95], [0.28, 0.05, 0], PURPLE),
+    {
+      ...part('crystal-ring-side', 'crystal-ring', [0.08, 0.07, 0.95], [0.28, 0.05, 0], PURPLE),
+      rotation: [0.16, 0, 0],
+    },
   ),
   model(
     'evoker_fangs',

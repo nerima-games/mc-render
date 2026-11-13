@@ -106,9 +106,10 @@ const PRESENTATION_MOON_PHASE = 5
 const PRESENTATION_BLOCK_NAME = 'grass_block'
 const PRESENTATION_CAMERA_PITCH = -0.4
 const PRESENTATION_CAMERA_Z = 48
-const ENTITY_PREVIEW_CAMERA_PITCH = -0.45
+const ENTITY_PREVIEW_CAMERA_PITCH = -0.6
 const ENTITY_PREVIEW_HEIGHT = 42
-const ENTITY_PREVIEW_DEPTH = 36
+const ENTITY_PREVIEW_NEAR_DEPTH = 42
+const ENTITY_PREVIEW_FAR_DEPTH = 39
 const ENTITY_PREVIEW_SIMULATION_TICK = 240
 const ENTITY_PREVIEW_PARTIAL_TICK = 0.5
 const ENTITY_PREVIEW_TIME_OF_DAY_TICKS = 7_000
@@ -117,17 +118,15 @@ const ENTITY_PREVIEW_SKY_LIGHT = 15
 const ENTITY_PREVIEW_WALK_PHASE_RADIANS = Math.PI / 2
 const ENTITY_PREVIEW_WALK_AMOUNT = 0.65
 const ENTITY_PREVIEW_ATTACK_PROGRESS = 0.25
-const ENTITY_PREVIEW_BOAT_X = 2
-const ENTITY_PREVIEW_HORSE_X = 6
-const ENTITY_PREVIEW_TNT_X = 14
-const ENTITY_PREVIEW_VILLAGER_X = 10
+const ENTITY_PREVIEW_LEFT_X = 6.5
+const ENTITY_PREVIEW_RIGHT_X = 9.5
 const NO_ENTITY_PROGRESS = 0
 const NO_ENTITY_ROTATION = 0
 const ENTITY_PREVIEW_MODELS = [
-  { kind: 'boat', x: ENTITY_PREVIEW_BOAT_X },
-  { kind: 'horse', x: ENTITY_PREVIEW_HORSE_X },
-  { kind: 'villager', x: ENTITY_PREVIEW_VILLAGER_X },
-  { kind: 'tnt', x: ENTITY_PREVIEW_TNT_X },
+  { kind: 'boat', x: ENTITY_PREVIEW_LEFT_X, z: ENTITY_PREVIEW_NEAR_DEPTH },
+  { kind: 'horse', x: ENTITY_PREVIEW_LEFT_X, z: ENTITY_PREVIEW_FAR_DEPTH },
+  { kind: 'villager', x: ENTITY_PREVIEW_RIGHT_X, z: ENTITY_PREVIEW_FAR_DEPTH },
+  { kind: 'tnt', x: ENTITY_PREVIEW_RIGHT_X, z: ENTITY_PREVIEW_NEAR_DEPTH },
 ] as const
 const STARS_PREVIEW_CAMERA_PITCH = 1.2
 const SKY_PREVIEW_CAMERA_HEIGHT = 188
@@ -185,7 +184,7 @@ const skyBytes = (): readonly [number, number, number] => [
   SKY_CLEAR_COLOR & 0xff,
 ]
 
-const entityPreviewEntity = (id: string, kind: string, x: number) => ({
+const entityPreviewEntity = (id: string, kind: string, x: number, z: number) => ({
   attackProgress: ENTITY_PREVIEW_ATTACK_PROGRESS,
   blockLight: ENTITY_PREVIEW_BLOCK_LIGHT,
   bodyYawRadians: NO_ENTITY_ROTATION,
@@ -195,14 +194,14 @@ const entityPreviewEntity = (id: string, kind: string, x: number) => ({
   id,
   kind,
   pitchRadians: NO_ENTITY_ROTATION,
-  position: { dimension: 'overworld', x, y: ENTITY_PREVIEW_HEIGHT, z: ENTITY_PREVIEW_DEPTH },
+  position: { dimension: 'overworld', x, y: ENTITY_PREVIEW_HEIGHT, z },
   skyLight: ENTITY_PREVIEW_SKY_LIGHT,
   walkAmount: ENTITY_PREVIEW_WALK_AMOUNT,
   walkPhaseRadians: ENTITY_PREVIEW_WALK_PHASE_RADIANS,
 })
 
 const ENTITY_PREVIEW_FRAME = {
-  entities: ENTITY_PREVIEW_MODELS.map(({ kind, x }) => entityPreviewEntity(`preview-${kind}`, kind, x)),
+  entities: ENTITY_PREVIEW_MODELS.map(({ kind, x, z }) => entityPreviewEntity(`preview-${kind}`, kind, x, z)),
   partialTick: ENTITY_PREVIEW_PARTIAL_TICK,
   simulationTick: ENTITY_PREVIEW_SIMULATION_TICK,
   timeOfDayTicks: ENTITY_PREVIEW_TIME_OF_DAY_TICKS,

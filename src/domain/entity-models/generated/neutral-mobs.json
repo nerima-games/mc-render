@@ -935,7 +935,11 @@
           "green": 94,
           "blue": 77
         },
-        "rotation": null
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": 0.1
+        }
       },
       {
         "id": "right-arm",
@@ -955,7 +959,11 @@
           "green": 94,
           "blue": 77
         },
-        "rotation": null
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": -0.1
+        }
       },
       {
         "id": "left-leg",

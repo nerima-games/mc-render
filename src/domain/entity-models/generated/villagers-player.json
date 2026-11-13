@@ -120,7 +120,11 @@
           "green": 82,
           "blue": 145
         },
-        "rotation": null
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": 0.08
+        }
       },
       {
         "id": "right-sleeve",
@@ -140,7 +144,11 @@
           "green": 82,
           "blue": 145
         },
-        "rotation": null
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": -0.08
+        }
       },
       {
         "id": "left-hand",

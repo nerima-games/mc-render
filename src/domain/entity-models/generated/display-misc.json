@@ -955,7 +955,11 @@
           "green": 41,
           "blue": 199
         },
-        "rotation": null
+        "rotation": {
+          "x": 0.16,
+          "y": 0,
+          "z": 0
+        }
       }
     ]
   },

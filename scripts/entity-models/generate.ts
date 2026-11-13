@@ -232,8 +232,11 @@ const runCli = async (arguments_: ReadonlyArray<string>): Promise<number> => {
   const outputs = outputFiles()
   try {
     if (checkOnly) {
-      for (const output of outputs) {
-        const existing = await readFile(output.path, 'utf8')
+      const existingOutputs = await Promise.all(
+        outputs.map(({ path }) => readFile(path, 'utf8')),
+      )
+      for (const [index, output] of outputs.entries()) {
+        const existing = existingOutputs[index]
         if (existing !== output.contents) {
           console.error(`Generated model asset is stale: ${output.path}`)
           return 1

@@ -59,7 +59,7 @@ describe('hostile entity models', () => {
     const signatures = HOSTILE_ENTITY_MODELS.map(({ parts }) =>
       JSON.stringify(
         parts
-          .map(({ role, size, center, color }) => ({ role, size, center, color }))
+          .map(({ role, size, center, color, rotation }) => ({ role, size, center, color, rotation }))
           .sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right))),
       ),
     )

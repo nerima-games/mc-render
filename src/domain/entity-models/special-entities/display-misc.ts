@@ -1,5 +1,3 @@
-import { Brand } from 'effect'
-import models from '../generated/display-misc.json'
 import type {
   EntityModelColor,
   EntityModelDescriptor,
@@ -9,6 +7,8 @@ import type {
   EntityModelPartRole,
   EntityModelVector,
 } from '../types.js'
+import { Brand } from 'effect'
+import models from '../generated/display-misc.json'
 
 const modelKind = Brand.nominal<EntityModelKind>()
 const partIdentifier = Brand.nominal<EntityModelPartIdentifier>()

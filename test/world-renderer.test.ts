@@ -16,6 +16,8 @@
 import { describe, expect, it } from '@effect/vitest'
 import { Effect, Result, Schema } from 'effect'
 import * as FastCheck from 'fast-check'
+import { vi } from 'vitest'
+import * as entityVisualPlanner from '../src/application/entity-visual-plan'
 import { EntityRenderFrameInputSchema } from '../src/index'
 import { mirroredCameraState } from '../src/domain/camera-mirror'
 import type { AnimationClockInputError } from '../src/domain/animation-clock'
@@ -1085,6 +1087,35 @@ describe('entity meshes in the scene', () => {
       expect(three.meshes()).toStrictEqual(beforeMeshes)
       expect(yield* renderer.entityModelDiagnostics).toStrictEqual([])
       yield* renderer.dispose
+    }),
+  )
+
+  it.effect('propagates planner SchemaError without partially reconciling entities', () =>
+    Effect.gen(function* () {
+      const three = makeFakeThree()
+      const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT)
+      const decoded = Schema.decodeUnknownResult(Schema.String)(1)
+      expect(Result.isFailure(decoded)).toBe(true)
+      if (Result.isSuccess(decoded)) {
+        yield* renderer.dispose
+        return
+      }
+      const planner = vi.spyOn(entityVisualPlanner, 'planEntityVisual').mockReturnValue(Result.fail(decoded.failure))
+
+      try {
+        const result = yield* Effect.result(syncEntitiesWithRawInput(renderer.syncEntities, [
+          { id: 'planner-error', kind: 'horse', feetPosition: { x: 1, y: 2, z: 3 } },
+        ]))
+        expect(Result.isFailure(result)).toBe(true)
+        if (Result.isFailure(result)) {
+          expect(Schema.isSchemaError(result.failure)).toBe(true)
+        }
+        expect(three.meshes()).toHaveLength(0)
+        expect(yield* renderer.entityCount).toBe(0)
+      } finally {
+        planner.mockRestore()
+        yield* renderer.dispose
+      }
     }),
   )
 

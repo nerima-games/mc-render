@@ -66,8 +66,14 @@ const boat: EntityModelDescriptor = {
   kind: modelKind('boat'),
   parts: [
     ...boatHull(),
-    part('left-oar', 'oar', [0.1, 0.08, 0.88], [-0.83, 0.48, -0.04], OAK_LIGHT),
-    part('right-oar', 'oar', [0.1, 0.08, 0.88], [0.83, 0.48, 0.04], OAK_LIGHT),
+    {
+      ...part('left-oar', 'oar', [0.1, 0.08, 0.88], [-0.83, 0.48, -0.04], OAK_LIGHT),
+      rotation: [0, 0.16, 0],
+    },
+    {
+      ...part('right-oar', 'oar', [0.1, 0.08, 0.88], [0.83, 0.48, 0.04], OAK_LIGHT),
+      rotation: [0, -0.16, 0],
+    },
   ],
 }
 
@@ -76,8 +82,14 @@ const chestBoat: EntityModelDescriptor = {
   parts: [
     ...boatHull(),
     ...chest('boat-cargo', 0.66),
-    part('left-oar', 'oar', [0.1, 0.08, 0.88], [-0.83, 0.48, -0.04], OAK_LIGHT),
-    part('right-oar', 'oar', [0.1, 0.08, 0.88], [0.83, 0.48, 0.04], OAK_LIGHT),
+    {
+      ...part('left-oar', 'oar', [0.1, 0.08, 0.88], [-0.83, 0.48, -0.04], OAK_LIGHT),
+      rotation: [0, 0.16, 0],
+    },
+    {
+      ...part('right-oar', 'oar', [0.1, 0.08, 0.88], [0.83, 0.48, 0.04], OAK_LIGHT),
+      rotation: [0, -0.16, 0],
+    },
   ],
 }
 

@@ -25,7 +25,7 @@ const EXPECTED_KINDS = [
 
 const visualSignature = (descriptor: EntityModelDescriptor): string =>
   descriptor.parts
-    .map(({ role, size, center, color }) => JSON.stringify([role, size, center, color]))
+    .map(({ role, size, center, color, rotation }) => JSON.stringify([role, size, center, color, rotation]))
     .sort()
     .join('|')
 

@@ -6443,7 +6443,7 @@
         "rotation": null
       },
       {
-        "id": "left-wing",
+        "id": "wing-a",
         "role": "wing",
         "size": {
           "x": 0.51,
@@ -6460,10 +6460,14 @@
           "green": 224,
           "blue": 232
         },
-        "rotation": null
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": 0.08
+        }
       },
       {
-        "id": "right-wing",
+        "id": "wing-b",
         "role": "wing",
         "size": {
           "x": 0.51,
@@ -6480,7 +6484,11 @@
           "green": 224,
           "blue": 232
         },
-        "rotation": null
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": -0.08
+        }
       },
       {
         "id": "left-antenna",
