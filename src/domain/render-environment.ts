@@ -18,7 +18,7 @@ export type RenderEnvironmentPlan = {
   readonly fogFar: number
 }
 
-export type RenderEnvironmentInput = Readonly<{
+type RenderEnvironmentInput = Readonly<{
   readonly daylight: number
   readonly dimension?: Dimension | undefined
   readonly farPlane?: number | undefined

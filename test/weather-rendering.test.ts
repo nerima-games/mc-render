@@ -313,11 +313,12 @@ describe('weather frame planning', () => {
     }),
   )
 
-  it.effect('returns a schema failure when a valid strike resolves to a non-finite bolt origin', () =>
+  it.effect('returns a schema failure when a valid strike resolves to an overflowing bolt origin', () =>
     Effect.sync(() => {
       const invalidOrigin = planWeatherFrameResult({
-        camera: { ...camera, x: Number.NaN },
-        snapshot: { ...rain, mode: 'thunder', lightningSequence: 8 },
+        camera: { ...camera, x: Number.MAX_VALUE },
+        options: { precipitationRadius: Number.MAX_VALUE },
+        snapshot: { ...rain, mode: 'thunder', seed: 0, lightningSequence: 8 },
       })
 
       expect(Result.isFailure(invalidOrigin)).toBe(true)

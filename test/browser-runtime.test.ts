@@ -15,7 +15,7 @@ import {
   type BrowserMeshingWorkerPoolOptions,
 } from '../src/browser.js'
 import { mirroredCameraState } from '../src/domain/camera-mirror.js'
-import { ParticleDeltaSecsSchema } from '../src/domain/particle-pool.js'
+import { ParticleDeltaSecsSchema, type ParticlePoolInputError } from '../src/domain/particle-pool.js'
 import { WorkerCountSchema } from '../src/domain/worker-parallelism.js'
 import { QUALITY_PRESETS, type PostProcessingStep } from '../src/domain/post-processing.js'
 import { ATLAS_PIXELS, AtlasLayoutIntegerSchema } from '../src/domain/texture-atlas.js'
@@ -930,6 +930,19 @@ describe('browser world runtime', () => {
       operation: 'initialization',
       reason: 'invalid-input',
     })
+  })
+
+  it('preserves typed non-schema production failures during browser initialization', async () => {
+    const failure: ParticlePoolInputError = {
+      _tag: 'ParticlePoolInputError',
+      operation: 'pool',
+      reason: 'invalid-capacity',
+    }
+    browserMocks.worldFactory.mockImplementationOnce(() => Effect.fail(failure))
+
+    expect(await browserRuntimeFailureAsync(makeBrowserWorldRuntimeEffect({
+      canvas: new HTMLCanvasElement(),
+    }))).toStrictEqual(failure)
   })
 
   it('loads the checked-in atlas by default with nearest and mipmapped sampling', async () => {

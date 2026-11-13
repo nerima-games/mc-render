@@ -96,7 +96,6 @@ export {
   RenderEnvironmentDimensionSchema,
   RenderEnvironmentInputSchema,
   RenderEnvironmentPlanSchema,
-  type RenderEnvironmentInput,
   type RenderEnvironmentPlan,
   planRenderEnvironment,
 } from './domain/render-environment.js'
