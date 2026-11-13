@@ -89,7 +89,6 @@
 import {
   type FaceDirection,
   type QuadCorners,
-  aoForGeometryQuad,
   isBlockShapeQuad,
   isCrossPlantQuad,
   isSpecialBlockQuad,
@@ -104,6 +103,15 @@ import {
 } from './chunk-geometry.js'
 import { LIGHT_LEVEL_MAX, LightLevelCandidate, clampLightLevel } from '@nerima-games/mc-kernel'
 import { Effect } from 'effect'
+
+const SPECIAL_BLOCK_AO = 0
+
+const aoForQuad = (quad: GeometryQuad): number => {
+  if (isSpecialBlockQuad(quad)) {
+    return SPECIAL_BLOCK_AO
+  }
+  return quad.ao
+}
 
 /**
  * The two light values at a point: how much of it is daylight and how much is
@@ -459,7 +467,7 @@ export const litShade = (
   const skyIntensity = options.skyIntensity ?? SKY_INTENSITY_MAX
   return (quad) => {
     const sample = lightSampleForGeometryQuad(quad)
-    const ao = aoForGeometryQuad(quad)
+    const ao = aoForQuad(quad)
     return combinedShadeByte(sampler(...sample.point), ao, { direction: sample.direction, skyIntensity })
   }
 }
@@ -518,7 +526,7 @@ export const packedLightColor =
   (quad) => {
     const sample = lightSampleForGeometryQuad(quad)
     const light = sampler(...sample.point)
-    const ao = aoForGeometryQuad(quad)
+    const ao = aoForQuad(quad)
     return [
       /* R: the AO table's own byte, NOT the level. The shader's `0.8 + 0.2 * R`
          expects a 0..1 fraction, and `normalized: true` on the attribute divides

@@ -13,7 +13,6 @@ import {
   type QuadCorners,
   type QuadVertex,
   VERTICES_PER_QUAD,
-  aoForGeometryQuad,
   isSpecialBlockQuad,
   tangentAxes,
 } from './meshing-vocabulary.js'
@@ -34,6 +33,8 @@ export type {
   QuadVertex,
 }
 export type { SpecialBlockQuad } from '@nerima-games/mc-meshing'
+
+const SPECIAL_BLOCK_AO = 0
 
 /** Components per vertex, per attribute. */
 export const POSITION_COMPONENTS = 3
@@ -428,7 +429,12 @@ export const greyQuadColor =
  * unmodified — which is what makes them evidence about the light change rather
  * than a casualty of it.
  */
-export const AO_ONLY_SHADE: QuadShade = (quad) => aoShade(aoForGeometryQuad(quad))
+export const AO_ONLY_SHADE: QuadShade = (quad) => {
+  if (isSpecialBlockQuad(quad)) {
+    return aoShade(SPECIAL_BLOCK_AO)
+  }
+  return aoShade(quad.ao)
+}
 
 /** `AO_ONLY_SHADE` as a `QuadColor`. The builder's default. */
 export const AO_ONLY_COLOR: QuadColor = greyQuadColor(AO_ONLY_SHADE)

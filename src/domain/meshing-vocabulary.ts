@@ -87,15 +87,6 @@ export const isBlockShapeQuad = (quad: GeometryQuad): quad is BlockShapeQuad =>
 export const isSpecialBlockQuad = (quad: GeometryQuad): quad is SpecialBlockQuad =>
   'kind' in quad
 
-const SPECIAL_BLOCK_AO = 0
-
-export const aoForGeometryQuad = (quad: GeometryQuad): number => {
-  if (isSpecialBlockQuad(quad)) {
-    return SPECIAL_BLOCK_AO
-  }
-  return quad.ao
-}
-
 /** A fluid vertex with a possibly fractional height. */
 export type FluidVertex = readonly [number, number, number]
 
