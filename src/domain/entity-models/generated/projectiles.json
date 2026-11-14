@@ -1,0 +1,1800 @@
+[
+  {
+    "kind": "arrow",
+    "parts": [
+      {
+        "id": "shaft",
+        "role": "arrow-shaft",
+        "size": {
+          "x": 0.08990999999999999,
+          "y": 0.08877714412459348,
+          "z": 0.85914
+        },
+        "center": {
+          "x": 0,
+          "y": 0.14988767129927363,
+          "z": 0
+        },
+        "color": {
+          "red": 132,
+          "green": 91,
+          "blue": 53
+        },
+        "rotation": null
+      },
+      {
+        "id": "arrowhead",
+        "role": "arrowhead",
+        "size": {
+          "x": 0.23976,
+          "y": 0.17755428824918695,
+          "z": 0.27972
+        },
+        "center": {
+          "x": 0,
+          "y": 0.14988767129927363,
+          "z": -0.56943
+        },
+        "color": {
+          "red": 174,
+          "green": 181,
+          "blue": 187
+        },
+        "rotation": null
+      },
+      {
+        "id": "left-fletching",
+        "role": "fletching",
+        "size": {
+          "x": 0.04995,
+          "y": 0.2959238137486449,
+          "z": 0.1998
+        },
+        "center": {
+          "x": -0.0999,
+          "y": 0.14988767129927363,
+          "z": 0.38961
+        },
+        "color": {
+          "red": 224,
+          "green": 218,
+          "blue": 201
+        },
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": 0.12
+        }
+      },
+      {
+        "id": "right-fletching",
+        "role": "fletching",
+        "size": {
+          "x": 0.04995,
+          "y": 0.2959238137486449,
+          "z": 0.1998
+        },
+        "center": {
+          "x": 0.0999,
+          "y": 0.14988767129927363,
+          "z": 0.38961
+        },
+        "color": {
+          "red": 224,
+          "green": 218,
+          "blue": 201
+        },
+        "rotation": {
+          "x": 0,
+          "y": 0,
+          "z": -0.12
+        }
+      }
+    ]
+  },
+  {
+    "kind": "breeze_wind_charge",
+    "parts": [
+      {
+        "id": "gust-core",
+        "role": "gust-core",
+        "size": {
+          "x": 0.55944,
+          "y": 0.55944,
+          "z": 0.55944
+        },
+        "center": {
+          "x": 0,
+          "y": 0.51948,
+          "z": 0
+        },
+        "color": {
+          "red": 113,
+          "green": 220,
+          "blue": 210
+        },
+        "rotation": null
+      },
+      {
+        "id": "upper-gust",
+        "role": "gust-curl",
+        "size": {
+          "x": 0.17981999999999998,
+          "y": 0.65934,
+          "z": 0.17981999999999998
+        },
+        "center": {
+          "x": 0.29969999999999997,
+          "y": 0.70929,
+          "z": 0
+        },
+        "color": {
+          "red": 171,
+          "green": 241,
+          "blue": 230
+        },
+        "rotation": null
+      },
+      {
+        "id": "lower-gust",
+        "role": "gust-curl",
+        "size": {
+          "x": 0.17981999999999998,
+          "y": 0.65934,
+          "z": 0.17981999999999998
+        },
+        "center": {
+          "x": -0.29969999999999997,
+          "y": 0.32967,
+          "z": 0
+        },
+        "color": {
+          "red": 171,
+          "green": 241,
+          "blue": 230
+        },
+        "rotation": null
+      },
+      {
+        "id": "front-gust",
+        "role": "gust-curl",
+        "size": {
+          "x": 0.17981999999999998,
+          "y": 0.17981999999999998,
+          "z": 0.65934
+        },
+        "center": {
+          "x": 0,
+          "y": 0.81918,
+          "z": 0.18981
+        },
+        "color": {
+          "red": 113,
+          "green": 220,
+          "blue": 210
+        },
+        "rotation": null
+      },
+      {
+        "id": "back-gust",
+        "role": "gust-curl",
+        "size": {
+          "x": 0.17981999999999998,
+          "y": 0.17981999999999998,
+          "z": 0.65934
+        },
+        "center": {
+          "x": 0,
+          "y": 0.21978000000000003,
+          "z": -0.18981
+        },
+        "color": {
+          "red": 113,
+          "green": 220,
+          "blue": 210
+        },
+        "rotation": null
+      }
+    ]
+  },
+  {
+    "kind": "dragon_fireball",
+    "parts": [
+      {
+        "id": "dragon-orb",
+        "role": "dragon-orb",
+        "size": {
+          "x": 1.2187799999999998,
+          "y": 1.21878,
+          "z": 1.2187799999999998
+        },
+        "center": {
+          "x": 0,
+          "y": 0.82917,
+          "z": 0
+        },
+        "color": {
+          "red": 103,
+          "green": 31,
+          "blue": 22
+        },
+        "rotation": null
+      },
+      {
+        "id": "inner-flame",
+        "role": "flame-core",
+        "size": {
+          "x": 0.7991999999999999,
+          "y": 0.7992,
+          "z": 0.7991999999999999
+        },
+        "center": {
+          "x": 0,
+          "y": 0.82917,
+          "z": -0.07991999999999999
+        },
+        "color": {
+          "red": 205,
+          "green": 68,
+          "blue": 31
+        },
+        "rotation": null
+      },
+      {
+        "id": "front-flare",
+        "role": "flame-flare",
+        "size": {
+          "x": 0.37961999999999996,
+          "y": 0.55944,
+          "z": 0.37961999999999996
+        },
+        "center": {
+          "x": 0,
+          "y": 0.92907,
+          "z": -0.66933
+        },
+        "color": {
+          "red": 255,
+          "green": 184,
+          "blue": 48
+        },
+        "rotation": null
+      },
+      {
+        "id": "upper-flare",
+        "role": "flame-flare",
+        "size": {
+          "x": 0.29969999999999997,
+          "y": 0.47952,
+          "z": 0.31967999999999996
+        },
+        "center": {
+          "x": 0.17981999999999998,
+          "y": 1.44855,
+          "z": 0
+        },
+        "color": {
+          "red": 238,
+          "green": 96,
+          "blue": 28
+        },
+        "rotation": null
+      },
+      {
+        "id": "lower-flare",
+        "role": "flame-flare",
+        "size": {
+          "x": 0.27971999999999997,
+          "y": 0.41958,
+          "z": 0.27971999999999997
+        },
+        "center": {
+          "x": -0.15983999999999998,
+          "y": 0.20979,
+          "z": 0.039959999999999996
+        },
+        "color": {
+          "red": 255,
+          "green": 184,
+          "blue": 48
+        },
+        "rotation": null
+      }
+    ]
+  },
+  {
+    "kind": "egg",
+    "parts": [
+      {
+        "id": "egg-shell",
+        "role": "egg-shell",
+        "size": {
+          "x": 0.47952,
+          "y": 0.65934,
+          "z": 0.47952
+        },
+        "center": {
+          "x": 0,
+          "y": 0.32967,
+          "z": 0
+        },
+        "color": {
+          "red": 239,
+          "green": 232,
+          "blue": 211
+        },
+        "rotation": null
+      },
+      {
+        "id": "speckle-top",
+        "role": "shell-speckle",
+        "size": {
+          "x": 0.13986,
+          "y": 0.08990999999999999,
+          "z": 0.07992
+        },
+        "center": {
+          "x": 0.10989,
+          "y": 0.52947,
+          "z": -0.18981
+        },
+        "color": {
+          "red": 171,
+          "green": 151,
+          "blue": 117
+        },
+        "rotation": null
+      },
+      {
+        "id": "speckle-side",
+        "role": "shell-speckle",
+        "size": {
+          "x": 0.07992,
+          "y": 0.12987,
+          "z": 0.06993
+        },
+        "center": {
+          "x": -0.1998,
+          "y": 0.27972,
+          "z": -0.14984999999999998
+        },
+        "color": {
+          "red": 186,
+          "green": 164,
+          "blue": 124
+        },
+        "rotation": null
+      },
+      {
+        "id": "speckle-bottom",
+        "role": "shell-speckle",
+        "size": {
+          "x": 0.11988,
+          "y": 0.06993,
+          "z": 0.08990999999999999
+        },
+        "center": {
+          "x": 0.0999,
+          "y": 0.0999,
+          "z": 0.15984
+        },
+        "color": {
+          "red": 171,
+          "green": 151,
+          "blue": 117
+        },
+        "rotation": null
+      }
+    ]
+  },
+  {
+    "kind": "ender_pearl",
+    "parts": [
+      {
+        "id": "pearl-orb",
+        "role": "pearl-orb",
+        "size": {
+          "x": 0.5371042794759825,
+          "y": 0.53946,
+          "z": 0.5371042794759825
+        },
+        "center": {
+          "x": 0,
+          "y": 0.26973,
+          "z": 0
+        },
+        "color": {
+          "red": 30,
+          "green": 118,
+          "blue": 75
+        },
+        "rotation": null
+      },
+      {
+        "id": "pearl-glint",
+        "role": "orb-glint",
+        "size": {
+          "x": 0.15914200873362444,
+          "y": 0.17981999999999998,
+          "z": 0.04475868995633187
+        },
+        "center": {
+          "x": -0.09946375545851527,
+          "y": 0.38961,
+          "z": -0.2784985152838428
+        },
+        "color": {
+          "red": 107,
+          "green": 230,
+          "blue": 169
+        },
+        "rotation": null
+      },
+      {
+        "id": "pearl-shadow",
+        "role": "orb-shadow",
+        "size": {
+          "x": 0.1392492576419214,
+          "y": 0.22977,
+          "z": 0.049731877729257634
+        },
+        "center": {
+          "x": 0.11935650655021832,
+          "y": 0.11988000000000003,
+          "z": -0.26855213973799125
+        },
+        "color": {
+          "red": 13,
+          "green": 72,
+          "blue": 49
+        },
+        "rotation": null
+      }
+    ]
+  },
+  {
+    "kind": "experience_bottle",
+    "parts": [
+      {
+        "id": "bottle-body",
+        "role": "bottle-bulb",
+        "size": {
+          "x": 0.37962,
+          "y": 0.3996,
+          "z": 0.33966
+        },
+        "center": {
+          "x": 0,
+          "y": 0.1998,
+          "z": 0
+        },
+        "color": {
+          "red": 62,
+          "green": 180,
+          "blue": 179
+        },
+        "rotation": null
+      },
+      {
+        "id": "bottle-shoulder",
+        "role": "bottle-shoulder",
+        "size": {
+          "x": 0.29969999999999997,
+          "y": 0.15984,
+          "z": 0.27972
+        },
+        "center": {
+          "x": 0,
+          "y": 0.44955,
+          "z": 0
+        },
+        "color": {
+          "red": 115,
+          "green": 183,
+          "blue": 178
+        },
+        "rotation": null
+      },
+      {
+        "id": "bottle-neck",
+        "role": "bottle-neck",
+        "size": {
+          "x": 0.15984,
+          "y": 0.22977,
+          "z": 0.15984
+        },
+        "center": {
+          "x": 0,
+          "y": 0.62937,
+          "z": 0
+        },
+        "color": {
+          "red": 80,
+          "green": 160,
+          "blue": 158
+        },
+        "rotation": null
+      },
+      {
+        "id": "bottle-lip",
+        "role": "bottle-lip",
+        "size": {
+          "x": 0.21978,
+          "y": 0.07992,
+          "z": 0.21978
+        },
+        "center": {
+          "x": 0,
+          "y": 0.76923,
+          "z": 0
+        },
+        "color": {
+          "red": 196,
+          "green": 231,
+          "blue": 213
+        },
+        "rotation": null
+      },
+      {
+        "id": "bottle-shine",
+        "role": "bottle-glint",
+        "size": {
+          "x": 0.054945,
+          "y": 0.20979,
+          "z": 0.044954999999999995
+        },
+        "center": {
+          "x": -0.0999,
+          "y": 0.21978,
+          "z": -0.17981999999999998
+        },
+        "color": {
+          "red": 204,
+          "green": 246,
+          "blue": 225
+        },
+        "rotation": null
+      }
+    ]
+  },
+  {
+    "kind": "fireball",
+    "parts": [
+      {
+        "id": "fire-orb",
+        "role": "fire-orb",
+        "size": {
+          "x": 0.85914,
+          "y": 0.85914,
+          "z": 0.85914
+        },
+        "center": {
+          "x": 0,
+          "y": 0.42957,
+          "z": 0
+        },
+        "color": {
+          "red": 238,
+          "green": 96,
+          "blue": 28
+        },
+        "rotation": null
+      },
+      {
+        "id": "fire-core",
+        "role": "fire-core",
+        "size": {
+          "x": 0.51948,
+          "y": 0.51948,
+          "z": 0.51948
+        },
+        "center": {
+          "x": 0,
+          "y": 0.42957,
+          "z": -0.12987
+        },
+        "color": {
+          "red": 255,
+          "green": 228,
+          "blue": 112
+        },
+        "rotation": null
+      },
+      {
+        "id": "left-flame",
+        "role": "flame-trail",
+        "size": {
+          "x": 0.1998,
+          "y": 0.43956,
+          "z": 0.27972
+        },
+        "center": {
+          "x": -0.47952,
+          "y": 0.50949,
+          "z": 0.04995
+        },
+        "color": {
+          "red": 255,
+          "green": 184,
+          "blue": 48
+        },
+        "rotation": null
+      },
+      {
+        "id": "right-flame",
+        "role": "flame-trail",
+        "size": {
+          "x": 0.1998,
+          "y": 0.43956,
+          "z": 0.27972
+        },
+        "center": {
+          "x": 0.47952,
+          "y": 0.34964999999999996,
+          "z": 0.04995
+        },
+        "color": {
+          "red": 238,
+          "green": 96,
+          "blue": 28
+        },
+        "rotation": null
+      },
+      {
+        "id": "top-flame",
+        "role": "flame-trail",
+        "size": {
+          "x": 0.31968,
+          "y": 0.25974,
+          "z": 0.1998
+        },
+        "center": {
+          "x": 0,
+          "y": 0.90909,
+          "z": 0.04995
+        },
+        "color": {
+          "red": 255,
+          "green": 184,
+          "blue": 48
+        },
+        "rotation": null
+      }
+    ]
+  },
+  {
+    "kind": "firework_rocket",
+    "parts": [
+      {
+        "id": "rocket-body",
+        "role": "rocket-body",
+        "size": {
+          "x": 0.25974,
+          "y": 0.9390599999999999,
+          "z": 0.25974
+        },
+        "center": {
+          "x": 0,
+          "y": 0.85914,
+          "z": 0
+        },
+        "color": {
+          "red": 188,
+          "green": 50,
+          "blue": 48
+        },
+        "rotation": null
+      },
+      {
+        "id": "rocket-nose",
+        "role": "rocket-nose",
+        "size": {
+          "x": 0.25974,
+          "y": 0.19979999999999998,
+          "z": 0.25974
+        },
+        "center": {
+          "x": 0,
+          "y": 1.42857,
+          "z": 0
+        },
+        "color": {
+          "red": 239,
+          "green": 218,
+          "blue": 185
+        },
+        "rotation": null
+      },
+      {
+        "id": "rocket-band",
+        "role": "rocket-band",
+        "size": {
+          "x": 0.28970999999999997,
+          "y": 0.12986999999999999,
+          "z": 0.28970999999999997
+        },
+        "center": {
+          "x": 0,
+          "y": 0.57942,
+          "z": 0
+        },
+        "color": {
+          "red": 239,
+          "green": 218,
+          "blue": 185
+        },
+        "rotation": null
+      },
+      {
+        "id": "left-fin",
+        "role": "rocket-fin",
+        "size": {
+          "x": 0.11988,
+          "y": 0.26972999999999997,
+          "z": 0.1998
+        },
+        "center": {
+          "x": -0.16983,
+          "y": 0.5194799999999999,
+          "z": 0
+        },
+        "color": {
+          "red": 181,
+          "green": 137,
+          "blue": 79
+        },
+        "rotation": null
+      },
+      {
+        "id": "right-fin",
+        "role": "rocket-fin",
+        "size": {
+          "x": 0.11988,
+          "y": 0.26972999999999997,
+          "z": 0.1998
+        },
+        "center": {
+          "x": 0.16983,
+          "y": 0.5194799999999999,
+          "z": 0
+        },
+        "color": {
+          "red": 181,
+          "green": 137,
+          "blue": 79
+        },
+        "rotation": null
+      },
+      {
+        "id": "exhaust",
+        "role": "rocket-exhaust",
+        "size": {
+          "x": 0.16983,
+          "y": 0.33965999999999996,
+          "z": 0.16983
+        },
+        "center": {
+          "x": 0,
+          "y": 0.16982999999999998,
+          "z": 0
+        },
+        "color": {
+          "red": 255,
+          "green": 184,
+          "blue": 48
+        },
+        "rotation": null
+      }
+    ]
+  },
+  {
+    "kind": "fishing_bobber",
+    "parts": [
+      {
+        "id": "bobber-float",
+        "role": "bobber-float",
+        "size": {
+          "x": 0.29969999999999997,
+          "y": 0.41958,
+          "z": 0.29969999999999997
+        },
+        "center": {
+          "x": 0,
+          "y": 0.5944050000000001,
+          "z": 0
+        },
+        "color": {
+          "red": 235,
+          "green": 226,
+          "blue": 202
+        },
+        "rotation": null
+      },
+      {
+        "id": "bobber-cap",
+        "role": "bobber-cap",
+        "size": {
+          "x": 0.31968,
+          "y": 0.18981,
+          "z": 0.31968
+        },
+        "center": {
+          "x": 0,
+          "y": 0.834165,
+          "z": 0
+        },
+        "color": {
+          "red": 207,
+          "green": 52,
+          "blue": 44
+        },
+        "rotation": null
+      },
+      {
+        "id": "bobber-tip",
+        "role": "bobber-tip",
+        "size": {
+          "x": 0.11988,
+          "y": 0.12987,
+          "z": 0.11988
+        },
+        "center": {
+          "x": 0,
+          "y": 0.9840150000000001,
+          "z": 0
+        },
+        "color": {
+          "red": 235,
+          "green": 226,
+          "blue": 202
+        },
+        "rotation": null
+      },
+      {
+        "id": "bobber-keel",
+        "role": "bobber-keel",
+        "size": {
+          "x": 0.11988,
+          "y": 0.1998,
+          "z": 0.11988
+        },
+        "center": {
+          "x": 0,
+          "y": 0.28471500000000005,
+          "z": 0
+        },
+        "color": {
+          "red": 73,
+          "green": 81,
+          "blue": 88
+        },
+        "rotation": null
+      },
+      {
+        "id": "bobber-hook",
+        "role": "bobber-hook",
+        "size": {
+          "x": 0.08990999999999999,
+          "y": 0.22977,
+          "z": 0.08990999999999999
+        },
+        "center": {
+          "x": 0.08990999999999999,
+          "y": 0.114885,
+          "z": 0.03996
+        },
+        "color": {
+          "red": 174,
+          "green": 181,
+          "blue": 187
+        },
+        "rotation": null
+      }
+    ]
+  },
+  {
+    "kind": "llama_spit",
+    "parts": [
+      {
+        "id": "spit-main",
+        "role": "spit-glob",
+        "size": {
+          "x": 0.33966,
+          "y": 0.3437522891566265,
+          "z": 0.47952
+        },
+        "center": {
+          "x": 0,
+          "y": 0.19715204819277107,
+          "z": 0
+        },
+        "color": {
+          "red": 224,
+          "green": 224,
+          "blue": 207
+        },
+        "rotation": null
+      },
+      {
+        "id": "spit-front",
+        "role": "spit-glob",
+        "size": {
+          "x": 0.1998,
+          "y": 0.22242795180722888,
+          "z": 0.1998
+        },
+        "center": {
+          "x": 0,
+          "y": 0.19715204819277107,
+          "z": -0.28970999999999997
+        },
+        "color": {
+          "red": 247,
+          "green": 247,
+          "blue": 231
+        },
+        "rotation": null
+      },
+      {
+        "id": "spit-left",
+        "role": "spit-droplet",
+        "size": {
+          "x": 0.15984,
+          "y": 0.1617657831325301,
+          "z": 0.1998
+        },
+        "center": {
+          "x": -0.22977,
+          "y": 0.3386971084337349,
+          "z": 0.0999
+        },
+        "color": {
+          "red": 190,
+          "green": 191,
+          "blue": 175
+        },
+        "rotation": null
+      },
+      {
+        "id": "spit-right",
+        "role": "spit-droplet",
+        "size": {
+          "x": 0.13986,
+          "y": 0.13143469879518072,
+          "z": 0.17981999999999998
+        },
+        "center": {
+          "x": 0.20979,
+          "y": 0.06571734939759036,
+          "z": 0.07992
+        },
+        "color": {
+          "red": 207,
+          "green": 208,
+          "blue": 192
+        },
+        "rotation": null
+      }
+    ]
+  },
+  {
+    "kind": "potion",
+    "parts": [
+      {
+        "id": "potion-base",
+        "role": "potion-base",
+        "size": {
+          "x": 0.31968,
+          "y": 0.36963000000000007,
+          "z": 0.27972
+        },
+        "center": {
+          "x": 0,
+          "y": 0.18481500000000003,
+          "z": 0
+        },
+        "color": {
+          "red": 172,
+          "green": 42,
+          "blue": 144
+        },
+        "rotation": null
+      },
+      {
+        "id": "potion-shoulder",
+        "role": "potion-shoulder",
+        "size": {
+          "x": 0.37962,
+          "y": 0.14985000000000004,
+          "z": 0.31968
+        },
+        "center": {
+          "x": 0,
+          "y": 0.4245750000000001,
+          "z": 0
+        },
+        "color": {
+          "red": 115,
+          "green": 183,
+          "blue": 178
+        },
+        "rotation": null
+      },
+      {
+        "id": "potion-neck",
+        "role": "potion-neck",
+        "size": {
+          "x": 0.18981,
+          "y": 0.21978000000000006,
+          "z": 0.17981999999999998
+        },
+        "center": {
+          "x": 0,
+          "y": 0.6143850000000002,
+          "z": 0
+        },
+        "color": {
+          "red": 109,
+          "green": 179,
+          "blue": 178
+        },
+        "rotation": null
+      },
+      {
+        "id": "potion-cork",
+        "role": "potion-cork",
+        "size": {
+          "x": 0.21978,
+          "y": 0.12987000000000004,
+          "z": 0.21978
+        },
+        "center": {
+          "x": 0,
+          "y": 0.794205,
+          "z": 0
+        },
+        "color": {
+          "red": 115,
+          "green": 72,
+          "blue": 43
+        },
+        "rotation": null
+      },
+      {
+        "id": "potion-label",
+        "role": "potion-label",
+        "size": {
+          "x": 0.21978,
+          "y": 0.16983000000000004,
+          "z": 0.034965
+        },
+        "center": {
+          "x": 0,
+          "y": 0.22477500000000003,
+          "z": -0.15984
+        },
+        "color": {
+          "red": 236,
+          "green": 187,
+          "blue": 226
+        },
+        "rotation": null
+      },
+      {
+        "id": "potion-glint",
+        "role": "potion-glint",
+        "size": {
+          "x": 0.054945,
+          "y": 0.15984000000000004,
+          "z": 0.03996
+        },
+        "center": {
+          "x": -0.11988,
+          "y": 0.214785,
+          "z": -0.15984
+        },
+        "color": {
+          "red": 217,
+          "green": 224,
+          "blue": 219
+        },
+        "rotation": null
+      }
+    ]
+  },
+  {
+    "kind": "shulker_bullet",
+    "parts": [
+      {
+        "id": "bullet-core",
+        "role": "bullet-core",
+        "size": {
+          "x": 0.33966,
+          "y": 0.33966,
+          "z": 0.33966
+        },
+        "center": {
+          "x": 0,
+          "y": 0.26973,
+          "z": 0
+        },
+        "color": {
+          "red": 147,
+          "green": 84,
+          "blue": 173
+        },
+        "rotation": null
+      },
+      {
+        "id": "bullet-shell",
+        "role": "bullet-shell",
+        "size": {
+          "x": 0.53946,
+          "y": 0.53946,
+          "z": 0.53946
+        },
+        "center": {
+          "x": 0,
+          "y": 0.26973,
+          "z": 0
+        },
+        "color": {
+          "red": 211,
+          "green": 165,
+          "blue": 226
+        },
+        "rotation": null
+      },
+      {
+        "id": "bullet-front",
+        "role": "bullet-face",
+        "size": {
+          "x": 0.17981999999999998,
+          "y": 0.17981999999999998,
+          "z": 0.05994
+        },
+        "center": {
+          "x": 0,
+          "y": 0.26973,
+          "z": -0.29969999999999997
+        },
+        "color": {
+          "red": 246,
+          "green": 228,
+          "blue": 248
+        },
+        "rotation": null
+      },
+      {
+        "id": "bullet-tail",
+        "role": "bullet-tail",
+        "size": {
+          "x": 0.10989,
+          "y": 0.10989,
+          "z": 0.37962
+        },
+        "center": {
+          "x": 0,
+          "y": 0.26973,
+          "z": 0.38961
+        },
+        "color": {
+          "red": 147,
+          "green": 84,
+          "blue": 173
+        },
+        "rotation": null
+      }
+    ]
+  },
+  {
+    "kind": "small_fireball",
+    "parts": [
+      {
+        "id": "small-fire-orb",
+        "role": "small-fire-orb",
+        "size": {
+          "x": 0.47952,
+          "y": 0.47952,
+          "z": 0.47952
+        },
+        "center": {
+          "x": 0,
+          "y": 0.23976,
+          "z": 0
+        },
+        "color": {
+          "red": 240,
+          "green": 133,
+          "blue": 35
+        },
+        "rotation": null
+      },
+      {
+        "id": "small-fire-core",
+        "role": "small-fire-core",
+        "size": {
+          "x": 0.27972,
+          "y": 0.27972,
+          "z": 0.27972
+        },
+        "center": {
+          "x": 0,
+          "y": 0.23976,
+          "z": -0.07992
+        },
+        "color": {
+          "red": 255,
+          "green": 224,
+          "blue": 128
+        },
+        "rotation": null
+      },
+      {
+        "id": "small-fire-tail",
+        "role": "small-flame-trail",
+        "size": {
+          "x": 0.17981999999999998,
+          "y": 0.35963999999999996,
+          "z": 0.17981999999999998
+        },
+        "center": {
+          "x": 0.21978,
+          "y": 0.26973,
+          "z": 0.30969
+        },
+        "color": {
+          "red": 249,
+          "green": 76,
+          "blue": 29
+        },
+        "rotation": null
+      },
+      {
+        "id": "small-fire-tip",
+        "role": "small-flame-trail",
+        "size": {
+          "x": 0.13986,
+          "y": 0.26973,
+          "z": 0.13986
+        },
+        "center": {
+          "x": -0.1998,
+          "y": 0.17981999999999998,
+          "z": 0.27972
+        },
+        "color": {
+          "red": 255,
+          "green": 190,
+          "blue": 56
+        },
+        "rotation": null
+      }
+    ]
+  },
+  {
+    "kind": "snowball",
+    "parts": [
+      {
+        "id": "snow-core",
+        "role": "snowball-core",
+        "size": {
+          "x": 0.45954,
+          "y": 0.45954,
+          "z": 0.45954
+        },
+        "center": {
+          "x": 0,
+          "y": 0.22977,
+          "z": 0
+        },
+        "color": {
+          "red": 240,
+          "green": 248,
+          "blue": 255
+        },
+        "rotation": null
+      },
+      {
+        "id": "snow-shadow",
+        "role": "snowball-shadow",
+        "size": {
+          "x": 0.20979,
+          "y": 0.17981999999999998,
+          "z": 0.06993
+        },
+        "center": {
+          "x": 0.12987,
+          "y": 0.12987,
+          "z": -0.21978
+        },
+        "color": {
+          "red": 157,
+          "green": 211,
+          "blue": 232
+        },
+        "rotation": null
+      },
+      {
+        "id": "snow-crystal",
+        "role": "snowflake-mark",
+        "size": {
+          "x": 0.07992,
+          "y": 0.23976,
+          "z": 0.05994
+        },
+        "center": {
+          "x": -0.0999,
+          "y": 0.32967,
+          "z": -0.24975
+        },
+        "color": {
+          "red": 255,
+          "green": 255,
+          "blue": 255
+        },
+        "rotation": null
+      }
+    ]
+  },
+  {
+    "kind": "spectral_arrow",
+    "parts": [
+      {
+        "id": "spectral-shaft",
+        "role": "spectral-shaft",
+        "size": {
+          "x": 0.0999,
+          "y": 0.0999,
+          "z": 0.8991
+        },
+        "center": {
+          "x": 0,
+          "y": 0.17981999999999998,
+          "z": 0
+        },
+        "color": {
+          "red": 242,
+          "green": 194,
+          "blue": 66
+        },
+        "rotation": null
+      },
+      {
+        "id": "spectral-head",
+        "role": "spectral-arrowhead",
+        "size": {
+          "x": 0.27972,
+          "y": 0.21978,
+          "z": 0.29969999999999997
+        },
+        "center": {
+          "x": 0,
+          "y": 0.17981999999999998,
+          "z": -0.5993999999999999
+        },
+        "color": {
+          "red": 174,
+          "green": 181,
+          "blue": 187
+        },
+        "rotation": null
+      },
+      {
+        "id": "spectral-left-fletching",
+        "role": "spectral-fletching",
+        "size": {
+          "x": 0.06993,
+          "y": 0.35963999999999996,
+          "z": 0.21978
+        },
+        "center": {
+          "x": -0.11988,
+          "y": 0.17981999999999998,
+          "z": 0.41958
+        },
+        "color": {
+          "red": 255,
+          "green": 232,
+          "blue": 137
+        },
+        "rotation": null
+      },
+      {
+        "id": "spectral-right-fletching",
+        "role": "spectral-fletching",
+        "size": {
+          "x": 0.06993,
+          "y": 0.35963999999999996,
+          "z": 0.21978
+        },
+        "center": {
+          "x": 0.11988,
+          "y": 0.17981999999999998,
+          "z": 0.41958
+        },
+        "color": {
+          "red": 255,
+          "green": 232,
+          "blue": 137
+        },
+        "rotation": null
+      },
+      {
+        "id": "spectral-aura",
+        "role": "arrow-aura",
+        "size": {
+          "x": 0.18981,
+          "y": 0.18981,
+          "z": 0.7192799999999999
+        },
+        "center": {
+          "x": 0,
+          "y": 0.17981999999999998,
+          "z": 0.02997
+        },
+        "color": {
+          "red": 255,
+          "green": 224,
+          "blue": 118
+        },
+        "rotation": null
+      }
+    ]
+  },
+  {
+    "kind": "trident",
+    "parts": [
+      {
+        "id": "trident-shaft",
+        "role": "trident-shaft",
+        "size": {
+          "x": 0.11988,
+          "y": 1.17882,
+          "z": 0.11988
+        },
+        "center": {
+          "x": 0,
+          "y": 0.7192799999999999,
+          "z": 0
+        },
+        "color": {
+          "red": 48,
+          "green": 135,
+          "blue": 132
+        },
+        "rotation": null
+      },
+      {
+        "id": "trident-crossbar",
+        "role": "trident-crossbar",
+        "size": {
+          "x": 0.63936,
+          "y": 0.0999,
+          "z": 0.11988
+        },
+        "center": {
+          "x": 0,
+          "y": 1.33866,
+          "z": 0
+        },
+        "color": {
+          "red": 64,
+          "green": 174,
+          "blue": 164
+        },
+        "rotation": null
+      },
+      {
+        "id": "left-prong",
+        "role": "trident-prong",
+        "size": {
+          "x": 0.0999,
+          "y": 0.53946,
+          "z": 0.11988
+        },
+        "center": {
+          "x": -0.24975,
+          "y": 1.63836,
+          "z": 0
+        },
+        "color": {
+          "red": 92,
+          "green": 204,
+          "blue": 188
+        },
+        "rotation": null
+      },
+      {
+        "id": "center-prong",
+        "role": "trident-prong",
+        "size": {
+          "x": 0.11988,
+          "y": 0.67932,
+          "z": 0.13986
+        },
+        "center": {
+          "x": 0,
+          "y": 1.74825,
+          "z": 0
+        },
+        "color": {
+          "red": 133,
+          "green": 225,
+          "blue": 205
+        },
+        "rotation": null
+      },
+      {
+        "id": "right-prong",
+        "role": "trident-prong",
+        "size": {
+          "x": 0.0999,
+          "y": 0.53946,
+          "z": 0.11988
+        },
+        "center": {
+          "x": 0.24975,
+          "y": 1.63836,
+          "z": 0
+        },
+        "color": {
+          "red": 92,
+          "green": 204,
+          "blue": 188
+        },
+        "rotation": null
+      },
+      {
+        "id": "trident-butt",
+        "role": "trident-butt",
+        "size": {
+          "x": 0.1998,
+          "y": 0.13986,
+          "z": 0.1998
+        },
+        "center": {
+          "x": 0,
+          "y": 0.06993,
+          "z": 0
+        },
+        "color": {
+          "red": 176,
+          "green": 129,
+          "blue": 69
+        },
+        "rotation": null
+      }
+    ]
+  },
+  {
+    "kind": "wind_charge",
+    "parts": [
+      {
+        "id": "wind-orb",
+        "role": "wind-charge-orb",
+        "size": {
+          "x": 0.47952,
+          "y": 0.47952,
+          "z": 0.47952
+        },
+        "center": {
+          "x": 0,
+          "y": 0.42957,
+          "z": 0
+        },
+        "color": {
+          "red": 189,
+          "green": 238,
+          "blue": 229
+        },
+        "rotation": null
+      },
+      {
+        "id": "horizontal-ring",
+        "role": "wind-ring",
+        "size": {
+          "x": 0.85914,
+          "y": 0.0999,
+          "z": 0.0999
+        },
+        "center": {
+          "x": 0,
+          "y": 0.50949,
+          "z": 0
+        },
+        "color": {
+          "red": 171,
+          "green": 241,
+          "blue": 230
+        },
+        "rotation": null
+      },
+      {
+        "id": "vertical-ring",
+        "role": "wind-ring",
+        "size": {
+          "x": 0.0999,
+          "y": 0.85914,
+          "z": 0.0999
+        },
+        "center": {
+          "x": -0.02997,
+          "y": 0.42957,
+          "z": 0
+        },
+        "color": {
+          "red": 113,
+          "green": 220,
+          "blue": 210
+        },
+        "rotation": null
+      },
+      {
+        "id": "depth-ring",
+        "role": "wind-ring",
+        "size": {
+          "x": 0.0999,
+          "y": 0.0999,
+          "z": 0.85914
+        },
+        "center": {
+          "x": 0.02997,
+          "y": 0.42957,
+          "z": 0
+        },
+        "color": {
+          "red": 132,
+          "green": 214,
+          "blue": 207
+        },
+        "rotation": null
+      },
+      {
+        "id": "wind-core",
+        "role": "wind-core",
+        "size": {
+          "x": 0.1998,
+          "y": 0.1998,
+          "z": 0.1998
+        },
+        "center": {
+          "x": 0,
+          "y": 0.42957,
+          "z": -0.25974
+        },
+        "color": {
+          "red": 250,
+          "green": 255,
+          "blue": 250
+        },
+        "rotation": null
+      }
+    ]
+  },
+  {
+    "kind": "wither_skull",
+    "parts": [
+      {
+        "id": "skull-cranium",
+        "role": "skull-cranium",
+        "size": {
+          "x": 0.6992999999999999,
+          "y": 0.6631512138728324,
+          "z": 0.5993999999999999
+        },
+        "center": {
+          "x": 0,
+          "y": 0.4923395375722544,
+          "z": 0
+        },
+        "color": {
+          "red": 49,
+          "green": 47,
+          "blue": 51
+        },
+        "rotation": null
+      },
+      {
+        "id": "skull-jaw",
+        "role": "skull-jaw",
+        "size": {
+          "x": 0.51948,
+          "y": 0.2009549132947977,
+          "z": 0.47952
+        },
+        "center": {
+          "x": 0,
+          "y": 0.10047745664739885,
+          "z": -0.00999
+        },
+        "color": {
+          "red": 76,
+          "green": 72,
+          "blue": 78
+        },
+        "rotation": null
+      },
+      {
+        "id": "left-eye-socket",
+        "role": "skull-eye-socket",
+        "size": {
+          "x": 0.16983,
+          "y": 0.16076393063583816,
+          "z": 0.06993
+        },
+        "center": {
+          "x": -0.17981999999999998,
+          "y": 0.5325305202312139,
+          "z": -0.31968
+        },
+        "color": {
+          "red": 16,
+          "green": 15,
+          "blue": 18
+        },
+        "rotation": null
+      },
+      {
+        "id": "right-eye-socket",
+        "role": "skull-eye-socket",
+        "size": {
+          "x": 0.16983,
+          "y": 0.16076393063583816,
+          "z": 0.06993
+        },
+        "center": {
+          "x": 0.17981999999999998,
+          "y": 0.5325305202312139,
+          "z": -0.31968
+        },
+        "color": {
+          "red": 16,
+          "green": 15,
+          "blue": 18
+        },
+        "rotation": null
+      },
+      {
+        "id": "nose",
+        "role": "skull-nose",
+        "size": {
+          "x": 0.12987,
+          "y": 0.1406684393063584,
+          "z": 0.11988
+        },
+        "center": {
+          "x": 0,
+          "y": 0.3818143352601156,
+          "z": -0.33966
+        },
+        "color": {
+          "red": 111,
+          "green": 106,
+          "blue": 113
+        },
+        "rotation": null
+      },
+      {
+        "id": "smoke-trail",
+        "role": "skull-smoke",
+        "size": {
+          "x": 0.29969999999999997,
+          "y": 0.35167109826589593,
+          "z": 0.31968
+        },
+        "center": {
+          "x": 0,
+          "y": 0.6932944508670521,
+          "z": 0.42957
+        },
+        "color": {
+          "red": 106,
+          "green": 98,
+          "blue": 107
+        },
+        "rotation": null
+      }
+    ]
+  }
+]

@@ -1157,6 +1157,157 @@ The renderer hides chunks outside the same Chebyshev radius in
 `src/application/world-renderer.ts:1772-1776`. The browser runtime forwards
 `world` options in `src/browser.ts:1513-1532`.
 
+### 3.6 エンティティ描画の入力
+
+`EntityRenderFrameInputSchema` は入力フレームの検証に使う。ホストは
+`WorldRenderer.syncEntityFrame(input)` に入力を渡す。このAPIは `unknown` を受け取り、
+`sampleEntityRenderFrame` で厳密にデコードしてから、既存の `syncEntities` に渡して
+エンティティを同期する。デコードまたはフレーム時計の検証に失敗すると、Effectは
+`Schema.SchemaError | AnimationClockInputError` で失敗する。
+
+```ts
+decodeEntityRenderFrameInput(input: unknown): Result.Result<EntityRenderFrameInput, Schema.SchemaError>
+sampleEntityRenderFrame(input: unknown): Result.Result<SampledEntityRenderFrame, Schema.SchemaError | AnimationClockInputError>
+WorldRenderer.syncEntityFrame(input: unknown): Effect.Effect<void, Schema.SchemaError | AnimationClockInputError>
+```
+
+```ts
+yield* renderer.syncEntityFrame({
+  simulationTick: 320,
+  partialTick: 0.5,
+  timeOfDayTicks: 7500,
+  entities: [{
+    id: 'zombie-1',
+    kind: 'zombie',
+    position: { dimension: 'overworld', x: 4, y: 64, z: -2 },
+    bodyYawRadians: 0,
+    headYawRadians: Math.PI / 4,
+    pitchRadians: 0,
+    blockLight: 0,
+    skyLight: 15,
+    walkPhaseRadians: Math.PI / 2,
+    walkAmount: 1,
+    attackProgress: 0,
+    hurtProgress: 0,
+    deathProgress: 0,
+  }],
+})
+```
+
+各位置は `@nerima-games/mc-kernel` の `WorldPosition` と同じく次元を持つ。
+レンダラーは `WorldRendererOptions.dimension` と一致するエンティティだけを表示する。
+体と頭のyawはラジアンの `[-π, π]`、pitchはラジアンの `[-π/2, π/2]` で指定する。
+体のyawはモデル全体の向きを、頭のyawは頭パーツの向きを決め、pitchはモデルの姿勢に使う。
+光レベルはブロック光と天空光を別々の整数 `[0, 15]` で受け取る。
+歩行位相は `[0, 2π)`、歩行量と攻撃・被ダメージ・死亡の進行度は `[0, 1]` である。
+フレームには `simulationTick`、`partialTick`、`timeOfDayTicks` を含める。
+`sampleEntityRenderFrame` は `{ frame, animationSeconds }` を返し、
+`animationSeconds` は `(simulationTick + partialTick) / 20` で求める。
+`syncEntityFrame` はフレーム内の `walkPhaseRadians` と進行度を描画アニメーションに使う。
+
+`syncEntityFrame` はホストのフレーム入力を受け取る公開APIである。現行の
+`mc-host-web` は `playerSessionRuntime.syncRenderedEntities` から
+`worldRenderer.syncEntities` を呼ぶ。`syncEntities(entities)` はrenderer DTOへ
+変換済みの値を渡すAPIとして残り、既存のホスト呼び出しとの互換性を保つ。
+パッケージrootは `EntityRenderFrameInputSchema`、`EntityRenderEntityInputSchema`、
+`decodeEntityRenderFrameInput`、`decodeEntityRenderEntityInput`、`sampleEntityRenderFrame`、
+`EntityRenderFrameInput`、`EntityRenderEntityInput`、`SampledEntityRenderFrame` をexportする。
+
+### 3.7 エンティティモデルと未対応 kind
+
+ホストは各エンティティの `kind` を `syncEntityFrame` の `entities` に渡すか、
+renderer DTO の `kind` として `syncEntities` に渡す。モデルカタログはその値を
+`EntityModelKindSchema` で空でない文字列かを検証し、`resolveEntityModel` が登録の有無を判定する。
+`ENTITY_MODEL_CATALOG`、`ENTITY_MODEL_KINDS`、`UNSUPPORTED_ENTITY_MODEL_KINDS`、
+`EntityModelKindSchema`、`decodeEntityModelKind`、`entityModelForKind`、`resolveEntityModel`、
+`EntityModelResolutionIssueSchema` はパッケージrootからimportできる。
+`ENTITY_MODEL_TEXTURE_ATLAS`、`entityTextureAtlasPixels`、`entityTextureUvForKind`、
+`EntityTextureUvCoordinatesSchema`、`EntityTextureResolutionIssueSchema` もrootからimportできる。
+関連型として `EntityModelKind`、`EntityModelDescriptor`、
+`EntityModelPartDescriptor`、`EntityModelPartIdentifier`、`EntityModelPartRole`、
+`EntityModelColor`、`EntityModelVector`、`UnsupportedEntityModel`、`InvalidEntityModelKind`、
+`EntityModelResolutionIssue`、`EntityTextureUvCoordinates`、`EntityTextureResolutionIssue`、
+`WorldRendererEntityModelDiagnostic` をrootからimportできる。
+
+```ts
+ENTITY_MODEL_CATALOG: ReadonlyArray<EntityModelDescriptor>
+ENTITY_MODEL_KINDS: ReadonlyArray<EntityModelKind>
+UNSUPPORTED_ENTITY_MODEL_KINDS: ReadonlyArray<EntityModelKind> // 現在は空
+resolveEntityModel(input: unknown): Result.Result<EntityModelDescriptor, EntityModelResolutionIssue>
+WorldRenderer.entityModelDiagnostics: Effect.Effect<ReadonlyArray<WorldRendererEntityModelDiagnostic>>
+```
+
+カタログは現行 `mc-kernel` の128種類すべてを収録し、`UNSUPPORTED_ENTITY_MODEL_KINDS` は空である。
+各種類にはパーツを持つ個別モデルがあり、形状・配置・部位・配色の署名は種類ごとに異なる。
+歩行位相と量は脚・腕・翼・尾の対応するパーツを動かし、攻撃は腕、被ダメージと死亡はモデルの傾きに反映する。
+
+`WorldRenderer.entityModelDiagnostics` は直近の同期処理でモデルまたはテクスチャを解決できなかったエンティティを、
+`{ entityId, issue }` の配列で返す。モデルの `UnsupportedEntityModel` と `InvalidEntityModelKind`、
+テクスチャの `UnsupportedEntityTexture` と `InvalidEntityTextureCoordinates` を記録する。
+診断されたエンティティは描画せず、既定モデルで代用しない。
+`category: 'item'` の値は既存のアイテム描画経路で処理する。
+
+モデルの元データは `scripts/entity-models/source/` にあり、
+`scripts/entity-models/generate.ts` が8グループのモデル記述子、128タイルのテクスチャ atlas、
+PNGを決定的に生成する。各モデルの幅と高さは元の形状を基準に決め、
+`scripts/entity-models/model-design-dimensions.json` に記録する。`--check` は生成物とマニフェストが元データに一致するかを検証する。
+`assets/entity-models/manifest.json` は独自の生成スクリプト、寸法設計表、モデル・テクスチャ生成物にCC0-1.0を適用する。
+それ以外のリポジトリ所有ファイルはMITである。モデルとテクスチャの素材は独自制作で、
+外部のモデル・テクスチャ・ゲームアートは使っていない。
+
+ブラウザホストはThree.jsのtextureを `entityMaterial` factoryから渡す。画像ファイルの読み込みに失敗した場合は、
+パッケージrootから出る画素データを `DataTexture` に使える。
+
+```ts
+const atlas = new THREE.DataTexture(
+  entityTextureAtlasPixels(),
+  ENTITY_MODEL_TEXTURE_ATLAS.width,
+  ENTITY_MODEL_TEXTURE_ATLAS.height,
+  THREE.RGBAFormat,
+  THREE.UnsignedByteType,
+)
+atlas.colorSpace = THREE.SRGBColorSpace
+atlas.flipY = true
+atlas.magFilter = THREE.NearestFilter
+atlas.minFilter = THREE.NearestFilter
+atlas.generateMipmaps = false
+atlas.needsUpdate = true
+
+makeWorldRenderer(THREE, canvas, viewport, {
+  entityMaterial: () => new THREE.MeshBasicMaterial({ map: atlas, vertexColors: true }),
+})
+```
+
+開発時は次のコマンドで生成し、`--check` を付けると出力の一致を確認できる。
+
+```sh
+pnpm exec tsx scripts/entity-models/generate.ts
+pnpm exec tsx scripts/entity-models/generate.ts --check
+```
+
+### 3.8 `syncEntities` の入力検証
+
+`syncEntities(entities)` はrenderer DTOの配列を `RenderEntitySchema` で実行時検証し、
+`Effect.Effect<void, Schema.SchemaError>` を返す。DTOや `animation`、`witherState`、
+`witherSkullProjectile` に定義のないキーを含めると失敗する。不正な入力はメッシュの照合前に
+`Schema.SchemaError` となり、その呼び出しではエンティティとモデル診断を更新しない。
+
+`id` は空でない文字列、`feetPosition` と Wither・projectileの位置や方向ベクトルは有限値である。
+体yaw、頭yaw、`facingRadians` はラジアン `[-π, π]`、pitchは `[-π/2, π/2]` に収める。
+アニメーションの位相は `[0, 2π)`、`progress`、歩行量、攻撃・被ダメージ・死亡の進行度は `[0, 1]` である。
+Witherのチャージ残り時間と体力、projectileの爆発力と速度は、有限かつ0以上でなければならない。
+
+ブロック光と天空光は両方とも省略するか、両方を指定する。指定値はそれぞれ整数 `[0, 15]` であり、
+両方省略した場合は全輝度で描画する。体yawがなければ旧形式の `facingRadians` を使い、両方なければ0とする。
+頭yawの省略時は体の向き、pitchの省略時は0を使う。`animation` を省略すると静止状態になる。
+指定する場合は `state` が必須で、位相は0、歩行量は `state: 'walk'` のとき1、それ以外は0を既定値とする。
+攻撃進行度は0、`progress` は `hurt` または `death` の状態なら1、それ以外なら0を既定値とし、
+明示した被ダメージ・死亡の進行度は `progress` より優先する。
+
+`kind: 'wither'` の `witherState` を省略すると、チャージ残り時間0、体力300、状態 `airborne`、
+エンティティ位置と向きから求めた速度を使う。`kind: 'wither_skull'` の `witherSkullProjectile` を省略すると、
+通常型、爆発力と速度0、耐性ブロック破壊なし、エンティティ位置と向きから求めた起点・方向を使う。
+
 ## 4. マテリアル方針
 
 ```typescript

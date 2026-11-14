@@ -25,6 +25,21 @@
         width: 640px;
         height: 360px;
       }
+      #entity-contact-sheet {
+        display: none;
+        width: min(100%, 2048px);
+        height: auto;
+        image-rendering: pixelated;
+      }
+      body[data-entity-gallery="running"] #preview-canvas {
+        position: absolute;
+        left: -10000px;
+        width: 128px;
+        height: 128px;
+      }
+      body[data-entity-gallery="drawn"] #entity-contact-sheet {
+        display: block;
+      }
       #preview-report {
         padding: 0.75rem;
         margin: 0;
@@ -40,6 +55,7 @@
   </head>
   <body data-render-preview="running">
     <canvas id="preview-canvas"></canvas>
+    <canvas id="entity-contact-sheet" aria-label="All 128 generated entity models"></canvas>
     <pre id="preview-report">drawing…</pre>
     <p id="presentation-links">
       <a href="?presentation=1">Show selection, mining, first-person and damage feedback</a>
@@ -47,6 +63,10 @@
       <a href="?presentation=sky">Show sun and clouds</a>
       ·
       <a href="?presentation=stars">Show moon and stars</a>
+      ·
+      <a href="?entities=1">Show entity models</a>
+      ·
+      <a href="?entity-gallery=1">Show all 128 entity models</a>
     </p>
   <script type="module" src="./main.ts"></script>
   </body>

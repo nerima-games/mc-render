@@ -389,7 +389,10 @@ export type BrowserWorldRuntimeOptions = {
   /** Defaults to true so `captureScreenshot` remains valid after rendering. */
   readonly preserveDrawingBuffer?: boolean
   readonly waterGeometry?: THREE.BufferGeometry
-  readonly world?: Omit<ProductionWorldRendererOptions, 'postProcessing' | 'preserveDrawingBuffer'>
+  readonly world?: Omit<
+    ProductionWorldRendererOptions<THREE.MeshBasicMaterial>,
+    'postProcessing' | 'preserveDrawingBuffer'
+  >
 }
 
 export type BrowserWorldRuntime = {
@@ -1462,7 +1465,7 @@ const createRefractionController = (
 const createBrowserWorldOptions = (
   options: BrowserWorldRuntimeOptions,
   postProcessing: PostProcessingRendererFactory,
-): ProductionWorldRendererOptions => ({
+): ProductionWorldRendererOptions<THREE.MeshBasicMaterial> => ({
   ...options.world,
   postProcessing,
 })

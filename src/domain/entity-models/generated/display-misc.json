@@ -1,0 +1,2156 @@
+[
+  {
+    "kind": "block_display",
+    "parts": [
+      {
+        "id": "glass-core",
+        "role": "display-block",
+        "size": {
+          "x": 0.8991,
+          "y": 0.8990999999999999,
+          "z": 0.8991
+        },
+        "center": {
+          "x": 0,
+          "y": 0.44954999999999995,
+          "z": 0
+        },
+        "color": {
+          "red": 110,
+          "green": 209,
+          "blue": 232
+        },
+        "rotation": null
+      },
+      {
+        "id": "top-face",
+        "role": "top-face",
+        "size": {
+          "x": 0.7192799999999999,
+          "y": 0.07991999999999999,
+          "z": 0.7192799999999999
+        },
+        "center": {
+          "x": 0,
+          "y": 0.9190799999999999,
+          "z": 0
+        },
+        "color": {
+          "red": 145,
+          "green": 245,
+          "blue": 255
+        },
+        "rotation": null
+      },
+      {
+        "id": "front-inset",
+        "role": "front-inset",
+        "size": {
+          "x": 0.55944,
+          "y": 0.5594399999999999,
+          "z": 0.06993
+        },
+        "center": {
+          "x": 0,
+          "y": 0.44954999999999995,
+          "z": 0.47952
+        },
+        "color": {
+          "red": 38,
+          "green": 107,
+          "blue": 219
+        },
+        "rotation": null
+      },
+      {
+        "id": "left-edge",
+        "role": "edge",
+        "size": {
+          "x": 0.07992,
+          "y": 0.7792199999999999,
+          "z": 0.07992
+        },
+        "center": {
+          "x": -0.46952999999999995,
+          "y": 0.44954999999999995,
+          "z": 0.46952999999999995
+        },
+        "color": {
+          "red": 240,
+          "green": 232,
+          "blue": 199
+        },
+        "rotation": null
+      },
+      {
+        "id": "right-edge",
+        "role": "edge",
+        "size": {
+          "x": 0.07992,
+          "y": 0.7792199999999999,
+          "z": 0.07992
+        },
+        "center": {
+          "x": 0.46952999999999995,
+          "y": 0.44954999999999995,
+          "z": 0.46952999999999995
+        },
+        "color": {
+          "red": 240,
+          "green": 232,
+          "blue": 199
+        },
+        "rotation": null
+      }
+    ]
+  },
+  {
+    "kind": "interaction",
+    "parts": [
+      {
+        "id": "frame-left",
+        "role": "target-frame",
+        "size": {
+          "x": 0.08990999999999999,
+          "y": 1.5984000000000005,
+          "z": 0.07992
+        },
+        "center": {
+          "x": -0.7192799999999999,
+          "y": 0.8041950000000002,
+          "z": 0
+        },
+        "color": {
+          "red": 145,
+          "green": 245,
+          "blue": 255
+        },
+        "rotation": null
+      },
+      {
+        "id": "frame-right",
+        "role": "target-frame",
+        "size": {
+          "x": 0.08990999999999999,
+          "y": 1.5984000000000005,
+          "z": 0.07992
+        },
+        "center": {
+          "x": 0.7192799999999999,
+          "y": 0.8041950000000002,
+          "z": 0
+        },
+        "color": {
+          "red": 145,
+          "green": 245,
+          "blue": 255
+        },
+        "rotation": null
+      },
+      {
+        "id": "frame-top",
+        "role": "target-frame",
+        "size": {
+          "x": 1.51848,
+          "y": 0.08991000000000002,
+          "z": 0.07992
+        },
+        "center": {
+          "x": 0,
+          "y": 1.5634350000000004,
+          "z": 0
+        },
+        "color": {
+          "red": 110,
+          "green": 209,
+          "blue": 232
+        },
+        "rotation": null
+      },
+      {
+        "id": "frame-bottom",
+        "role": "target-frame",
+        "size": {
+          "x": 1.51848,
+          "y": 0.08991000000000002,
+          "z": 0.07992
+        },
+        "center": {
+          "x": 0,
+          "y": 0.04495500000000001,
+          "z": 0
+        },
+        "color": {
+          "red": 110,
+          "green": 209,
+          "blue": 232
+        },
+        "rotation": null
+      },
+      {
+        "id": "center-dot",
+        "role": "target-center",
+        "size": {
+          "x": 0.16983,
+          "y": 0.16983000000000004,
+          "z": 0.0999
+        },
+        "center": {
+          "x": 0,
+          "y": 0.8041950000000002,
+          "z": 0.07992
+        },
+        "color": {
+          "red": 240,
+          "green": 232,
+          "blue": 199
+        },
+        "rotation": null
+      }
+    ]
+  },
+  {
+    "kind": "item_display",
+    "parts": [
+      {
+        "id": "pedestal-base",
+        "role": "display-pedestal",
+        "size": {
+          "x": 0.61938,
+          "y": 0.13985999999999998,
+          "z": 0.61938
+        },
+        "center": {
+          "x": 0,
+          "y": 0.06992999999999999,
+          "z": 0
+        },
+        "color": {
+          "red": 122,
+          "green": 130,
+          "blue": 135
+        },
+        "rotation": null
+      },
+      {
+        "id": "pedestal-stem",
+        "role": "display-stem",
+        "size": {
+          "x": 0.15984,
+          "y": 0.6193799999999999,
+          "z": 0.15984
+        },
+        "center": {
+          "x": 0,
+          "y": 0.44955,
+          "z": 0
+        },
+        "color": {
+          "red": 245,
+          "green": 173,
+          "blue": 43
+        },
+        "rotation": null
+      },
+      {
+        "id": "item-center",
+        "role": "display-item",
+        "size": {
+          "x": 0.5794199999999999,
+          "y": 0.6992999999999999,
+          "z": 0.41958
+        },
+        "center": {
+          "x": 0,
+          "y": 1.0389599999999999,
+          "z": 0
+        },
+        "color": {
+          "red": 122,
+          "green": 41,
+          "blue": 199
+        },
+        "rotation": null
+      },
+      {
+        "id": "item-cap",
+        "role": "display-highlight",
+        "size": {
+          "x": 0.29969999999999997,
+          "y": 0.17981999999999998,
+          "z": 0.25974
+        },
+        "center": {
+          "x": 0,
+          "y": 1.44855,
+          "z": 0
+        },
+        "color": {
+          "red": 191,
+          "green": 107,
+          "blue": 245
+        },
+        "rotation": null
+      },
+      {
+        "id": "support-left",
+        "role": "display-support",
+        "size": {
+          "x": 0.07992,
+          "y": 0.31967999999999996,
+          "z": 0.07992
+        },
+        "center": {
+          "x": -0.33966,
+          "y": 0.85914,
+          "z": 0
+        },
+        "color": {
+          "red": 255,
+          "green": 224,
+          "blue": 97
+        },
+        "rotation": null
+      },
+      {
+        "id": "support-right",
+        "role": "display-support",
+        "size": {
+          "x": 0.07992,
+          "y": 0.31967999999999996,
+          "z": 0.07992
+        },
+        "center": {
+          "x": 0.33966,
+          "y": 0.85914,
+          "z": 0
+        },
+        "color": {
+          "red": 255,
+          "green": 224,
+          "blue": 97
+        },
+        "rotation": null
+      }
+    ]
+  },
+  {
+    "kind": "marker",
+    "parts": [
+      {
+        "id": "marker-stem",
+        "role": "marker-stem",
+        "size": {
+          "x": 0.13986,
+          "y": 1.24875,
+          "z": 0.13986
+        },
+        "center": {
+          "x": 0,
+          "y": 0.73926,
+          "z": 0
+        },
+        "color": {
+          "red": 209,
+          "green": 43,
+          "blue": 31
+        },
+        "rotation": null
+      },
+      {
+        "id": "marker-crossbar",
+        "role": "marker-crossbar",
+        "size": {
+          "x": 0.7192799999999999,
+          "y": 0.11988,
+          "z": 0.13986
+        },
+        "center": {
+          "x": 0,
+          "y": 1.10889,
+          "z": 0
+        },
+        "color": {
+          "red": 255,
+          "green": 224,
+          "blue": 97
+        },
+        "rotation": null
+      },
+      {
+        "id": "marker-cap",
+        "role": "marker-cap",
+        "size": {
+          "x": 0.29969999999999997,
+          "y": 0.21978,
+          "z": 0.29969999999999997
+        },
+        "center": {
+          "x": 0,
+          "y": 1.45854,
+          "z": 0
+        },
+        "color": {
+          "red": 240,
+          "green": 232,
+          "blue": 199
+        },
+        "rotation": null
+      },
+      {
+        "id": "marker-foot",
+        "role": "marker-foot",
+        "size": {
+          "x": 0.53946,
+          "y": 0.11988,
+          "z": 0.53946
+        },
+        "center": {
+          "x": 0,
+          "y": 0.05994,
+          "z": 0
+        },
+        "color": {
+          "red": 122,
+          "green": 130,
+          "blue": 135
+        },
+        "rotation": null
+      }
+    ]
+  },
+  {
+    "kind": "text_display",
+    "parts": [
+      {
+        "id": "panel-back",
+        "role": "text-panel",
+        "size": {
+          "x": 1.24875,
+          "y": 0.8191799999999999,
+          "z": 0.0999
+        },
+        "center": {
+          "x": 0,
+          "y": 0.40958999999999995,
+          "z": -0.03996
+        },
+        "color": {
+          "red": 107,
+          "green": 64,
+          "blue": 33
+        },
+        "rotation": null
+      },
+      {
+        "id": "panel-face",
+        "role": "text-face",
+        "size": {
+          "x": 1.11888,
+          "y": 0.6793199999999999,
+          "z": 0.05994
+        },
+        "center": {
+          "x": 0,
+          "y": 0.40958999999999995,
+          "z": 0.03996
+        },
+        "color": {
+          "red": 184,
+          "green": 189,
+          "blue": 186
+        },
+        "rotation": null
+      },
+      {
+        "id": "text-line-one",
+        "role": "text-line",
+        "size": {
+          "x": 0.83916,
+          "y": 0.07991999999999999,
+          "z": 0.03996
+        },
+        "center": {
+          "x": 0,
+          "y": 0.6093899999999999,
+          "z": 0.08990999999999999
+        },
+        "color": {
+          "red": 38,
+          "green": 107,
+          "blue": 219
+        },
+        "rotation": null
+      },
+      {
+        "id": "text-line-two",
+        "role": "text-line",
+        "size": {
+          "x": 0.65934,
+          "y": 0.06992999999999999,
+          "z": 0.03996
+        },
+        "center": {
+          "x": -0.07992,
+          "y": 0.40958999999999995,
+          "z": 0.08990999999999999
+        },
+        "color": {
+          "red": 122,
+          "green": 41,
+          "blue": 199
+        },
+        "rotation": null
+      },
+      {
+        "id": "text-line-three",
+        "role": "text-line",
+        "size": {
+          "x": 0.75924,
+          "y": 0.06992999999999999,
+          "z": 0.03996
+        },
+        "center": {
+          "x": 0.03996,
+          "y": 0.20978999999999995,
+          "z": 0.08990999999999999
+        },
+        "color": {
+          "red": 41,
+          "green": 168,
+          "blue": 89
+        },
+        "rotation": null
+      },
+      {
+        "id": "panel-pin",
+        "role": "text-pin",
+        "size": {
+          "x": 0.11988,
+          "y": 0.11987999999999999,
+          "z": 0.07992
+        },
+        "center": {
+          "x": 0.52947,
+          "y": 0.7592399999999999,
+          "z": 0.07992
+        },
+        "color": {
+          "red": 245,
+          "green": 173,
+          "blue": 43
+        },
+        "rotation": null
+      }
+    ]
+  },
+  {
+    "kind": "area_effect_cloud",
+    "parts": [
+      {
+        "id": "cloud-center",
+        "role": "cloud-mist",
+        "size": {
+          "x": 0.7192799999999999,
+          "y": 0.15984,
+          "z": 0.7192799999999999
+        },
+        "center": {
+          "x": 0,
+          "y": 0.144855,
+          "z": 0
+        },
+        "color": {
+          "red": 191,
+          "green": 107,
+          "blue": 245
+        },
+        "rotation": null
+      },
+      {
+        "id": "cloud-north",
+        "role": "cloud-puff",
+        "size": {
+          "x": 0.53946,
+          "y": 0.12987,
+          "z": 0.47952
+        },
+        "center": {
+          "x": 0,
+          "y": 0.204795,
+          "z": -0.51948
+        },
+        "color": {
+          "red": 110,
+          "green": 209,
+          "blue": 232
+        },
+        "rotation": null
+      },
+      {
+        "id": "cloud-south",
+        "role": "cloud-puff",
+        "size": {
+          "x": 0.56943,
+          "y": 0.14984999999999998,
+          "z": 0.45954
+        },
+        "center": {
+          "x": 0,
+          "y": 0.11488500000000001,
+          "z": 0.51948
+        },
+        "color": {
+          "red": 122,
+          "green": 41,
+          "blue": 199
+        },
+        "rotation": null
+      },
+      {
+        "id": "cloud-east",
+        "role": "cloud-puff",
+        "size": {
+          "x": 0.47952,
+          "y": 0.13986,
+          "z": 0.53946
+        },
+        "center": {
+          "x": 0.51948,
+          "y": 0.164835,
+          "z": 0
+        },
+        "color": {
+          "red": 38,
+          "green": 107,
+          "blue": 219
+        },
+        "rotation": null
+      },
+      {
+        "id": "cloud-west",
+        "role": "cloud-puff",
+        "size": {
+          "x": 0.47952,
+          "y": 0.11988,
+          "z": 0.53946
+        },
+        "center": {
+          "x": -0.51948,
+          "y": 0.174825,
+          "z": 0
+        },
+        "color": {
+          "red": 110,
+          "green": 209,
+          "blue": 232
+        },
+        "rotation": null
+      },
+      {
+        "id": "cloud-rim",
+        "role": "cloud-rim",
+        "size": {
+          "x": 1.5784200000000002,
+          "y": 0.06993,
+          "z": 0.07992
+        },
+        "center": {
+          "x": 0,
+          "y": 0.034965,
+          "z": 0
+        },
+        "color": {
+          "red": 145,
+          "green": 245,
+          "blue": 255
+        },
+        "rotation": null
+      }
+    ]
+  },
+  {
+    "kind": "armor_stand",
+    "parts": [
+      {
+        "id": "stand-base",
+        "role": "stand-base",
+        "size": {
+          "x": 0.55944,
+          "y": 0.0999,
+          "z": 0.55944
+        },
+        "center": {
+          "x": 0,
+          "y": 0.04995,
+          "z": 0
+        },
+        "color": {
+          "red": 122,
+          "green": 130,
+          "blue": 135
+        },
+        "rotation": null
+      },
+      {
+        "id": "stand-post",
+        "role": "stand-post",
+        "size": {
+          "x": 0.11988,
+          "y": 0.37962,
+          "z": 0.11988
+        },
+        "center": {
+          "x": 0,
+          "y": 0.3196800000000001,
+          "z": 0
+        },
+        "color": {
+          "red": 173,
+          "green": 112,
+          "blue": 61
+        },
+        "rotation": null
+      },
+      {
+        "id": "torso",
+        "role": "torso",
+        "size": {
+          "x": 0.47952,
+          "y": 0.61938,
+          "z": 0.23976
+        },
+        "center": {
+          "x": 0,
+          "y": 0.9490500000000001,
+          "z": 0
+        },
+        "color": {
+          "red": 107,
+          "green": 64,
+          "blue": 33
+        },
+        "rotation": null
+      },
+      {
+        "id": "head",
+        "role": "head",
+        "size": {
+          "x": 0.37962,
+          "y": 0.3996,
+          "z": 0.37962
+        },
+        "center": {
+          "x": 0,
+          "y": 1.51848,
+          "z": 0
+        },
+        "color": {
+          "red": 173,
+          "green": 112,
+          "blue": 61
+        },
+        "rotation": null
+      },
+      {
+        "id": "left-arm",
+        "role": "arm",
+        "size": {
+          "x": 0.12987,
+          "y": 0.65934,
+          "z": 0.14984999999999998
+        },
+        "center": {
+          "x": -0.35963999999999996,
+          "y": 0.97902,
+          "z": 0
+        },
+        "color": {
+          "red": 173,
+          "green": 112,
+          "blue": 61
+        },
+        "rotation": null
+      },
+      {
+        "id": "right-arm",
+        "role": "arm",
+        "size": {
+          "x": 0.12987,
+          "y": 0.65934,
+          "z": 0.14984999999999998
+        },
+        "center": {
+          "x": 0.35963999999999996,
+          "y": 0.97902,
+          "z": 0
+        },
+        "color": {
+          "red": 173,
+          "green": 112,
+          "blue": 61
+        },
+        "rotation": null
+      },
+      {
+        "id": "left-leg",
+        "role": "leg",
+        "size": {
+          "x": 0.15984,
+          "y": 0.5794199999999999,
+          "z": 0.17981999999999998
+        },
+        "center": {
+          "x": -0.15984,
+          "y": 0.37962,
+          "z": 0
+        },
+        "color": {
+          "red": 94,
+          "green": 54,
+          "blue": 26
+        },
+        "rotation": null
+      },
+      {
+        "id": "right-leg",
+        "role": "leg",
+        "size": {
+          "x": 0.15984,
+          "y": 0.5794199999999999,
+          "z": 0.17981999999999998
+        },
+        "center": {
+          "x": 0.15984,
+          "y": 0.37962,
+          "z": 0
+        },
+        "color": {
+          "red": 94,
+          "green": 54,
+          "blue": 26
+        },
+        "rotation": null
+      }
+    ]
+  },
+  {
+    "kind": "end_crystal",
+    "parts": [
+      {
+        "id": "crystal-base",
+        "role": "crystal-base",
+        "size": {
+          "x": 0.6992999999999999,
+          "y": 0.13985999999999998,
+          "z": 0.6992999999999999
+        },
+        "center": {
+          "x": 0,
+          "y": 0.06992999999999999,
+          "z": 0
+        },
+        "color": {
+          "red": 122,
+          "green": 41,
+          "blue": 199
+        },
+        "rotation": null
+      },
+      {
+        "id": "crystal-core",
+        "role": "crystal-core",
+        "size": {
+          "x": 0.41958,
+          "y": 0.7991999999999999,
+          "z": 0.41958
+        },
+        "center": {
+          "x": 0,
+          "y": 0.64935,
+          "z": 0
+        },
+        "color": {
+          "red": 191,
+          "green": 107,
+          "blue": 245
+        },
+        "rotation": null
+      },
+      {
+        "id": "crystal-upper",
+        "role": "crystal-facet",
+        "size": {
+          "x": 0.61938,
+          "y": 0.49949999999999994,
+          "z": 0.4995
+        },
+        "center": {
+          "x": 0,
+          "y": 1.22877,
+          "z": 0
+        },
+        "color": {
+          "red": 110,
+          "green": 209,
+          "blue": 232
+        },
+        "rotation": null
+      },
+      {
+        "id": "crystal-crown",
+        "role": "crystal-crown",
+        "size": {
+          "x": 0.33966,
+          "y": 0.27971999999999997,
+          "z": 0.33966
+        },
+        "center": {
+          "x": 0,
+          "y": 1.61838,
+          "z": 0
+        },
+        "color": {
+          "red": 145,
+          "green": 245,
+          "blue": 255
+        },
+        "rotation": null
+      },
+      {
+        "id": "crystal-ring-front",
+        "role": "crystal-ring",
+        "size": {
+          "x": 0.94905,
+          "y": 0.06992999999999999,
+          "z": 0.07992
+        },
+        "center": {
+          "x": 0,
+          "y": 0.84915,
+          "z": 0.27972
+        },
+        "color": {
+          "red": 122,
+          "green": 41,
+          "blue": 199
+        },
+        "rotation": null
+      },
+      {
+        "id": "crystal-ring-side",
+        "role": "crystal-ring",
+        "size": {
+          "x": 0.07992,
+          "y": 0.06992999999999999,
+          "z": 0.94905
+        },
+        "center": {
+          "x": 0.27972,
+          "y": 0.84915,
+          "z": 0
+        },
+        "color": {
+          "red": 122,
+          "green": 41,
+          "blue": 199
+        },
+        "rotation": {
+          "x": 0.16,
+          "y": 0,
+          "z": 0
+        }
+      }
+    ]
+  },
+  {
+    "kind": "evoker_fangs",
+    "parts": [
+      {
+        "id": "fang-jaw",
+        "role": "fang-jaw",
+        "size": {
+          "x": 0.7192799999999999,
+          "y": 0.11988,
+          "z": 0.4995
+        },
+        "center": {
+          "x": 0,
+          "y": 0.05994,
+          "z": 0
+        },
+        "color": {
+          "red": 94,
+          "green": 54,
+          "blue": 26
+        },
+        "rotation": null
+      },
+      {
+        "id": "fang-left",
+        "role": "fang-tooth",
+        "size": {
+          "x": 0.13986,
+          "y": 0.73926,
+          "z": 0.15984
+        },
+        "center": {
+          "x": -0.24975,
+          "y": 0.43956,
+          "z": 0.07992
+        },
+        "color": {
+          "red": 240,
+          "green": 232,
+          "blue": 199
+        },
+        "rotation": null
+      },
+      {
+        "id": "fang-right",
+        "role": "fang-tooth",
+        "size": {
+          "x": 0.13986,
+          "y": 0.73926,
+          "z": 0.15984
+        },
+        "center": {
+          "x": 0.24975,
+          "y": 0.43956,
+          "z": 0.07992
+        },
+        "color": {
+          "red": 240,
+          "green": 232,
+          "blue": 199
+        },
+        "rotation": null
+      },
+      {
+        "id": "fang-tip-left",
+        "role": "fang-tip",
+        "size": {
+          "x": 0.1998,
+          "y": 0.21978,
+          "z": 0.1998
+        },
+        "center": {
+          "x": -0.24975,
+          "y": 0.8990999999999999,
+          "z": 0.07992
+        },
+        "color": {
+          "red": 255,
+          "green": 224,
+          "blue": 97
+        },
+        "rotation": null
+      },
+      {
+        "id": "fang-tip-right",
+        "role": "fang-tip",
+        "size": {
+          "x": 0.1998,
+          "y": 0.21978,
+          "z": 0.1998
+        },
+        "center": {
+          "x": 0.24975,
+          "y": 0.8990999999999999,
+          "z": 0.07992
+        },
+        "color": {
+          "red": 255,
+          "green": 224,
+          "blue": 97
+        },
+        "rotation": null
+      },
+      {
+        "id": "fang-back-spur",
+        "role": "fang-spur",
+        "size": {
+          "x": 0.11988,
+          "y": 0.45954,
+          "z": 0.11988
+        },
+        "center": {
+          "x": 0,
+          "y": 0.45953999999999995,
+          "z": -0.21978
+        },
+        "color": {
+          "red": 209,
+          "green": 43,
+          "blue": 31
+        },
+        "rotation": null
+      }
+    ]
+  },
+  {
+    "kind": "experience_orb",
+    "parts": [
+      {
+        "id": "orb-core",
+        "role": "orb-core",
+        "size": {
+          "x": 0.31968,
+          "y": 0.3196799999999999,
+          "z": 0.31968
+        },
+        "center": {
+          "x": 0,
+          "y": 0.15983999999999995,
+          "z": 0
+        },
+        "color": {
+          "red": 41,
+          "green": 168,
+          "blue": 89
+        },
+        "rotation": null
+      },
+      {
+        "id": "orb-face",
+        "role": "orb-face",
+        "size": {
+          "x": 0.15984,
+          "y": 0.15983999999999995,
+          "z": 0.05994
+        },
+        "center": {
+          "x": 0,
+          "y": 0.15983999999999995,
+          "z": 0.17981999999999998
+        },
+        "color": {
+          "red": 255,
+          "green": 224,
+          "blue": 97
+        },
+        "rotation": null
+      },
+      {
+        "id": "orb-shard-top",
+        "role": "orb-shard",
+        "size": {
+          "x": 0.11988,
+          "y": 0.33965999999999996,
+          "z": 0.11988
+        },
+        "center": {
+          "x": 0,
+          "y": 0.41957999999999995,
+          "z": 0
+        },
+        "color": {
+          "red": 122,
+          "green": 235,
+          "blue": 120
+        },
+        "rotation": null
+      },
+      {
+        "id": "orb-shard-left",
+        "role": "orb-shard",
+        "size": {
+          "x": 0.29969999999999997,
+          "y": 0.09989999999999999,
+          "z": 0.11988
+        },
+        "center": {
+          "x": -0.23976,
+          "y": 0.17981999999999995,
+          "z": 0
+        },
+        "color": {
+          "red": 245,
+          "green": 173,
+          "blue": 43
+        },
+        "rotation": null
+      },
+      {
+        "id": "orb-shard-right",
+        "role": "orb-shard",
+        "size": {
+          "x": 0.29969999999999997,
+          "y": 0.09989999999999999,
+          "z": 0.11988
+        },
+        "center": {
+          "x": 0.23976,
+          "y": 0.12986999999999999,
+          "z": 0
+        },
+        "color": {
+          "red": 122,
+          "green": 235,
+          "blue": 120
+        },
+        "rotation": null
+      },
+      {
+        "id": "orb-shard-back",
+        "role": "orb-shard",
+        "size": {
+          "x": 0.11988,
+          "y": 0.11987999999999997,
+          "z": 0.31968
+        },
+        "center": {
+          "x": 0,
+          "y": 0.059939999999999986,
+          "z": -0.22977
+        },
+        "color": {
+          "red": 245,
+          "green": 173,
+          "blue": 43
+        },
+        "rotation": null
+      }
+    ]
+  },
+  {
+    "kind": "eye_of_ender",
+    "parts": [
+      {
+        "id": "eye-pupil",
+        "role": "eye-pupil",
+        "size": {
+          "x": 0.41958,
+          "y": 0.4195799999999999,
+          "z": 0.29969999999999997
+        },
+        "center": {
+          "x": 0,
+          "y": 0.2897099999999999,
+          "z": 0
+        },
+        "color": {
+          "red": 122,
+          "green": 41,
+          "blue": 199
+        },
+        "rotation": null
+      },
+      {
+        "id": "eye-iris",
+        "role": "eye-iris",
+        "size": {
+          "x": 0.25974,
+          "y": 0.25973999999999997,
+          "z": 0.07992
+        },
+        "center": {
+          "x": 0,
+          "y": 0.2897099999999999,
+          "z": 0.17981999999999998
+        },
+        "color": {
+          "red": 122,
+          "green": 235,
+          "blue": 120
+        },
+        "rotation": null
+      },
+      {
+        "id": "eye-glint",
+        "role": "eye-glint",
+        "size": {
+          "x": 0.07992,
+          "y": 0.07991999999999998,
+          "z": 0.03996
+        },
+        "center": {
+          "x": -0.06993,
+          "y": 0.3696299999999999,
+          "z": 0.23976
+        },
+        "color": {
+          "red": 240,
+          "green": 232,
+          "blue": 199
+        },
+        "rotation": null
+      },
+      {
+        "id": "eye-ring-top",
+        "role": "eye-ring",
+        "size": {
+          "x": 0.65934,
+          "y": 0.07991999999999998,
+          "z": 0.11988
+        },
+        "center": {
+          "x": 0,
+          "y": 0.5394599999999999,
+          "z": 0
+        },
+        "color": {
+          "red": 41,
+          "green": 168,
+          "blue": 89
+        },
+        "rotation": null
+      },
+      {
+        "id": "eye-ring-bottom",
+        "role": "eye-ring",
+        "size": {
+          "x": 0.65934,
+          "y": 0.07991999999999998,
+          "z": 0.11988
+        },
+        "center": {
+          "x": 0,
+          "y": 0.03995999999999999,
+          "z": 0
+        },
+        "color": {
+          "red": 41,
+          "green": 168,
+          "blue": 89
+        },
+        "rotation": null
+      },
+      {
+        "id": "eye-ring-left",
+        "role": "eye-ring",
+        "size": {
+          "x": 0.0999,
+          "y": 0.4395599999999999,
+          "z": 0.11988
+        },
+        "center": {
+          "x": -0.27972,
+          "y": 0.2897099999999999,
+          "z": 0
+        },
+        "color": {
+          "red": 245,
+          "green": 173,
+          "blue": 43
+        },
+        "rotation": null
+      },
+      {
+        "id": "eye-ring-right",
+        "role": "eye-ring",
+        "size": {
+          "x": 0.0999,
+          "y": 0.4395599999999999,
+          "z": 0.11988
+        },
+        "center": {
+          "x": 0.27972,
+          "y": 0.2897099999999999,
+          "z": 0
+        },
+        "color": {
+          "red": 245,
+          "green": 173,
+          "blue": 43
+        },
+        "rotation": null
+      }
+    ]
+  },
+  {
+    "kind": "falling_block",
+    "parts": [
+      {
+        "id": "block-dirt",
+        "role": "falling-block",
+        "size": {
+          "x": 0.85914,
+          "y": 0.8426419917012448,
+          "z": 0.85914
+        },
+        "center": {
+          "x": 0,
+          "y": 0.6771230290456431,
+          "z": 0
+        },
+        "color": {
+          "red": 94,
+          "green": 54,
+          "blue": 26
+        },
+        "rotation": null
+      },
+      {
+        "id": "block-top",
+        "role": "grass-cap",
+        "size": {
+          "x": 0.91908,
+          "y": 0.1203774273858921,
+          "z": 0.91908
+        },
+        "center": {
+          "x": 0,
+          "y": 1.1486012863070538,
+          "z": 0
+        },
+        "color": {
+          "red": 41,
+          "green": 168,
+          "blue": 89
+        },
+        "rotation": null
+      },
+      {
+        "id": "block-pebble-left",
+        "role": "stone-chip",
+        "size": {
+          "x": 0.17981999999999998,
+          "y": 0.14044033195020747,
+          "z": 0.07992
+        },
+        "center": {
+          "x": -0.21978,
+          "y": 0.7373117427385892,
+          "z": 0.45954
+        },
+        "color": {
+          "red": 122,
+          "green": 130,
+          "blue": 135
+        },
+        "rotation": null
+      },
+      {
+        "id": "block-pebble-right",
+        "role": "stone-chip",
+        "size": {
+          "x": 0.11988,
+          "y": 0.18056614107883814,
+          "z": 0.07992
+        },
+        "center": {
+          "x": 0.25974,
+          "y": 0.4764939834024896,
+          "z": 0.45954
+        },
+        "color": {
+          "red": 184,
+          "green": 189,
+          "blue": 186
+        },
+        "rotation": null
+      },
+      {
+        "id": "block-root",
+        "role": "root",
+        "size": {
+          "x": 0.11988,
+          "y": 0.27084921161825726,
+          "z": 0.0999
+        },
+        "center": {
+          "x": 0.35963999999999996,
+          "y": 0.13542460580912863,
+          "z": 0.21978
+        },
+        "color": {
+          "red": 173,
+          "green": 112,
+          "blue": 61
+        },
+        "rotation": null
+      }
+    ]
+  },
+  {
+    "kind": "glow_item_frame",
+    "parts": [
+      {
+        "id": "frame-top",
+        "role": "glow-frame",
+        "size": {
+          "x": 1.05894,
+          "y": 0.09989999999999999,
+          "z": 0.11988
+        },
+        "center": {
+          "x": 0,
+          "y": 1.0889099999999998,
+          "z": 0
+        },
+        "color": {
+          "red": 145,
+          "green": 245,
+          "blue": 255
+        },
+        "rotation": null
+      },
+      {
+        "id": "frame-bottom",
+        "role": "glow-frame",
+        "size": {
+          "x": 1.05894,
+          "y": 0.09989999999999999,
+          "z": 0.11988
+        },
+        "center": {
+          "x": 0,
+          "y": 0.049949999999999994,
+          "z": 0
+        },
+        "color": {
+          "red": 145,
+          "green": 245,
+          "blue": 255
+        },
+        "rotation": null
+      },
+      {
+        "id": "frame-left",
+        "role": "glow-frame",
+        "size": {
+          "x": 0.0999,
+          "y": 0.9390599999999998,
+          "z": 0.11988
+        },
+        "center": {
+          "x": -0.47952,
+          "y": 0.5694299999999999,
+          "z": 0
+        },
+        "color": {
+          "red": 110,
+          "green": 209,
+          "blue": 232
+        },
+        "rotation": null
+      },
+      {
+        "id": "frame-right",
+        "role": "glow-frame",
+        "size": {
+          "x": 0.0999,
+          "y": 0.9390599999999998,
+          "z": 0.11988
+        },
+        "center": {
+          "x": 0.47952,
+          "y": 0.5694299999999999,
+          "z": 0
+        },
+        "color": {
+          "red": 110,
+          "green": 209,
+          "blue": 232
+        },
+        "rotation": null
+      },
+      {
+        "id": "frame-item",
+        "role": "glow-item",
+        "size": {
+          "x": 0.3996,
+          "y": 0.39959999999999996,
+          "z": 0.13986
+        },
+        "center": {
+          "x": 0,
+          "y": 0.5694299999999999,
+          "z": 0.0999
+        },
+        "color": {
+          "red": 255,
+          "green": 224,
+          "blue": 97
+        },
+        "rotation": null
+      },
+      {
+        "id": "frame-bloom",
+        "role": "glow-halo",
+        "size": {
+          "x": 0.21978,
+          "y": 0.21977999999999995,
+          "z": 0.0999
+        },
+        "center": {
+          "x": 0,
+          "y": 0.5694299999999999,
+          "z": 0.1998
+        },
+        "color": {
+          "red": 240,
+          "green": 232,
+          "blue": 199
+        },
+        "rotation": null
+      }
+    ]
+  },
+  {
+    "kind": "item",
+    "parts": [
+      {
+        "id": "item-body",
+        "role": "dropped-item",
+        "size": {
+          "x": 0.36359208791208786,
+          "y": 0.4395599999999999,
+          "z": 0.323192967032967
+        },
+        "center": {
+          "x": 0,
+          "y": 0.29969999999999997,
+          "z": 0
+        },
+        "color": {
+          "red": 245,
+          "green": 173,
+          "blue": 43
+        },
+        "rotation": null
+      },
+      {
+        "id": "item-top",
+        "role": "item-top",
+        "size": {
+          "x": 0.2827938461538462,
+          "y": 0.13985999999999998,
+          "z": 0.2625942857142857
+        },
+        "center": {
+          "x": 0,
+          "y": 0.58941,
+          "z": 0
+        },
+        "color": {
+          "red": 255,
+          "green": 224,
+          "blue": 97
+        },
+        "rotation": null
+      },
+      {
+        "id": "item-band",
+        "role": "item-band",
+        "size": {
+          "x": 0.39389142857142856,
+          "y": 0.07991999999999998,
+          "z": 0.34339252747252746
+        },
+        "center": {
+          "x": 0,
+          "y": 0.25974,
+          "z": 0
+        },
+        "color": {
+          "red": 209,
+          "green": 43,
+          "blue": 31
+        },
+        "rotation": null
+      },
+      {
+        "id": "item-side",
+        "role": "item-mark",
+        "size": {
+          "x": 0.08079824175824175,
+          "y": 0.17981999999999995,
+          "z": 0.12119736263736262
+        },
+        "center": {
+          "x": 0.20199560439560438,
+          "y": 0.34964999999999996,
+          "z": 0.1615964835164835
+        },
+        "color": {
+          "red": 240,
+          "green": 232,
+          "blue": 199
+        },
+        "rotation": null
+      },
+      {
+        "id": "item-shadow",
+        "role": "item-shadow",
+        "size": {
+          "x": 0.4342905494505494,
+          "y": 0.059939999999999986,
+          "z": 0.3837916483516483
+        },
+        "center": {
+          "x": 0,
+          "y": 0.029969999999999993,
+          "z": 0
+        },
+        "color": {
+          "red": 94,
+          "green": 54,
+          "blue": 26
+        },
+        "rotation": null
+      }
+    ]
+  },
+  {
+    "kind": "item_frame",
+    "parts": [
+      {
+        "id": "wood-top",
+        "role": "frame-rail",
+        "size": {
+          "x": 0.9838907462686568,
+          "y": 0.12042244343891406,
+          "z": 0.12047641791044776
+        },
+        "center": {
+          "x": 0,
+          "y": 1.0235907692307695,
+          "z": 0
+        },
+        "color": {
+          "red": 173,
+          "green": 112,
+          "blue": 61
+        },
+        "rotation": null
+      },
+      {
+        "id": "wood-bottom",
+        "role": "frame-rail",
+        "size": {
+          "x": 0.9838907462686568,
+          "y": 0.12042244343891406,
+          "z": 0.12047641791044776
+        },
+        "center": {
+          "x": 0,
+          "y": 0.06021122171945703,
+          "z": 0
+        },
+        "color": {
+          "red": 107,
+          "green": 64,
+          "blue": 33
+        },
+        "rotation": null
+      },
+      {
+        "id": "wood-left",
+        "role": "frame-rail",
+        "size": {
+          "x": 0.12047641791044776,
+          "y": 0.8429571040723984,
+          "z": 0.12047641791044776
+        },
+        "center": {
+          "x": -0.4317071641791045,
+          "y": 0.5419009954751133,
+          "z": 0
+        },
+        "color": {
+          "red": 107,
+          "green": 64,
+          "blue": 33
+        },
+        "rotation": null
+      },
+      {
+        "id": "wood-right",
+        "role": "frame-rail",
+        "size": {
+          "x": 0.12047641791044776,
+          "y": 0.8429571040723984,
+          "z": 0.12047641791044776
+        },
+        "center": {
+          "x": 0.4317071641791045,
+          "y": 0.5419009954751133,
+          "z": 0
+        },
+        "color": {
+          "red": 173,
+          "green": 112,
+          "blue": 61
+        },
+        "rotation": null
+      },
+      {
+        "id": "frame-corner",
+        "role": "frame-corner",
+        "size": {
+          "x": 0.17067492537313436,
+          "y": 0.1705984615384616,
+          "z": 0.13051611940298508
+        },
+        "center": {
+          "x": -0.4317071641791045,
+          "y": 1.0235907692307695,
+          "z": 0.02007940298507463
+        },
+        "color": {
+          "red": 245,
+          "green": 173,
+          "blue": 43
+        },
+        "rotation": null
+      },
+      {
+        "id": "framed-item",
+        "role": "framed-item",
+        "size": {
+          "x": 0.3011910447761194,
+          "y": 0.30105610859728515,
+          "z": 0.08031761194029852
+        },
+        "center": {
+          "x": 0,
+          "y": 0.5419009954751133,
+          "z": 0.10039701492537315
+        },
+        "color": {
+          "red": 38,
+          "green": 107,
+          "blue": 219
+        },
+        "rotation": null
+      }
+    ]
+  },
+  {
+    "kind": "leash_knot",
+    "parts": [
+      {
+        "id": "knot-center",
+        "role": "rope-knot",
+        "size": {
+          "x": 0.23976,
+          "y": 0.21977999999999995,
+          "z": 0.1998
+        },
+        "center": {
+          "x": 0,
+          "y": 0.4495499999999999,
+          "z": 0
+        },
+        "color": {
+          "red": 209,
+          "green": 43,
+          "blue": 31
+        },
+        "rotation": null
+      },
+      {
+        "id": "knot-loop-left",
+        "role": "rope-loop",
+        "size": {
+          "x": 0.3996,
+          "y": 0.09989999999999999,
+          "z": 0.0999
+        },
+        "center": {
+          "x": -0.23976,
+          "y": 0.5294699999999999,
+          "z": 0
+        },
+        "color": {
+          "red": 173,
+          "green": 112,
+          "blue": 61
+        },
+        "rotation": null
+      },
+      {
+        "id": "knot-loop-right",
+        "role": "rope-loop",
+        "size": {
+          "x": 0.3996,
+          "y": 0.09989999999999999,
+          "z": 0.0999
+        },
+        "center": {
+          "x": 0.23976,
+          "y": 0.3696299999999999,
+          "z": 0
+        },
+        "color": {
+          "red": 107,
+          "green": 64,
+          "blue": 33
+        },
+        "rotation": null
+      },
+      {
+        "id": "knot-tail-left",
+        "role": "rope-tail",
+        "size": {
+          "x": 0.0999,
+          "y": 0.39959999999999996,
+          "z": 0.0999
+        },
+        "center": {
+          "x": -0.07992,
+          "y": 0.19979999999999998,
+          "z": 0
+        },
+        "color": {
+          "red": 173,
+          "green": 112,
+          "blue": 61
+        },
+        "rotation": null
+      },
+      {
+        "id": "knot-tail-right",
+        "role": "rope-tail",
+        "size": {
+          "x": 0.0999,
+          "y": 0.33965999999999996,
+          "z": 0.0999
+        },
+        "center": {
+          "x": 0.11988,
+          "y": 0.22976999999999995,
+          "z": 0
+        },
+        "color": {
+          "red": 107,
+          "green": 64,
+          "blue": 33
+        },
+        "rotation": null
+      }
+    ]
+  },
+  {
+    "kind": "lightning_bolt",
+    "parts": [
+      {
+        "id": "bolt-upper",
+        "role": "lightning-segment",
+        "size": {
+          "x": 0.27972,
+          "y": 0.61938,
+          "z": 0.21978
+        },
+        "center": {
+          "x": -0.15984,
+          "y": 1.3985999999999998,
+          "z": 0
+        },
+        "color": {
+          "red": 255,
+          "green": 224,
+          "blue": 97
+        },
+        "rotation": null
+      },
+      {
+        "id": "bolt-middle",
+        "role": "lightning-segment",
+        "size": {
+          "x": 0.24975,
+          "y": 0.7192799999999999,
+          "z": 0.1998
+        },
+        "center": {
+          "x": 0.0999,
+          "y": 0.9290700000000001,
+          "z": 0.01998
+        },
+        "color": {
+          "red": 240,
+          "green": 232,
+          "blue": 199
+        },
+        "rotation": null
+      },
+      {
+        "id": "bolt-lower",
+        "role": "lightning-segment",
+        "size": {
+          "x": 0.23976,
+          "y": 0.7192799999999999,
+          "z": 0.1998
+        },
+        "center": {
+          "x": -0.11988,
+          "y": 0.35963999999999996,
+          "z": -0.01998
+        },
+        "color": {
+          "red": 245,
+          "green": 173,
+          "blue": 43
+        },
+        "rotation": null
+      },
+      {
+        "id": "bolt-flare-left",
+        "role": "lightning-flare",
+        "size": {
+          "x": 0.0999,
+          "y": 0.25974,
+          "z": 0.11988
+        },
+        "center": {
+          "x": -0.30969,
+          "y": 1.4985,
+          "z": 0.01998
+        },
+        "color": {
+          "red": 240,
+          "green": 232,
+          "blue": 199
+        },
+        "rotation": null
+      },
+      {
+        "id": "bolt-flare-right",
+        "role": "lightning-flare",
+        "size": {
+          "x": 0.0999,
+          "y": 0.23976,
+          "z": 0.11988
+        },
+        "center": {
+          "x": 0.29969999999999997,
+          "y": 0.47952,
+          "z": 0
+        },
+        "color": {
+          "red": 240,
+          "green": 232,
+          "blue": 199
+        },
+        "rotation": null
+      }
+    ]
+  },
+  {
+    "kind": "painting",
+    "parts": [
+      {
+        "id": "painting-frame",
+        "role": "painting-frame",
+        "size": {
+          "x": 1.27872,
+          "y": 1.01898,
+          "z": 0.0999
+        },
+        "center": {
+          "x": 0,
+          "y": 0.50949,
+          "z": -0.04995
+        },
+        "color": {
+          "red": 107,
+          "green": 64,
+          "blue": 33
+        },
+        "rotation": null
+      },
+      {
+        "id": "painting-canvas",
+        "role": "painting-canvas",
+        "size": {
+          "x": 1.0989,
+          "y": 0.83916,
+          "z": 0.05994
+        },
+        "center": {
+          "x": 0,
+          "y": 0.50949,
+          "z": 0.02997
+        },
+        "color": {
+          "red": 38,
+          "green": 107,
+          "blue": 219
+        },
+        "rotation": null
+      },
+      {
+        "id": "painting-sky",
+        "role": "painting-sky",
+        "size": {
+          "x": 1.01898,
+          "y": 0.29969999999999997,
+          "z": 0.03996
+        },
+        "center": {
+          "x": 0,
+          "y": 0.75924,
+          "z": 0.07992
+        },
+        "color": {
+          "red": 110,
+          "green": 209,
+          "blue": 232
+        },
+        "rotation": null
+      },
+      {
+        "id": "painting-hill",
+        "role": "painting-hill",
+        "size": {
+          "x": 0.8191799999999999,
+          "y": 0.27972,
+          "z": 0.03996
+        },
+        "center": {
+          "x": -0.07992,
+          "y": 0.35963999999999996,
+          "z": 0.08990999999999999
+        },
+        "color": {
+          "red": 41,
+          "green": 168,
+          "blue": 89
+        },
+        "rotation": null
+      },
+      {
+        "id": "painting-sun",
+        "role": "painting-sun",
+        "size": {
+          "x": 0.17981999999999998,
+          "y": 0.17981999999999998,
+          "z": 0.03996
+        },
+        "center": {
+          "x": 0.33966,
+          "y": 0.75924,
+          "z": 0.08990999999999999
+        },
+        "color": {
+          "red": 255,
+          "green": 224,
+          "blue": 97
+        },
+        "rotation": null
+      },
+      {
+        "id": "painting-frame-pin",
+        "role": "painting-pin",
+        "size": {
+          "x": 0.07992,
+          "y": 0.07992,
+          "z": 0.07992
+        },
+        "center": {
+          "x": -0.56943,
+          "y": 0.95904,
+          "z": 0.01998
+        },
+        "color": {
+          "red": 245,
+          "green": 173,
+          "blue": 43
+        },
+        "rotation": null
+      }
+    ]
+  }
+]

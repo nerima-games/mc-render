@@ -61,6 +61,18 @@ export type {
   PartialTick,
   TimeOfDayTicks,
 } from './domain/animation-clock.js'
+export * from './domain/entity-render-input.js'
+export * from './domain/entity-model-catalog.js'
+export * from './domain/entity-model-textures.js'
+export type {
+  EntityModelColor,
+  EntityModelDescriptor,
+  EntityModelKind,
+  EntityModelPartDescriptor,
+  EntityModelPartIdentifier,
+  EntityModelPartRole,
+  EntityModelVector,
+} from './domain/entity-models/types.js'
 export type { ChunkAnimationKind } from './domain/chunk-animation-kind.js'
 export * from './domain/block-shapes.js'
 export * from './domain/camera-mirror.js'

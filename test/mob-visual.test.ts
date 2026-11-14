@@ -1,10 +1,16 @@
 import { describe, expect, it } from '@effect/vitest'
+import * as FastCheck from 'fast-check'
+import { Result, Schema } from 'effect'
 import {
   MOB_VISUAL_KINDS,
+  MobAnimationInputSchema,
   UNKNOWN_MOB_VISUAL,
   mobVisualDescriptor,
   planMobVisual,
 } from '../src/domain/mob-visual'
+
+const resolvedPlan = (kind: string, input?: unknown) =>
+  Result.getOrThrow(planMobVisual(kind, input ?? { state: 'idle' }))
 
 const hostileKinds = [
   'zombie',
@@ -54,19 +60,19 @@ describe('mob visual descriptors', () => {
   it('uses one stable neutral fallback for unknown kinds', () => {
     expect(mobVisualDescriptor('warden-from-the-future')).toBe(UNKNOWN_MOB_VISUAL)
     expect(mobVisualDescriptor('')).toBe(UNKNOWN_MOB_VISUAL)
-    expect(planMobVisual('unknown-kind').descriptorKind).toBe('unknown')
-    expect(planMobVisual('unknown-kind').temperament).toBe('neutral')
+    expect(resolvedPlan('unknown-kind').descriptorKind).toBe('unknown')
+    expect(resolvedPlan('unknown-kind').temperament).toBe('neutral')
   })
 })
 
 describe('mob animation planning', () => {
   it('returns the same plan for the same explicit animation sample', () => {
     const input = { state: 'walk', phaseRadians: 1.25, progress: 0.4 } as const
-    expect(planMobVisual('blaze', input)).toStrictEqual(planMobVisual('blaze', input))
+    expect(resolvedPlan('blaze', input)).toStrictEqual(resolvedPlan('blaze', input))
   })
 
   it('swings paired walking limbs in opposite directions', () => {
-    const plan = planMobVisual('zombie', { state: 'walk', phaseRadians: Math.PI / 2 })
+    const plan = resolvedPlan('zombie', { state: 'walk', phaseRadians: Math.PI / 2 })
     const leftArm = plan.parts.find(({ id }) => id === 'left-arm')
     const rightArm = plan.parts.find(({ id }) => id === 'right-arm')
 
@@ -75,31 +81,79 @@ describe('mob animation planning', () => {
   })
 
   it('produces distinct idle, hurt, and death poses without mutable runtime state', () => {
-    const idleAtRest = planMobVisual('cow', { state: 'idle', phaseRadians: 0 })
-    const idleAtPeak = planMobVisual('cow', { state: 'idle', phaseRadians: Math.PI })
-    const hurt = planMobVisual('cow', { state: 'hurt', progress: 1 })
-    const death = planMobVisual('cow', { state: 'death', progress: 1 })
+    const idleAtRest = resolvedPlan('cow', { state: 'idle', phaseRadians: 0 })
+    const idleAtPeak = resolvedPlan('cow', { state: 'idle', phaseRadians: Math.PI })
+    const hurt = resolvedPlan('cow', { state: 'hurt', progress: 1 })
+    const death = resolvedPlan('cow', { state: 'death', progress: 1 })
 
     expect(idleAtPeak.parts[0]?.center[1]).toBeCloseTo((idleAtRest.parts[0]?.center[1] ?? 0) + 0.025, 12)
     expect(hurt.parts[0]?.rotation[2]).toBeCloseTo(0.24, 12)
     expect(death.parts[0]?.rotation[2]).toBeCloseTo(Math.PI / 2, 12)
   })
 
-  it('normalises invalid phases and clamps transition progress', () => {
-    expect(planMobVisual('zombie', { state: 'walk', phaseRadians: Number.NaN })).toStrictEqual(
-      planMobVisual('zombie', { state: 'walk', phaseRadians: 0 }),
-    )
-    expect(planMobVisual('zombie', { state: 'death', progress: 99 })).toStrictEqual(
-      planMobVisual('zombie', { state: 'death', progress: 1 }),
-    )
-    expect(planMobVisual('zombie', { state: 'hurt' }).animation.progress).toBe(1)
+  it('rejects invalid supplied phase and progress instead of normalising or clamping', () => {
+    for (const animation of [
+      { state: 'walk', phaseRadians: Number.NaN },
+      { state: 'death', progress: 99 },
+      { state: 'walk', walkAmount: -0.1 },
+      { state: 'walk', attackProgress: Number.POSITIVE_INFINITY },
+      { state: 'hurt', hurtProgress: 1.1 },
+      { state: 'death', deathProgress: Number.NaN },
+    ]) {
+      const result = planMobVisual('zombie', animation)
+      expect(Result.isFailure(result)).toBe(true)
+      if (Result.isFailure(result)) {
+        expect(Schema.isSchemaError(result.failure)).toBe(true)
+      }
+    }
+    expect(resolvedPlan('zombie', { state: 'hurt' }).animation.progress).toBe(1)
+  })
+
+  it('uses defaults only when animation fields are omitted', () => {
+    expect(Result.getOrThrow(planMobVisual('zombie')).animation.state).toBe('idle')
+    expect(resolvedPlan('zombie', { state: 'walk' }).animation.walkAmount).toBe(1)
+
+    for (const input of [undefined, { state: 'walk', progress: undefined }]) {
+      const result = planMobVisual('zombie', input)
+      expect(Result.isFailure(result)).toBe(true)
+      if (Result.isFailure(result)) {
+        expect(Schema.isSchemaError(result.failure)).toBe(true)
+      }
+    }
+  })
+
+  it('accepts animation endpoints and rejects values outside the phase and progress domains', () => {
+    const endpointSamples = [
+      { state: 'walk', phaseRadians: 0, progress: 0, walkAmount: 0 },
+      { state: 'walk', phaseRadians: 2 * Math.PI - 1e-12, progress: 1, walkAmount: 1 },
+    ]
+    for (const sample of endpointSamples) {
+      expect(Result.isSuccess(Schema.decodeUnknownResult(MobAnimationInputSchema)(sample))).toBe(true)
+    }
+    for (const sample of [
+      { state: 'walk', phaseRadians: -Number.EPSILON },
+      { state: 'walk', phaseRadians: 2 * Math.PI },
+      { state: 'walk', progress: -Number.EPSILON },
+      { state: 'walk', progress: 1 + Number.EPSILON },
+    ]) {
+      expect(Result.isFailure(planMobVisual('zombie', sample))).toBe(true)
+    }
+  })
+
+  it('plans every generated in-range animation sample', () => {
+    const phase = FastCheck.double({ min: 0, max: 2 * Math.PI - 1e-12, noNaN: true, noDefaultInfinity: true })
+    const progress = FastCheck.double({ min: 0, max: 1, noNaN: true, noDefaultInfinity: true })
+    FastCheck.assert(FastCheck.property(
+      FastCheck.record({ attackProgress: progress, phaseRadians: phase, progress, walkAmount: progress }),
+      (animation) => Result.isSuccess(planMobVisual('zombie', { state: 'walk', ...animation })),
+    ))
   })
 
   it('rotates spider legs per-row, mirrored left vs right', () => {
     // domain/mob-visual.ts's applyPartMotion, front row (motionIndex 0), at phase pi/2:
     //   rotationY = (0 - 1.5) * 0.18 = -0.27, mirrored to +0.27 on the right.
     //   rotationZ = -0.72 - sin(pi/2 + 0) * 0.12 = -0.84, mirrored to +0.84 on the right.
-    const plan = planMobVisual('spider', { state: 'idle', phaseRadians: Math.PI / 2 })
+    const plan = resolvedPlan('spider', { state: 'idle', phaseRadians: Math.PI / 2 })
     const leftLeg1 = plan.parts.find(({ id }) => id === 'left-leg-1')
     const rightLeg1 = plan.parts.find(({ id }) => id === 'right-leg-1')
 
@@ -112,7 +166,7 @@ describe('mob animation planning', () => {
   it('flaps chicken wings symmetrically opposite, scaled by the phase', () => {
     // domain/mob-visual.ts's applyPartMotion at phase pi/2 (|sin| = 1):
     //   rotationZ = -0.18 - 1 * 0.65 = -0.83, mirrored to +0.83 on the right.
-    const plan = planMobVisual('chicken', { state: 'idle', phaseRadians: Math.PI / 2 })
+    const plan = resolvedPlan('chicken', { state: 'idle', phaseRadians: Math.PI / 2 })
     const leftWing = plan.parts.find(({ id }) => id === 'left-wing')
     const rightWing = plan.parts.find(({ id }) => id === 'right-wing')
 

@@ -1,4 +1,10 @@
 /** Renderer-independent mob silhouettes and deterministic animation planning. */
+import { Brand, Result, Schema } from 'effect'
+import {
+  type EntityRenderProgress,
+  EntityRenderProgressSchema,
+  EntityRenderWalkPhaseRadiansSchema,
+} from './entity-render-input.js'
 
 export const MOB_VISUAL_KINDS = [
   'zombie',
@@ -64,7 +70,32 @@ export type MobAnimationInput = {
   readonly state: MobAnimationState
   readonly phaseRadians?: number
   readonly progress?: number
+  readonly walkAmount?: EntityRenderProgress
+  readonly attackProgress?: EntityRenderProgress
+  readonly hurtProgress?: EntityRenderProgress
+  readonly deathProgress?: EntityRenderProgress
 }
+
+type MobAnimationInputEncoded = Readonly<{
+  readonly attackProgress?: number
+  readonly deathProgress?: number
+  readonly hurtProgress?: number
+  readonly phaseRadians?: number
+  readonly progress?: number
+  readonly state: MobAnimationState
+  readonly walkAmount?: number
+}>
+
+/** Validate animation samples without changing supplied phases or progress. */
+export const MobAnimationInputSchema: Schema.Codec<MobAnimationInput, MobAnimationInputEncoded> = Schema.Struct({
+  attackProgress: Schema.optionalKey(EntityRenderProgressSchema),
+  deathProgress: Schema.optionalKey(EntityRenderProgressSchema),
+  hurtProgress: Schema.optionalKey(EntityRenderProgressSchema),
+  phaseRadians: Schema.optionalKey(EntityRenderWalkPhaseRadiansSchema),
+  progress: Schema.optionalKey(EntityRenderProgressSchema),
+  state: Schema.Literals(['idle', 'walk', 'hurt', 'death']),
+  walkAmount: Schema.optionalKey(EntityRenderProgressSchema),
+})
 
 export type MobVisualPartPlan = {
   readonly id: string
@@ -963,18 +994,6 @@ export const mobVisualDescriptor = (kind: string): MobVisualDescriptor => {
   return UNKNOWN_MOB_VISUAL
 }
 
-const finiteOr = (value: number | undefined, fallback: number): number => {
-  if (typeof value === 'number' && Number.isFinite(value)) {
-    return value
-  }
-  return fallback
-}
-
-const UNIT_INTERVAL_MIN = 0
-const UNIT_INTERVAL_MAX = 1
-
-const clamp01 = (value: number): number => Math.max(UNIT_INTERVAL_MIN, Math.min(UNIT_INTERVAL_MAX, value))
-
 const scaleVector = (vector: MobVisualVector, scale: MobVisualVector): MobVisualVector => [
   vector[X_AXIS_INDEX] * scale[X_AXIS_INDEX],
   vector[Y_AXIS_INDEX] * scale[Y_AXIS_INDEX],
@@ -1001,8 +1020,10 @@ const WING_ROTATION_Z_SWING = 0.65
 const BLAZE_ORBIT_PHASE_SCALE = 0.55
 const BLAZE_ORBIT_BOB_INDEX_SCALE = 0.7
 const BLAZE_ORBIT_BOB_AMPLITUDE = 0.08
+const ATTACK_ARM_SWING_AMPLITUDE = Math.PI / QUARTER_TURN_DIVISOR
 
 const DEFAULT_ANIMATION_INPUT: MobAnimationInput = { state: 'idle' }
+const KIND_ONLY_ARGUMENT_COUNT = 1
 
 const resolveDefaultProgress = (state: MobAnimationState): number => {
   if (state === 'hurt' || state === 'death') {
@@ -1011,17 +1032,48 @@ const resolveDefaultProgress = (state: MobAnimationState): number => {
   return NO_PROGRESS
 }
 
-type AnimationSample = Readonly<Required<MobAnimationInput>>
-
-const resolveAnimationSample = (input: MobAnimationInput): AnimationSample => {
-  const phaseRadians = finiteOr(input.phaseRadians, DEFAULT_PHASE_RADIANS)
-  const progress = clamp01(finiteOr(input.progress, resolveDefaultProgress(input.state)))
-  return { phaseRadians, progress, state: input.state }
+const defaultWalkAmountFor = (state: MobAnimationState): number => {
+  if (state === 'walk') {
+    return FULL_PROGRESS
+  }
+  return NO_PROGRESS
 }
 
-const strideFor = (state: MobAnimationState, phaseRadians: number): number => {
+const progressForState = (state: MobAnimationState, activeState: MobAnimationState, progress: number): number => {
+  if (state === activeState) {
+    return progress
+  }
+  return NO_PROGRESS
+}
+
+type AnimationSample = Readonly<Omit<Required<MobAnimationInput>,
+  'walkAmount' | 'attackProgress' | 'hurtProgress' | 'deathProgress'
+> & {
+  readonly walkAmount: EntityRenderProgress
+  readonly attackProgress: EntityRenderProgress
+  readonly hurtProgress: EntityRenderProgress
+  readonly deathProgress: EntityRenderProgress
+}>
+
+const makeEntityRenderProgress = Brand.nominal<EntityRenderProgress>()
+
+const resolveAnimationSample = (input: MobAnimationInput): AnimationSample => {
+  const phaseRadians = input.phaseRadians ?? DEFAULT_PHASE_RADIANS
+  const progress = input.progress ?? resolveDefaultProgress(input.state)
+  const walkAmount = input.walkAmount ?? makeEntityRenderProgress(defaultWalkAmountFor(input.state))
+  const attackProgress = input.attackProgress ?? makeEntityRenderProgress(NO_PROGRESS)
+  const hurtProgress = input.hurtProgress ?? makeEntityRenderProgress(
+    progressForState(input.state, 'hurt', progress),
+  )
+  const deathProgress = input.deathProgress ?? makeEntityRenderProgress(
+    progressForState(input.state, 'death', progress),
+  )
+  return { attackProgress, deathProgress, hurtProgress, phaseRadians, progress, state: input.state, walkAmount }
+}
+
+const strideFor = (state: MobAnimationState, phaseRadians: number, walkAmount: number): number => {
   if (state === 'walk') {
-    return Math.sin(phaseRadians) * WALK_STRIDE_SCALE
+    return Math.sin(phaseRadians) * WALK_STRIDE_SCALE * walkAmount
   }
   return NO_ROTATION
 }
@@ -1033,19 +1085,9 @@ const idleBobFor = (state: MobAnimationState, phaseRadians: number): number => {
   return AXIS_ORIGIN
 }
 
-const hurtLeanFor = (state: MobAnimationState, progress: number): number => {
-  if (state === 'hurt') {
-    return HURT_LEAN_SCALE * progress
-  }
-  return NO_ROTATION
-}
+const hurtLeanFor = (progress: number): number => HURT_LEAN_SCALE * progress
 
-const deathLeanFor = (state: MobAnimationState, progress: number): number => {
-  if (state === 'death') {
-    return DEATH_LEAN_AT_FULL_PROGRESS * progress
-  }
-  return NO_ROTATION
-}
+const deathLeanFor = (progress: number): number => DEATH_LEAN_AT_FULL_PROGRESS * progress
 
 type MotionOutput = {
   readonly positionX: number
@@ -1060,6 +1102,7 @@ type MotionInputs = {
   readonly phaseRadians: number
   readonly stride: number
   readonly idleBob: number
+  readonly attackSwing: number
 }
 
 type DirectionalMotionInputs = {
@@ -1102,15 +1145,22 @@ const applyBlazeOrbitMotion = (source: MobVisualPartDescriptor, base: MotionOutp
   }
 }
 
+const attackSwingForRole = (role: MobVisualPartRole, attackSwing: number): number => {
+  if (role === 'arm') {
+    return attackSwing
+  }
+  return NO_ROTATION
+}
+
 const applyPartMotion = (source: MobVisualPartDescriptor, base: MotionOutput, motionInputs: MotionInputs): MotionOutput => {
-  const { phaseRadians, stride, idleBob } = motionInputs
+  const { attackSwing, phaseRadians, stride, idleBob } = motionInputs
   switch (source.motion) {
     case 'body':
       return { ...base, positionY: base.positionY + idleBob }
     case 'left_limb':
-      return { ...base, rotationX: stride }
+      return { ...base, rotationX: stride + attackSwingForRole(source.role, attackSwing) }
     case 'right_limb':
-      return { ...base, rotationX: -stride }
+      return { ...base, rotationX: -stride - attackSwingForRole(source.role, attackSwing) }
     case 'left_spider_leg':
       return applySpiderLegMotion(source, base, { direction: LEFT_MOTION_DIRECTION, phaseRadians })
     case 'right_spider_leg':
@@ -1137,10 +1187,20 @@ const applyRootLean = (
 })
 
 type PartPlanContext = {
+  readonly attackSwing: number
   readonly idleBob: number
   readonly phaseRadians: number
   readonly rootLean: number
   readonly stride: number
+}
+
+const partPlanContextFor = (animation: AnimationSample): PartPlanContext => {
+  const { attackProgress, deathProgress, hurtProgress, phaseRadians, state, walkAmount } = animation
+  const stride = strideFor(state, phaseRadians, walkAmount)
+  const idleBob = idleBobFor(state, phaseRadians)
+  const attackSwing = Math.sin(attackProgress * Math.PI) * ATTACK_ARM_SWING_AMPLITUDE
+  const rootLean = hurtLeanFor(hurtProgress) + deathLeanFor(deathProgress)
+  return { attackSwing, idleBob, phaseRadians, rootLean, stride }
 }
 
 const buildPartPlan = (
@@ -1152,7 +1212,7 @@ const buildPartPlan = (
   const motion = applyPartMotion(
     source,
     { positionX: baseX, positionY: baseY, positionZ: baseZ, rotationX: NO_ROTATION, rotationY: NO_ROTATION, rotationZ: NO_ROTATION },
-    { idleBob: context.idleBob, phaseRadians: context.phaseRadians, stride: context.stride },
+    context,
   )
   const { leanedX, leanedY } = applyRootLean(motion.positionX, motion.positionY, context.rootLean)
   return {
@@ -1165,20 +1225,27 @@ const buildPartPlan = (
   }
 }
 
-/** Resolve a mob kind and animation sample into immutable cuboid transforms. */
-export const planMobVisual = (kind: string, input: MobAnimationInput = DEFAULT_ANIMATION_INPUT): MobVisualPlan => {
+const planDecodedMobVisual = (kind: string, input: MobAnimationInput): MobVisualPlan => {
   const descriptor = mobVisualDescriptor(kind)
   const animation = resolveAnimationSample(input)
-  const { phaseRadians, progress, state } = animation
-  const stride = strideFor(state, phaseRadians)
-  const idleBob = idleBobFor(state, phaseRadians)
-  const hurtLean = hurtLeanFor(state, progress)
-  const deathLean = deathLeanFor(state, progress)
-  const rootLean = hurtLean + deathLean
-
+  const context = partPlanContextFor(animation)
   const parts = descriptor.parts.map((source): MobVisualPartPlan =>
-    buildPartPlan(source, descriptor.scale, { idleBob, phaseRadians, rootLean, stride }),
+    buildPartPlan(source, descriptor.scale, context),
   )
-
   return { animation, descriptorKind: descriptor.kind, parts, temperament: descriptor.temperament }
+}
+
+/** Resolve a mob kind and animation sample into immutable cuboid transforms. */
+export function planMobVisual(kind: string): Result.Result<MobVisualPlan, Schema.SchemaError>
+export function planMobVisual(kind: string, input: unknown): Result.Result<MobVisualPlan, Schema.SchemaError>
+export function planMobVisual(kind: string, input?: unknown): Result.Result<MobVisualPlan, Schema.SchemaError> {
+  let inputValue: unknown = input
+  if (arguments.length === KIND_ONLY_ARGUMENT_COUNT) {
+    inputValue = DEFAULT_ANIMATION_INPUT
+  }
+  const decodedInput = Schema.decodeUnknownResult(MobAnimationInputSchema, { onExcessProperty: 'error' })(inputValue)
+  if (Result.isFailure(decodedInput)) {
+    return Result.fail(decodedInput.failure)
+  }
+  return Result.succeed(planDecodedMobVisual(kind, decodedInput.success))
 }

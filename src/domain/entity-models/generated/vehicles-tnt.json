@@ -1,0 +1,2428 @@
+[
+  {
+    "kind": "boat",
+    "parts": [
+      {
+        "id": "hull-floor",
+        "role": "hull-floor",
+        "size": {
+          "x": 0.8796187205935222,
+          "y": 0.13986,
+          "z": 1.5493284283181357
+        },
+        "center": {
+          "x": 0,
+          "y": 0.06993,
+          "z": 0
+        },
+        "color": {
+          "red": 91,
+          "green": 58,
+          "blue": 34
+        },
+        "rotation": null
+      },
+      {
+        "id": "left-hull",
+        "role": "hull-side",
+        "size": {
+          "x": 0.13993934191260582,
+          "y": 0.29969999999999997,
+          "z": 1.7992201103049317
+        },
+        "center": {
+          "x": -0.47979202941464844,
+          "y": 0.21978,
+          "z": 0
+        },
+        "color": {
+          "red": 132,
+          "green": 89,
+          "blue": 48
+        },
+        "rotation": null
+      },
+      {
+        "id": "right-hull",
+        "role": "hull-side",
+        "size": {
+          "x": 0.13993934191260582,
+          "y": 0.29969999999999997,
+          "z": 1.7992201103049317
+        },
+        "center": {
+          "x": 0.47979202941464844,
+          "y": 0.21978,
+          "z": 0
+        },
+        "color": {
+          "red": 132,
+          "green": 89,
+          "blue": 48
+        },
+        "rotation": null
+      },
+      {
+        "id": "bow",
+        "role": "hull-end",
+        "size": {
+          "x": 0.8596273860345784,
+          "y": 0.27972,
+          "z": 0.13993934191260582
+        },
+        "center": {
+          "x": 0,
+          "y": 0.19979999999999998,
+          "z": -0.8396360514756348
+        },
+        "color": {
+          "red": 164,
+          "green": 116,
+          "blue": 68
+        },
+        "rotation": null
+      },
+      {
+        "id": "stern",
+        "role": "hull-end",
+        "size": {
+          "x": 0.8596273860345784,
+          "y": 0.27972,
+          "z": 0.13993934191260582
+        },
+        "center": {
+          "x": 0,
+          "y": 0.19979999999999998,
+          "z": 0.8396360514756348
+        },
+        "color": {
+          "red": 132,
+          "green": 89,
+          "blue": 48
+        },
+        "rotation": null
+      },
+      {
+        "id": "left-oar",
+        "role": "oar",
+        "size": {
+          "x": 0.09995667279471843,
+          "y": 0.07992,
+          "z": 0.8796187205935222
+        },
+        "center": {
+          "x": -0.8296403841961629,
+          "y": 0.38961,
+          "z": -0.03998266911788737
+        },
+        "color": {
+          "red": 164,
+          "green": 116,
+          "blue": 68
+        },
+        "rotation": {
+          "x": 0,
+          "y": 0.16,
+          "z": 0
+        }
+      },
+      {
+        "id": "right-oar",
+        "role": "oar",
+        "size": {
+          "x": 0.09995667279471843,
+          "y": 0.07992,
+          "z": 0.8796187205935222
+        },
+        "center": {
+          "x": 0.8296403841961629,
+          "y": 0.38961,
+          "z": 0.03998266911788737
+        },
+        "color": {
+          "red": 164,
+          "green": 116,
+          "blue": 68
+        },
+        "rotation": {
+          "x": 0,
+          "y": -0.16,
+          "z": 0
+        }
+      }
+    ]
+  },
+  {
+    "kind": "chest_boat",
+    "parts": [
+      {
+        "id": "hull-floor",
+        "role": "hull-floor",
+        "size": {
+          "x": 0.8796187205935222,
+          "y": 0.13986000000000004,
+          "z": 1.5493284283181357
+        },
+        "center": {
+          "x": 0,
+          "y": 0.06993000000000002,
+          "z": 0
+        },
+        "color": {
+          "red": 91,
+          "green": 58,
+          "blue": 34
+        },
+        "rotation": null
+      },
+      {
+        "id": "left-hull",
+        "role": "hull-side",
+        "size": {
+          "x": 0.13993934191260582,
+          "y": 0.2997000000000001,
+          "z": 1.7992201103049317
+        },
+        "center": {
+          "x": -0.47979202941464844,
+          "y": 0.21978000000000006,
+          "z": 0
+        },
+        "color": {
+          "red": 132,
+          "green": 89,
+          "blue": 48
+        },
+        "rotation": null
+      },
+      {
+        "id": "right-hull",
+        "role": "hull-side",
+        "size": {
+          "x": 0.13993934191260582,
+          "y": 0.2997000000000001,
+          "z": 1.7992201103049317
+        },
+        "center": {
+          "x": 0.47979202941464844,
+          "y": 0.21978000000000006,
+          "z": 0
+        },
+        "color": {
+          "red": 132,
+          "green": 89,
+          "blue": 48
+        },
+        "rotation": null
+      },
+      {
+        "id": "bow",
+        "role": "hull-end",
+        "size": {
+          "x": 0.8596273860345784,
+          "y": 0.2797200000000001,
+          "z": 0.13993934191260582
+        },
+        "center": {
+          "x": 0,
+          "y": 0.19980000000000003,
+          "z": -0.8396360514756348
+        },
+        "color": {
+          "red": 164,
+          "green": 116,
+          "blue": 68
+        },
+        "rotation": null
+      },
+      {
+        "id": "stern",
+        "role": "hull-end",
+        "size": {
+          "x": 0.8596273860345784,
+          "y": 0.2797200000000001,
+          "z": 0.13993934191260582
+        },
+        "center": {
+          "x": 0,
+          "y": 0.19980000000000003,
+          "z": 0.8396360514756348
+        },
+        "color": {
+          "red": 132,
+          "green": 89,
+          "blue": 48
+        },
+        "rotation": null
+      },
+      {
+        "id": "boat-cargo-body",
+        "role": "chest",
+        "size": {
+          "x": 0.6197313713272542,
+          "y": 0.4795200000000001,
+          "z": 0.639722705886198
+        },
+        "center": {
+          "x": 0,
+          "y": 0.5694300000000002,
+          "z": 0
+        },
+        "color": {
+          "red": 132,
+          "green": 89,
+          "blue": 48
+        },
+        "rotation": null
+      },
+      {
+        "id": "boat-cargo-lid",
+        "role": "chest-lid",
+        "size": {
+          "x": 0.6597140404451416,
+          "y": 0.11988000000000003,
+          "z": 0.6797053750040853
+        },
+        "center": {
+          "x": 0,
+          "y": 0.8691300000000002,
+          "z": 0
+        },
+        "color": {
+          "red": 164,
+          "green": 116,
+          "blue": 68
+        },
+        "rotation": null
+      },
+      {
+        "id": "boat-cargo-latch",
+        "role": "chest-latch",
+        "size": {
+          "x": 0.11994800735366211,
+          "y": 0.17982000000000004,
+          "z": 0.04498050275762329
+        },
+        "center": {
+          "x": 0,
+          "y": 0.6893100000000002,
+          "z": -0.34485052114177855
+        },
+        "color": {
+          "red": 210,
+          "green": 157,
+          "blue": 52
+        },
+        "rotation": null
+      },
+      {
+        "id": "left-oar",
+        "role": "oar",
+        "size": {
+          "x": 0.09995667279471843,
+          "y": 0.07992000000000002,
+          "z": 0.8796187205935222
+        },
+        "center": {
+          "x": -0.8296403841961629,
+          "y": 0.3896100000000001,
+          "z": -0.03998266911788737
+        },
+        "color": {
+          "red": 164,
+          "green": 116,
+          "blue": 68
+        },
+        "rotation": {
+          "x": 0,
+          "y": 0.16,
+          "z": 0
+        }
+      },
+      {
+        "id": "right-oar",
+        "role": "oar",
+        "size": {
+          "x": 0.09995667279471843,
+          "y": 0.07992000000000002,
+          "z": 0.8796187205935222
+        },
+        "center": {
+          "x": 0.8296403841961629,
+          "y": 0.3896100000000001,
+          "z": 0.03998266911788737
+        },
+        "color": {
+          "red": 164,
+          "green": 116,
+          "blue": 68
+        },
+        "rotation": {
+          "x": 0,
+          "y": -0.16,
+          "z": 0
+        }
+      }
+    ]
+  },
+  {
+    "kind": "chest_minecart",
+    "parts": [
+      {
+        "id": "cart-floor",
+        "role": "cart-floor",
+        "size": {
+          "x": 0.91908,
+          "y": 0.13986,
+          "z": 1.11888
+        },
+        "center": {
+          "x": 0,
+          "y": 0.46952999999999995,
+          "z": 0
+        },
+        "color": {
+          "red": 113,
+          "green": 119,
+          "blue": 125
+        },
+        "rotation": null
+      },
+      {
+        "id": "left-bucket-wall",
+        "role": "cart-wall",
+        "size": {
+          "x": 0.11988,
+          "y": 0.41958,
+          "z": 1.05894
+        },
+        "center": {
+          "x": -0.47952,
+          "y": 0.7192799999999999,
+          "z": 0
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "right-bucket-wall",
+        "role": "cart-wall",
+        "size": {
+          "x": 0.11988,
+          "y": 0.41958,
+          "z": 1.05894
+        },
+        "center": {
+          "x": 0.47952,
+          "y": 0.7192799999999999,
+          "z": 0
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "front-bucket-wall",
+        "role": "cart-wall",
+        "size": {
+          "x": 0.83916,
+          "y": 0.41958,
+          "z": 0.11988
+        },
+        "center": {
+          "x": 0,
+          "y": 0.7192799999999999,
+          "z": -0.4995
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "back-bucket-wall",
+        "role": "cart-wall",
+        "size": {
+          "x": 0.83916,
+          "y": 0.41958,
+          "z": 0.11988
+        },
+        "center": {
+          "x": 0,
+          "y": 0.7192799999999999,
+          "z": 0.4995
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "left-front-wheel",
+        "role": "wheel",
+        "size": {
+          "x": 0.15984,
+          "y": 0.35963999999999996,
+          "z": 0.35963999999999996
+        },
+        "center": {
+          "x": -0.54945,
+          "y": 0.17981999999999998,
+          "z": -0.33966
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "left-back-wheel",
+        "role": "wheel",
+        "size": {
+          "x": 0.15984,
+          "y": 0.35963999999999996,
+          "z": 0.35963999999999996
+        },
+        "center": {
+          "x": -0.54945,
+          "y": 0.17981999999999998,
+          "z": 0.33966
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "right-front-wheel",
+        "role": "wheel",
+        "size": {
+          "x": 0.15984,
+          "y": 0.35963999999999996,
+          "z": 0.35963999999999996
+        },
+        "center": {
+          "x": 0.54945,
+          "y": 0.17981999999999998,
+          "z": -0.33966
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "right-back-wheel",
+        "role": "wheel",
+        "size": {
+          "x": 0.15984,
+          "y": 0.35963999999999996,
+          "z": 0.35963999999999996
+        },
+        "center": {
+          "x": 0.54945,
+          "y": 0.17981999999999998,
+          "z": 0.33966
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "cart-cargo-body",
+        "role": "chest",
+        "size": {
+          "x": 0.61938,
+          "y": 0.47952,
+          "z": 0.63936
+        },
+        "center": {
+          "x": 0,
+          "y": 0.98901,
+          "z": 0
+        },
+        "color": {
+          "red": 132,
+          "green": 89,
+          "blue": 48
+        },
+        "rotation": null
+      },
+      {
+        "id": "cart-cargo-lid",
+        "role": "chest-lid",
+        "size": {
+          "x": 0.65934,
+          "y": 0.11988,
+          "z": 0.67932
+        },
+        "center": {
+          "x": 0,
+          "y": 1.28871,
+          "z": 0
+        },
+        "color": {
+          "red": 164,
+          "green": 116,
+          "blue": 68
+        },
+        "rotation": null
+      },
+      {
+        "id": "cart-cargo-latch",
+        "role": "chest-latch",
+        "size": {
+          "x": 0.11988,
+          "y": 0.17981999999999998,
+          "z": 0.044954999999999995
+        },
+        "center": {
+          "x": 0,
+          "y": 1.1088900000000002,
+          "z": -0.344655
+        },
+        "color": {
+          "red": 210,
+          "green": 157,
+          "blue": 52
+        },
+        "rotation": null
+      }
+    ]
+  },
+  {
+    "kind": "command_block_minecart",
+    "parts": [
+      {
+        "id": "cart-floor",
+        "role": "cart-floor",
+        "size": {
+          "x": 0.91908,
+          "y": 0.13985999999999998,
+          "z": 1.11888
+        },
+        "center": {
+          "x": 0,
+          "y": 0.46952999999999995,
+          "z": 0
+        },
+        "color": {
+          "red": 113,
+          "green": 119,
+          "blue": 125
+        },
+        "rotation": null
+      },
+      {
+        "id": "left-bucket-wall",
+        "role": "cart-wall",
+        "size": {
+          "x": 0.11988,
+          "y": 0.41957999999999995,
+          "z": 1.05894
+        },
+        "center": {
+          "x": -0.47952,
+          "y": 0.7192799999999999,
+          "z": 0
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "right-bucket-wall",
+        "role": "cart-wall",
+        "size": {
+          "x": 0.11988,
+          "y": 0.41957999999999995,
+          "z": 1.05894
+        },
+        "center": {
+          "x": 0.47952,
+          "y": 0.7192799999999999,
+          "z": 0
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "front-bucket-wall",
+        "role": "cart-wall",
+        "size": {
+          "x": 0.83916,
+          "y": 0.41957999999999995,
+          "z": 0.11988
+        },
+        "center": {
+          "x": 0,
+          "y": 0.7192799999999999,
+          "z": -0.4995
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "back-bucket-wall",
+        "role": "cart-wall",
+        "size": {
+          "x": 0.83916,
+          "y": 0.41957999999999995,
+          "z": 0.11988
+        },
+        "center": {
+          "x": 0,
+          "y": 0.7192799999999999,
+          "z": 0.4995
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "left-front-wheel",
+        "role": "wheel",
+        "size": {
+          "x": 0.15984,
+          "y": 0.35963999999999996,
+          "z": 0.35963999999999996
+        },
+        "center": {
+          "x": -0.54945,
+          "y": 0.17981999999999998,
+          "z": -0.33966
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "left-back-wheel",
+        "role": "wheel",
+        "size": {
+          "x": 0.15984,
+          "y": 0.35963999999999996,
+          "z": 0.35963999999999996
+        },
+        "center": {
+          "x": -0.54945,
+          "y": 0.17981999999999998,
+          "z": 0.33966
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "right-front-wheel",
+        "role": "wheel",
+        "size": {
+          "x": 0.15984,
+          "y": 0.35963999999999996,
+          "z": 0.35963999999999996
+        },
+        "center": {
+          "x": 0.54945,
+          "y": 0.17981999999999998,
+          "z": -0.33966
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "right-back-wheel",
+        "role": "wheel",
+        "size": {
+          "x": 0.15984,
+          "y": 0.35963999999999996,
+          "z": 0.35963999999999996
+        },
+        "center": {
+          "x": 0.54945,
+          "y": 0.17981999999999998,
+          "z": 0.33966
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "command-block",
+        "role": "command-block",
+        "size": {
+          "x": 0.7192799999999999,
+          "y": 0.6793199999999999,
+          "z": 0.7192799999999999
+        },
+        "center": {
+          "x": 0,
+          "y": 1.0389599999999999,
+          "z": 0
+        },
+        "color": {
+          "red": 128,
+          "green": 91,
+          "blue": 150
+        },
+        "rotation": null
+      },
+      {
+        "id": "command-screen",
+        "role": "command-face",
+        "size": {
+          "x": 0.47952,
+          "y": 0.39959999999999996,
+          "z": 0.044954999999999995
+        },
+        "center": {
+          "x": 0,
+          "y": 1.0489499999999998,
+          "z": -0.381618
+        },
+        "color": {
+          "red": 101,
+          "green": 147,
+          "blue": 80
+        },
+        "rotation": null
+      },
+      {
+        "id": "command-glyph",
+        "role": "command-glyph",
+        "size": {
+          "x": 0.24975,
+          "y": 0.06992999999999999,
+          "z": 0.034965
+        },
+        "center": {
+          "x": 0,
+          "y": 1.0489499999999998,
+          "z": -0.40759199999999995
+        },
+        "color": {
+          "red": 210,
+          "green": 157,
+          "blue": 52
+        },
+        "rotation": null
+      },
+      {
+        "id": "command-side-panel",
+        "role": "command-panel",
+        "size": {
+          "x": 0.044954999999999995,
+          "y": 0.34964999999999996,
+          "z": 0.41958
+        },
+        "center": {
+          "x": -0.381618,
+          "y": 1.0389599999999999,
+          "z": 0
+        },
+        "color": {
+          "red": 101,
+          "green": 147,
+          "blue": 80
+        },
+        "rotation": null
+      }
+    ]
+  },
+  {
+    "kind": "furnace_minecart",
+    "parts": [
+      {
+        "id": "cart-floor",
+        "role": "cart-floor",
+        "size": {
+          "x": 0.91908,
+          "y": 0.13961246017699117,
+          "z": 1.11888
+        },
+        "center": {
+          "x": 0,
+          "y": 0.46869897345132744,
+          "z": 0
+        },
+        "color": {
+          "red": 113,
+          "green": 119,
+          "blue": 125
+        },
+        "rotation": null
+      },
+      {
+        "id": "left-bucket-wall",
+        "role": "cart-wall",
+        "size": {
+          "x": 0.11988,
+          "y": 0.41883738053097347,
+          "z": 1.05894
+        },
+        "center": {
+          "x": -0.47952,
+          "y": 0.7180069380530973,
+          "z": 0
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "right-bucket-wall",
+        "role": "cart-wall",
+        "size": {
+          "x": 0.11988,
+          "y": 0.41883738053097347,
+          "z": 1.05894
+        },
+        "center": {
+          "x": 0.47952,
+          "y": 0.7180069380530973,
+          "z": 0
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "front-bucket-wall",
+        "role": "cart-wall",
+        "size": {
+          "x": 0.83916,
+          "y": 0.41883738053097347,
+          "z": 0.11988
+        },
+        "center": {
+          "x": 0,
+          "y": 0.7180069380530973,
+          "z": -0.4995
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "back-bucket-wall",
+        "role": "cart-wall",
+        "size": {
+          "x": 0.83916,
+          "y": 0.41883738053097347,
+          "z": 0.11988
+        },
+        "center": {
+          "x": 0,
+          "y": 0.7180069380530973,
+          "z": 0.4995
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "left-front-wheel",
+        "role": "wheel",
+        "size": {
+          "x": 0.15984,
+          "y": 0.35900346902654867,
+          "z": 0.35963999999999996
+        },
+        "center": {
+          "x": -0.54945,
+          "y": 0.17950173451327434,
+          "z": -0.33966
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "left-back-wheel",
+        "role": "wheel",
+        "size": {
+          "x": 0.15984,
+          "y": 0.35900346902654867,
+          "z": 0.35963999999999996
+        },
+        "center": {
+          "x": -0.54945,
+          "y": 0.17950173451327434,
+          "z": 0.33966
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "right-front-wheel",
+        "role": "wheel",
+        "size": {
+          "x": 0.15984,
+          "y": 0.35900346902654867,
+          "z": 0.35963999999999996
+        },
+        "center": {
+          "x": 0.54945,
+          "y": 0.17950173451327434,
+          "z": -0.33966
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "right-back-wheel",
+        "role": "wheel",
+        "size": {
+          "x": 0.15984,
+          "y": 0.35900346902654867,
+          "z": 0.35963999999999996
+        },
+        "center": {
+          "x": 0.54945,
+          "y": 0.17950173451327434,
+          "z": 0.33966
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "furnace-body",
+        "role": "furnace-block",
+        "size": {
+          "x": 0.73926,
+          "y": 0.6781176637168143,
+          "z": 0.73926
+        },
+        "center": {
+          "x": 0,
+          "y": 1.0271488141592922,
+          "z": 0
+        },
+        "color": {
+          "red": 91,
+          "green": 91,
+          "blue": 94
+        },
+        "rotation": null
+      },
+      {
+        "id": "furnace-mouth",
+        "role": "furnace-mouth",
+        "size": {
+          "x": 0.3996,
+          "y": 0.33905883185840713,
+          "z": 0.044954999999999995
+        },
+        "center": {
+          "x": 0,
+          "y": 0.987259539823009,
+          "z": -0.391608
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "furnace-fire",
+        "role": "furnace-fire",
+        "size": {
+          "x": 0.21978,
+          "y": 0.16952941592920356,
+          "z": 0.034965
+        },
+        "center": {
+          "x": 0,
+          "y": 0.9174533097345133,
+          "z": -0.41958
+        },
+        "color": {
+          "red": 231,
+          "green": 105,
+          "blue": 35
+        },
+        "rotation": null
+      },
+      {
+        "id": "furnace-top-vent",
+        "role": "furnace-vent",
+        "size": {
+          "x": 0.25974,
+          "y": 0.044875433628318584,
+          "z": 0.21978
+        },
+        "center": {
+          "x": 0,
+          "y": 1.3861522831858408,
+          "z": 0
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      }
+    ]
+  },
+  {
+    "kind": "hopper_minecart",
+    "parts": [
+      {
+        "id": "cart-floor",
+        "role": "cart-floor",
+        "size": {
+          "x": 0.91908,
+          "y": 0.13986,
+          "z": 1.11888
+        },
+        "center": {
+          "x": 0,
+          "y": 0.46952999999999995,
+          "z": 0
+        },
+        "color": {
+          "red": 113,
+          "green": 119,
+          "blue": 125
+        },
+        "rotation": null
+      },
+      {
+        "id": "left-bucket-wall",
+        "role": "cart-wall",
+        "size": {
+          "x": 0.11988,
+          "y": 0.41958,
+          "z": 1.05894
+        },
+        "center": {
+          "x": -0.47952,
+          "y": 0.7192799999999999,
+          "z": 0
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "right-bucket-wall",
+        "role": "cart-wall",
+        "size": {
+          "x": 0.11988,
+          "y": 0.41958,
+          "z": 1.05894
+        },
+        "center": {
+          "x": 0.47952,
+          "y": 0.7192799999999999,
+          "z": 0
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "front-bucket-wall",
+        "role": "cart-wall",
+        "size": {
+          "x": 0.83916,
+          "y": 0.41958,
+          "z": 0.11988
+        },
+        "center": {
+          "x": 0,
+          "y": 0.7192799999999999,
+          "z": -0.4995
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "back-bucket-wall",
+        "role": "cart-wall",
+        "size": {
+          "x": 0.83916,
+          "y": 0.41958,
+          "z": 0.11988
+        },
+        "center": {
+          "x": 0,
+          "y": 0.7192799999999999,
+          "z": 0.4995
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "left-front-wheel",
+        "role": "wheel",
+        "size": {
+          "x": 0.15984,
+          "y": 0.35963999999999996,
+          "z": 0.35963999999999996
+        },
+        "center": {
+          "x": -0.54945,
+          "y": 0.17981999999999998,
+          "z": -0.33966
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "left-back-wheel",
+        "role": "wheel",
+        "size": {
+          "x": 0.15984,
+          "y": 0.35963999999999996,
+          "z": 0.35963999999999996
+        },
+        "center": {
+          "x": -0.54945,
+          "y": 0.17981999999999998,
+          "z": 0.33966
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "right-front-wheel",
+        "role": "wheel",
+        "size": {
+          "x": 0.15984,
+          "y": 0.35963999999999996,
+          "z": 0.35963999999999996
+        },
+        "center": {
+          "x": 0.54945,
+          "y": 0.17981999999999998,
+          "z": -0.33966
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "right-back-wheel",
+        "role": "wheel",
+        "size": {
+          "x": 0.15984,
+          "y": 0.35963999999999996,
+          "z": 0.35963999999999996
+        },
+        "center": {
+          "x": 0.54945,
+          "y": 0.17981999999999998,
+          "z": 0.33966
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "hopper-front-rim",
+        "role": "hopper-rim",
+        "size": {
+          "x": 0.8191799999999999,
+          "y": 0.11988,
+          "z": 0.14984999999999998
+        },
+        "center": {
+          "x": 0,
+          "y": 1.10889,
+          "z": -0.33966
+        },
+        "color": {
+          "red": 74,
+          "green": 78,
+          "blue": 82
+        },
+        "rotation": null
+      },
+      {
+        "id": "hopper-back-rim",
+        "role": "hopper-rim",
+        "size": {
+          "x": 0.8191799999999999,
+          "y": 0.11988,
+          "z": 0.14984999999999998
+        },
+        "center": {
+          "x": 0,
+          "y": 1.10889,
+          "z": 0.33966
+        },
+        "color": {
+          "red": 74,
+          "green": 78,
+          "blue": 82
+        },
+        "rotation": null
+      },
+      {
+        "id": "hopper-left-rim",
+        "role": "hopper-rim",
+        "size": {
+          "x": 0.14984999999999998,
+          "y": 0.11988,
+          "z": 0.54945
+        },
+        "center": {
+          "x": -0.33966,
+          "y": 1.10889,
+          "z": 0
+        },
+        "color": {
+          "red": 74,
+          "green": 78,
+          "blue": 82
+        },
+        "rotation": null
+      },
+      {
+        "id": "hopper-right-rim",
+        "role": "hopper-rim",
+        "size": {
+          "x": 0.14984999999999998,
+          "y": 0.11988,
+          "z": 0.54945
+        },
+        "center": {
+          "x": 0.33966,
+          "y": 1.10889,
+          "z": 0
+        },
+        "color": {
+          "red": 74,
+          "green": 78,
+          "blue": 82
+        },
+        "rotation": null
+      },
+      {
+        "id": "hopper-front-slope",
+        "role": "hopper-funnel",
+        "size": {
+          "x": 0.15984,
+          "y": 0.47952,
+          "z": 0.5794199999999999
+        },
+        "center": {
+          "x": -0.22977,
+          "y": 0.82917,
+          "z": 0
+        },
+        "color": {
+          "red": 74,
+          "green": 78,
+          "blue": 82
+        },
+        "rotation": null
+      },
+      {
+        "id": "hopper-back-slope",
+        "role": "hopper-funnel",
+        "size": {
+          "x": 0.15984,
+          "y": 0.47952,
+          "z": 0.5794199999999999
+        },
+        "center": {
+          "x": 0.22977,
+          "y": 0.82917,
+          "z": 0
+        },
+        "color": {
+          "red": 74,
+          "green": 78,
+          "blue": 82
+        },
+        "rotation": null
+      },
+      {
+        "id": "hopper-neck",
+        "role": "hopper-neck",
+        "size": {
+          "x": 0.27972,
+          "y": 0.21978,
+          "z": 0.27972
+        },
+        "center": {
+          "x": 0,
+          "y": 0.46952999999999995,
+          "z": 0
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      }
+    ]
+  },
+  {
+    "kind": "minecart",
+    "parts": [
+      {
+        "id": "cart-floor",
+        "role": "cart-floor",
+        "size": {
+          "x": 0.91908,
+          "y": 0.13986000000000004,
+          "z": 1.11888
+        },
+        "center": {
+          "x": 0,
+          "y": 0.46953000000000006,
+          "z": 0
+        },
+        "color": {
+          "red": 113,
+          "green": 119,
+          "blue": 125
+        },
+        "rotation": null
+      },
+      {
+        "id": "left-bucket-wall",
+        "role": "cart-wall",
+        "size": {
+          "x": 0.11988,
+          "y": 0.41958000000000006,
+          "z": 1.05894
+        },
+        "center": {
+          "x": -0.47952,
+          "y": 0.7192800000000001,
+          "z": 0
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "right-bucket-wall",
+        "role": "cart-wall",
+        "size": {
+          "x": 0.11988,
+          "y": 0.41958000000000006,
+          "z": 1.05894
+        },
+        "center": {
+          "x": 0.47952,
+          "y": 0.7192800000000001,
+          "z": 0
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "front-bucket-wall",
+        "role": "cart-wall",
+        "size": {
+          "x": 0.83916,
+          "y": 0.41958000000000006,
+          "z": 0.11988
+        },
+        "center": {
+          "x": 0,
+          "y": 0.7192800000000001,
+          "z": -0.4995
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "back-bucket-wall",
+        "role": "cart-wall",
+        "size": {
+          "x": 0.83916,
+          "y": 0.41958000000000006,
+          "z": 0.11988
+        },
+        "center": {
+          "x": 0,
+          "y": 0.7192800000000001,
+          "z": 0.4995
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "left-front-wheel",
+        "role": "wheel",
+        "size": {
+          "x": 0.15984,
+          "y": 0.35964000000000007,
+          "z": 0.35963999999999996
+        },
+        "center": {
+          "x": -0.54945,
+          "y": 0.17982000000000004,
+          "z": -0.33966
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "left-back-wheel",
+        "role": "wheel",
+        "size": {
+          "x": 0.15984,
+          "y": 0.35964000000000007,
+          "z": 0.35963999999999996
+        },
+        "center": {
+          "x": -0.54945,
+          "y": 0.17982000000000004,
+          "z": 0.33966
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "right-front-wheel",
+        "role": "wheel",
+        "size": {
+          "x": 0.15984,
+          "y": 0.35964000000000007,
+          "z": 0.35963999999999996
+        },
+        "center": {
+          "x": 0.54945,
+          "y": 0.17982000000000004,
+          "z": -0.33966
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "right-back-wheel",
+        "role": "wheel",
+        "size": {
+          "x": 0.15984,
+          "y": 0.35964000000000007,
+          "z": 0.35963999999999996
+        },
+        "center": {
+          "x": 0.54945,
+          "y": 0.17982000000000004,
+          "z": 0.33966
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      }
+    ]
+  },
+  {
+    "kind": "spawner_minecart",
+    "parts": [
+      {
+        "id": "cart-floor",
+        "role": "cart-floor",
+        "size": {
+          "x": 0.91908,
+          "y": 0.13986,
+          "z": 1.11888
+        },
+        "center": {
+          "x": 0,
+          "y": 0.46952999999999995,
+          "z": 0
+        },
+        "color": {
+          "red": 113,
+          "green": 119,
+          "blue": 125
+        },
+        "rotation": null
+      },
+      {
+        "id": "left-bucket-wall",
+        "role": "cart-wall",
+        "size": {
+          "x": 0.11988,
+          "y": 0.41958,
+          "z": 1.05894
+        },
+        "center": {
+          "x": -0.47952,
+          "y": 0.7192799999999999,
+          "z": 0
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "right-bucket-wall",
+        "role": "cart-wall",
+        "size": {
+          "x": 0.11988,
+          "y": 0.41958,
+          "z": 1.05894
+        },
+        "center": {
+          "x": 0.47952,
+          "y": 0.7192799999999999,
+          "z": 0
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "front-bucket-wall",
+        "role": "cart-wall",
+        "size": {
+          "x": 0.83916,
+          "y": 0.41958,
+          "z": 0.11988
+        },
+        "center": {
+          "x": 0,
+          "y": 0.7192799999999999,
+          "z": -0.4995
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "back-bucket-wall",
+        "role": "cart-wall",
+        "size": {
+          "x": 0.83916,
+          "y": 0.41958,
+          "z": 0.11988
+        },
+        "center": {
+          "x": 0,
+          "y": 0.7192799999999999,
+          "z": 0.4995
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "left-front-wheel",
+        "role": "wheel",
+        "size": {
+          "x": 0.15984,
+          "y": 0.35963999999999996,
+          "z": 0.35963999999999996
+        },
+        "center": {
+          "x": -0.54945,
+          "y": 0.17981999999999998,
+          "z": -0.33966
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "left-back-wheel",
+        "role": "wheel",
+        "size": {
+          "x": 0.15984,
+          "y": 0.35963999999999996,
+          "z": 0.35963999999999996
+        },
+        "center": {
+          "x": -0.54945,
+          "y": 0.17981999999999998,
+          "z": 0.33966
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "right-front-wheel",
+        "role": "wheel",
+        "size": {
+          "x": 0.15984,
+          "y": 0.35963999999999996,
+          "z": 0.35963999999999996
+        },
+        "center": {
+          "x": 0.54945,
+          "y": 0.17981999999999998,
+          "z": -0.33966
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "right-back-wheel",
+        "role": "wheel",
+        "size": {
+          "x": 0.15984,
+          "y": 0.35963999999999996,
+          "z": 0.35963999999999996
+        },
+        "center": {
+          "x": 0.54945,
+          "y": 0.17981999999999998,
+          "z": 0.33966
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "spawner-top",
+        "role": "spawner-cage-bar",
+        "size": {
+          "x": 0.73926,
+          "y": 0.07992,
+          "z": 0.73926
+        },
+        "center": {
+          "x": 0,
+          "y": 1.41858,
+          "z": 0
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "spawner-bottom",
+        "role": "spawner-cage-bar",
+        "size": {
+          "x": 0.73926,
+          "y": 0.07992,
+          "z": 0.73926
+        },
+        "center": {
+          "x": 0,
+          "y": 0.6393599999999999,
+          "z": 0
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "spawner-left-bar",
+        "role": "spawner-cage-bar",
+        "size": {
+          "x": 0.07992,
+          "y": 0.6992999999999999,
+          "z": 0.07992
+        },
+        "center": {
+          "x": -0.32967,
+          "y": 1.02897,
+          "z": -0.32967
+        },
+        "color": {
+          "red": 57,
+          "green": 111,
+          "blue": 133
+        },
+        "rotation": null
+      },
+      {
+        "id": "spawner-right-bar",
+        "role": "spawner-cage-bar",
+        "size": {
+          "x": 0.07992,
+          "y": 0.6992999999999999,
+          "z": 0.07992
+        },
+        "center": {
+          "x": 0.32967,
+          "y": 1.02897,
+          "z": -0.32967
+        },
+        "color": {
+          "red": 57,
+          "green": 111,
+          "blue": 133
+        },
+        "rotation": null
+      },
+      {
+        "id": "spawner-back-left-bar",
+        "role": "spawner-cage-bar",
+        "size": {
+          "x": 0.07992,
+          "y": 0.6992999999999999,
+          "z": 0.07992
+        },
+        "center": {
+          "x": -0.32967,
+          "y": 1.02897,
+          "z": 0.32967
+        },
+        "color": {
+          "red": 57,
+          "green": 111,
+          "blue": 133
+        },
+        "rotation": null
+      },
+      {
+        "id": "spawner-back-right-bar",
+        "role": "spawner-cage-bar",
+        "size": {
+          "x": 0.07992,
+          "y": 0.6992999999999999,
+          "z": 0.07992
+        },
+        "center": {
+          "x": 0.32967,
+          "y": 1.02897,
+          "z": 0.32967
+        },
+        "color": {
+          "red": 57,
+          "green": 111,
+          "blue": 133
+        },
+        "rotation": null
+      },
+      {
+        "id": "spawner-core",
+        "role": "spawner-core",
+        "size": {
+          "x": 0.29969999999999997,
+          "y": 0.29969999999999997,
+          "z": 0.29969999999999997
+        },
+        "center": {
+          "x": 0,
+          "y": 1.02897,
+          "z": 0
+        },
+        "color": {
+          "red": 112,
+          "green": 170,
+          "blue": 118
+        },
+        "rotation": null
+      },
+      {
+        "id": "spawner-flame",
+        "role": "spawner-flame",
+        "size": {
+          "x": 0.14984999999999998,
+          "y": 0.11988,
+          "z": 0.044954999999999995
+        },
+        "center": {
+          "x": 0,
+          "y": 1.02897,
+          "z": -0.17981999999999998
+        },
+        "color": {
+          "red": 231,
+          "green": 105,
+          "blue": 35
+        },
+        "rotation": null
+      }
+    ]
+  },
+  {
+    "kind": "tnt_minecart",
+    "parts": [
+      {
+        "id": "cart-floor",
+        "role": "cart-floor",
+        "size": {
+          "x": 0.91908,
+          "y": 0.13986,
+          "z": 1.11888
+        },
+        "center": {
+          "x": 0,
+          "y": 0.46952999999999995,
+          "z": 0
+        },
+        "color": {
+          "red": 113,
+          "green": 119,
+          "blue": 125
+        },
+        "rotation": null
+      },
+      {
+        "id": "left-bucket-wall",
+        "role": "cart-wall",
+        "size": {
+          "x": 0.11988,
+          "y": 0.41958,
+          "z": 1.05894
+        },
+        "center": {
+          "x": -0.47952,
+          "y": 0.7192799999999999,
+          "z": 0
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "right-bucket-wall",
+        "role": "cart-wall",
+        "size": {
+          "x": 0.11988,
+          "y": 0.41958,
+          "z": 1.05894
+        },
+        "center": {
+          "x": 0.47952,
+          "y": 0.7192799999999999,
+          "z": 0
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "front-bucket-wall",
+        "role": "cart-wall",
+        "size": {
+          "x": 0.83916,
+          "y": 0.41958,
+          "z": 0.11988
+        },
+        "center": {
+          "x": 0,
+          "y": 0.7192799999999999,
+          "z": -0.4995
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "back-bucket-wall",
+        "role": "cart-wall",
+        "size": {
+          "x": 0.83916,
+          "y": 0.41958,
+          "z": 0.11988
+        },
+        "center": {
+          "x": 0,
+          "y": 0.7192799999999999,
+          "z": 0.4995
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "left-front-wheel",
+        "role": "wheel",
+        "size": {
+          "x": 0.15984,
+          "y": 0.35963999999999996,
+          "z": 0.35963999999999996
+        },
+        "center": {
+          "x": -0.54945,
+          "y": 0.17981999999999998,
+          "z": -0.33966
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "left-back-wheel",
+        "role": "wheel",
+        "size": {
+          "x": 0.15984,
+          "y": 0.35963999999999996,
+          "z": 0.35963999999999996
+        },
+        "center": {
+          "x": -0.54945,
+          "y": 0.17981999999999998,
+          "z": 0.33966
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "right-front-wheel",
+        "role": "wheel",
+        "size": {
+          "x": 0.15984,
+          "y": 0.35963999999999996,
+          "z": 0.35963999999999996
+        },
+        "center": {
+          "x": 0.54945,
+          "y": 0.17981999999999998,
+          "z": -0.33966
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "right-back-wheel",
+        "role": "wheel",
+        "size": {
+          "x": 0.15984,
+          "y": 0.35963999999999996,
+          "z": 0.35963999999999996
+        },
+        "center": {
+          "x": 0.54945,
+          "y": 0.17981999999999998,
+          "z": 0.33966
+        },
+        "color": {
+          "red": 58,
+          "green": 62,
+          "blue": 67
+        },
+        "rotation": null
+      },
+      {
+        "id": "tnt-cargo",
+        "role": "tnt-cargo",
+        "size": {
+          "x": 0.7192799999999999,
+          "y": 0.63936,
+          "z": 0.7192799999999999
+        },
+        "center": {
+          "x": 0,
+          "y": 1.02897,
+          "z": 0
+        },
+        "color": {
+          "red": 174,
+          "green": 48,
+          "blue": 39
+        },
+        "rotation": null
+      },
+      {
+        "id": "tnt-band-front",
+        "role": "tnt-band",
+        "size": {
+          "x": 0.6992999999999999,
+          "y": 0.15984,
+          "z": 0.034965
+        },
+        "center": {
+          "x": 0,
+          "y": 1.02897,
+          "z": -0.37962
+        },
+        "color": {
+          "red": 222,
+          "green": 214,
+          "blue": 190
+        },
+        "rotation": null
+      },
+      {
+        "id": "tnt-band-back",
+        "role": "tnt-band",
+        "size": {
+          "x": 0.6992999999999999,
+          "y": 0.15984,
+          "z": 0.034965
+        },
+        "center": {
+          "x": 0,
+          "y": 1.02897,
+          "z": 0.37962
+        },
+        "color": {
+          "red": 222,
+          "green": 214,
+          "blue": 190
+        },
+        "rotation": null
+      },
+      {
+        "id": "tnt-band-left",
+        "role": "tnt-band",
+        "size": {
+          "x": 0.034965,
+          "y": 0.15984,
+          "z": 0.6992999999999999
+        },
+        "center": {
+          "x": -0.37962,
+          "y": 1.02897,
+          "z": 0
+        },
+        "color": {
+          "red": 222,
+          "green": 214,
+          "blue": 190
+        },
+        "rotation": null
+      },
+      {
+        "id": "tnt-band-right",
+        "role": "tnt-band",
+        "size": {
+          "x": 0.034965,
+          "y": 0.15984,
+          "z": 0.6992999999999999
+        },
+        "center": {
+          "x": 0.37962,
+          "y": 1.02897,
+          "z": 0
+        },
+        "color": {
+          "red": 222,
+          "green": 214,
+          "blue": 190
+        },
+        "rotation": null
+      }
+    ]
+  },
+  {
+    "kind": "tnt",
+    "parts": [
+      {
+        "id": "primed-tnt-body",
+        "role": "tnt-block",
+        "size": {
+          "x": 0.7992,
+          "y": 0.7992,
+          "z": 0.7992
+        },
+        "center": {
+          "x": 0,
+          "y": 0.3996,
+          "z": 0
+        },
+        "color": {
+          "red": 174,
+          "green": 48,
+          "blue": 39
+        },
+        "rotation": null
+      },
+      {
+        "id": "primed-tnt-band-front",
+        "role": "tnt-label-band",
+        "size": {
+          "x": 0.75924,
+          "y": 0.17981999999999998,
+          "z": 0.03996
+        },
+        "center": {
+          "x": 0,
+          "y": 0.3996,
+          "z": -0.41958
+        },
+        "color": {
+          "red": 222,
+          "green": 214,
+          "blue": 190
+        },
+        "rotation": null
+      },
+      {
+        "id": "primed-tnt-band-back",
+        "role": "tnt-label-band",
+        "size": {
+          "x": 0.75924,
+          "y": 0.17981999999999998,
+          "z": 0.03996
+        },
+        "center": {
+          "x": 0,
+          "y": 0.3996,
+          "z": 0.41958
+        },
+        "color": {
+          "red": 222,
+          "green": 214,
+          "blue": 190
+        },
+        "rotation": null
+      },
+      {
+        "id": "primed-tnt-band-left",
+        "role": "tnt-label-band",
+        "size": {
+          "x": 0.03996,
+          "y": 0.17981999999999998,
+          "z": 0.75924
+        },
+        "center": {
+          "x": -0.41958,
+          "y": 0.3996,
+          "z": 0
+        },
+        "color": {
+          "red": 222,
+          "green": 214,
+          "blue": 190
+        },
+        "rotation": null
+      },
+      {
+        "id": "primed-tnt-band-right",
+        "role": "tnt-label-band",
+        "size": {
+          "x": 0.03996,
+          "y": 0.17981999999999998,
+          "z": 0.75924
+        },
+        "center": {
+          "x": 0.41958,
+          "y": 0.3996,
+          "z": 0
+        },
+        "color": {
+          "red": 222,
+          "green": 214,
+          "blue": 190
+        },
+        "rotation": null
+      },
+      {
+        "id": "tnt-fuse",
+        "role": "fuse",
+        "size": {
+          "x": 0.10989,
+          "y": 0.23976,
+          "z": 0.10989
+        },
+        "center": {
+          "x": 0.21978,
+          "y": 0.9090900000000001,
+          "z": 0.07992
+        },
+        "color": {
+          "red": 164,
+          "green": 116,
+          "blue": 68
+        },
+        "rotation": null
+      },
+      {
+        "id": "fuse-spark",
+        "role": "fuse-spark",
+        "size": {
+          "x": 0.11988,
+          "y": 0.11988,
+          "z": 0.11988
+        },
+        "center": {
+          "x": 0.21978,
+          "y": 1.0889099999999998,
+          "z": 0.07992
+        },
+        "color": {
+          "red": 231,
+          "green": 105,
+          "blue": 35
+        },
+        "rotation": null
+      }
+    ]
+  }
+]

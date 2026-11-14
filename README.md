@@ -181,6 +181,28 @@ casts ([`docs/design-notes.md`](./docs/design-notes.md) DN-15). The published
   AO / 天空光 / ブロック光を頂点カラーの R / G / B に格納するため、チャンク境界も
   隣接チャンク側の光を参照できる。未ロード・範囲外は暗さ 0 とし、光レベルは 0..15 に
   クランプする。既存の `color` または `colorForChunk` を指定すれば、この既定動作を上書きできる。
+- **エンティティの描画入力。** フレーム入力を使うホストは `WorldRenderer.syncEntityFrame(input)` に
+  位置と次元、体と頭の yaw、pitch、ブロック光と天空光、歩行位相と量、攻撃・被ダメージ・死亡の進行度を渡す。
+  `syncEntityFrame` は入力を検証し、設定された次元のエンティティだけを `syncEntities` に渡して描画を同期する。
+  現行の `mc-host-web` は `playerSessionRuntime.syncRenderedEntities` から
+  `worldRenderer.syncEntities` を呼ぶ。`sampleEntityRenderFrame` はアニメーション秒を
+  `(simulationTick + partialTick) / 20` で返し、描画アニメーションには入力の歩行位相と進行度を使う。
+  型と入力例は [`docs/public-api.md`](./docs/public-api.md) §3.6 を参照。
+- **128種のエンティティモデル。** `ENTITY_MODEL_CATALOG` は現行の `mc-kernel` の128種すべてを収録し、
+  `UNSUPPORTED_ENTITY_MODEL_KINDS` は空である。種類ごとに異なるパーツ形状・配置・配色を持ち、
+  歩行位相、攻撃・被ダメージ・死亡の入力でパーツが動く。カタログにない非アイテムの種類は
+  `WorldRenderer.entityModelDiagnostics` に型付きの理由と `entityId` を記録して描画を省き、
+  既定モデルへ置き換えない。各モデルには独自のピクセル模様を持つCC0テクスチャを割り当てる。
+  `entityMaterial` factoryでテクスチャ付きマテリアルを渡し、PNGを読み込めない場合は
+  `entityTextureAtlasPixels()` が返す生成済み画素を `DataTexture` に使える。モデルとテクスチャは
+  `scripts/entity-models/generate.ts` が決定的に生成し、`assets/entity-models/manifest.json` に
+  CC0-1.0の適用範囲と来歴を記録する。各モデルの幅と高さは元の形状を基準に決め、
+  `scripts/entity-models/model-design-dimensions.json` に記録する。詳細は
+  [`docs/public-api.md`](./docs/public-api.md) §3.7 を参照。
+- **`syncEntities` はrenderer DTOを実行時検証する。** 未知のキーや不正な数値がある入力は
+  `Schema.SchemaError` で失敗し、メッシュ同期の前に検出する。ブロック光と天空光は両方省略すると全輝度になり、
+  指定する場合は両方とも整数 0..15 を渡す。向き・アニメーション・Wither・projectileの制約と省略時の既定値は
+  [`docs/public-api.md`](./docs/public-api.md) §3.8 を参照。
 - **空・日照・地形フォグは同じ決定的 plan で同期する。**
   `planRenderEnvironment(daylight, farPlane, dimension)` は Schema で入力を検証し、
   有効なら空色、日照強度、フォグ色と距離を `Result` で返す。不正な値は
