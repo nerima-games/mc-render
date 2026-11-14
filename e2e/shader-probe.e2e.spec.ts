@@ -456,8 +456,13 @@ test('render preview state views draw and differ with encoded block states', asy
 
   const mainScreenshot = await screenshotFor('main')
   const rn6Screenshot = await screenshotFor('rn6')
+  const similarity = await page.evaluate(compareScreenshotSsim, {
+    actualBase64: rn6Screenshot.toString('base64'),
+    constants: SSIM_CONSTANTS,
+    referenceBase64: mainScreenshot.toString('base64'),
+  })
 
-  expect(rn6Screenshot.equals(mainScreenshot)).toBe(false)
+  expect(similarity).toBeLessThan(SSIM_CONSTANTS.one)
 })
 
 test('render preview stays above 0.95 SSIM against the pinned baseline', async ({ page }) => {
