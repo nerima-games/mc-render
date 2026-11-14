@@ -624,12 +624,10 @@ export const makeChunkStoreMesher = (
 
 /** `options` with default atlas tiles and chunk lighting, unless the caller supplied overrides. */
 const withDefaultColorForChunk = (store: RendererChunkStore, options: SyncOptions): SyncOptions => {
-  const tileLookup = options.tileLookup === undefined
-    ? options.tile === undefined
-      ? quadTileForLookup(blockNameFromKernel)
-      : undefined
-    : options.tileLookup
-  const withTileLookup = tileLookup === undefined ? options : { ...options, tileLookup }
+  let withTileLookup = options
+  if (options.tileLookup === undefined && options.tile === undefined) {
+    withTileLookup = { ...options, tileLookup: quadTileForLookup(blockNameFromKernel) }
+  }
   if (options.colorForChunk !== undefined || options.color !== undefined) {
     return withTileLookup
   }

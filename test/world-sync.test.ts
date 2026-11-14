@@ -703,11 +703,19 @@ describe('attachWorldRenderer', () => {
       const attachment = yield* attachWorldRenderer(
         renderer,
         store,
-        (chunk) => Effect.succeed([quad({ blockId: chunk.cx === 0 ? blockId(2) : blockId(1) })]),
+        (chunk) => {
+          if (chunk.cx === 0) {
+            return Effect.succeed([quad({ blockId: blockId(2) })])
+          }
+          return Effect.succeed([quad({ blockId: blockId(1) })])
+        },
         {
-          tileLookup: (geometryQuad) => geometryQuad.blockId === blockId(2)
-            ? Result.fail(lookupError)
-            : quadTileForLookup(blockNameFromKernel)(geometryQuad),
+          tileLookup: (geometryQuad) => {
+            if (geometryQuad.blockId === blockId(2)) {
+              return Result.fail(lookupError)
+            }
+            return quadTileForLookup(blockNameFromKernel)(geometryQuad)
+          },
         },
       )
 
