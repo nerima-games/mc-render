@@ -49,6 +49,8 @@ export type MeshQuad = {
   readonly ao: number
 }
 
+export type PlantVertex = QuadVertex
+
 /** A non-cubic block shape emitted as explicit face vertices. */
 export type BlockShapeKind = 'slab' | 'pressurePlate' | 'cactus' | 'rail' | 'lilyPad'
 

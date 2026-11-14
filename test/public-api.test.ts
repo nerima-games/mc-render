@@ -1,4 +1,5 @@
 import { describe, expect, it } from '@effect/vitest'
+import { expectTypeOf } from 'vitest'
 import * as FastCheck from 'fast-check'
 import { Effect, Result, Schema } from 'effect'
 import { DomainEventSchema, WorldPositionSchema } from '@nerima-games/mc-kernel'
@@ -89,7 +90,14 @@ import {
   type WorkerParallelismInput,
   type WorkerQueueCapacity,
   type ParticleEventContext,
+  type PlantVertex,
 } from '../src/index.js'
+
+describe('public meshing types', () => {
+  it('exports PlantVertex from the package root', () => {
+    expectTypeOf<PlantVertex>().toEqualTypeOf<readonly [number, number, number]>()
+  })
+})
 
 describe('public focus navigation and input DTO exports', () => {
   it('exports the focus DTO, host callbacks, and key-to-direction helper', () => {
