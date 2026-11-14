@@ -1971,10 +1971,6 @@ export const makeWorldRenderer = <
         })
         return { entity, parts, visual }
       },
-        })
-        return { entity, parts, visual }
-      },
-
       buildEntityCubeGeometry: (
         color: readonly [number, number, number],
         brightnessFactor: number,
