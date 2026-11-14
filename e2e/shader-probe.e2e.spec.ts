@@ -1,6 +1,6 @@
 import { type Page, expect, test } from '@playwright/test'
-import { createHash } from 'node:crypto'
 import { readFile, writeFile } from 'node:fs/promises'
+import { createHash } from 'node:crypto'
 
 const WEB_ORIGIN = process.env['WEB_ORIGIN'] ?? 'http://127.0.0.1:5182'
 const ZERO = 0
