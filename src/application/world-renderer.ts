@@ -113,7 +113,6 @@ import {
   type MobAnimationInput,
   MobAnimationInputSchema,
 } from '../domain/mob-visual.js'
-import { itemIconUvForItemId } from '../domain/item-icon-map.js'
 import type { TileUvBounds } from '../domain/texture-atlas.js'
 import {
   type ParticlePool,
@@ -1268,7 +1267,6 @@ type ReconcileContext = {
 }
 
 const NO_ENTITY_ROTATION = 0
-const ITEM_CENTER_X = 0
 const ITEM_CENTER_Z = 0
 const ITEM_ROTATION_X = 0
 const ITEM_ICON_CENTER_Y = 0.2
@@ -1698,7 +1696,7 @@ export const makeWorldRenderer = <
    */
   TUsedMaterial extends ThreeMaterial = TMaterial,
   TEntityMaterial extends ThreeMaterial = TMaterial,
-  TItemIconTexture extends ThreeTexture = ThreeMaterialTexture<TMaterial>,
+  TItemIconTexture extends ThreeMaterialTexture<TMaterial> = ThreeMaterialTexture<TMaterial>,
 >(
   three: Omit<ThreeSurface<TCanvas, TGeometry, TMaterial>, 'Mesh'> & {
     readonly Mesh: new (
@@ -2014,7 +2012,7 @@ export const makeWorldRenderer = <
         material: TMaterial,
       ): EntityPartEntry => {
         const mesh = new three.Mesh(geometry, material)
-        ops.applyEntityPartTransform(mesh, visual, part)
+        ops.applyEntityPartTransform(mesh, visual, part, entity)
         scene.add(mesh)
         return { brightnessFactor: FULL_ENTITY_BRIGHTNESS_FACTOR, color: part.color, geometry, iconUv, id: part.id, mesh }
       },
