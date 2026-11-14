@@ -9,7 +9,7 @@ import {
   type ChunkCoord,
 } from '@nerima-games/mc-kernel'
 import { LightQueueUnderflowError, type Chunk, type ReadonlyChunk } from '@nerima-games/mc-worldgen'
-import { emptyBlocks, setBlockAt, type SubscriberId } from '@nerima-games/mc-worldgen/testing'
+import { emptyBlocks, setBlockAt } from '@nerima-games/mc-worldgen/testing'
 import { Effect, Ref, Result, Schema } from 'effect'
 import {
   ChunkMeshingWorkerFailureSchema,
@@ -516,7 +516,6 @@ describe('attachChunkStoreRenderer', () => {
         peek: () => Effect.succeed(resident),
         neighbours: () => Effect.succeed({}),
         subscribeDirty: Effect.succeed({
-          id: 0 as SubscriberId,
           drain: Ref.modify(batches, ([next, ...rest]) => [next ?? { changed: [], removed: [] }, rest]),
           unsubscribe: Effect.void,
         }),
@@ -547,7 +546,6 @@ describe('attachChunkStoreRenderer', () => {
         peek: () => Effect.succeed(chunk(0, 0, [[1, 20, 1, 2]])),
         neighbours: () => Effect.succeed({}),
         subscribeDirty: Effect.succeed({
-          id: 0 as SubscriberId,
           drain: Ref.modify(batches, ([next, ...rest]) => [next ?? { changed: [], removed: [] }, rest]),
           unsubscribe: Effect.void,
         }),
@@ -575,7 +573,6 @@ describe('attachChunkStoreRenderer', () => {
         peek: () => Effect.succeed(resident),
         neighbours: () => Effect.succeed({}),
         subscribeDirty: Effect.succeed({
-          id: 0 as SubscriberId,
           drain: Ref.modify(batches, ([next, ...rest]) => [next ?? { changed: [], removed: [] }, rest]),
           unsubscribe: Effect.void,
         }),
@@ -610,7 +607,6 @@ describe('attachChunkStoreRenderer', () => {
         peek: () => Effect.succeed(chunk(0, 0, [])),
         neighbours: () => Effect.succeed({}),
         subscribeDirty: Effect.succeed({
-          id: 0 as SubscriberId,
           drain: Ref.modify(batches, ([next, ...rest]) => [next ?? { changed: [], removed: [] }, rest]),
           unsubscribe: Effect.void,
         }),
@@ -666,7 +662,6 @@ describe('attachChunkStoreRenderer', () => {
         peek: (coord) => Effect.succeed(residents.get(`${coord.cx},${coord.cz}`)),
         neighbours: () => Effect.succeed({}),
         subscribeDirty: Effect.succeed({
-          id: 0 as SubscriberId,
           drain: Ref.modify(batches, ([next, ...rest]) => [next ?? { changed: [], removed: [] }, rest]),
           unsubscribe: Effect.void,
         }),
@@ -723,7 +718,6 @@ describe('attachChunkStoreRenderer', () => {
         peek: () => Effect.succeed(resident),
         neighbours: () => Effect.succeed({}),
         subscribeDirty: Effect.succeed({
-          id: 0 as SubscriberId,
           drain: Ref.modify(batches, ([next, ...rest]) => [next ?? { changed: [], removed: [] }, rest]),
           unsubscribe: Effect.void,
         }),
@@ -782,7 +776,6 @@ describe('attachChunkStoreRenderer', () => {
         )),
         neighbours: () => Effect.succeed({}),
         subscribeDirty: Effect.succeed({
-          id: 0 as SubscriberId,
           drain: Ref.modify(batches, ([next, ...rest]) => [next ?? { changed: [], removed: [] }, rest]),
           unsubscribe: Effect.void,
         }),

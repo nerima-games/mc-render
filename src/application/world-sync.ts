@@ -84,7 +84,6 @@ export type DirtySource = {
 
 /** The lifecycle-bearing dirty API published by mc-worldgen's ChunkStore. */
 export type DirtySubscription = DirtySource & {
-  readonly id?: number
   readonly unsubscribe: Effect.Effect<void>
 }
 
