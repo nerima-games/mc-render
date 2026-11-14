@@ -113,7 +113,6 @@ import {
   type MobAnimationInput,
   MobAnimationInputSchema,
 } from '../domain/mob-visual.js'
-import type { TileUvBounds } from '../domain/texture-atlas.js'
 import {
   type ParticlePool,
   type ParticlePoolInputError,
@@ -124,8 +123,8 @@ import {
 import { type ParticleSystem, makeParticleSystem } from './particle-system.js'
 import {
   type ThreeBufferGeometry,
-  type ThreeDynamicBufferAttribute,
   type ThreeCamera,
+  type ThreeDynamicBufferAttribute,
   type ThreeEuler,
   type ThreeInstancedBufferGeometry,
   type ThreeInstancedSurface,
@@ -157,6 +156,7 @@ import {
   applyWaterFrameUniforms,
   makeTranslucentChunkMaterial,
 } from './world-renderer-materials.js'
+import type { TileUvBounds } from '../domain/texture-atlas.js'
 import { CHUNK_HEIGHT } from '@nerima-games/mc-worldgen'
 import { CHUNK_SIZE } from '@nerima-games/mc-meshing'
 import { type EntityModelResolutionIssue } from '../domain/entity-model-catalog.js'
@@ -1276,6 +1276,7 @@ const ITEM_ICON_QUAD_VERTEX_1 = 1
 const ITEM_ICON_QUAD_VERTEX_2 = 2
 const ITEM_ICON_QUAD_VERTEX_3 = 3
 const ITEM_ICON_MATERIAL_SIDE: ThreeMaterialSide = THREE_DOUBLE_SIDE
+const FULL_ENTITY_BRIGHTNESS_FACTOR = 1
 const INITIAL_ENTITY_ANIMATION_TIME_SECONDS = 0
 const HALF_TURN_DIVISOR = 2
 const DROPPED_ITEM_SPIN_RADIANS_PER_SECOND = Math.PI / HALF_TURN_DIVISOR
@@ -1319,7 +1320,10 @@ const entityPartPitchAndYaw = (
 }
 
 const hasMatchingIconUv = (previous: EntityPartEntry | undefined, plan: EntityVisualPartPlan): boolean => {
-  const planIconUv = 'iconUv' in plan ? plan.iconUv : undefined
+  let planIconUv: TileUvBounds | undefined
+  if ('iconUv' in plan) {
+    planIconUv = plan.iconUv
+  }
   if (previous?.iconUv === undefined) {
     return planIconUv === undefined
   }
@@ -1339,9 +1343,12 @@ const matchingEntityParts = (
   const pairs: Array<readonly [EntityPartEntry, EntityVisualPartPlan]> = []
   for (const [index, plan] of plans.entries()) {
     const previous = entry.parts[index]
-    if (previous === undefined || plan.id !== previous.id || previous.brightnessFactor !== (
-      'iconUv' in plan ? FULL_ENTITY_BRIGHTNESS_FACTOR : brightnessFactor
-    ) || !hasMatchingIconUv(previous, plan) ||
+    let planBrightnessFactor = brightnessFactor
+    if ('iconUv' in plan) {
+      planBrightnessFactor = FULL_ENTITY_BRIGHTNESS_FACTOR
+    }
+    if (previous === undefined || plan.id !== previous.id || previous.brightnessFactor !== planBrightnessFactor ||
+      !hasMatchingIconUv(previous, plan) ||
       plan.color.some((component, colorIndex) => component !== previous.color[colorIndex])) { return undefined }
     pairs.push([previous, plan])
   }
@@ -1395,7 +1402,6 @@ const BLUE_COLOR_COMPONENT_INDEX = 2
 const MAX_ENTITY_LIGHT_LEVEL = 15
 const BASE_ENTITY_LIGHT_FACTOR = 0.45
 const SKY_ENTITY_LIGHT_FACTOR = 0.55
-const FULL_ENTITY_BRIGHTNESS_FACTOR = 1
 const ENTITY_LIGHT_GEOMETRY_SEPARATOR = '|'
 const ENTITY_MODEL_GEOMETRY_SEPARATOR = ':'
 const NO_ENTITY_WALK_AMOUNT = 0

@@ -497,6 +497,20 @@ const makeAtlasTexture = (atlas: RgbaAtlas): THREE.DataTexture => {
   return texture
 }
 
+const resolveRgbaAtlas = (atlas: RgbaAtlas): Effect.Effect<AtlasResource, BrowserRuntimeError> => {
+  const validation = validateRgbaAtlas(atlas)
+  if (Result.isFailure(validation)) {
+    return Effect.fail(validation.failure)
+  }
+  return Effect.try({
+    catch: (cause) => browserRuntimeError('initialization', 'operation-failed', cause),
+    try: () => ({
+      owned: true,
+      texture: makeAtlasTexture(atlas),
+    }),
+  })
+}
+
 const resolveAtlas = (
   source: BrowserWorldRuntimeOptions['atlas'] | null,
 ): Effect.Effect<AtlasResource, BrowserRuntimeError> => {
@@ -518,17 +532,7 @@ const resolveAtlas = (
       }),
     )
   }
-  const validation = validateRgbaAtlas(resolvedSource)
-  if (Result.isFailure(validation)) {
-    return Effect.fail(validation.failure)
-  }
-  return Effect.try({
-    catch: (cause) => browserRuntimeError('initialization', 'operation-failed', cause),
-    try: () => ({
-      owned: true,
-      texture: makeAtlasTexture(resolvedSource),
-    }),
-  })
+  return resolveRgbaAtlas(resolvedSource)
 }
 
 const resolveItemIconAtlas = (

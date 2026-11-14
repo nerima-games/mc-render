@@ -81,7 +81,10 @@ const rootMeanSquareCompositedChannelDistance = (left: Uint8Array, right: Uint8A
       const leftAlpha = left[pixelOffset + 3] ?? 0
       const rightAlpha = right[pixelOffset + 3] ?? 0
       for (let channel = 0; channel < 3; channel += 1) {
-        const background = (backgroundIndex & (1 << channel)) === 0 ? 0 : 255
+        let background = 0
+        if ((backgroundIndex & (1 << channel)) !== 0) {
+          background = 255
+        }
         const leftComposite = (
           (left[pixelOffset + channel] ?? 0) * leftAlpha + background * (255 - leftAlpha)
         ) / 255

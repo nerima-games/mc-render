@@ -21,10 +21,7 @@ import {
   type MobVisualPartPlan,
   planMobVisual,
 } from '../domain/mob-visual.js'
-import type { ItemType } from '@nerima-games/mc-kernel'
 import { Result, Schema } from 'effect'
-import type { TileUvBounds } from '../domain/texture-atlas.js'
-import { itemIconUvForItemId } from '../domain/item-icon-map.js'
 import {
   type WitherSkullVisualInput,
   type WitherVisualPartDescriptor,
@@ -33,6 +30,9 @@ import {
   planWitherSkullVisual,
   planWitherVisual,
 } from '../domain/wither-visual.js'
+import type { ItemType } from '@nerima-games/mc-kernel'
+import type { TileUvBounds } from '../domain/texture-atlas.js'
+import { itemIconUvForItemId } from '../domain/item-icon-map.js'
 
 /** Coarse render policy without importing simulation entity classes. */
 export type EntityRenderCategory = 'hostile' | 'passive' | 'item'
@@ -399,11 +399,20 @@ const facingDirection = (facingRadians: number): WitherVisualPosition => ({
   z: -Math.cos(facingRadians),
 })
 
-const planItemVisual = (entity: RenderEntity, facingRadians: number, itemIconsAvailable: boolean): UntexturedEntityVisualPlan => ({
-  facingRadians,
-  parts: itemIconsAvailable ? itemIconParts(entity) ?? ITEM_VISUAL_PARTS : ITEM_VISUAL_PARTS,
-  position: entity.feetPosition,
-})
+const planItemVisual = (
+  entity: RenderEntity,
+  facingRadians: number,
+  itemIconsAvailable: boolean,
+): UntexturedEntityVisualPlan => {
+  let parts = ITEM_VISUAL_PARTS
+  if (itemIconsAvailable) {
+    const iconParts = itemIconParts(entity)
+    if (iconParts !== undefined) {
+      parts = iconParts
+    }
+  }
+  return { facingRadians, parts, position: entity.feetPosition }
+}
 
 const planProjectileItemVisual = (
   entity: RenderEntity,
