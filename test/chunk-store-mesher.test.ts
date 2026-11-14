@@ -924,7 +924,7 @@ describe('attachChunkStoreRenderer', () => {
     }),
   )
 
-  it.effect('leaves an explicit color option untouched, and never samples light for it', () =>
+  it.effect('keeps explicit color and tile options and never samples light for color', () =>
     Effect.gen(function* () {
       const three = makeFakeThree()
       const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT)
@@ -948,11 +948,21 @@ describe('attachChunkStoreRenderer', () => {
 
       const attachment = yield* attachChunkStoreRenderer(renderer, store, {
         color: () => [1, 1, 1],
+        tile: () => 17,
       })
       yield* attachment.update
 
       expect(yield* renderer.chunkKeys).toStrictEqual(['0,0'])
       expect(yield* Ref.get(getLightCalls)).toBe(0)
+      const renderedTiles = three.geometries().flatMap((geometry) => {
+        const tileAttribute = geometry.attributes.get('tileIndex')
+        if (tileAttribute === undefined) {
+          return []
+        }
+        return Array.from(tileAttribute.array)
+      })
+      expect(renderedTiles.length).toBeGreaterThan(0)
+      expect([...new Set(renderedTiles)]).toStrictEqual([17])
     }),
   )
 

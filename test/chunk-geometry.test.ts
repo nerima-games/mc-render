@@ -484,6 +484,20 @@ describe('buffer shape and conservation', () => {
     }),
   )
 
+  it('skips sparse slots when using a typed tile resolver', () => {
+    const quads = new Array<MeshQuad>(2)
+    quads[1] = quad()
+    const built = buildChunkGeometry(quads, 0, 0, undefined, {
+      resolve: () => Result.succeed(7),
+    })
+
+    expect(Result.isSuccess(built)).toBe(true)
+    if (Result.isSuccess(built)) {
+      expect(built.success.quadCount).toBe(2)
+      expect(Array.from(built.success.tileIndices)).toStrictEqual([0, 0, 0, 0, 7, 7, 7, 7])
+    }
+  })
+
   it.effect('totalQuadArea counts covered block faces, not quads', () =>
     Effect.sync(() => {
       // mc-meshing's own invariant: merging REDUCES the quad count and must not
