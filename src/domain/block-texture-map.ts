@@ -16,6 +16,7 @@ import { BLOCK_TYPES, type BlockId, type BlockType } from '@nerima-games/mc-kern
 import { PlantTextureStageSchema } from '@nerima-games/mc-meshing'
 import { Array as EffectArray, Result, Schema } from 'effect'
 import { type FaceRole, type GeometryQuad } from './meshing-vocabulary.js'
+import { tileIndexForVariantStage } from './block-texture-variant.js'
 import blockTextureManifest from '../assets/block-textures/manifest.json' with { type: 'json' }
 
 const MANIFEST_SCHEMA_VERSION = 1
@@ -30,6 +31,7 @@ const FIRST_VARIANT_ADDITIONAL_STAGE_INDEX = 1
 const TILE_INDEX_INCREMENT = 1
 const REQUIRED_ANIMATION_GROUPS = ['fire', 'lava', 'portal', 'water'] as const
 const MISSING_TEXTURE_STAGE = Symbol('missing-texture-stage')
+const BLOCKS_WITH_TEXTURE_STAGE = new Set(['sapling', 'wheat_crop', 'potato_crop', 'nether_wart_crop'])
 
 export type TileAssignment = Readonly<Record<FaceRole, AtlasTileIndex>>
 type CompleteBlockFaceMap = Readonly<{ readonly [Block in BlockType]: TileAssignment }>
@@ -643,7 +645,7 @@ export const tileIndexForBlockName = (
     return Result.succeed(TILE_BY_BLOCK_NAME[blockName][role])
   }
   if (textureStage[0] === MISSING_TEXTURE_STAGE) {
-    if (Object.hasOwn(BLOCK_TEXTURE_VARIANTS, blockName)) {
+    if (BLOCKS_WITH_TEXTURE_STAGE.has(blockName)) {
       return Result.fail(lookupFailure(blockName, role, 'missing-texture-stage'))
     }
     return Result.succeed(TILE_BY_BLOCK_NAME[blockName][role])
@@ -659,15 +661,12 @@ export const tileIndexForBlockName = (
   if (variants === undefined) {
     return Result.succeed(TILE_BY_BLOCK_NAME[blockName][role])
   }
-  const variantTile = variants[decodedTextureStage.success.stage]
-  if (variantTile === undefined) {
-    return Result.fail(lookupFailure(blockName, role, 'missing-texture-variant'))
-  }
-  const decodedVariantTile = Schema.decodeUnknownResult(AtlasTileIndexSchema)(variantTile)
-  if (Result.isFailure(decodedVariantTile)) {
-    return Result.fail(lookupFailure(blockName, role, 'invalid-tile-index'))
-  }
-  return Result.succeed(decodedVariantTile.success)
+  return tileIndexForVariantStage(
+    variants,
+    decodedTextureStage.success.stage,
+    blockName,
+    role,
+  )
 }
 
 export const tileIndexResolver = (blockNameOf: BlockNameLookup): TileIndexLookup =>

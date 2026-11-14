@@ -14,7 +14,7 @@ import {
 } from '@nerima-games/mc-kernel'
 import { blockIndex, type FluidQuad, type SpecialBlockQuad } from '@nerima-games/mc-meshing'
 import { LightQueueUnderflowError, type Chunk, type ReadonlyChunk } from '@nerima-games/mc-worldgen'
-import { emptyBlocks, setBlockAt, type SubscriberId } from '@nerima-games/mc-worldgen/testing'
+import { emptyBlocks, setBlockAt } from '@nerima-games/mc-worldgen/testing'
 import { Effect, Option, Ref, Result, Schema } from 'effect'
 import {
   ChunkMeshingWorkerFailureSchema,
@@ -607,7 +607,6 @@ describe('makeChunkStoreMesher', () => {
         peek: () => Effect.succeed(closedChunk),
         neighbours: () => Effect.succeed({}),
         subscribeDirty: Effect.succeed({
-          id: 0 as SubscriberId,
           drain: Ref.modify(batches, ([next, ...rest]) => [next ?? { changed: [], removed: [] }, rest]),
           unsubscribe: Effect.void,
         }),
