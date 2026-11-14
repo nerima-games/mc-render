@@ -50,11 +50,11 @@ import {
 import { CHUNK_SIZE, meshChunk } from '@nerima-games/mc-meshing'
 import { type ChunkGeometryUpdate, type ChunkKey, type WorldRenderer } from './world-renderer.js'
 import { Effect, Ref, Result, Schema, Semaphore } from 'effect'
+import { type LightQueueUnderflowError, chunkKeyOf as worldgenChunkKeyOf } from '@nerima-games/mc-worldgen'
 import type { ChunkMeshingWorkerFailure } from './chunk-meshing-worker.js'
 import type { LodInputError } from '../domain/level-of-detail.js'
 import type { WorkerCount } from '../domain/worker-parallelism.js'
 import type { WorkerPoolFailure } from './worker-pool.js'
-import { type LightQueueUnderflowError, chunkKeyOf as worldgenChunkKeyOf } from '@nerima-games/mc-worldgen'
 
 /**
  * Which chunk, in chunk coordinates.

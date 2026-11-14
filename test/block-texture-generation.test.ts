@@ -234,7 +234,7 @@ describe('block texture generation', () => {
     const result = artifacts()
     const blockNames = Object.keys(result.manifestData.blockFaces)
     expect(blockNames).toStrictEqual([...BLOCK_TYPES])
-    expect(Object.keys(result.manifestData.blockFaces)).toHaveLength(123)
+    expect(Object.keys(result.manifestData.blockFaces)).toHaveLength(BLOCK_TYPES.length)
     expect(result.manifestData.blockFaces['air']).toStrictEqual({ top: 0, side: 0, bottom: 0 })
     expect(result.manifestData.tileCount).toBeLessThanOrEqual(ATLAS_LAYOUT.capacity)
 

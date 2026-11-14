@@ -18,9 +18,9 @@ import { BLOCK_TEXTURE_ALPHA_MODES, type BlockNameLookup, quadTileForLookup } fr
 import {
   CHUNK_HEIGHT,
   type ChunkStoreApi,
+  type LightQueueUnderflowError,
   type ReadonlyChunk,
   type ChunkNeighbours as WorldgenChunkNeighbours,
-  type LightQueueUnderflowError,
 } from '@nerima-games/mc-worldgen'
 import {
   CHUNK_SIZE,
@@ -36,9 +36,9 @@ import {
   type ChunkMesh,
   type ChunkMesher,
   type ChunkMesherError,
+  type DirtySubscriptionStore,
   type SyncOptions,
   type WorldRendererAttachment,
-  type DirtySubscriptionStore,
   attachWorldRenderer,
 } from './world-sync.js'
 import {
@@ -274,10 +274,10 @@ export const makeChunkStoreLightColor = (
  * pin-alignment work in mc-worldgen, not something to invent here.
  */
 const toChunkView = (chunk: ReadonlyChunk): ChunkView => ({
-  coord: chunk.coord,
   // RN6 owns passing the block-state sidecar into model meshing.
   // Worldgen exposes live read-only buffers, so meshing receives detached storage.
   blocks: new Uint16Array(chunk.blocks),
+  coord: chunk.coord,
   height: CHUNK_HEIGHT,
 })
 
