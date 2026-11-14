@@ -755,17 +755,12 @@ describe('attachWorldRenderer', () => {
           unsubscribe: Effect.void,
         }),
       }
-      const lookupError = {
-        _tag: 'BlockTextureLookupError',
-        blockName: 'unknown',
-        reason: 'unknown-block',
-        role: 'top',
-      } as const
+      const malformedMesh = [quad()]
+      Object.defineProperty(malformedMesh, 'renderLayers', { enumerable: true, value: null })
       const attachment = yield* attachWorldRenderer(
         renderer,
         store,
-        () => Effect.succeed([quad({ blockId: blockId(2) })]),
-        { tileLookup: () => Result.fail(lookupError) },
+        () => Effect.succeed(malformedMesh),
       )
 
       const firstUpdate = yield* attachment.update
@@ -778,7 +773,7 @@ describe('attachWorldRenderer', () => {
       expect(faults).toStrictEqual([{
         _tag: 'ChunkRenderFault',
         chunk: failedChunk,
-        error: lookupError,
+        error: { _tag: 'ChunkMeshGeometryInputFailure', field: 'renderLayers' },
         occurrences: 2,
       }])
     }),

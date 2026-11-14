@@ -20,7 +20,7 @@
  *   the level, because either half alone is satisfied by a constant.
  */
 import { describe, expect, it } from '@effect/vitest'
-import { Effect } from 'effect'
+import { Effect, Result } from 'effect'
 import { blockId } from './support/kernel-brands'
 import {
   AO_MAX,
@@ -563,4 +563,17 @@ describe('cross-plant geometry', () => {
       expect(built.indexCount).toBe(12)
     }),
   )
+
+  it('returns a tile resolver failure for cross-plant geometry', () => {
+    const failure = { _tag: 'TileResolutionFailure' } as const
+    const built = buildCrossPlantGeometry(
+      [crossPlantQuad()],
+      0,
+      0,
+      undefined,
+      { resolve: () => Result.fail(failure) },
+    )
+
+    expect(built).toStrictEqual(Result.fail(failure))
+  })
 })

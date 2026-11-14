@@ -760,13 +760,9 @@ export const attachWorldRenderer = (
         if (!active) {
           return EMPTY_SYNC_REPORT
         }
-        const result = yield* Effect.result(syncWorldWithFaults(renderer, subscription, mesher, options))
-        if (Result.isFailure(result)) {
-          yield* faultQueue.record([{ chunk: undefined, error: result.failure }])
-          return EMPTY_SYNC_REPORT
-        }
-        yield* faultQueue.record(result.success.faults)
-        return result.success.report
+        const result = yield* syncWorldWithFaults(renderer, subscription, mesher, options)
+        yield* faultQueue.record(result.faults)
+        return result.report
       })
 
     const unsubscribeIfWasAttached = (wasAttached: boolean): Effect.Effect<void> => {

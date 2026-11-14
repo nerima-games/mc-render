@@ -851,7 +851,7 @@ export function buildChunkGeometry<Failure>(
   quads: ReadonlyArray<MeshQuad>,
   originX: number = DEFAULT_CHUNK_ORIGIN,
   originZ: number = DEFAULT_CHUNK_ORIGIN,
-  color: QuadColor | undefined = AO_ONLY_COLOR,
+  color: QuadColor | undefined = undefined,
   tile: QuadTile | QuadTileResolver<Failure> = UNTEXTURED_TILE,
 ): ChunkGeometryBuffers | Result.Result<ChunkGeometryBuffers, Failure> {
   if (typeof tile !== 'function') {
@@ -1067,7 +1067,7 @@ export function buildBlockShapeGeometry<Failure>(
   quads: ReadonlyArray<BlockShapeQuad | SpecialBlockQuad>,
   originX: number = DEFAULT_CHUNK_ORIGIN,
   originZ: number = DEFAULT_CHUNK_ORIGIN,
-  color: QuadColor | undefined = AO_ONLY_COLOR,
+  color: QuadColor | undefined = undefined,
   tile: QuadTile | QuadTileResolver<Failure> = UNTEXTURED_TILE,
 ): ChunkGeometryBuffers | Result.Result<ChunkGeometryBuffers, Failure> {
   if (typeof tile !== 'function') {
@@ -1153,7 +1153,7 @@ export function buildCrossPlantGeometry<Failure>(
   quads: ReadonlyArray<CrossPlantQuad>,
   originX: number = DEFAULT_CHUNK_ORIGIN,
   originZ: number = DEFAULT_CHUNK_ORIGIN,
-  color: QuadColor | undefined = AO_ONLY_COLOR,
+  color: QuadColor | undefined = undefined,
   tile: QuadTile | QuadTileResolver<Failure> = UNTEXTURED_TILE,
 ): ChunkGeometryBuffers | Result.Result<ChunkGeometryBuffers, Failure> {
   if (typeof tile !== 'function') {
@@ -1458,7 +1458,7 @@ export function buildFluidGeometry<Failure>(
   quads: ReadonlyArray<FluidQuad>,
   originX: number = DEFAULT_CHUNK_ORIGIN,
   originZ: number = DEFAULT_CHUNK_ORIGIN,
-  color: QuadColor | undefined = AO_ONLY_COLOR,
+  color: QuadColor | undefined = undefined,
   tile: QuadTile | QuadTileResolver<Failure> = UNTEXTURED_TILE,
 ): ChunkGeometryBuffers | Result.Result<ChunkGeometryBuffers, Failure> {
   if (typeof tile !== 'function') {
