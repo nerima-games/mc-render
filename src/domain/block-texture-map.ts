@@ -662,7 +662,7 @@ const tileIndexForProvidedStage = (
   }
   return tileIndexForVariantStage(
     variants,
-    decodedTextureStage.success.stage,
+    decodedTextureStage.success,
     { blockName, role },
   )
 }
