@@ -122,6 +122,7 @@ import {
 } from '../domain/particle-pool.js'
 import { type ParticleSystem, makeParticleSystem } from './particle-system.js'
 import {
+  THREE_DOUBLE_SIDE,
   type ThreeBufferGeometry,
   type ThreeCamera,
   type ThreeDynamicBufferAttribute,
@@ -141,7 +142,6 @@ import {
   type ThreeUniform,
   type ThreeVector3,
   type ThreeWebGLRenderer,
-  THREE_DOUBLE_SIDE,
 } from './three-surface.js'
 import { WATER_MATERIAL_SPEC, WATER_WRITES_DEPTH } from '../domain/water-surface.js'
 import { type WeatherFrameOptions, decodeWeatherFrameOptions } from '../domain/weather-rendering.js'
