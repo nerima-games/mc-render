@@ -1,6 +1,6 @@
 import type { AtlasTileIndex } from './texture-atlas.js'
-import type { PlantTextureStage } from '@nerima-games/mc-meshing'
 import type { BlockTextureLookupError } from './block-texture-map.js'
+import type { PlantTextureStage } from '@nerima-games/mc-meshing'
 import { Result } from 'effect'
 
 type VariantLookupContext = Pick<BlockTextureLookupError, 'blockName' | 'role'>
