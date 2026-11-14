@@ -59,7 +59,6 @@ const iconPixels = (rgba: Uint8Array, tileIndex: number): ReadonlyArray<Readonly
 }
 
 const MAX_NEAR_DUPLICATE_RMS_CHANNEL_DISTANCE = 6
-const ITEM_ICON_COMPARISON_BACKGROUND_COUNT = 2 ** 3
 
 const iconRaster = (rgba: Uint8Array, tileIndex: number): Uint8Array => {
   const left = (tileIndex % ATLAS_COLUMNS) * TILE_CELL_PIXELS + TILE_GUTTER_PIXELS
@@ -75,27 +74,20 @@ const iconRaster = (rgba: Uint8Array, tileIndex: number): Uint8Array => {
 const rootMeanSquareCompositedChannelDistance = (left: Uint8Array, right: Uint8Array): number => {
   let maximumDistanceSquared = 0
   const pixelCount = left.length / CHANNELS
-  for (let backgroundIndex = 0; backgroundIndex < ITEM_ICON_COMPARISON_BACKGROUND_COUNT; backgroundIndex += 1) {
-    let distanceSquared = 0
+  for (let channel = 0; channel < 3; channel += 1) {
+    let blackDistanceSquared = 0
+    let whiteDistanceSquared = 0
     for (let pixelOffset = 0; pixelOffset < left.length; pixelOffset += CHANNELS) {
       const leftAlpha = left[pixelOffset + 3] ?? 0
       const rightAlpha = right[pixelOffset + 3] ?? 0
-      for (let channel = 0; channel < 3; channel += 1) {
-        let background = 0
-        if ((backgroundIndex & (1 << channel)) !== 0) {
-          background = 255
-        }
-        const leftComposite = (
-          (left[pixelOffset + channel] ?? 0) * leftAlpha + background * (255 - leftAlpha)
-        ) / 255
-        const rightComposite = (
-          (right[pixelOffset + channel] ?? 0) * rightAlpha + background * (255 - rightAlpha)
-        ) / 255
-        const channelDifference = leftComposite - rightComposite
-        distanceSquared += channelDifference * channelDifference
-      }
+      const leftValue = left[pixelOffset + channel] ?? 0
+      const rightValue = right[pixelOffset + channel] ?? 0
+      const blackDifference = (leftValue * leftAlpha - rightValue * rightAlpha) / 255
+      const whiteDifference = blackDifference + rightAlpha - leftAlpha
+      blackDistanceSquared += blackDifference * blackDifference
+      whiteDistanceSquared += whiteDifference * whiteDifference
     }
-    maximumDistanceSquared = Math.max(maximumDistanceSquared, distanceSquared)
+    maximumDistanceSquared += Math.max(blackDistanceSquared, whiteDistanceSquared)
   }
   return Math.sqrt(maximumDistanceSquared / (pixelCount * 3))
 }
