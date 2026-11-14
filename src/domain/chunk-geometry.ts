@@ -13,8 +13,11 @@ import {
   type QuadCorners,
   type QuadVertex,
   VERTICES_PER_QUAD,
+  isSpecialBlockQuad,
   tangentAxes,
 } from './meshing-vocabulary.js'
+import { Result } from 'effect'
+import type { SpecialBlockQuad } from '@nerima-games/mc-meshing'
 import { chunkAnimationKindForBlockId } from './chunk-animation-kind.js'
 
 export { INDICES_PER_QUAD, VERTICES_PER_QUAD, tangentAxes }
@@ -30,6 +33,9 @@ export type {
   QuadCorners,
   QuadVertex,
 }
+export type { SpecialBlockQuad } from '@nerima-games/mc-meshing'
+
+const SPECIAL_BLOCK_AO = 0
 
 /** Components per vertex, per attribute. */
 export const POSITION_COMPONENTS = 3
@@ -424,10 +430,22 @@ export const greyQuadColor =
  * unmodified — which is what makes them evidence about the light change rather
  * than a casualty of it.
  */
-export const AO_ONLY_SHADE: QuadShade = (quad) => aoShade(quad.ao)
+export const AO_ONLY_SHADE: QuadShade = (quad) => {
+  if (isSpecialBlockQuad(quad)) {
+    return aoShade(SPECIAL_BLOCK_AO)
+  }
+  return aoShade(quad.ao)
+}
 
 /** `AO_ONLY_SHADE` as a `QuadColor`. The builder's default. */
 export const AO_ONLY_COLOR: QuadColor = greyQuadColor(AO_ONLY_SHADE)
+
+const colorWithDefault = (color: QuadColor | undefined): QuadColor => {
+  if (color === undefined) {
+    return AO_ONLY_COLOR
+  }
+  return color
+}
 
 /**
  * Which atlas tile a quad draws.
@@ -448,6 +466,10 @@ export const AO_ONLY_COLOR: QuadColor = greyQuadColor(AO_ONLY_SHADE)
  * close a cycle.
  */
 export type QuadTile = (quad: GeometryQuad) => number
+
+type QuadTileResolver<Failure> = {
+  readonly resolve: (quad: GeometryQuad) => Result.Result<number, Failure>
+}
 
 /** The tile index every quad draws when no atlas is bound. See `UNTEXTURED_TILE`. */
 const UNTEXTURED_TILE_INDEX = 0
@@ -680,6 +702,55 @@ const processQuad = (context: ChunkBuildContext, quad: MeshQuad, quadIndex: numb
   writeQuadIndices(context.buffers.indices, quadIndex * INDICES_PER_QUAD, base)
 }
 
+const processQuadWithResolver = <Failure>(
+  context: Omit<ChunkBuildContext, 'tile'>,
+  quad: MeshQuad,
+  quadIndex: number,
+  tile: QuadTileResolver<Failure>,
+): Result.Result<void, Failure> =>
+  Result.map(tile.resolve(quad), (tileIndex) => {
+    const corners = quadCorners(quad, context.originX, context.originZ)
+    const normal = faceNormal(quad.direction)
+    const color = context.color(quad)
+    const [uExtent, vExtent] = quadUvExtent(quad)
+    const animationKind = chunkAnimationKindForBlockId(quad.blockId, quad.role)
+    const base = quadIndex * VERTICES_PER_QUAD
+    writeQuadCorners(context.buffers, base, { animationKind, color, corners, normal, tileIndex })
+    writeQuadUVs(context.buffers.uvs, base * UV_COMPONENTS, [uExtent, vExtent])
+    writeQuadIndices(context.buffers.indices, quadIndex * INDICES_PER_QUAD, base)
+  })
+
+const processResolvedQuads = <Quad, Failure>(
+  quads: ReadonlyArray<Quad>,
+  process: (quad: Quad, quadIndex: number) => Result.Result<void, Failure>,
+): Result.Result<void, Failure> => {
+  let quadIndex = 0
+  for (const quad of quads) {
+    const processed = process(quad, quadIndex)
+    if (Result.isFailure(processed)) {
+      return processed
+    }
+    quadIndex += LOOP_STEP
+  }
+  return Result.succeed(undefined)
+}
+
+const processIndexedResolvedQuads = <Quad, Failure>(
+  quads: ReadonlyArray<Quad>,
+  process: (quad: Quad, quadIndex: number) => Result.Result<void, Failure>,
+): Result.Result<void, Failure> => {
+  for (let quadIndex = 0; quadIndex < quads.length; quadIndex += LOOP_STEP) {
+    const quad = quads[quadIndex]
+    if (quad !== undefined) {
+      const processed = process(quad, quadIndex)
+      if (Result.isFailure(processed)) {
+        return processed
+      }
+    }
+  }
+  return Result.succeed(undefined)
+}
+
 /**
  * Build the vertex buffers for one chunk's worth of quads.
  *
@@ -708,12 +779,37 @@ const processQuad = (context: ChunkBuildContext, quad: MeshQuad, quadIndex: numb
  * getting one geometry back is what lets the opaque and water passes be two
  * calls rather than a flag.
  */
-export const buildChunkGeometry = (
+const buildChunkGeometryWithResolver = <Failure>(
   quads: ReadonlyArray<MeshQuad>,
-  originX: number = DEFAULT_CHUNK_ORIGIN,
-  originZ: number = DEFAULT_CHUNK_ORIGIN,
-  color: QuadColor = AO_ONLY_COLOR,
-  tile: QuadTile = UNTEXTURED_TILE,
+  originX: number,
+  originZ: number,
+  color: QuadColor | undefined,
+  tile: QuadTileResolver<Failure>,
+): Result.Result<ChunkGeometryBuffers, Failure> => {
+  const quadCount = quads.length
+  if (quadCount === EMPTY_QUAD_COUNT) {
+    return Result.succeed(EMPTY_BUFFERS)
+  }
+
+  const buffers = allocateChunkWriteBuffers(quadCount * VERTICES_PER_QUAD, quadCount * INDICES_PER_QUAD)
+  const context = { buffers, color: colorWithDefault(color), originX, originZ }
+  const processed = processIndexedResolvedQuads(quads, (quad, quadIndex) =>
+    processQuadWithResolver(context, quad, quadIndex, tile),
+  )
+  return Result.map(processed, () => ({
+    ...buffers,
+    indexCount: quadCount * INDICES_PER_QUAD,
+    quadCount,
+    vertexCount: quadCount * VERTICES_PER_QUAD,
+  }))
+}
+
+const buildChunkGeometryWithTile = (
+  quads: ReadonlyArray<MeshQuad>,
+  originX: number,
+  originZ: number,
+  color: QuadColor | undefined,
+  tile: QuadTile,
 ): ChunkGeometryBuffers => {
   const quadCount = quads.length
   if (quadCount === EMPTY_QUAD_COUNT) {
@@ -721,10 +817,10 @@ export const buildChunkGeometry = (
   }
 
   const buffers = allocateChunkWriteBuffers(quadCount * VERTICES_PER_QUAD, quadCount * INDICES_PER_QUAD)
-  const context: ChunkBuildContext = { buffers, color, originX, originZ, tile }
+  const context: ChunkBuildContext = { buffers, color: colorWithDefault(color), originX, originZ, tile }
   for (let quadIndex = 0; quadIndex < quadCount; quadIndex += LOOP_STEP) {
     const quad = quads[quadIndex]
-    if (quad) {
+    if (quad !== undefined) {
       processQuad(context, quad, quadIndex)
     }
   }
@@ -735,6 +831,33 @@ export const buildChunkGeometry = (
     quadCount,
     vertexCount: quadCount * VERTICES_PER_QUAD,
   }
+}
+
+export function buildChunkGeometry<Failure>(
+  quads: ReadonlyArray<MeshQuad>,
+  originX: number,
+  originZ: number,
+  color: QuadColor | undefined,
+  tile: QuadTileResolver<Failure>,
+): Result.Result<ChunkGeometryBuffers, Failure>
+export function buildChunkGeometry(
+  quads: ReadonlyArray<MeshQuad>,
+  originX?: number,
+  originZ?: number,
+  color?: QuadColor,
+  tile?: QuadTile,
+): ChunkGeometryBuffers
+export function buildChunkGeometry<Failure>(
+  quads: ReadonlyArray<MeshQuad>,
+  originX: number = DEFAULT_CHUNK_ORIGIN,
+  originZ: number = DEFAULT_CHUNK_ORIGIN,
+  color: QuadColor | undefined = undefined,
+  tile: QuadTile | QuadTileResolver<Failure> = UNTEXTURED_TILE,
+): ChunkGeometryBuffers | Result.Result<ChunkGeometryBuffers, Failure> {
+  if (typeof tile !== 'function') {
+    return buildChunkGeometryWithResolver(quads, originX, originZ, color, tile)
+  }
+  return buildChunkGeometryWithTile(quads, originX, originZ, color, tile)
 }
 
 const translateQuadVertex = (vertex: QuadVertex, originX: number, originZ: number): QuadVertex => {
@@ -750,6 +873,49 @@ const translateQuadCorners = (vertices: QuadCorners, originX: number, originZ: n
     translateQuadVertex(third, originX, originZ),
     translateQuadVertex(fourth, originX, originZ),
   ]
+}
+
+const componentForAxis = (vertex: QuadVertex, axis: QuadAxis): number => {
+  const [x, y, z] = vertex
+  switch (axis) {
+    case 'x':
+      return x
+    case 'y':
+      return y
+    default:
+      return z
+  }
+}
+
+const specialQuadExtentForAxis = (quad: SpecialBlockQuad, axis: QuadAxis): number => {
+  let minimum = Number.POSITIVE_INFINITY
+  let maximum = Number.NEGATIVE_INFINITY
+  for (const vertex of quad.vertices) {
+    const component = componentForAxis(vertex, axis)
+    minimum = Math.min(minimum, component)
+    maximum = Math.max(maximum, component)
+  }
+  return maximum - minimum
+}
+
+const specialQuadUvExtent = (quad: SpecialBlockQuad): readonly [number, number] => {
+  const [widthAxis, heightAxis] = tangentAxes(quad.direction)
+  const width = specialQuadExtentForAxis(quad, widthAxis)
+  const height = specialQuadExtentForAxis(quad, heightAxis)
+  switch (quad.direction) {
+    case 'xPos':
+    case 'xNeg':
+      return [height, width]
+    default:
+      return [width, height]
+  }
+}
+
+const geometryQuadUvExtent = (quad: BlockShapeQuad | SpecialBlockQuad): readonly [number, number] => {
+  if (isSpecialBlockQuad(quad)) {
+    return specialQuadUvExtent(quad)
+  }
+  return quadUvExtent(quad)
 }
 
 const processCrossPlantQuad = (context: ChunkBuildContext, quad: CrossPlantQuad, quadIndex: number): void => {
@@ -769,7 +935,34 @@ const processCrossPlantQuad = (context: ChunkBuildContext, quad: CrossPlantQuad,
   writeReverseQuadIndices(context.buffers.indices, indexOffset + INDICES_PER_QUAD, base)
 }
 
-const processBlockShapeQuad = (context: ChunkBuildContext, quad: BlockShapeQuad, quadIndex: number): void => {
+const processCrossPlantQuadWithResolver = <Failure>(
+  context: Omit<ChunkBuildContext, 'tile'>,
+  quad: CrossPlantQuad,
+  quadIndex: number,
+  tile: QuadTileResolver<Failure>,
+): Result.Result<void, Failure> =>
+  Result.map(tile.resolve(quad), (tileIndex) => {
+    const corners = translateQuadCorners(quad.vertices, context.originX, context.originZ)
+    const normal: QuadVertex = [quad.nx, quad.ny, quad.nz]
+    const base = quadIndex * VERTICES_PER_QUAD
+    writeQuadCorners(context.buffers, base, {
+      animationKind: chunkAnimationKindForBlockId(quad.blockId, quad.role),
+      color: context.color(quad),
+      corners,
+      normal,
+      tileIndex,
+    })
+    writeQuadUVs(context.buffers.uvs, base * UV_COMPONENTS, [PLANT_UV_EXTENT, PLANT_UV_EXTENT])
+    const indexOffset = quadIndex * CROSS_PLANT_INDEX_COUNT
+    writeQuadIndices(context.buffers.indices, indexOffset, base)
+    writeReverseQuadIndices(context.buffers.indices, indexOffset + INDICES_PER_QUAD, base)
+  })
+
+const processBlockShapeQuad = (
+  context: ChunkBuildContext,
+  quad: BlockShapeQuad | SpecialBlockQuad,
+  quadIndex: number,
+): void => {
   const corners = translateQuadCorners(quad.vertices, context.originX, context.originZ)
   const base = quadIndex * VERTICES_PER_QUAD
   writeQuadCorners(context.buffers, base, {
@@ -779,17 +972,62 @@ const processBlockShapeQuad = (context: ChunkBuildContext, quad: BlockShapeQuad,
     normal: faceNormal(quad.direction),
     tileIndex: context.tile(quad),
   })
-  writeQuadUVs(context.buffers.uvs, base * UV_COMPONENTS, quadUvExtent(quad))
+  writeQuadUVs(context.buffers.uvs, base * UV_COMPONENTS, geometryQuadUvExtent(quad))
   writeQuadIndices(context.buffers.indices, quadIndex * INDICES_PER_QUAD, base)
 }
 
-/** Build the single-sided face geometry emitted for slabs, rails and other block shapes. */
-export const buildBlockShapeGeometry = (
-  quads: ReadonlyArray<BlockShapeQuad>,
-  originX: number = DEFAULT_CHUNK_ORIGIN,
-  originZ: number = DEFAULT_CHUNK_ORIGIN,
-  color: QuadColor = AO_ONLY_COLOR,
-  tile: QuadTile = UNTEXTURED_TILE,
+const processBlockShapeQuadWithResolver = <Failure>(
+  context: Omit<ChunkBuildContext, 'tile'>,
+  quad: BlockShapeQuad | SpecialBlockQuad,
+  quadIndex: number,
+  tile: QuadTileResolver<Failure>,
+): Result.Result<void, Failure> =>
+  Result.map(tile.resolve(quad), (tileIndex) => {
+    const corners = translateQuadCorners(quad.vertices, context.originX, context.originZ)
+    const base = quadIndex * VERTICES_PER_QUAD
+    writeQuadCorners(context.buffers, base, {
+      animationKind: chunkAnimationKindForBlockId(quad.blockId, quad.role),
+      color: context.color(quad),
+      corners,
+      normal: faceNormal(quad.direction),
+      tileIndex,
+    })
+    writeQuadUVs(context.buffers.uvs, base * UV_COMPONENTS, geometryQuadUvExtent(quad))
+    writeQuadIndices(context.buffers.indices, quadIndex * INDICES_PER_QUAD, base)
+  })
+
+/** Build single-sided geometry for legacy shapes and mc-meshing special blocks. */
+const buildBlockShapeGeometryWithResolver = <Failure>(
+  quads: ReadonlyArray<BlockShapeQuad | SpecialBlockQuad>,
+  originX: number,
+  originZ: number,
+  color: QuadColor | undefined,
+  tile: QuadTileResolver<Failure>,
+): Result.Result<ChunkGeometryBuffers, Failure> => {
+  const quadCount = quads.length
+  if (quadCount === EMPTY_QUAD_COUNT) {
+    return Result.succeed(EMPTY_BUFFERS)
+  }
+
+  const buffers = allocateChunkWriteBuffers(quadCount * VERTICES_PER_QUAD, quadCount * INDICES_PER_QUAD)
+  const context = { buffers, color: colorWithDefault(color), originX, originZ }
+  const processed = processResolvedQuads(quads, (quad, quadIndex) =>
+    processBlockShapeQuadWithResolver(context, quad, quadIndex, tile),
+  )
+  return Result.map(processed, () => ({
+    ...buffers,
+    indexCount: quadCount * INDICES_PER_QUAD,
+    quadCount,
+    vertexCount: quadCount * VERTICES_PER_QUAD,
+  }))
+}
+
+const buildBlockShapeGeometryWithTile = (
+  quads: ReadonlyArray<BlockShapeQuad | SpecialBlockQuad>,
+  originX: number,
+  originZ: number,
+  color: QuadColor | undefined,
+  tile: QuadTile,
 ): ChunkGeometryBuffers => {
   const quadCount = quads.length
   if (quadCount === EMPTY_QUAD_COUNT) {
@@ -797,7 +1035,7 @@ export const buildBlockShapeGeometry = (
   }
 
   const buffers = allocateChunkWriteBuffers(quadCount * VERTICES_PER_QUAD, quadCount * INDICES_PER_QUAD)
-  const context: ChunkBuildContext = { buffers, color, originX, originZ, tile }
+  const context: ChunkBuildContext = { buffers, color: colorWithDefault(color), originX, originZ, tile }
   let quadIndex = 0
   for (const quad of quads) {
     processBlockShapeQuad(context, quad, quadIndex)
@@ -811,13 +1049,68 @@ export const buildBlockShapeGeometry = (
   }
 }
 
-/** Build the double-sided diagonal plates used by cross-rendered plants. */
-export const buildCrossPlantGeometry = (
-  quads: ReadonlyArray<CrossPlantQuad>,
+export function buildBlockShapeGeometry<Failure>(
+  quads: ReadonlyArray<BlockShapeQuad | SpecialBlockQuad>,
+  originX: number,
+  originZ: number,
+  color: QuadColor | undefined,
+  tile: QuadTileResolver<Failure>,
+): Result.Result<ChunkGeometryBuffers, Failure>
+export function buildBlockShapeGeometry(
+  quads: ReadonlyArray<BlockShapeQuad | SpecialBlockQuad>,
+  originX?: number,
+  originZ?: number,
+  color?: QuadColor,
+  tile?: QuadTile,
+): ChunkGeometryBuffers
+export function buildBlockShapeGeometry<Failure>(
+  quads: ReadonlyArray<BlockShapeQuad | SpecialBlockQuad>,
   originX: number = DEFAULT_CHUNK_ORIGIN,
   originZ: number = DEFAULT_CHUNK_ORIGIN,
-  color: QuadColor = AO_ONLY_COLOR,
-  tile: QuadTile = UNTEXTURED_TILE,
+  color: QuadColor | undefined = undefined,
+  tile: QuadTile | QuadTileResolver<Failure> = UNTEXTURED_TILE,
+): ChunkGeometryBuffers | Result.Result<ChunkGeometryBuffers, Failure> {
+  if (typeof tile !== 'function') {
+    return buildBlockShapeGeometryWithResolver(quads, originX, originZ, color, tile)
+  }
+  return buildBlockShapeGeometryWithTile(quads, originX, originZ, color, tile)
+}
+
+/** Build the double-sided diagonal plates used by cross-rendered plants. */
+const buildCrossPlantGeometryWithResolver = <Failure>(
+  quads: ReadonlyArray<CrossPlantQuad>,
+  originX: number,
+  originZ: number,
+  color: QuadColor | undefined,
+  tile: QuadTileResolver<Failure>,
+): Result.Result<ChunkGeometryBuffers, Failure> => {
+  const quadCount = quads.length
+  if (quadCount === EMPTY_QUAD_COUNT) {
+    return Result.succeed(EMPTY_BUFFERS)
+  }
+
+  const buffers = allocateChunkWriteBuffers(
+    quadCount * VERTICES_PER_QUAD,
+    quadCount * CROSS_PLANT_INDEX_COUNT,
+  )
+  const context = { buffers, color: colorWithDefault(color), originX, originZ }
+  const processed = processResolvedQuads(quads, (quad, quadIndex) =>
+    processCrossPlantQuadWithResolver(context, quad, quadIndex, tile),
+  )
+  return Result.map(processed, () => ({
+    ...buffers,
+    indexCount: quadCount * CROSS_PLANT_INDEX_COUNT,
+    quadCount,
+    vertexCount: quadCount * VERTICES_PER_QUAD,
+  }))
+}
+
+const buildCrossPlantGeometryWithTile = (
+  quads: ReadonlyArray<CrossPlantQuad>,
+  originX: number,
+  originZ: number,
+  color: QuadColor | undefined,
+  tile: QuadTile,
 ): ChunkGeometryBuffers => {
   const quadCount = quads.length
   if (quadCount === EMPTY_QUAD_COUNT) {
@@ -828,7 +1121,7 @@ export const buildCrossPlantGeometry = (
     quadCount * VERTICES_PER_QUAD,
     quadCount * CROSS_PLANT_INDEX_COUNT,
   )
-  const context: ChunkBuildContext = { buffers, color, originX, originZ, tile }
+  const context: ChunkBuildContext = { buffers, color: colorWithDefault(color), originX, originZ, tile }
   let quadIndex = 0
   for (const quad of quads) {
     processCrossPlantQuad(context, quad, quadIndex)
@@ -840,6 +1133,33 @@ export const buildCrossPlantGeometry = (
     quadCount,
     vertexCount: quadCount * VERTICES_PER_QUAD,
   }
+}
+
+export function buildCrossPlantGeometry<Failure>(
+  quads: ReadonlyArray<CrossPlantQuad>,
+  originX: number,
+  originZ: number,
+  color: QuadColor | undefined,
+  tile: QuadTileResolver<Failure>,
+): Result.Result<ChunkGeometryBuffers, Failure>
+export function buildCrossPlantGeometry(
+  quads: ReadonlyArray<CrossPlantQuad>,
+  originX?: number,
+  originZ?: number,
+  color?: QuadColor,
+  tile?: QuadTile,
+): ChunkGeometryBuffers
+export function buildCrossPlantGeometry<Failure>(
+  quads: ReadonlyArray<CrossPlantQuad>,
+  originX: number = DEFAULT_CHUNK_ORIGIN,
+  originZ: number = DEFAULT_CHUNK_ORIGIN,
+  color: QuadColor | undefined = undefined,
+  tile: QuadTile | QuadTileResolver<Failure> = UNTEXTURED_TILE,
+): ChunkGeometryBuffers | Result.Result<ChunkGeometryBuffers, Failure> {
+  if (typeof tile !== 'function') {
+    return buildCrossPlantGeometryWithResolver(quads, originX, originZ, color, tile)
+  }
+  return buildCrossPlantGeometryWithTile(quads, originX, originZ, color, tile)
 }
 
 /** Half a block: the offset applied to a fluid cell key along its quad's own scan axis. */
@@ -1056,30 +1376,95 @@ const processFluidQuad = (context: FluidQuadContext, quad: FluidQuad, quadIndex:
   }
 }
 
-/** Build non-cubic fluid faces and preserve their animation metadata. */
-export const buildFluidGeometry = (
-  quads: ReadonlyArray<FluidQuad>,
-  originX: number = DEFAULT_CHUNK_ORIGIN,
-  originZ: number = DEFAULT_CHUNK_ORIGIN,
-  color: QuadColor = AO_ONLY_COLOR,
-  tile: QuadTile = UNTEXTURED_TILE,
-): ChunkGeometryBuffers => {
-  if (quads.length === EMPTY_QUAD_COUNT) {
-    return EMPTY_BUFFERS
-  }
-  const fallingCells = new Set(
-    quads.filter((quad) => quad.direction === 'yPos' && quad.flow?.falling === true).map(fluidCellKey),
-  )
-  const built = buildChunkGeometry(quads.map(fluidProxyQuad), DEFAULT_CHUNK_ORIGIN, DEFAULT_CHUNK_ORIGIN, color, tile)
-  const context: FluidQuadContext = { built, fallingCells, origin: [originX, originZ] }
+const fallingFluidCells = (quads: ReadonlyArray<FluidQuad>): ReadonlySet<string> =>
+  new Set(quads.filter((quad) => quad.direction === 'yPos' && quad.flow?.falling === true).map(fluidCellKey))
 
+const processFluidQuads = (context: FluidQuadContext, quads: ReadonlyArray<FluidQuad>): void => {
   for (let quadIndex = 0; quadIndex < quads.length; quadIndex += LOOP_STEP) {
     const quad = quads[quadIndex]
     if (quad) {
       processFluidQuad(context, quad, quadIndex)
     }
   }
+}
+
+/** Build non-cubic fluid faces and preserve their animation metadata. */
+const buildFluidGeometryWithResolver = <Failure>(
+  quads: ReadonlyArray<FluidQuad>,
+  originX: number,
+  originZ: number,
+  color: QuadColor | undefined,
+  tile: QuadTileResolver<Failure>,
+): Result.Result<ChunkGeometryBuffers, Failure> => {
+  if (quads.length === EMPTY_QUAD_COUNT) {
+    return Result.succeed(EMPTY_BUFFERS)
+  }
+  const fallingCells = fallingFluidCells(quads)
+  const built = buildChunkGeometry(
+    quads.map(fluidProxyQuad),
+    DEFAULT_CHUNK_ORIGIN,
+    DEFAULT_CHUNK_ORIGIN,
+    color,
+    tile,
+  )
+  if (Result.isFailure(built)) {
+    return built
+  }
+  const context: FluidQuadContext = {
+    built: built.success,
+    fallingCells,
+    origin: [originX, originZ],
+  }
+  processFluidQuads(context, quads)
+  return Result.succeed(built.success)
+}
+
+const buildFluidGeometryWithTile = (
+  quads: ReadonlyArray<FluidQuad>,
+  originX: number,
+  originZ: number,
+  color: QuadColor | undefined,
+  tile: QuadTile,
+): ChunkGeometryBuffers => {
+  if (quads.length === EMPTY_QUAD_COUNT) {
+    return EMPTY_BUFFERS
+  }
+  const fallingCells = fallingFluidCells(quads)
+  const built = buildChunkGeometry(quads.map(fluidProxyQuad), DEFAULT_CHUNK_ORIGIN, DEFAULT_CHUNK_ORIGIN, color, tile)
+  const context: FluidQuadContext = {
+    built,
+    fallingCells,
+    origin: [originX, originZ],
+  }
+  processFluidQuads(context, quads)
   return built
+}
+
+export function buildFluidGeometry<Failure>(
+  quads: ReadonlyArray<FluidQuad>,
+  originX: number,
+  originZ: number,
+  color: QuadColor | undefined,
+  tile: QuadTileResolver<Failure>,
+): Result.Result<ChunkGeometryBuffers, Failure>
+export function buildFluidGeometry(
+  quads: ReadonlyArray<FluidQuad>,
+  originX?: number,
+  originZ?: number,
+  color?: QuadColor,
+  tile?: QuadTile,
+): ChunkGeometryBuffers
+export function buildFluidGeometry<Failure>(
+  quads: ReadonlyArray<FluidQuad>,
+  originX: number = DEFAULT_CHUNK_ORIGIN,
+  originZ: number = DEFAULT_CHUNK_ORIGIN,
+  color: QuadColor | undefined = undefined,
+  tile: QuadTile | QuadTileResolver<Failure> = UNTEXTURED_TILE,
+): ChunkGeometryBuffers | Result.Result<ChunkGeometryBuffers, Failure> {
+  if (typeof tile !== 'function') {
+    return buildFluidGeometryWithResolver(quads, originX, originZ, color, tile)
+  }
+  return buildFluidGeometryWithTile(quads, originX, originZ, color, tile)
 }
 
 /** The identity element for summing a count across parts: no parts, zero total. */

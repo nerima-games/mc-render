@@ -53,6 +53,11 @@
       "pattern": "plank-grain",
       "alpha": "opaque"
     },
+    "bookshelf": {
+      "palette": "honeywood",
+      "pattern": "plank-grain",
+      "alpha": "opaque"
+    },
     "ladder": {
       "palette": "honeywood",
       "pattern": "plank-grain",

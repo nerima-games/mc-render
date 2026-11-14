@@ -15,7 +15,9 @@ import {
 import { BLOCK_TYPES, type BlockId, type BlockType } from '@nerima-games/mc-kernel'
 import { Array as EffectArray, Result, Schema } from 'effect'
 import { type FaceRole, type GeometryQuad } from './meshing-vocabulary.js'
+import { PlantTextureStageSchema } from '@nerima-games/mc-meshing'
 import blockTextureManifest from '../assets/block-textures/manifest.json' with { type: 'json' }
+import { tileIndexForVariantStage } from './block-texture-variant.js'
 
 const MANIFEST_SCHEMA_VERSION = 1
 const EMPTY_ARRAY_LENGTH = 0
@@ -28,6 +30,9 @@ const FIRST_VARIANT_STAGE_INDEX = 0
 const FIRST_VARIANT_ADDITIONAL_STAGE_INDEX = 1
 const TILE_INDEX_INCREMENT = 1
 const REQUIRED_ANIMATION_GROUPS = ['fire', 'lava', 'portal', 'water'] as const
+const MISSING_TEXTURE_STAGE = Symbol('missing-texture-stage')
+const BLOCKS_WITH_TEXTURE_STAGE = new Set(['sapling', 'wheat_crop', 'potato_crop', 'nether_wart_crop'])
+const FIRST_TEXTURE_STAGE_ARGUMENT = 0
 
 export type TileAssignment = Readonly<Record<FaceRole, AtlasTileIndex>>
 type CompleteBlockFaceMap = Readonly<{ readonly [Block in BlockType]: TileAssignment }>
@@ -52,7 +57,13 @@ type BlockTextureAnimationMap = Readonly<{
 export type BlockTextureLookupError = Readonly<{
   readonly _tag: 'BlockTextureLookupError'
   readonly blockName: unknown
-  readonly reason: 'invalid-tile-index' | 'unknown-block'
+  readonly reason:
+    | 'invalid-tile-index'
+    | 'unknown-block'
+    | 'missing-texture-stage'
+    | 'invalid-texture-stage'
+    | 'texture-stage-block-mismatch'
+    | 'missing-texture-variant'
   readonly role: FaceRole
 }>
 
@@ -595,7 +606,11 @@ export const decodeBlockTextureManifest = (
 }
 
 export type BlockNameLookup = (blockId: BlockId) => unknown
-export type TileIndexLookup = (blockId: BlockId, role: FaceRole) => Result.Result<AtlasTileIndex, BlockTextureLookupError>
+export type TileIndexLookup = (
+  blockId: BlockId,
+  role: FaceRole,
+  ...textureStage: [] | [unknown]
+) => Result.Result<AtlasTileIndex, BlockTextureLookupError>
 export type QuadTileLookup = (quad: GeometryQuad) => Result.Result<AtlasTileIndex, BlockTextureLookupError>
 
 const lookupFailure = (
@@ -619,21 +634,66 @@ export const tileIndexForFaceAssignment = (
   return Result.succeed(decodedAssignment.success[role])
 }
 
-export const tileIndexForBlockName = (
-  blockName: unknown,
+const tileIndexForMissingStage = (
+  blockName: BlockType,
   role: FaceRole,
 ): Result.Result<AtlasTileIndex, BlockTextureLookupError> => {
-  if (typeof blockName !== 'string' || !isBlockType(blockName)) {
-    return Result.fail(lookupFailure(blockName, role, 'unknown-block'))
+  if (BLOCKS_WITH_TEXTURE_STAGE.has(blockName)) {
+    return Result.fail(lookupFailure(blockName, role, 'missing-texture-stage'))
   }
   return Result.succeed(TILE_BY_BLOCK_NAME[blockName][role])
 }
 
+const tileIndexForProvidedStage = (
+  blockName: BlockType,
+  role: FaceRole,
+  textureStage: unknown,
+): Result.Result<AtlasTileIndex, BlockTextureLookupError> => {
+  const decodedTextureStage = Schema.decodeUnknownResult(PlantTextureStageSchema)(textureStage)
+  if (Result.isFailure(decodedTextureStage)) {
+    return Result.fail(lookupFailure(blockName, role, 'invalid-texture-stage'))
+  }
+  if (decodedTextureStage.success.blockType !== blockName) {
+    return Result.fail(lookupFailure(blockName, role, 'texture-stage-block-mismatch'))
+  }
+  const variants = BLOCK_TEXTURE_VARIANTS[blockName]
+  if (variants === undefined) {
+    return Result.succeed(TILE_BY_BLOCK_NAME[blockName][role])
+  }
+  return tileIndexForVariantStage(
+    variants,
+    decodedTextureStage.success,
+    { blockName, role },
+  )
+}
+
+export const tileIndexForBlockName = (
+  blockName: unknown,
+  role: FaceRole,
+  ...textureStage: [] | [unknown]
+): Result.Result<AtlasTileIndex, BlockTextureLookupError> => {
+  if (typeof blockName !== 'string' || !isBlockType(blockName)) {
+    return Result.fail(lookupFailure(blockName, role, 'unknown-block'))
+  }
+  if (textureStage.length === EMPTY_ARRAY_LENGTH) {
+    return tileIndexForMissingStage(blockName, role)
+  }
+  if (textureStage[FIRST_TEXTURE_STAGE_ARGUMENT] === MISSING_TEXTURE_STAGE) {
+    return tileIndexForMissingStage(blockName, role)
+  }
+  return tileIndexForProvidedStage(blockName, role, textureStage[FIRST_TEXTURE_STAGE_ARGUMENT])
+}
+
 export const tileIndexResolver = (blockNameOf: BlockNameLookup): TileIndexLookup =>
-  (blockId, role) => tileIndexForBlockName(blockNameOf(blockId), role)
+  (blockId, role, ...textureStage) => tileIndexForBlockName(blockNameOf(blockId), role, ...textureStage)
 
 export const quadTileFromResolver = (resolve: TileIndexLookup): QuadTileLookup =>
-  (quad) => resolve(quad.blockId, quad.role)
+  (quad) => {
+    if (Object.hasOwn(quad, 'textureStage') && 'textureStage' in quad) {
+      return resolve(quad.blockId, quad.role, quad.textureStage)
+    }
+    return resolve(quad.blockId, quad.role, MISSING_TEXTURE_STAGE)
+  }
 
 export const quadTileForLookup = (blockNameOf: BlockNameLookup): QuadTileLookup =>
   quadTileFromResolver(tileIndexResolver(blockNameOf))

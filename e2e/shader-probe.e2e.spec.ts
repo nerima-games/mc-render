@@ -1,6 +1,6 @@
 import { type Page, expect, test } from '@playwright/test'
+import { readFile, writeFile } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
-import { readFile } from 'node:fs/promises'
 
 const WEB_ORIGIN = process.env['WEB_ORIGIN'] ?? 'http://127.0.0.1:5182'
 const ZERO = 0
@@ -440,6 +440,30 @@ test('render preview draws generated entity models through the host frame API', 
   await expect(body).toHaveAttribute('data-entity-count', '4')
   await expect(body).toHaveAttribute('data-entity-kinds', 'boat,horse,villager,tnt')
   await expectEntityGalleryVisible(page)
+})
+
+test('render preview state views draw and differ with encoded block states', async ({ page }) => {
+  const sidecarByMode = { main: 'omitted', rn6: 'encoded' } as const
+  const screenshotFor = async (mode: 'main' | 'rn6'): Promise<Buffer> => {
+    await page.goto(`${WEB_ORIGIN}/apps/render-preview/?states=${mode}`)
+    const body = page.locator('body')
+    await expect(body).toHaveAttribute('data-state-preview', 'drawn')
+    await expect(body).toHaveAttribute('data-state-mode', mode)
+    await expect(body).toHaveAttribute('data-state-sidecar', sidecarByMode[mode])
+    await expect.poll(async () => Number(await body.getAttribute('data-pixels-drawn'))).toBeGreaterThan(ZERO)
+    return page.locator('#preview-canvas').screenshot()
+  }
+
+  const mainScreenshot = await screenshotFor('main')
+  const rn6Screenshot = await screenshotFor('rn6')
+  await writeFile(new URL('../docs/screenshots/rn6-after-render.png', import.meta.url), rn6Screenshot)
+  const similarity = await page.evaluate(compareScreenshotSsim, {
+    actualBase64: rn6Screenshot.toString('base64'),
+    constants: SSIM_CONSTANTS,
+    referenceBase64: mainScreenshot.toString('base64'),
+  })
+
+  expect(similarity).toBeLessThan(SSIM_CONSTANTS.one)
 })
 
 test('render preview stays above 0.95 SSIM against the pinned baseline', async ({ page }) => {

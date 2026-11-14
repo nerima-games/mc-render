@@ -66,8 +66,14 @@ import type { WorldRenderer } from './world-renderer.js'
 import { meshBlockShapes } from '../domain/block-shapes.js'
 
 /** The kernel registry is the single numeric-id to texture-name authority. */
-export const blockNameFromKernel: BlockNameLookup = (blockId) =>
-  Result.getOrThrow(blockTypeOfId(blockId)) ?? 'unknown'
+export const blockNameFromKernel: BlockNameLookup = (blockId) => {
+  const blockType = blockTypeOfId(blockId)
+  // Preserve unresolved IDs so the texture lookup reports them as unknown blocks.
+  if (Result.isFailure(blockType) || blockType.success === undefined) {
+    return blockId
+  }
+  return blockType.success
+}
 
 /** Maximum fall-off level for each fluid kind. */
 const FLUID_MAX_LEVELS = {
@@ -105,7 +111,8 @@ const blockShapeFor = (blockId: BlockId): BlockShapeKind | undefined => {
     case 'lilyPad':
       return 'lilyPad'
     case 'rail':
-      return 'rail'
+      // Rails are emitted in their state-selected shape by the package.
+      return undefined
     default:
       break
   }
@@ -176,7 +183,7 @@ export const KERNEL_MESH_CONFIG: RenderMeshConfig = {
   waterBlockIds: kernelBlockIdsWithFluid('water'),
 }
 
-/** The chunk-store fields this adapter consumes until #66 adds state-driven model selection. */
+/** The chunk-store fields this adapter consumes for meshing. */
 export type MeshingChunkStore = {
   readonly peek: (coord: ChunkCoord) => Effect.Effect<ReadonlyChunk | undefined>
   readonly neighbours: (coord: ChunkCoord) => Effect.Effect<ReadonlyWorldgenChunkNeighbours>
@@ -273,13 +280,18 @@ export const makeChunkStoreLightColor = (
  * packages agree on the number. A real variable-height chunk is Wave 1
  * pin-alignment work in mc-worldgen, not something to invent here.
  */
-const toChunkView = (chunk: ReadonlyChunk): ChunkView => ({
-  // #66 owns passing block state into model selection.
+const toChunkView = (chunk: ReadonlyChunk): ChunkView => {
   // Worldgen exposes live read-only buffers, so meshing receives detached storage.
-  blocks: new Uint16Array(chunk.blocks),
-  coord: chunk.coord,
-  height: CHUNK_HEIGHT,
-})
+  const chunkView: ChunkView = {
+    blocks: new Uint16Array(chunk.blocks),
+    coord: chunk.coord,
+    height: CHUNK_HEIGHT,
+  }
+  if (chunk.blockStates !== undefined) {
+    return { ...chunkView, blockStates: new Uint32Array(chunk.blockStates) }
+  }
+  return chunkView
+}
 
 type ReadonlyWorldgenChunkNeighbours = Readonly<{
   [Key in keyof WorldgenChunkNeighbours]: ReadonlyChunk
@@ -344,6 +356,9 @@ const assembleWorldgenMesh = (
   layers: MeshLayers,
 ): ChunkMesh => {
     const blockShapeKinds = config.blockShapeKinds ?? EMPTY_BLOCK_SHAPE_KINDS
+    // Preserve existing local shapes except rails.
+    // Package-emitted special blocks with the same ID are filtered to avoid duplicates.
+    const specialBlocks = layers.specialBlocks.filter(({ blockId }) => !blockShapeKinds.has(blockId))
     const opaque = withoutBlockShapes(layers.opaque, blockShapeKinds)
     const water = withoutBlockShapes(layers.water, blockShapeKinds)
     const transparentSolid = withoutBlockShapes(layers.transparentSolid, blockShapeKinds)
@@ -362,6 +377,7 @@ const assembleWorldgenMesh = (
         transparentSolid: blended,
         water,
       },
+      specialBlocks,
     })
 }
 
@@ -608,15 +624,17 @@ export const makeChunkStoreMesher = (
 
 /** `options` with default atlas tiles and chunk lighting, unless the caller supplied overrides. */
 const withDefaultColorForChunk = (store: RendererChunkStore, options: SyncOptions): SyncOptions => {
-  const tile = options.tile ?? ((quad) => Result.getOrThrow(quadTileForLookup(blockNameFromKernel)(quad)))
+  let withTileLookup = options
+  if (options.tileLookup === undefined && options.tile === undefined) {
+    withTileLookup = { ...options, tileLookup: quadTileForLookup(blockNameFromKernel) }
+  }
   if (options.colorForChunk !== undefined || options.color !== undefined) {
-    return { ...options, tile }
+    return withTileLookup
   }
   return {
-    ...options,
+    ...withTileLookup,
     colorForChunk: (chunk: { readonly cx: number; readonly cz: number }, quads: ReadonlyArray<GeometryQuad>) =>
       makeChunkStoreLightColor(store, chunk, quads),
-    tile,
   }
 }
 

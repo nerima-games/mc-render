@@ -124,6 +124,63 @@ describe('chunkOrigin', () => {
 })
 
 describe('syncWorld', () => {
+  it.effect('records typed faults when present mesh fields are unreadable', () =>
+    Effect.gen(function* () {
+      const three = makeFakeThree()
+      const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT)
+      const invalidFields = ['blockShapes', 'crossPlants', 'specialBlocks', 'fluids', 'renderLayers'] as const
+      for (const [index, field] of invalidFields.entries()) {
+        const chunk = chunkCoord(index, 0)
+        const source = yield* scriptedSource([{ changed: [chunk], removed: [] }])
+        const mesh = [quad()]
+        Object.defineProperty(mesh, field, { enumerable: true, value: null })
+
+        const report = yield* syncWorld(renderer, source, () => Effect.succeed(mesh))
+        expect(report).toStrictEqual({
+          deferred: 0,
+          faults: [{
+            chunk,
+            error: {
+              _tag: 'ChunkMeshGeometryInputFailure',
+              field,
+            },
+          }],
+          meshed: 0,
+          removed: 0,
+        })
+      }
+    }),
+  )
+
+  it.effect('records a global LOD refresh fault while applying changed chunks', () =>
+    Effect.gen(function* () {
+      const three = makeFakeThree()
+      const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT)
+      const changed = chunkCoord(3, -2)
+      const source = yield* scriptedSource([{ changed: [changed], removed: [] }])
+      const lodError = {
+        _tag: 'LodInputError',
+        operation: 'thresholds',
+        reason: 'invalid-thresholds',
+      } as const
+      const mesher = Object.assign(() => Effect.succeed([quad()]), {
+        refreshLod: () => Result.fail(lodError),
+      })
+
+      const report = yield* syncWorld(renderer, source, mesher)
+
+      expect(report).toStrictEqual({
+        deferred: 0,
+        faults: [{ chunk: undefined, error: lodError }],
+        meshed: 1,
+        removed: 0,
+      })
+      expect(yield* renderer.chunkKeys).toStrictEqual([chunkKeyOf(changed)])
+      const position = three.geometries()[0]?.attributes.get('position')
+      expect(position?.array.length).toBeGreaterThan(0)
+    }),
+  )
+
   it.effect('runs worker-backed meshers concurrently up to their advertised pool width', () =>
     Effect.gen(function* () {
       const three = makeFakeThree()
@@ -322,7 +379,7 @@ describe('syncWorld', () => {
       })
       const source = yield* scriptedSource([{ changed: [chunkCoord(0, 0)], removed: [] }])
       const report = yield* syncWorld(renderer, source, mesher, {
-        tile: (geometryQuad) => Result.getOrThrow(quadTileForLookup(blockNameFromKernel)(geometryQuad)),
+        tileLookup: quadTileForLookup(blockNameFromKernel),
       })
 
       expect(report.meshed).toBe(1)
@@ -618,6 +675,150 @@ describe('attachWorldRenderer', () => {
       expect(yield* attachment.update).toStrictEqual(EMPTY_SYNC_REPORT)
       expect(yield* renderer.chunkKeys).toStrictEqual([])
       expect(yield* Ref.get(batches)).toHaveLength(1)
+    }),
+  )
+
+  it.effect('updates good chunks and drains one typed fault for a failed texture lookup', () =>
+    Effect.gen(function* () {
+      const three = makeFakeThree()
+      const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT)
+      const batches = yield* Ref.make<ReadonlyArray<DirtyBatch>>([
+        { changed: [chunkCoord(0, 0), chunkCoord(1, 0)], removed: [] },
+      ])
+      const store = {
+        subscribeDirty: Effect.succeed({
+          drain: Ref.modify(batches, ([next, ...rest]) => [
+            next ?? { changed: [], removed: [] },
+            rest,
+          ]),
+          unsubscribe: Effect.void,
+        }),
+      }
+      const lookupError = {
+        _tag: 'BlockTextureLookupError',
+        blockName: 'unknown',
+        reason: 'unknown-block',
+        role: 'top',
+      } as const
+      const attachment = yield* attachWorldRenderer(
+        renderer,
+        store,
+        (chunk) => {
+          if (chunk.cx === 0) {
+            return Effect.succeed([quad({ blockId: blockId(2) })])
+          }
+          return Effect.succeed([quad({ blockId: blockId(1) })])
+        },
+        {
+          tileLookup: (geometryQuad) => {
+            if (geometryQuad.blockId === blockId(2)) {
+              return Result.fail(lookupError)
+            }
+            return quadTileForLookup(blockNameFromKernel)(geometryQuad)
+          },
+        },
+      )
+
+      const report = yield* attachment.update
+      const faults = yield* attachment.drainFaults
+
+      expect(report.meshed).toBe(1)
+      expect(yield* renderer.chunkKeys).toStrictEqual(['1,0'])
+      expect(faults).toStrictEqual([{
+        _tag: 'ChunkRenderFault',
+        chunk: chunkCoord(0, 0),
+        error: lookupError,
+        occurrences: 1,
+      }])
+      expect(yield* attachment.drainFaults).toStrictEqual([])
+      const nonemptyPosition = three.geometries()
+        .map((geometry) => geometry.attributes.get('position'))
+        .find((attribute) => attribute !== undefined && attribute.array.length > 0)
+      expect(Array.from(nonemptyPosition?.array ?? [])).toContain(16)
+    }),
+  )
+
+  it.effect('coalesces repeated identical faults for one chunk and counts occurrences', () =>
+    Effect.gen(function* () {
+      const renderer = yield* makeWorldRenderer(makeFakeThree(), FAKE_CANVAS, VIEWPORT)
+      const failedChunk = chunkCoord(0, 0)
+      const batches = yield* Ref.make<ReadonlyArray<DirtyBatch>>([
+        { changed: [failedChunk], removed: [] },
+        { changed: [failedChunk], removed: [] },
+      ])
+      const store = {
+        subscribeDirty: Effect.succeed({
+          drain: Ref.modify(batches, ([next, ...rest]) => [
+            next ?? { changed: [], removed: [] },
+            rest,
+          ]),
+          unsubscribe: Effect.void,
+        }),
+      }
+      const malformedMesh = [quad()]
+      Object.defineProperty(malformedMesh, 'renderLayers', { enumerable: true, value: null })
+      const attachment = yield* attachWorldRenderer(
+        renderer,
+        store,
+        () => Effect.succeed(malformedMesh),
+      )
+
+      const firstUpdate = yield* attachment.update
+      const secondUpdate = yield* attachment.update
+      const faults = yield* attachment.drainFaults
+
+      expect(firstUpdate).toStrictEqual(EMPTY_SYNC_REPORT)
+      expect(secondUpdate).toStrictEqual(EMPTY_SYNC_REPORT)
+      expect(yield* renderer.chunkKeys).toStrictEqual([])
+      expect(faults).toStrictEqual([{
+        _tag: 'ChunkRenderFault',
+        chunk: failedChunk,
+        error: { _tag: 'ChunkMeshGeometryInputFailure', field: 'renderLayers' },
+        occurrences: 2,
+      }])
+    }),
+  )
+
+  it.effect('applies changed chunks and drains a global fault when LOD refresh fails', () =>
+    Effect.gen(function* () {
+      const three = makeFakeThree()
+      const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT)
+      const changed = chunkCoord(4, -3)
+      const batches = yield* Ref.make<ReadonlyArray<DirtyBatch>>([
+        { changed: [changed], removed: [] },
+      ])
+      const store = {
+        subscribeDirty: Effect.succeed({
+          drain: Ref.modify(batches, ([next, ...rest]) => [
+            next ?? { changed: [], removed: [] },
+            rest,
+          ]),
+          unsubscribe: Effect.void,
+        }),
+      }
+      const lodError = {
+        _tag: 'LodInputError',
+        operation: 'thresholds',
+        reason: 'invalid-thresholds',
+      } as const
+      const mesher = Object.assign(() => Effect.succeed([quad()]), {
+        refreshLod: () => Result.fail(lodError),
+      })
+      const attachment = yield* attachWorldRenderer(renderer, store, mesher)
+
+      const report = yield* attachment.update
+      const faults = yield* attachment.drainFaults
+
+      expect(report.meshed).toBe(1)
+      expect(yield* renderer.chunkKeys).toStrictEqual([chunkKeyOf(changed)])
+      expect(faults).toStrictEqual([{
+        _tag: 'ChunkRenderFault',
+        chunk: undefined,
+        error: lodError,
+        occurrences: 1,
+      }])
+      const position = three.geometries()[0]?.attributes.get('position')
+      expect(position?.array.length).toBeGreaterThan(0)
     }),
   )
 })

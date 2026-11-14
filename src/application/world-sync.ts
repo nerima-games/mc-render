@@ -41,12 +41,14 @@ import {
   type MeshQuad,
   type QuadColor,
   type QuadTile,
+  type SpecialBlockQuad,
   buildBlockShapeGeometry,
   buildChunkGeometry,
   buildCrossPlantGeometry,
   buildFluidGeometry,
   combineChunkGeometry,
 } from '../domain/chunk-geometry.js'
+import type { BlockTextureLookupError, QuadTileLookup } from '../domain/block-texture-map.js'
 import { CHUNK_SIZE, meshChunk } from '@nerima-games/mc-meshing'
 import { type ChunkGeometryUpdate, type ChunkKey, type WorldRenderer } from './world-renderer.js'
 import { Effect, Ref, Result, Schema, Semaphore } from 'effect'
@@ -116,10 +118,30 @@ export type ChunkMesh = ReadonlyArray<MeshQuad> & {
   }
   readonly blockShapes?: ReadonlyArray<BlockShapeQuad>
   readonly crossPlants?: ReadonlyArray<CrossPlantQuad>
+  readonly specialBlocks?: ReadonlyArray<SpecialBlockQuad>
   readonly fluids?: ReadonlyArray<FluidQuad>
 }
+type ChunkMeshCollectionField = 'blockShapes' | 'crossPlants' | 'fluids' | 'specialBlocks'
+type ChunkMeshGeometryInputField = ChunkMeshCollectionField | 'renderLayers'
+type ChunkMeshGeometryInputFailure = Readonly<{
+  readonly _tag: 'ChunkMeshGeometryInputFailure'
+  readonly field: ChunkMeshGeometryInputField
+}>
+type ChunkMeshGeometryInput = Readonly<{
+  readonly blockShapes: NonNullable<ChunkMesh['blockShapes']>
+  readonly crossPlants: NonNullable<ChunkMesh['crossPlants']>
+  readonly fluids: NonNullable<ChunkMesh['fluids']>
+  readonly renderLayers: NonNullable<ChunkMesh['renderLayers']>
+  readonly specialBlocks: NonNullable<ChunkMesh['specialBlocks']>
+}>
 export type ChunkMesherError = ReturnType<typeof meshChunk> extends Result.Result<unknown, infer Failure>
-  ? Failure | LightQueueUnderflowError | ChunkMeshingWorkerFailure | WorkerPoolFailure | LodInputError
+  ? | Failure
+    | BlockTextureLookupError
+    | ChunkMeshGeometryInputFailure
+    | LightQueueUnderflowError
+    | ChunkMeshingWorkerFailure
+    | WorkerPoolFailure
+    | LodInputError
   : never
 export type ChunkMesher = ((chunk: ChunkRef) => Effect.Effect<ChunkMesh | undefined, ChunkMesherError>) & {
   /** Worker-backed meshers expose their fixed pool width to the frame batcher. */
@@ -183,6 +205,7 @@ const buildChunkLayerGeometryBuffers = ({
   chunk,
   color,
   crossPlants,
+  specialBlocks,
   renderLayers,
   tile,
   transparentFluids,
@@ -192,6 +215,7 @@ const buildChunkLayerGeometryBuffers = ({
   readonly chunk: ChunkRef
   readonly color: QuadColor | undefined
   readonly crossPlants: ReadonlyArray<CrossPlantQuad>
+  readonly specialBlocks: ReadonlyArray<SpecialBlockQuad>
   readonly renderLayers: NonNullable<ChunkMesh['renderLayers']>
   readonly tile: QuadTile | undefined
   readonly transparentFluids: ReadonlyArray<FluidQuad>
@@ -201,7 +225,7 @@ const buildChunkLayerGeometryBuffers = ({
   return {
     buffers: combineChunkGeometry(
       buildChunkGeometry(renderLayers.opaque, originX, originZ, color, tile),
-      buildBlockShapeGeometry(blockShapes, originX, originZ, color, tile),
+      buildBlockShapeGeometry([...blockShapes, ...specialBlocks], originX, originZ, color, tile),
     ),
     cutoutBuffers: combineChunkGeometry(
       buildChunkGeometry(renderLayers.cutout, originX, originZ, color, tile),
@@ -218,6 +242,52 @@ const buildChunkLayerGeometryBuffers = ({
   }
 }
 
+const buildChunkLayerGeometryBuffersWithLookup = ({
+  blockShapes,
+  chunk,
+  color,
+  crossPlants,
+  specialBlocks,
+  renderLayers,
+  tileLookup,
+  transparentFluids,
+  waterFluids,
+}: {
+  readonly blockShapes: ReadonlyArray<BlockShapeQuad>
+  readonly chunk: ChunkRef
+  readonly color: QuadColor | undefined
+  readonly crossPlants: ReadonlyArray<CrossPlantQuad>
+  readonly specialBlocks: ReadonlyArray<SpecialBlockQuad>
+  readonly renderLayers: NonNullable<ChunkMesh['renderLayers']>
+  readonly tileLookup: QuadTileLookup
+  readonly transparentFluids: ReadonlyArray<FluidQuad>
+  readonly waterFluids: ReadonlyArray<FluidQuad>
+}): Result.Result<ChunkLayerGeometryBuffers, BlockTextureLookupError> => {
+  const [originX, originZ] = chunkOrigin(chunk)
+  return Result.map(
+    Result.all({
+      blockShapes: buildBlockShapeGeometry([...blockShapes, ...specialBlocks], originX, originZ, color, {
+        resolve: tileLookup,
+      }),
+      crossPlants: buildCrossPlantGeometry(crossPlants, originX, originZ, color, { resolve: tileLookup }),
+      cutout: buildChunkGeometry(renderLayers.cutout, originX, originZ, color, { resolve: tileLookup }),
+      opaque: buildChunkGeometry(renderLayers.opaque, originX, originZ, color, { resolve: tileLookup }),
+      transparent: buildChunkGeometry(renderLayers.transparentSolid, originX, originZ, color, {
+        resolve: tileLookup,
+      }),
+      transparentFluids: buildFluidGeometry(transparentFluids, originX, originZ, color, { resolve: tileLookup }),
+      water: buildChunkGeometry(renderLayers.water, originX, originZ, color, { resolve: tileLookup }),
+      waterFluids: buildFluidGeometry(waterFluids, originX, originZ, color, { resolve: tileLookup }),
+    }),
+    ({ blockShapes: shapes, crossPlants: plants, cutout, opaque, transparent, transparentFluids: transparentFluidGeometry, water, waterFluids: waterFluidGeometry }) => ({
+      buffers: combineChunkGeometry(opaque, shapes),
+      cutoutBuffers: combineChunkGeometry(cutout, plants),
+      transparentSolidBuffers: combineChunkGeometry(transparent, transparentFluidGeometry),
+      waterBuffers: combineChunkGeometry(water, waterFluidGeometry),
+    }),
+  )
+}
+
 /** What one `syncWorld` pass did. Diagnostics, and what the tests assert on. */
 export type SyncReport = {
   /** Chunks re-meshed and put in the scene. */
@@ -226,6 +296,8 @@ export type SyncReport = {
   readonly deferred: number
   /** Chunks taken out of the scene. */
   readonly removed: number
+  /** Typed chunk failures and update-scoped LOD refresh failures, when any occurred. */
+  readonly faults?: ReadonlyArray<SyncFault>
 }
 
 /** Nothing changed. Allocation-free, and the common case once a world settles. */
@@ -242,12 +314,33 @@ export type SyncOptions = {
   ) => Effect.Effect<QuadColor, ChunkMesherError>
   /** Atlas tile per quad. Direct `syncWorld` calls default to the untextured tile. */
   readonly tile?: QuadTile
+  /** Typed atlas lookup used by the attached texture path. */
+  readonly tileLookup?: QuadTileLookup
 }
+
+type ChunkMeshingFault = Readonly<{
+  readonly chunk: ChunkRef
+  readonly error: ChunkMesherError
+}>
+
+type SyncFault = Readonly<{
+  readonly chunk: ChunkRef | undefined
+  readonly error: ChunkMesherError
+}>
+
+type ChunkRenderFault = Readonly<{
+  readonly _tag: 'ChunkRenderFault'
+  readonly chunk: ChunkRef | undefined
+  readonly error: ChunkMesherError
+  readonly occurrences: number
+}>
 
 /** A renderer's exclusive connection to one ChunkStore dirty subscription. */
 export type WorldRendererAttachment = {
   /** Drain and apply at most one coalesced dirty batch. */
-  readonly update: Effect.Effect<SyncReport, ChunkMesherError>
+  readonly update: Effect.Effect<SyncReport>
+  /** Drain accumulated typed render faults without clearing renderer state. */
+  readonly drainFaults: Effect.Effect<ReadonlyArray<ChunkRenderFault>>
   /** Unsubscribe once; queued and future updates become no-ops. */
   readonly detach: Effect.Effect<void>
   readonly attached: Effect.Effect<boolean>
@@ -255,7 +348,7 @@ export type WorldRendererAttachment = {
 
 /** The one frame-driven operation `render:chunk-sync` needs. */
 export type ChunkSyncPort = {
-  readonly update: Effect.Effect<SyncReport, ChunkMesherError>
+  readonly update: Effect.Effect<SyncReport>
 }
 
 /** Default for headless callers and previews without a world attachment. */
@@ -291,11 +384,125 @@ const colorQuadsForMesh = (
   quads: ReadonlyArray<MeshQuad>,
   blockShapes: ReadonlyArray<BlockShapeQuad>,
   crossPlants: ReadonlyArray<CrossPlantQuad>,
+  specialBlocks: ReadonlyArray<SpecialBlockQuad>,
 ): ReadonlyArray<GeometryQuad> => {
-  if (crossPlants.length === EMPTY_GEOMETRY_COUNT && blockShapes.length === EMPTY_GEOMETRY_COUNT) {
+  if (
+    crossPlants.length === EMPTY_GEOMETRY_COUNT &&
+    blockShapes.length === EMPTY_GEOMETRY_COUNT &&
+    specialBlocks.length === EMPTY_GEOMETRY_COUNT
+  ) {
     return quads
   }
-  return [...quads, ...crossPlants, ...blockShapes]
+  return [...quads, ...crossPlants, ...blockShapes, ...specialBlocks]
+}
+
+const EMPTY_CHUNK_MESH_COLLECTIONS: Readonly<{
+  readonly [Field in ChunkMeshCollectionField]: NonNullable<ChunkMesh[Field]>
+}> = {
+  blockShapes: [],
+  crossPlants: [],
+  fluids: [],
+  specialBlocks: [],
+}
+
+const chunkMeshGeometryInputFailure = (
+  field: ChunkMeshGeometryInputField,
+): Result.Result<never, ChunkMeshGeometryInputFailure> =>
+  Result.fail({ _tag: 'ChunkMeshGeometryInputFailure', field })
+
+const optionalChunkMeshCollection = <Field extends ChunkMeshCollectionField>(
+  mesh: ChunkMesh,
+  field: Field,
+): Result.Result<NonNullable<ChunkMesh[Field]>, ChunkMeshGeometryInputFailure> => {
+  if (!Object.hasOwn(mesh, field)) {
+    return Result.succeed(EMPTY_CHUNK_MESH_COLLECTIONS[field])
+  }
+  const collection = mesh[field]
+  if (collection === undefined || !Array.isArray(collection)) {
+    return chunkMeshGeometryInputFailure(field)
+  }
+  return Result.succeed(collection)
+}
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null
+
+const isChunkMeshRenderLayers = (
+  value: unknown,
+): value is NonNullable<ChunkMesh['renderLayers']> =>
+  isRecord(value) &&
+  Object.hasOwn(value, 'cutout') &&
+  'cutout' in value &&
+  Array.isArray(value['cutout']) &&
+  Object.hasOwn(value, 'opaque') &&
+  'opaque' in value &&
+  Array.isArray(value['opaque']) &&
+  Object.hasOwn(value, 'transparentSolid') &&
+  'transparentSolid' in value &&
+  Array.isArray(value['transparentSolid']) &&
+  Object.hasOwn(value, 'water') &&
+  'water' in value &&
+  Array.isArray(value['water'])
+
+const chunkMeshRenderLayers = (
+  mesh: ChunkMesh,
+): Result.Result<NonNullable<ChunkMesh['renderLayers']>, ChunkMeshGeometryInputFailure> => {
+  if (!Object.hasOwn(mesh, 'renderLayers')) {
+    return Result.succeed({
+      cutout: [],
+      opaque: mesh,
+      transparentSolid: [],
+      water: [],
+    })
+  }
+  if (!isChunkMeshRenderLayers(mesh.renderLayers)) {
+    return chunkMeshGeometryInputFailure('renderLayers')
+  }
+  return Result.succeed(mesh.renderLayers)
+}
+
+const geometryInputForMesh = (
+  mesh: ChunkMesh,
+): Result.Result<ChunkMeshGeometryInput, ChunkMeshGeometryInputFailure> =>
+  Result.all({
+    blockShapes: optionalChunkMeshCollection(mesh, 'blockShapes'),
+    crossPlants: optionalChunkMeshCollection(mesh, 'crossPlants'),
+    fluids: optionalChunkMeshCollection(mesh, 'fluids'),
+    renderLayers: chunkMeshRenderLayers(mesh),
+    specialBlocks: optionalChunkMeshCollection(mesh, 'specialBlocks'),
+  })
+
+const buildLayerGeometryForMesh = (
+  geometryInput: ChunkMeshGeometryInput,
+  chunk: ChunkRef,
+  color: QuadColor | undefined,
+  fluidLayers: ReturnType<typeof splitFluidsByKind>,
+  options: SyncOptions,
+): ReturnType<typeof buildChunkLayerGeometryBuffersWithLookup> => {
+  if (options.tileLookup === undefined) {
+    return Result.succeed(buildChunkLayerGeometryBuffers({
+      blockShapes: geometryInput.blockShapes,
+      chunk,
+      color,
+      crossPlants: geometryInput.crossPlants,
+      renderLayers: geometryInput.renderLayers,
+      specialBlocks: geometryInput.specialBlocks,
+      tile: options.tile,
+      transparentFluids: fluidLayers.transparent,
+      waterFluids: fluidLayers.water,
+    }))
+  }
+  return buildChunkLayerGeometryBuffersWithLookup({
+    blockShapes: geometryInput.blockShapes,
+    chunk,
+    color,
+    crossPlants: geometryInput.crossPlants,
+    renderLayers: geometryInput.renderLayers,
+    specialBlocks: geometryInput.specialBlocks,
+    tileLookup: options.tileLookup,
+    transparentFluids: fluidLayers.transparent,
+    waterFluids: fluidLayers.water,
+  })
 }
 
 /** Resolve one changed chunk's mesh, if the mesher has it ready. */
@@ -309,28 +516,15 @@ const meshChangedChunk = (
     if (mesh === undefined) {
       return undefined
     }
-    const blockShapes = mesh.blockShapes ?? []
-    const crossPlants = mesh.crossPlants ?? []
-    const fluids = mesh.fluids ?? []
-    const renderLayers = mesh.renderLayers ?? {
-      cutout: [],
-      opaque: mesh,
-      transparentSolid: [],
-      water: [],
-    }
-    const fluidLayers = splitFluidsByKind(fluids)
-    const color = yield* resolveChunkColor(options, chunk, colorQuadsForMesh(mesh, blockShapes, crossPlants))
+    const geometryInput = yield* Effect.fromResult(geometryInputForMesh(mesh))
+    const fluidLayers = splitFluidsByKind(geometryInput.fluids)
+    const color = yield* resolveChunkColor(
+      options,
+      chunk,
+      colorQuadsForMesh(mesh, geometryInput.blockShapes, geometryInput.crossPlants, geometryInput.specialBlocks),
+    )
     return {
-      ...buildChunkLayerGeometryBuffers({
-        blockShapes,
-        chunk,
-        color,
-        crossPlants,
-        renderLayers,
-        tile: options.tile,
-        transparentFluids: fluidLayers.transparent,
-        waterFluids: fluidLayers.water,
-      }),
+      ...(yield* Effect.fromResult(buildLayerGeometryForMesh(geometryInput, chunk, color, fluidLayers, options))),
       key: chunkKeyOf(chunk),
     }
   })
@@ -367,31 +561,66 @@ const includeLodChanges = (
   return combined
 }
 
+const lodRefreshForMesher = (mesher: ChunkMesher): {
+  readonly changedChunks: ReadonlyArray<ChunkRef>
+  readonly faults: ReadonlyArray<SyncFault>
+} => {
+  if (mesher.refreshLod === undefined) {
+    return { changedChunks: [], faults: [] }
+  }
+  const result = mesher.refreshLod()
+  if (Result.isFailure(result)) {
+    return { changedChunks: [], faults: [{ chunk: undefined, error: result.failure }] }
+  }
+  return { changedChunks: result.success, faults: [] }
+}
+
+type MutableChunkUpdateResults = {
+  deferred: number
+  faults: Array<ChunkMeshingFault>
+  updates: Array<ChunkGeometryUpdate>
+}
+
+const collectChunkUpdate = (
+  results: MutableChunkUpdateResults,
+  chunk: ChunkRef,
+  result: Result.Result<ChunkGeometryUpdate | undefined, ChunkMesherError>,
+): void => {
+  const { faults, updates } = results
+  if (Result.isFailure(result)) {
+    faults.push({ chunk, error: result.failure })
+    return
+  }
+  if (result.success === undefined) {
+    results.deferred += COUNT_STEP
+    return
+  }
+  updates.push(result.success)
+}
+
 /** Mesh every changed chunk, splitting the results into applied updates and a deferred count. */
 const meshChangedChunks = (
   changedChunks: ReadonlyArray<ChunkRef>,
   mesher: ChunkMesher,
   options: SyncOptions,
 ): Effect.Effect<
-  { readonly updates: ReadonlyArray<ChunkGeometryUpdate>; readonly deferred: number },
-  ChunkMesherError
+  {
+    readonly updates: ReadonlyArray<ChunkGeometryUpdate>
+    readonly deferred: number
+    readonly faults: ReadonlyArray<ChunkMeshingFault>
+  }
 > =>
   Effect.gen(function* () {
-    let deferred = 0
-    const updates: Array<ChunkGeometryUpdate> = []
+    const results: MutableChunkUpdateResults = { deferred: 0, faults: [], updates: [] }
     const chunkUpdates = yield* Effect.forEach(
       changedChunks,
-      (chunk) => Effect.map(meshChangedChunk(chunk, mesher, options), (update) => ({ chunk, update })),
+      (chunk) => Effect.map(Effect.result(meshChangedChunk(chunk, mesher, options)), (result) => ({ chunk, result })),
       { concurrency: mesher.concurrency ?? DEFAULT_MESHER_CONCURRENCY },
     )
-    for (const { update } of chunkUpdates) {
-      if (update === undefined) {
-        deferred += COUNT_STEP
-      } else {
-        updates.push(update)
-      }
+    for (const { chunk, result } of chunkUpdates) {
+      collectChunkUpdate(results, chunk, result)
     }
-    return { deferred, updates }
+    return results
   })
 
 /**
@@ -416,26 +645,90 @@ const meshChangedChunks = (
  * signature change reaching into a file this lint pass is not scoped to
  * touch. `max-params` is left un-silenced rather than worked around.
  */
+const syncWorldWithFaults = (
+  renderer: WorldRenderer,
+  source: DirtySource,
+  mesher: ChunkMesher,
+  options: SyncOptions = {},
+): Effect.Effect<Readonly<{ readonly report: SyncReport; readonly faults: ReadonlyArray<SyncFault> }>> =>
+  Effect.gen(function* () {
+    const batch = yield* source.drain
+
+    const removed = yield* removeChunks(renderer, batch.removed, mesher)
+    const lod = lodRefreshForMesher(mesher)
+    const changedChunks = includeLodChanges(batch.changed, lod.changedChunks)
+    const { deferred, faults, updates } = yield* meshChangedChunks(changedChunks, mesher, options)
+    yield* renderer.setChunks(updates)
+
+    const allFaults: Array<SyncFault> = [...lod.faults, ...faults]
+    return { faults: allFaults, report: { deferred, meshed: updates.length, removed } }
+  })
+
 export const syncWorld = (
   renderer: WorldRenderer,
   source: DirtySource,
   mesher: ChunkMesher,
   options: SyncOptions = {},
 ): Effect.Effect<SyncReport, ChunkMesherError> =>
-  Effect.gen(function* () {
-    const batch = yield* source.drain
-
-    const removed = yield* removeChunks(renderer, batch.removed, mesher)
-    const lodChangedChunks = yield* Effect.fromResult(mesher.refreshLod?.() ?? Result.succeed([]))
-    const changedChunks = includeLodChanges(batch.changed, lodChangedChunks)
-    const { deferred, updates } = yield* meshChangedChunks(changedChunks, mesher, options)
-    yield* renderer.setChunks(updates)
-
-    return { deferred, meshed: updates.length, removed }
+  Effect.map(syncWorldWithFaults(renderer, source, mesher, options), ({ faults, report }) => {
+    if (faults.length === EMPTY_GEOMETRY_COUNT) {
+      return report
+    }
+    return { ...report, faults }
   })
 
 /** A binary mutex: exactly one permit, so drain/application is atomic with respect to detach. */
 const MUTEX_PERMITS = 1
+
+const faultReason = (error: ChunkMesherError): string => {
+  if ('reason' in error) {
+    const { reason } = error
+    return reason
+  }
+  return ''
+}
+
+const faultField = (error: ChunkMesherError): string => {
+  if ('field' in error) {
+    const { field } = error
+    return field
+  }
+  return ''
+}
+
+const renderFaultKey = (fault: Pick<ChunkRenderFault, 'chunk' | 'error'>): string => {
+  let chunk = 'stage'
+  if (fault.chunk !== undefined) {
+    chunk = chunkKeyOf(fault.chunk)
+  }
+  return `${chunk}:${fault.error._tag}:${faultReason(fault.error)}:${faultField(fault.error)}`
+}
+
+const makeRenderFaultQueue = (): Effect.Effect<{
+  readonly drain: Effect.Effect<ReadonlyArray<ChunkRenderFault>>
+  readonly record: (faults: ReadonlyArray<Readonly<{ readonly chunk: ChunkRef | undefined; readonly error: ChunkMesherError }>>) => Effect.Effect<void>
+}> => Effect.gen(function* () {
+  const pendingFaults = yield* Ref.make<ReadonlyMap<string, ChunkRenderFault>>(new Map())
+  const record = (faults: ReadonlyArray<Readonly<{ readonly chunk: ChunkRef | undefined; readonly error: ChunkMesherError }>>): Effect.Effect<void> =>
+    Ref.update(pendingFaults, (current) => {
+      const next = new Map(current)
+      for (const fault of faults) {
+        const key = renderFaultKey(fault)
+        const previous = next.get(key)
+        if (previous === undefined) {
+          next.set(key, { _tag: 'ChunkRenderFault', chunk: fault.chunk, error: fault.error, occurrences: COUNT_STEP })
+        } else {
+          next.set(key, { ...previous, occurrences: previous.occurrences + COUNT_STEP })
+        }
+      }
+      return next
+    })
+  const drain = Effect.map(
+    Ref.getAndSet(pendingFaults, new Map()),
+    (faults) => Array.from(faults.values()),
+  )
+  return { drain, record }
+})
 
 /**
  * Attach a renderer to the published mc-worldgen dirty-subscription lifecycle.
@@ -459,14 +752,18 @@ export const attachWorldRenderer = (
   Effect.gen(function* () {
     const subscription = yield* store.subscribeDirty
     const isAttached = yield* Ref.make(true)
+    const faultQueue = yield* makeRenderFaultQueue()
     const mutex = yield* Semaphore.make(MUTEX_PERMITS)
 
-    const updateIfAttached = (active: boolean): Effect.Effect<SyncReport, ChunkMesherError> => {
-      if (active) {
-        return syncWorld(renderer, subscription, mesher, options)
-      }
-      return Effect.succeed(EMPTY_SYNC_REPORT)
-    }
+    const updateIfAttached = (active: boolean): Effect.Effect<SyncReport> =>
+      Effect.gen(function* () {
+        if (!active) {
+          return EMPTY_SYNC_REPORT
+        }
+        const result = yield* syncWorldWithFaults(renderer, subscription, mesher, options)
+        yield* faultQueue.record(result.faults)
+        return result.report
+      })
 
     const unsubscribeIfWasAttached = (wasAttached: boolean): Effect.Effect<void> => {
       if (wasAttached) {
@@ -481,7 +778,7 @@ export const attachWorldRenderer = (
       Effect.flatMap(Ref.getAndSet(isAttached, false), unsubscribeIfWasAttached),
     )
 
-    return { attached: Ref.get(isAttached), detach, update }
+    return { attached: Ref.get(isAttached), detach, drainFaults: faultQueue.drain, update }
   })
 
 /**

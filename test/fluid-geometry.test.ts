@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { Result } from 'effect'
 import { blockId } from './support/kernel-brands'
 import {
   buildFluidGeometry,
@@ -29,6 +30,19 @@ const side = (direction: FaceDirection): FluidQuad => ({
 })
 
 describe('buildFluidGeometry', () => {
+  it('returns a tile resolver failure for fluid geometry', () => {
+    const failure = { _tag: 'TileResolutionFailure' } as const
+    const built = buildFluidGeometry(
+      [top()],
+      0,
+      0,
+      undefined,
+      { resolve: () => Result.fail(failure) },
+    )
+
+    expect(built).toStrictEqual(Result.fail(failure))
+  })
+
   it('preserves canonical top UVs and zero metadata for still fluid', () => {
     const geometry = buildFluidGeometry([top()])
 

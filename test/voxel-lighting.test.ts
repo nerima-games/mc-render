@@ -15,6 +15,7 @@ import { Effect } from 'effect'
 import * as FastCheck from 'fast-check'
 import {
   AO_MAX,
+  AO_ONLY_COLOR,
   AO_ONLY_SHADE,
   aoShade,
   buildChunkGeometry,
@@ -23,6 +24,7 @@ import {
   type FaceDirection,
   type MeshQuad,
   type QuadColor,
+  type SpecialBlockQuad,
 } from '../src/domain/chunk-geometry'
 import { LIGHT_LEVEL_MAX, LightLevelCandidate } from '@nerima-games/mc-kernel'
 import {
@@ -44,6 +46,7 @@ import {
   lightShadeFactor,
   litColor,
   litShade,
+  packedLightColor,
   trackChunkLightColor,
   type ChunkLightTrackerSnapshot,
   type LightSampler,
@@ -91,6 +94,22 @@ const crossPlantQuad = (overrides: Partial<CrossPlantQuad> = {}): CrossPlantQuad
   nz: 1,
   ao: 0,
   ...overrides,
+})
+
+const specialBlockQuad = (): SpecialBlockQuad => ({
+  blockId: blockId(21),
+  direction: 'xPos',
+  kind: 'door',
+  nx: 1,
+  ny: 0,
+  nz: 0,
+  role: 'side',
+  vertices: [
+    [2, 64, 3],
+    [2, 65, 3],
+    [2, 65, 4],
+    [2, 64, 4],
+  ],
 })
 
 const arbitraryLevel = FastCheck.integer({ min: 0, max: LIGHT_LEVEL_MAX })
@@ -348,6 +367,19 @@ describe('the sample point', () => {
         direction: 'yPos',
         point: [0.5, 64.5, 0.5],
       })
+    }),
+  )
+
+  it.effect('samples a special block at the centre of its explicit vertices', () =>
+    Effect.sync(() => {
+      const special = specialBlockQuad()
+      expect(lightSampleForGeometryQuad(special)).toStrictEqual({
+        direction: 'xPos',
+        point: [2, 64.5, 3.5],
+      })
+      expect(AO_ONLY_COLOR(special)).toStrictEqual([255, 255, 255])
+      expect(packedLightColor(() => lightReading(15, 0))(special)).toStrictEqual([255, 255, 0])
+      expect(Number.isFinite(litShade(() => lightReading(15, 0))(special))).toBe(true)
     }),
   )
 })

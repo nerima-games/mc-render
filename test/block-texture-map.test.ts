@@ -18,11 +18,13 @@ import {
   tileIndexResolver,
 } from '../src/domain/block-texture-map'
 import { ATLAS_TILE_COUNT, AtlasTileIndexSchema, isTileIndex } from '../src/domain/texture-atlas'
+import { tileIndexForVariantStage } from '../src/domain/block-texture-variant'
 import type { FaceRole, GeometryQuad } from '../src/domain/meshing-vocabulary'
 import { blockId } from './support/kernel-brands'
 import sourceManifest from '../src/assets/block-textures/manifest.json' with { type: 'json' }
 
 const FACE_ROLES: ReadonlyArray<FaceRole> = ['top', 'side', 'bottom']
+const STATEFUL_BLOCKS = ['sapling', 'wheat_crop', 'potato_crop', 'nether_wart_crop'] as const
 
 const expectManifestFailure = (input: unknown, reason: BlockTextureManifestFailureReason): void => {
   const result = decodeBlockTextureManifest(input)
@@ -70,10 +72,19 @@ describe('block texture manifest mapping', () => {
           FastCheck.constantFrom(...FACE_ROLES),
           (blockName, role) => {
             const lookup = tileIndexForBlockName(blockName, role)
-            expect(Result.isSuccess(lookup)).toBe(true)
-            if (Result.isSuccess(lookup)) {
-              expect(lookup.success).toBe(TILE_BY_BLOCK_NAME[blockName][role])
-              expect(isTileIndex(lookup.success)).toBe(true)
+            if (STATEFUL_BLOCKS.some((statefulBlock) => statefulBlock === blockName)) {
+              expect(lookup).toStrictEqual(Result.fail({
+                _tag: 'BlockTextureLookupError',
+                blockName,
+                reason: 'missing-texture-stage',
+                role,
+              }))
+            } else {
+              expect(Result.isSuccess(lookup)).toBe(true)
+              if (Result.isSuccess(lookup)) {
+                expect(lookup.success).toBe(TILE_BY_BLOCK_NAME[blockName][role])
+                expect(isTileIndex(lookup.success)).toBe(true)
+              }
             }
           },
         ),
@@ -138,6 +149,95 @@ describe('block texture manifest mapping', () => {
     }),
   )
 
+  it.effect('selects wheat texture stages and rejects missing or unreadable stages', () =>
+    Effect.sync(() => {
+      expect(tileIndexForBlockName('wheat_crop', 'side', { blockType: 'wheat_crop', stage: 0 }))
+        .toStrictEqual(Result.succeed(211))
+      expect(tileIndexForBlockName('wheat_crop', 'side', { blockType: 'wheat_crop', stage: 7 }))
+        .toStrictEqual(Result.succeed(388))
+      const wheatWithoutStage: GeometryQuad = {
+        blockId: blockId(1),
+        role: 'side',
+        vertices: [[0, 0, 0], [0, 1, 0], [1, 1, 1], [1, 0, 1]],
+        nx: 0,
+        ny: 0,
+        nz: 1,
+        ao: 0,
+      }
+      expect(quadTileForLookup(() => 'wheat_crop')(wheatWithoutStage)).toStrictEqual(Result.fail({
+        _tag: 'BlockTextureLookupError',
+        blockName: 'wheat_crop',
+        reason: 'missing-texture-stage',
+        role: 'side',
+      }))
+      expect(quadTileForLookup(() => 'sapling')({ ...wheatWithoutStage, blockId: blockId(2) }))
+        .toStrictEqual(Result.fail({
+          _tag: 'BlockTextureLookupError',
+          blockName: 'sapling',
+          reason: 'missing-texture-stage',
+          role: 'side',
+        }))
+      expect(tileIndexForBlockName('wheat_crop', 'side', null)).toStrictEqual(Result.fail({
+        _tag: 'BlockTextureLookupError',
+        blockName: 'wheat_crop',
+        reason: 'invalid-texture-stage',
+        role: 'side',
+      }))
+      expect(tileIndexForBlockName('wheat_crop', 'side', undefined)).toStrictEqual(Result.fail({
+        _tag: 'BlockTextureLookupError',
+        blockName: 'wheat_crop',
+        reason: 'invalid-texture-stage',
+        role: 'side',
+      }))
+      expect(tileIndexForBlockName('wheat_crop', 'side', { blockType: 'wheat_crop', stage: -1 }))
+        .toStrictEqual(Result.fail({
+          _tag: 'BlockTextureLookupError',
+          blockName: 'wheat_crop',
+          reason: 'invalid-texture-stage',
+          role: 'side',
+        }))
+      expect(tileIndexForBlockName('wheat_crop', 'side', { blockType: 'wheat_crop', stage: 8 }))
+        .toStrictEqual(Result.fail({
+          _tag: 'BlockTextureLookupError',
+          blockName: 'wheat_crop',
+          reason: 'invalid-texture-stage',
+          role: 'side',
+        }))
+      expect(tileIndexForBlockName('wheat_crop', 'side', { blockType: 'potato_crop', stage: 0 }))
+        .toStrictEqual(Result.fail({
+          _tag: 'BlockTextureLookupError',
+          blockName: 'wheat_crop',
+          reason: 'texture-stage-block-mismatch',
+          role: 'side',
+        }))
+      expect(tileIndexForBlockName('sapling', 'side', { blockType: 'sapling', stage: 1 }))
+        .toStrictEqual(Result.succeed(59))
+      expect(tileIndexForVariantStage([], { blockType: 'wheat_crop', stage: 0 }, { blockName: 'wheat_crop', role: 'side' })).toStrictEqual(Result.fail({
+        _tag: 'BlockTextureLookupError',
+        blockName: 'wheat_crop',
+        reason: 'missing-texture-variant',
+        role: 'side',
+      }))
+
+      FastCheck.assert(
+        FastCheck.property(
+          FastCheck.constantFrom('sapling', 'wheat_crop', 'potato_crop', 'nether_wart_crop'),
+          FastCheck.constantFrom(...FACE_ROLES),
+          FastCheck.anything(),
+          (blockName, role, textureStage) => {
+            const lookup = tileIndexForBlockName(blockName, role, textureStage)
+            if (Result.isSuccess(lookup)) {
+              expect(Schema.is(AtlasTileIndexSchema)(lookup.success)).toBe(true)
+            } else {
+              expect(lookup.failure._tag).toBe('BlockTextureLookupError')
+            }
+          },
+        ),
+        { numRuns: 100, seed: 8 },
+      )
+    }),
+  )
+
   it.effect('uses typed failures through the resolver and quad adapter', () =>
     Effect.sync(() => {
       const resolveStone = tileIndexResolver(() => 'stone')
@@ -157,6 +257,18 @@ describe('block texture manifest mapping', () => {
 
       const quad = { blockId: blockId(1), role: 'top' } as unknown as GeometryQuad
       expect(quadTileForLookup(() => 'stone')(quad)).toStrictEqual(Result.succeed(TILE_BY_BLOCK_NAME.stone.top))
+
+      const wheatQuad: GeometryQuad = {
+        blockId: blockId(1),
+        role: 'side',
+        textureStage: { blockType: 'wheat_crop', stage: 7 },
+        vertices: [[0, 0, 0], [0, 1, 0], [1, 1, 1], [1, 0, 1]],
+        nx: 0,
+        ny: 0,
+        nz: 1,
+        ao: 0,
+      }
+      expect(quadTileFromResolver(tileIndexResolver(() => 'wheat_crop'))(wheatQuad)).toStrictEqual(Result.succeed(388))
     }),
   )
 

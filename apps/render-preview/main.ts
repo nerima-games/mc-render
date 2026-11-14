@@ -16,13 +16,13 @@
  * `presentation=1` view also draws the generated first-person arm and a
  * held block through the interaction renderer.
  *
- * THE QUADS ARE REAL. `terrain-fixture.json` is the output of
+ * THE DEFAULT TERRAIN QUADS ARE REAL. `terrain-fixture.json` is the output of
  * `generateChunkAt(20260728, cx, cz)` from mc-worldgen, meshed by mc-meshing's
  * `meshChunk` with its greedy merge, for radius 3 (49 chunks) — 13,218 quads.
- * Nothing on this page authored a vertex.
+ * The state views also use `meshChunk` output; the page does not author vertices.
  *
  * DOES NOT PROVE: that runtime world generation reaches the renderer. This
- * preview fetches pre-generated terrain data instead of invoking worldgen.
+ * default preview fetches pre-generated terrain data instead of invoking worldgen.
  * `.oxlintrc.json` and `pnpm lint` enforce its direct-import boundary; browser
  * runtime paths are covered separately by E2E tests.
  *
@@ -37,6 +37,7 @@ import {
   browserInputLayer,
 } from '../../src/application/browser-input-adapter.js'
 import { InputService } from '../../src/application/input-service.js'
+import { makeChunkStoreMesher, type MeshingChunkStore } from '../../src/application/chunk-store-mesher.js'
 import { createInteractionRenderer } from '../../src/application/interaction-renderer.js'
 import { planEntityVisual } from '../../src/application/entity-visual-plan.js'
 import {
@@ -53,7 +54,7 @@ import {
   type WorldRenderer,
 } from '../../src/application/world-renderer.js'
 import { chunkKeyOf, syncWorld, type ChunkRef } from '../../src/application/world-sync.js'
-import { tileIndexForBlockName, type BlockTextureLookupError } from '../../src/domain/block-texture-map.js'
+import { quadTileForLookup, tileIndexForBlockName, type BlockTextureLookupError } from '../../src/domain/block-texture-map.js'
 import type { GeometryQuad, MeshQuad } from '../../src/domain/meshing-vocabulary.js'
 import type { MirroredCameraState } from '../../src/domain/camera-mirror.js'
 import {
@@ -63,6 +64,7 @@ import {
   ENTITY_MODEL_TEXTURE_ATLAS,
   entityTextureAtlasPixels,
 } from '../../src/domain/entity-model-textures.js'
+import { createStatePreviewChunk } from './state-fixture.js'
 
 const VIEWPORT = { width: 640, height: 360 }
 const ENTITY_GALLERY_VIEWPORT = { width: 256, height: 256 }
@@ -79,6 +81,11 @@ const ENTITY_GALLERY_LIGHT_LEVEL = 15
 const ENTITY_GALLERY_ZERO = 0
 const ENTITY_GALLERY_ONE = 1
 const ENTITY_GALLERY_BACKGROUND_TOLERANCE = 2
+const STATE_PREVIEW_POSE = { x: 8, y: 28, z: 15, yaw: 0, pitch: -0.65 }
+const PIXEL_CHANNELS = 4
+const SKY_PIXEL_TOLERANCE = 2
+
+type StatePreviewMode = 'main' | 'rn6'
 
 /**
  * A camera looking down at the fixture from one corner.
@@ -179,9 +186,10 @@ type TerrainFixture = {
   }>
 }
 
+const fixtureTileLookup = quadTileForLookup((blockId) => Result.getOrThrow(blockTypeOfId(blockId)))
+
 const fixtureTile = (quad: GeometryQuad): number => {
-  const blockName = Result.getOrThrow(blockTypeOfId(quad.blockId))
-  const tileIndex = tileIndexForBlockName(blockName, quad.role)
+  const tileIndex = fixtureTileLookup(quad)
   if (Result.isFailure(tileIndex)) {
     throw tileIndex.failure
   }
@@ -670,6 +678,76 @@ const resolvePreviewRequest = (): PreviewRequest | undefined => {
   }
 }
 
+
+const drawStatePreview = async (
+  renderer: WorldRenderer,
+  canvas: HTMLCanvasElement,
+  report: HTMLElement,
+  mode: StatePreviewMode,
+): Promise<void> => {
+  const includeBlockStates = mode === 'rn6'
+  const chunk = createStatePreviewChunk(includeBlockStates)
+  const coordinate = chunkCoord(ChunkAxis(0), ChunkAxis(0))
+  const store = {
+    peek: () => Effect.succeed(chunk),
+    neighbours: () => Effect.succeed({}),
+  } satisfies MeshingChunkStore
+  const resolvedTiles = new Set<number>()
+  const tile = (quad: GeometryQuad): number => {
+    const index = fixtureTile(quad)
+    resolvedTiles.add(index)
+    return index
+  }
+  const dirtySource = {
+    drain: Effect.succeed({ changed: [coordinate], removed: [] }),
+  }
+  const mesher = makeChunkStoreMesher(store)
+  await Effect.runPromise(syncWorld(renderer, dirtySource, mesher, { tile }))
+  await Effect.runPromise(renderer.draw(cameraFrom(STATE_PREVIEW_POSE)))
+
+  const stateLegend = document.getElementById('state-preview-legend')
+  if (stateLegend !== null) {
+    stateLegend.hidden = false
+  }
+  document.body.setAttribute('data-state-mode', mode)
+  document.body.setAttribute('data-state-sidecar', includeBlockStates ? 'encoded' : 'omitted')
+
+  const gl = canvas.getContext('webgl2')
+  if (gl === null) {
+    document.body.setAttribute('data-state-preview', 'failed')
+    document.body.setAttribute('data-render-preview', 'failed')
+    report.textContent = 'no webgl2 context'
+    return
+  }
+  const pixels = new Uint8Array(VIEWPORT.width * VIEWPORT.height * PIXEL_CHANNELS)
+  gl.readPixels(0, 0, VIEWPORT.width, VIEWPORT.height, gl.RGBA, gl.UNSIGNED_BYTE, pixels)
+  const [skyR, skyG, skyB] = skyBytes()
+  let drawn = 0
+  for (let at = 0; at < pixels.length; at += PIXEL_CHANNELS) {
+    const red = pixels[at] ?? 0
+    const green = pixels[at + 1] ?? 0
+    const blue = pixels[at + 2] ?? 0
+    const isSky = Math.abs(red - skyR) <= SKY_PIXEL_TOLERANCE &&
+      Math.abs(green - skyG) <= SKY_PIXEL_TOLERANCE &&
+      Math.abs(blue - skyB) <= SKY_PIXEL_TOLERANCE
+    if (!isSky) {
+      drawn += 1
+    }
+  }
+
+  const result = drawn > 0 ? 'drawn' : 'empty'
+  report.textContent = [
+    `states ${mode}; block-state sidecar ${includeBlockStates ? 'encoded per cell' : 'omitted'}`,
+    `pixels drawn: ${String(drawn)} of ${String(VIEWPORT.width * VIEWPORT.height)}`,
+    `distinct resolved atlas tiles: ${String(resolvedTiles.size)}`,
+  ].join('\n')
+  document.body.setAttribute('data-render-preview', result)
+  document.body.setAttribute('data-state-preview', result)
+  document.body.setAttribute('data-pixels-drawn', String(drawn))
+  document.body.setAttribute('data-resolved-tile-count', String(resolvedTiles.size))
+}
+
+
 const loadBlockTextureAtlas = async (): Promise<THREE.Texture> => {
   const atlasUrl = new URL('../../src/assets/block-textures/atlas.png', import.meta.url).href
   const atlasTexture = await new THREE.TextureLoader().loadAsync(atlasUrl)
@@ -748,6 +826,12 @@ const main = async (): Promise<void> => {
   }
   const { atlasTexture, renderer, request } = previewSetup
   const { canvas, entityPreview, report } = request
+
+  const stateMode = new URLSearchParams(window.location.search).get('states')
+  if (stateMode === 'main' || stateMode === 'rn6') {
+    await drawStatePreview(renderer, canvas, report, stateMode)
+    return
+  }
 
   const presentationSetupResult = await createPreviewPresentation(renderer, atlasTexture)
   if (Result.isFailure(presentationSetupResult)) {

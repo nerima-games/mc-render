@@ -492,7 +492,7 @@
     "text": "string"
   },
   {
-    "count": 19,
+    "count": 15,
     "file": "src/domain/meshing-vocabulary.ts",
     "ruleId": "no-raw-exported-type-field",
     "text": "number"

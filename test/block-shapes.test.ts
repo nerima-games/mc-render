@@ -4,6 +4,7 @@ import {
   CHUNK_HEIGHT,
   CHUNK_SIZE,
   type ChunkView,
+  type SpecialBlockQuad,
 } from '@nerima-games/mc-meshing'
 import { BLOCK_IDS, propertyOfBlockId, type BlockId } from '@nerima-games/mc-kernel'
 import { Effect, Result } from 'effect'
@@ -17,6 +18,7 @@ import { BLOCK_SHAPE_BOUNDS, meshBlockShapes } from '../src/domain/block-shapes'
 import {
   isBlockShapeQuad,
   isCrossPlantQuad,
+  isSpecialBlockQuad,
   type BlockShapeKind,
   type BlockShapeQuad,
 } from '../src/domain/meshing-vocabulary'
@@ -89,6 +91,22 @@ const cubeQuad = (): MeshQuad => ({
   role: 'side',
   width: 1,
   y: 20,
+})
+
+const doorSpecialQuad = (): SpecialBlockQuad => ({
+  blockId: blockId(101),
+  direction: 'zPos',
+  kind: 'door',
+  nx: 0,
+  ny: 0,
+  nz: 1,
+  role: 'side',
+  vertices: [
+    [4, 20, 4],
+    [4, 21, 4],
+    [4 + 3 / 16, 21, 4],
+    [4 + 3 / 16, 20, 4],
+  ],
 })
 
 describe('block shape meshing', () => {
@@ -215,12 +233,15 @@ describe('block shape geometry and lighting', () => {
       }
       const cross = crossPlantQuad()
       const cube = cubeQuad()
-      const geometry: ReadonlyArray<GeometryQuad> = [shape, cross, cube]
+      const special = doorSpecialQuad()
+      const geometry: ReadonlyArray<GeometryQuad> = [shape, cross, cube, special]
 
       expect(geometry.filter(isBlockShapeQuad)).toHaveLength(1)
       expect(geometry.filter(isCrossPlantQuad)).toHaveLength(1)
+      expect(geometry.filter(isSpecialBlockQuad)).toHaveLength(1)
       expect(isBlockShapeQuad(cube)).toBe(false)
       expect(isCrossPlantQuad(shape)).toBe(false)
+      expect(isSpecialBlockQuad(shape)).toBe(false)
       expect(lightSampleForGeometryQuad(cross)).toStrictEqual({
         direction: 'yPos',
         point: [0.5, 20.5, 0.5],
@@ -229,6 +250,14 @@ describe('block shape geometry and lighting', () => {
         direction: 'zNeg',
         point: [2.5, 20.5, 2],
       })
+      const specialGeometry = buildBlockShapeGeometry([special], 10, -3, () => [7, 8, 9], () => 12)
+      expect([...specialGeometry.positions]).toStrictEqual([
+        14, 20, 1,
+        14, 21, 1,
+        14 + 3 / 16, 21, 1,
+        14 + 3 / 16, 20, 1,
+      ])
+      expect([...specialGeometry.uvs]).toStrictEqual([0, 0, 0, 1, 3 / 16, 1, 3 / 16, 0])
     }),
   )
 })

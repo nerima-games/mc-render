@@ -5,12 +5,17 @@ import {
   BlockId,
   LocalAxis,
   RenderDistanceChunks,
+  blockIdOf,
+  encodeBlockState,
   propertyOfBlockId,
+  type BlockStateValues,
+  type BlockType,
   type ChunkCoord,
 } from '@nerima-games/mc-kernel'
+import { blockIndex, type FluidQuad, type SpecialBlockQuad } from '@nerima-games/mc-meshing'
 import { LightQueueUnderflowError, type Chunk, type ReadonlyChunk } from '@nerima-games/mc-worldgen'
 import { emptyBlocks, setBlockAt } from '@nerima-games/mc-worldgen/testing'
-import { Effect, Ref, Result, Schema } from 'effect'
+import { Effect, Option, Ref, Result, Schema } from 'effect'
 import {
   ChunkMeshingWorkerFailureSchema,
   decodeChunkMeshingWorkerRequest,
@@ -21,6 +26,7 @@ import {
 import {
   attachChunkStoreRenderer,
   blockNameFromKernel,
+  KERNEL_BLOCK_SHAPE_KINDS,
   KERNEL_MESH_CONFIG,
   makeChunkStoreLightColor,
   makeChunkStoreMesher,
@@ -39,12 +45,14 @@ import type {
   BrowserWorkerMessageEvent,
 } from '../src/application/browser-worker-port.js'
 import { makeWorldRenderer } from '../src/application/world-renderer'
-import { aoShade } from '../src/domain/chunk-geometry'
+import { quadTileForLookup } from '../src/domain/block-texture-map'
+import { aoShade, POSITION_COMPONENTS, type GeometryQuad } from '../src/domain/chunk-geometry'
 import { WorkerCountSchema } from '../src/domain/worker-parallelism.js'
 import { LodInputErrorSchema, type LodInputError } from '../src/domain/level-of-detail.js'
 import { FAKE_CANVAS, makeFakeThree } from './support/fake-three'
 import { chunkCoord } from './support/kernel-brands'
 
+const INVALID_ENCODED_BLOCK_STATE = 0xffff_ffff
 const VIEWPORT = { width: 640, height: 360 }
 const workerCount = Schema.decodeUnknownSync(WorkerCountSchema)
 const emptyLayers = {
@@ -82,6 +90,62 @@ const chunk = (cx: number, cz: number, blocks: ReadonlyArray<readonly [number, n
   }
 }
 
+type StatefulBlockEntry = {
+  readonly blockType: BlockType
+  readonly position: readonly [lx: number, y: number, lz: number]
+  readonly state: BlockStateValues
+}
+
+const blockIdForType = (blockType: BlockType) => Option.getOrThrow(blockIdOf(blockType))
+
+const encodedStateFor = (blockType: BlockType, state: BlockStateValues): number =>
+  Result.getOrThrow(encodeBlockState(blockIdForType(blockType), state))
+
+const chunkWithStates = (
+  cx: number,
+  cz: number,
+  entries: ReadonlyArray<StatefulBlockEntry>,
+): Chunk & { readonly blockStates: Uint32Array } => {
+  const blocks: Array<readonly [number, number, number, number]> = []
+  for (const { blockType, position } of entries) {
+    const [lx, y, lz] = position
+    blocks.push([lx, y, lz, blockIdForType(blockType)])
+  }
+  const resident = chunk(cx, cz, blocks)
+  const blockStates = new Uint32Array(resident.blocks.length)
+  blockStates.fill(encodedStateFor('air', {}))
+  for (const { blockType, position, state } of entries) {
+    const [lx, y, lz] = position
+    blockStates[blockIndex(lx, y, lz)] = encodedStateFor(blockType, state)
+  }
+  return { ...resident, blockStates }
+}
+
+const boundsOfExplicitVertices = (
+  quads: ReadonlyArray<{ readonly vertices: ReadonlyArray<readonly [number, number, number]> }>,
+) => {
+  const vertices = quads.flatMap(({ vertices: quadVertices }) => quadVertices)
+  const [first] = vertices
+  if (first === undefined) {
+    throw new Error('expected explicit mesh vertices')
+  }
+  let [minX, minY, minZ] = first
+  let [maxX, maxY, maxZ] = first
+  for (const [x, y, z] of vertices) {
+    minX = Math.min(minX, x)
+    minY = Math.min(minY, y)
+    minZ = Math.min(minZ, z)
+    maxX = Math.max(maxX, x)
+    maxY = Math.max(maxY, y)
+    maxZ = Math.max(maxZ, z)
+  }
+  return { maxX, maxY, maxZ, minX, minY, minZ }
+}
+
+const specialBounds = (quads: ReadonlyArray<SpecialBlockQuad>) => boundsOfExplicitVertices(quads)
+
+const fluidBounds = (quads: ReadonlyArray<FluidQuad>) => boundsOfExplicitVertices(quads)
+
 const neighboursFor = (xPos?: ReadonlyChunk): { xPos?: ReadonlyChunk } => {
   if (xPos === undefined) {
     return {}
@@ -108,6 +172,10 @@ const storeWithNeighbours = (
 })
 
 type StructuredCloneWorker = BrowserWorkerLike<ArrayBuffer> & {
+  readonly blockStateSidecars: () => ReadonlyArray<{
+    readonly cloned: Uint32Array | undefined
+    readonly posted: Uint32Array | undefined
+  }>
   readonly transferredBuffers: () => ReadonlyArray<ArrayBuffer>
 }
 
@@ -116,6 +184,10 @@ const makeStructuredCloneWorker = (): StructuredCloneWorker => {
     throw new Error('worker message listener is not installed')
   }
   const transferredBuffers: Array<ArrayBuffer> = []
+  const blockStateSidecars: Array<{
+    readonly cloned: Uint32Array | undefined
+    readonly posted: Uint32Array | undefined
+  }> = []
   return {
     addEventListener: (type, listener) => {
       if (type === 'message') {
@@ -123,6 +195,7 @@ const makeStructuredCloneWorker = (): StructuredCloneWorker => {
       }
     },
     postMessage: (message: unknown, transfer?: Array<ArrayBuffer>) => {
+      const postedRequest = decodeChunkMeshingWorkerRequest(message)
       const transferList = transfer ?? []
       const workerMessage = structuredClone(message, { transfer: transferList })
       transferredBuffers.push(...transferList)
@@ -130,9 +203,16 @@ const makeStructuredCloneWorker = (): StructuredCloneWorker => {
       if (Result.isFailure(request)) {
         throw new Error('structured-cloned worker request did not decode')
       }
+      if (Result.isSuccess(postedRequest)) {
+        blockStateSidecars.push({
+          cloned: request.success.payload.chunk.blockStates,
+          posted: postedRequest.success.payload.chunk.blockStates,
+        })
+      }
       messageListener({ data: processChunkMeshingWorkerRequest(request.success) })
     },
     terminate: () => undefined,
+    blockStateSidecars: () => blockStateSidecars,
     transferredBuffers: () => transferredBuffers,
   }
 }
@@ -493,16 +573,292 @@ describe('makeChunkStoreMesher', () => {
       expect(quads?.blockShapes).toStrictEqual([])
     }),
   )
+
+  it.effect('uses encoded door states for closed and open panel geometry', () =>
+    Effect.gen(function* () {
+      const closedChunk = chunkWithStates(0, 0, [
+        {
+          blockType: 'door',
+          position: [2, 20, 3],
+          state: { facing: 'north', half: 'lower', hinge: 'left', open: false },
+        },
+      ])
+      const openChunk = chunkWithStates(0, 0, [
+        {
+          blockType: 'door',
+          position: [2, 20, 3],
+          state: { facing: 'north', half: 'lower', hinge: 'left', open: true },
+        },
+      ])
+      const closedMesh = yield* makeChunkStoreMesher(storeOf(closedChunk))(chunkCoord(0, 0))
+      const openMesh = yield* makeChunkStoreMesher(storeOf(openChunk))(chunkCoord(0, 0))
+      const closedDoor = closedMesh?.specialBlocks?.filter(({ kind }) => kind === 'door') ?? []
+      const openDoor = openMesh?.specialBlocks?.filter(({ kind }) => kind === 'door') ?? []
+
+      expect(closedDoor.length).toBeGreaterThan(0)
+      expect(openDoor.length).toBeGreaterThan(0)
+      expect(specialBounds(closedDoor)).toStrictEqual({
+        maxX: 3,
+        maxY: 21,
+        maxZ: 4,
+        minX: 2,
+        minY: 20,
+        minZ: 3 + 13 / 16,
+      })
+      expect(specialBounds(openDoor)).toStrictEqual({
+        maxX: 2 + 3 / 16,
+        maxY: 21,
+        maxZ: 4,
+        minX: 2,
+        minY: 20,
+        minZ: 3,
+      })
+
+      const three = makeFakeThree()
+      const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT)
+      const batches = yield* Ref.make<ReadonlyArray<{
+        readonly changed: ReadonlyArray<ChunkCoord>
+        readonly removed: ReadonlyArray<ChunkCoord>
+      }>>([{ changed: [chunkCoord(0, 0)], removed: [] }])
+      const store: RendererChunkStore = {
+        peek: () => Effect.succeed(closedChunk),
+        neighbours: () => Effect.succeed({}),
+        subscribeDirty: Effect.succeed({
+          drain: Ref.modify(batches, ([next, ...rest]) => [next ?? { changed: [], removed: [] }, rest]),
+          unsubscribe: Effect.void,
+        }),
+        getLight: () => Effect.succeed({ _tag: 'Light' as const, block: 15, sky: 15 }),
+      }
+      const attachment = yield* attachChunkStoreRenderer(renderer, store)
+      yield* attachment.update
+      const uploadedPositions = three.geometries().flatMap((geometry) => {
+        const position = geometry.attributes.get('position')
+        if (position === undefined || !(position.array instanceof Float32Array)) {
+          return []
+        }
+        return [position.array]
+      })
+      expect(uploadedPositions.some((positions) => Array.from(positions).includes(3 + 13 / 16))).toBe(true)
+    }),
+  )
+
+  it.effect('uses stair direction and corner shape in the published special geometry', () =>
+    Effect.gen(function* () {
+      const straightChunk = chunkWithStates(0, 0, [
+        {
+          blockType: 'oak_stairs',
+          position: [4, 20, 4],
+          state: { facing: 'east', half: 'bottom', shape: 'straight' },
+        },
+      ])
+      const outerCornerChunk = chunkWithStates(0, 0, [
+        {
+          blockType: 'oak_stairs',
+          position: [4, 20, 4],
+          state: { facing: 'north', half: 'bottom', shape: 'outer_right' },
+        },
+      ])
+      const straightMesh = yield* makeChunkStoreMesher(storeOf(straightChunk))(chunkCoord(0, 0))
+      const outerCornerMesh = yield* makeChunkStoreMesher(storeOf(outerCornerChunk))(chunkCoord(0, 0))
+      const straightStairs = straightMesh?.specialBlocks?.filter(({ kind }) => kind === 'stairs') ?? []
+      const outerCornerStairs = outerCornerMesh?.specialBlocks?.filter(({ kind }) => kind === 'stairs') ?? []
+      const topFaces = (quads: ReadonlyArray<SpecialBlockQuad>) =>
+        quads.filter(({ direction, vertices }) => direction === 'yPos' && vertices.every(([, y]) => y === 21))
+
+      expect(straightStairs.length).toBeGreaterThan(0)
+      expect(outerCornerStairs.length).toBeGreaterThan(0)
+      expect(straightStairs.every(({ blockState }) => blockState?.facing === 'east' && blockState.shape === 'straight')).toBe(true)
+      expect(outerCornerStairs.every(({ blockState }) => blockState?.facing === 'north' && blockState.shape === 'outer_right')).toBe(true)
+      expect(specialBounds(topFaces(straightStairs))).toStrictEqual({
+        maxX: 5,
+        maxY: 21,
+        maxZ: 5,
+        minX: 4.5,
+        minY: 21,
+        minZ: 4,
+      })
+      expect(specialBounds(topFaces(outerCornerStairs))).toStrictEqual({
+        maxX: 5,
+        maxY: 21,
+        maxZ: 4.5,
+        minX: 4.5,
+        minY: 21,
+        minZ: 4,
+      })
+    }),
+  )
+
+  it.effect('computes water surface height and flow from encoded neighbour states', () =>
+    Effect.gen(function* () {
+      const resident = chunkWithStates(0, 0, [
+        { blockType: 'water', position: [8, 20, 8], state: { level: 7 } },
+        { blockType: 'water', position: [3, 20, 3], state: { level: 0 } },
+        { blockType: 'water', position: [4, 20, 3], state: { level: 7 } },
+      ])
+      const mesh = yield* makeChunkStoreMesher(storeOf(resident))(chunkCoord(0, 0))
+      const fluids = mesh?.fluids ?? []
+      const tops = fluids.filter(({ direction }) => direction === 'yPos')
+      const isolatedFlow = tops.find(({ vertices }) =>
+        vertices.every(([x, , z]) => x >= 8 && x <= 9 && z >= 8 && z <= 9),
+      )
+      const directedFlow = tops.find(({ vertices }) =>
+        vertices.every(([x, , z]) => x >= 4 && x <= 5 && z >= 3 && z <= 4),
+      )
+
+      expect(isolatedFlow).toBeDefined()
+      expect(directedFlow).toBeDefined()
+      expect(fluidBounds([isolatedFlow!]).maxY).toBe(20.125)
+      expect(directedFlow?.flow).toStrictEqual({ direction: [1, 0], falling: false })
+    }),
+  )
+
+  it.effect('routes rail state geometry through mc-meshing without a second local rail shape', () =>
+    Effect.gen(function* () {
+      const resident = chunkWithStates(0, 0, [
+        { blockType: 'rail', position: [10, 20, 10], state: { shape: 'north_south' } },
+      ])
+      const mesh = yield* makeChunkStoreMesher(storeOf(resident))(chunkCoord(0, 0))
+      const rails = mesh?.specialBlocks?.filter(({ kind }) => kind === 'rail') ?? []
+
+      expect(KERNEL_BLOCK_SHAPE_KINDS.has(blockIdForType('rail'))).toBe(false)
+      expect(mesh?.blockShapes?.some(({ blockId }) => blockId === blockIdForType('rail'))).toBe(false)
+      expect(rails.length).toBeGreaterThan(0)
+      expect(rails.every(({ blockState }) => blockState?.shape === 'north_south')).toBe(true)
+      expect(specialBounds(rails)).toStrictEqual({
+        maxX: 11,
+        maxY: 20 + 1 / 16,
+        maxZ: 11,
+        minX: 10,
+        minY: 20 + 1 / 16,
+        minZ: 10,
+      })
+    }),
+  )
+
+  it.effect('keeps explicit block-state codec failures in the Effect error channel', () =>
+    Effect.gen(function* () {
+      const resident = chunk(0, 0, [[1, 20, 1, blockIdForType('door')]])
+      const blockStates = new Uint32Array(resident.blocks.length)
+      blockStates.fill(encodedStateFor('air', {}))
+      blockStates[blockIndex(1, 20, 1)] = INVALID_ENCODED_BLOCK_STATE
+      const chunkWithInvalidBlockState = { ...resident, blockStates }
+      const result = yield* Effect.result(
+        makeChunkStoreMesher(storeOf(chunkWithInvalidBlockState))(chunkCoord(0, 0)),
+      )
+
+      expect(Result.isFailure(result)).toBe(true)
+      if (Result.isFailure(result)) {
+        expect(result.failure._tag).toBe('ChunkBlockStateCodecFailure')
+      }
+    }),
+  )
 })
 
 describe('blockNameFromKernel', () => {
-  it('resolves canonical texture names and safely falls back for unknown ids', () => {
+  it('resolves canonical names and leaves unknown IDs as typed texture lookup failures', () => {
     expect(blockNameFromKernel(BlockId(4))).toBe('grass_block')
-    expect(blockNameFromKernel(BlockId(255))).toBe('unknown')
+    const unknownBlockId = BlockId(255)
+    expect(() => blockNameFromKernel(unknownBlockId)).not.toThrow()
+    expect(blockNameFromKernel(unknownBlockId)).toBe(unknownBlockId)
+
+    const lookup = quadTileForLookup(blockNameFromKernel)
+    const quad = {
+      ao: 0,
+      blockId: unknownBlockId,
+      direction: 'yPos',
+      height: 1,
+      lx: 0,
+      lz: 0,
+      role: 'top',
+      width: 1,
+      y: 0,
+    } satisfies GeometryQuad
+    expect(() => lookup(quad)).not.toThrow()
+    expect(lookup(quad)).toStrictEqual(Result.fail({
+      _tag: 'BlockTextureLookupError',
+      blockName: unknownBlockId,
+      reason: 'unknown-block',
+      role: 'top',
+    }))
   })
 })
 
 describe('attachChunkStoreRenderer', () => {
+  it.effect('uploads stage-selected crop atlas tiles through the attached renderer', () =>
+    Effect.gen(function* () {
+      const three = makeFakeThree()
+      const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT)
+      const resident = chunkWithStates(0, 0, [
+        { blockType: 'wheat_crop', position: [2, 20, 2], state: { age: 0 } },
+        { blockType: 'wheat_crop', position: [4, 20, 2], state: { age: 7 } },
+      ])
+      const batches = yield* Ref.make<ReadonlyArray<{
+        readonly changed: ReadonlyArray<ChunkCoord>
+        readonly removed: ReadonlyArray<ChunkCoord>
+      }>>([{ changed: [chunkCoord(0, 0)], removed: [] }])
+      const store: RendererChunkStore = {
+        peek: () => Effect.succeed(resident),
+        neighbours: () => Effect.succeed({}),
+        subscribeDirty: Effect.succeed({
+          drain: Ref.modify(batches, ([next, ...rest]) => [next ?? { changed: [], removed: [] }, rest]),
+          unsubscribe: Effect.void,
+        }),
+        getLight: () => Effect.succeed({ _tag: 'Light' as const, block: 15, sky: 15 }),
+      }
+
+      const worker = makeStructuredCloneWorker()
+      const pool = yield* startMeshingWorkerPool({
+        createWorker: () => worker,
+        workerCount: workerCount(1),
+      })
+      const attachment = yield* attachChunkStoreRenderer(renderer, store, {
+        color: () => [255, 255, 255],
+        workerPool: pool,
+      })
+      yield* attachment.update
+      const renderedVertexTiles = three.geometries().flatMap((geometry) => {
+        const tileAttribute = geometry.attributes.get('tileIndex')
+        const positionAttribute = geometry.attributes.get('position')
+        if (
+          tileAttribute === undefined || !(tileAttribute.array instanceof Float32Array) ||
+          positionAttribute === undefined || !(positionAttribute.array instanceof Float32Array)
+        ) {
+          return []
+        }
+        expect(positionAttribute.array.length).toBe(tileAttribute.array.length * POSITION_COMPONENTS)
+        return Array.from(tileAttribute.array, (tileIndex, vertexIndex) => {
+          const x = positionAttribute.array[vertexIndex * POSITION_COMPONENTS]
+          if (x === undefined) {
+            throw new Error('rendered vertex must have an x coordinate')
+          }
+          return { tileIndex, x }
+        })
+      })
+      expect(worker.blockStateSidecars()).toHaveLength(1)
+      const [sidecar] = worker.blockStateSidecars()
+      const postedStates = sidecar?.posted
+      const clonedStates = sidecar?.cloned
+      if (postedStates === undefined || clonedStates === undefined) {
+        throw new Error('worker request must carry wheat block states')
+      }
+
+      expect(clonedStates).not.toBe(postedStates)
+      expect(clonedStates.buffer).not.toBe(postedStates.buffer)
+      expect(clonedStates[blockIndex(2, 20, 2)]).toBe(encodedStateFor('wheat_crop', { age: 0 }))
+      expect(clonedStates[blockIndex(4, 20, 2)]).toBe(encodedStateFor('wheat_crop', { age: 7 }))
+      const tilesForBlockAtX = (blockX: number): ReadonlyArray<number> =>
+        [...new Set(
+          renderedVertexTiles
+            .filter(({ x }) => x >= blockX && x < blockX + 2)
+            .map(({ tileIndex }) => tileIndex),
+        )].sort((left, right) => left - right)
+      expect(tilesForBlockAtX(2)).toStrictEqual([211])
+      expect(tilesForBlockAtX(4)).toStrictEqual([388])
+      yield* attachment.detach
+      yield* pool.shutdown
+    }),
+  )
+
   it.effect('fills in a light-sampling colorForChunk when the caller supplies neither color option', () =>
     Effect.gen(function* () {
       const three = makeFakeThree()
@@ -533,7 +889,7 @@ describe('attachChunkStoreRenderer', () => {
     }),
   )
 
-  it.effect('propagates light queue failures through the attached renderer update', () =>
+  it.effect('records light queue failures as typed attachment faults', () =>
     Effect.gen(function* () {
       const three = makeFakeThree()
       const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT)
@@ -553,14 +909,22 @@ describe('attachChunkStoreRenderer', () => {
       }
 
       const attachment = yield* attachChunkStoreRenderer(renderer, store)
-      const result = yield* Effect.result(attachment.update)
+      const report = yield* attachment.update
+      const faults = yield* attachment.drainFaults
 
-      expect(Result.isFailure(result) && result.failure).toBe(failure)
+      expect(report).toStrictEqual({ deferred: 0, meshed: 0, removed: 0 })
+      expect(faults).toStrictEqual([{
+        _tag: 'ChunkRenderFault',
+        chunk: chunkCoord(0, 0),
+        error: failure,
+        occurrences: 1,
+      }])
+      expect(yield* attachment.drainFaults).toStrictEqual([])
       yield* attachment.detach
     }),
   )
 
-  it.effect('leaves an explicit color option untouched, and never samples light for it', () =>
+  it.effect('keeps explicit color and tile options and never samples light for color', () =>
     Effect.gen(function* () {
       const three = makeFakeThree()
       const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT)
@@ -584,11 +948,21 @@ describe('attachChunkStoreRenderer', () => {
 
       const attachment = yield* attachChunkStoreRenderer(renderer, store, {
         color: () => [1, 1, 1],
+        tile: () => 17,
       })
       yield* attachment.update
 
       expect(yield* renderer.chunkKeys).toStrictEqual(['0,0'])
       expect(yield* Ref.get(getLightCalls)).toBe(0)
+      const renderedTiles = three.geometries().flatMap((geometry) => {
+        const tileAttribute = geometry.attributes.get('tileIndex')
+        if (tileAttribute === undefined) {
+          return []
+        }
+        return Array.from(tileAttribute.array)
+      })
+      expect(renderedTiles.length).toBeGreaterThan(0)
+      expect([...new Set(renderedTiles)]).toStrictEqual([17])
     }),
   )
 
@@ -745,13 +1119,21 @@ describe('attachChunkStoreRenderer', () => {
 
       yield* attachment.update
       cameraChunk = chunkCoord(1, 0)
-      const firstRefresh = yield* Effect.result(attachment.update)
-      expect(firstRefresh).toStrictEqual(Result.fail(workerFailure))
+      const firstRefresh = yield* attachment.update
+      const firstFaults = yield* attachment.drainFaults
+      expect(firstRefresh).toStrictEqual({ deferred: 0, meshed: 0, removed: 0 })
+      expect(firstFaults).toStrictEqual([{
+        _tag: 'ChunkRenderFault',
+        chunk: chunkCoord(2, 0),
+        error: workerFailure,
+        occurrences: 1,
+      }])
       yield* attachment.update
 
       expect(submittedLods).toStrictEqual([1, 0, 0])
       yield* attachment.update
       expect(submittedLods).toStrictEqual([1, 0, 0])
+      expect(yield* attachment.drainFaults).toStrictEqual([])
       yield* attachment.detach
       yield* renderer.dispose
     }),
