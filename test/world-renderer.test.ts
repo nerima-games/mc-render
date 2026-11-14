@@ -1703,7 +1703,7 @@ describe('entity meshes in the scene', () => {
         const sceneMembers = three.scene().members()
         return three.meshes().filter((mesh) => sceneMembers.includes(mesh))
       }
-      const syncDroppedItem = (itemId?: 'bookshelf' | 'diamond'): Effect.Effect<void> => {
+      const syncDroppedItem = (itemId?: 'bookshelf' | 'diamond'): Effect.Effect<void, Schema.SchemaError> => {
         const entity = {
           category: 'item' as const,
           feetPosition,
