@@ -18,7 +18,7 @@ const PATTERNS = [
   'glass-pane', 'wool-weave', 'machine-panel', 'furnace', 'crafting-table',
   'chest', 'dispenser', 'dropper', 'rail', 'powered-rail', 'pressure-plate',
   'lever', 'observer', 'repeater', 'comparator', 'furrow', 'redstone-wire', 'redstone-torch',
-  'portal-frame', 'portal-frame-filled', 'door', 'door-open', 'cauldron',
+  'portal-frame', 'portal-frame-filled', 'door', 'door-open', 'cauldron', 'bookshelf', 'sticky-piston',
   'water-cauldron', 'tnt-wrap', 'brewing-stand',
 ] as const
 
@@ -917,6 +917,25 @@ const renderCraftingTable: PatternRenderer = (context) => {
   }
 }
 
+const renderBookshelf: PatternRenderer = (context) => {
+  renderPlankGrain(context)
+  if (context.face !== 'side') {
+    return
+  }
+  const { line, rect } = context
+  for (const y of [1, 6, 11, 15]) {
+    line(0, y, 15, y, 1)
+  }
+  for (const [y, heights] of [[2, [3, 4, 3, 4, 3]], [7, [4, 3, 4, 3, 4]]] as const) {
+    let x = 1
+    for (const [index, height] of heights.entries()) {
+      const width = index % 2 === 0 ? 2 : 3
+      rect(x, y, width, height, index % 2 === 0 ? 3 : 4)
+      x += width + 1
+    }
+  }
+}
+
 const renderChest: PatternRenderer = (context) => {
   renderPlankGrain(context)
   const { face, rect, line, set } = context
@@ -1161,6 +1180,15 @@ const renderRedstoneTorch: PatternRenderer = ({ face, rect, line, set }) => {
     line(5, 12, 10, 12, 2)
     set(7, 4, 3)
     set(8, 4, 3)
+  }
+}
+
+const renderStickyPiston: PatternRenderer = (context) => {
+  renderMachinePanel(context)
+  if (context.face === 'top') {
+    context.rect(3, 3, 10, 10, 1)
+    context.rect(4, 4, 8, 8, 2)
+    context.rect(6, 6, 4, 4, 3)
   }
 }
 
@@ -1525,6 +1553,8 @@ const PATTERN_RENDERERS: Readonly<Record<PatternName, PatternRenderer>> = {
   'portal-frame-filled': renderPortalFrameFilled,
   door: renderDoor,
   'door-open': renderDoorOpen,
+  bookshelf: renderBookshelf,
+  'sticky-piston': renderStickyPiston,
   cauldron: renderCauldron,
   'water-cauldron': renderWaterCauldron,
   'tnt-wrap': renderTntWrap,

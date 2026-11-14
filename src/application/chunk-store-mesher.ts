@@ -20,6 +20,7 @@ import {
   type ChunkStoreApi,
   type ReadonlyChunk,
   type ChunkNeighbours as WorldgenChunkNeighbours,
+  type LightQueueUnderflowError,
 } from '@nerima-games/mc-worldgen'
 import {
   CHUNK_SIZE,
@@ -37,6 +38,7 @@ import {
   type ChunkMesherError,
   type SyncOptions,
   type WorldRendererAttachment,
+  type DirtySubscriptionStore,
   attachWorldRenderer,
 } from './world-sync.js'
 import {
@@ -174,14 +176,14 @@ export const KERNEL_MESH_CONFIG: RenderMeshConfig = {
   waterBlockIds: kernelBlockIdsWithFluid('water'),
 }
 
-/** The two store operations required to mesh one resident chunk. */
-export type MeshingChunkStore = Pick<ChunkStoreApi, 'peek' | 'neighbours'>
+/** The chunk-store fields this adapter consumes before RN6 adds state-driven models. */
+export type MeshingChunkStore = {
+  readonly peek: (coord: ChunkCoord) => Effect.Effect<ReadonlyChunk | undefined>
+  readonly neighbours: (coord: ChunkCoord) => Effect.Effect<ReadonlyWorldgenChunkNeighbours>
+}
 
-/** The published worldgen surface needed for renderer attachment and meshing. */
-export type RendererChunkStore = Pick<
-  ChunkStoreApi,
-  'peek' | 'neighbours' | 'subscribeDirty' | 'getLight'
->
+/** The worldgen surface needed for renderer attachment, meshing, and light sampling. */
+export type RendererChunkStore = MeshingChunkStore & Pick<ChunkStoreApi, 'getLight'> & DirtySubscriptionStore
 
 const lightKey = (blockX: number, blockY: number, blockZ: number): string => `${blockX},${blockY},${blockZ}`
 
@@ -228,7 +230,7 @@ export const makeChunkStoreLightColor = (
   store: Pick<ChunkStoreApi, 'getLight'>,
   chunk: { readonly cx: number; readonly cz: number },
   quads: ReadonlyArray<GeometryQuad>,
-): Effect.Effect<QuadColor> =>
+): Effect.Effect<QuadColor, LightQueueUnderflowError> =>
   Effect.gen(function* () {
     const samples = collectLightSamplePositions(chunk, quads)
 
@@ -272,7 +274,8 @@ export const makeChunkStoreLightColor = (
  * pin-alignment work in mc-worldgen, not something to invent here.
  */
 const toChunkView = (chunk: ReadonlyChunk): ChunkView => ({
-  ...chunk,
+  coord: chunk.coord,
+  // RN6 owns passing the block-state sidecar into model meshing.
   // Worldgen exposes live read-only buffers, so meshing receives detached storage.
   blocks: new Uint16Array(chunk.blocks),
   height: CHUNK_HEIGHT,

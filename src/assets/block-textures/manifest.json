@@ -11,7 +11,7 @@
     "capacity": 1024,
     "mipLevels": 11
   },
-  "tileCount": 407,
+  "tileCount": 422,
   "blockFaces": {
     "air": {
       "top": 0,
@@ -627,6 +627,31 @@
       "top": 364,
       "side": 365,
       "bottom": 366
+    },
+    "copper_ore": {
+      "top": 367,
+      "side": 368,
+      "bottom": 369
+    },
+    "deepslate_copper_ore": {
+      "top": 370,
+      "side": 371,
+      "bottom": 372
+    },
+    "bookshelf": {
+      "top": 373,
+      "side": 374,
+      "bottom": 375
+    },
+    "sticky_piston": {
+      "top": 376,
+      "side": 377,
+      "bottom": 378
+    },
+    "redstone_wall_torch": {
+      "top": 379,
+      "side": 380,
+      "bottom": 381
     }
   },
   "blockAlphaModes": {
@@ -752,78 +777,83 @@
     "nether_portal": "translucent",
     "fire": "cutout",
     "soul_soil": "opaque",
-    "wither_skeleton_skull": "opaque"
+    "wither_skeleton_skull": "opaque",
+    "copper_ore": "opaque",
+    "deepslate_copper_ore": "opaque",
+    "bookshelf": "opaque",
+    "sticky_piston": "opaque",
+    "redstone_wall_torch": "cutout"
   },
   "variants": {
     "wheat_crop": [
       211,
-      367,
-      368,
-      369,
-      370,
-      371,
-      372,
-      373
+      382,
+      383,
+      384,
+      385,
+      386,
+      387,
+      388
     ],
     "potato_crop": [
       214,
-      374,
-      375,
-      376,
-      377,
-      378,
-      379,
-      380
+      389,
+      390,
+      391,
+      392,
+      393,
+      394,
+      395
     ],
     "nether_wart_crop": [
       217,
-      381,
-      382
+      396,
+      397
     ]
   },
   "animations": {
     "water": {
       "water": [
-        383,
-        384,
-        385,
-        386
+        398,
+        399,
+        400,
+        401
       ]
     },
     "lava": {
       "lava": [
-        387,
-        388,
-        389,
-        390
+        402,
+        403,
+        404,
+        405
       ]
     },
     "fire": {
       "fire": [
-        403,
-        404,
-        405,
-        406
+        418,
+        419,
+        420,
+        421
       ]
     },
     "portal": {
       "end_portal": [
-        391,
-        392,
-        393,
-        394
+        406,
+        407,
+        408,
+        409
       ],
       "end_gateway": [
-        395,
-        396,
-        397,
-        398
+        410,
+        411,
+        412,
+        413
       ],
       "nether_portal": [
-        399,
-        400,
-        401,
-        402
+        414,
+        415,
+        416,
+        417
       ]
     }
   }

@@ -54,7 +54,7 @@ import type { ChunkMeshingWorkerFailure } from './chunk-meshing-worker.js'
 import type { LodInputError } from '../domain/level-of-detail.js'
 import type { WorkerCount } from '../domain/worker-parallelism.js'
 import type { WorkerPoolFailure } from './worker-pool.js'
-import { chunkKeyOf as worldgenChunkKeyOf } from '@nerima-games/mc-worldgen'
+import { type LightQueueUnderflowError, chunkKeyOf as worldgenChunkKeyOf } from '@nerima-games/mc-worldgen'
 
 /**
  * Which chunk, in chunk coordinates.
@@ -84,6 +84,7 @@ export type DirtySource = {
 
 /** The lifecycle-bearing dirty API published by mc-worldgen's ChunkStore. */
 export type DirtySubscription = DirtySource & {
+  readonly id?: number
   readonly unsubscribe: Effect.Effect<void>
 }
 
@@ -119,7 +120,7 @@ export type ChunkMesh = ReadonlyArray<MeshQuad> & {
   readonly fluids?: ReadonlyArray<FluidQuad>
 }
 export type ChunkMesherError = ReturnType<typeof meshChunk> extends Result.Result<unknown, infer Failure>
-  ? Failure | ChunkMeshingWorkerFailure | WorkerPoolFailure | LodInputError
+  ? Failure | LightQueueUnderflowError | ChunkMeshingWorkerFailure | WorkerPoolFailure | LodInputError
   : never
 export type ChunkMesher = ((chunk: ChunkRef) => Effect.Effect<ChunkMesh | undefined, ChunkMesherError>) & {
   /** Worker-backed meshers expose their fixed pool width to the frame batcher. */
@@ -239,7 +240,7 @@ export type SyncOptions = {
   readonly colorForChunk?: (
     chunk: ChunkRef,
     quads: ReadonlyArray<GeometryQuad>,
-  ) => Effect.Effect<QuadColor>
+  ) => Effect.Effect<QuadColor, ChunkMesherError>
   /** Atlas tile per quad. Direct `syncWorld` calls default to the untextured tile. */
   readonly tile?: QuadTile
 }
@@ -280,7 +281,7 @@ const resolveChunkColor = (
   options: SyncOptions,
   chunk: ChunkRef,
   quads: ReadonlyArray<GeometryQuad>,
-): Effect.Effect<QuadColor | undefined> => {
+): Effect.Effect<QuadColor | undefined, ChunkMesherError> => {
   if (options.colorForChunk === undefined) {
     return Effect.succeed(options.color)
   }

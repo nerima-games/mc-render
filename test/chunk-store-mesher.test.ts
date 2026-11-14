@@ -8,7 +8,7 @@ import {
   propertyOfBlockId,
   type ChunkCoord,
 } from '@nerima-games/mc-kernel'
-import type { Chunk, ReadonlyChunk } from '@nerima-games/mc-worldgen'
+import { LightQueueUnderflowError, type Chunk, type ReadonlyChunk } from '@nerima-games/mc-worldgen'
 import { emptyBlocks, setBlockAt, type SubscriberId } from '@nerima-games/mc-worldgen/testing'
 import { Effect, Ref, Result, Schema } from 'effect'
 import {
@@ -531,6 +531,34 @@ describe('attachChunkStoreRenderer', () => {
 
       expect(yield* renderer.chunkKeys).toStrictEqual(['0,0'])
       expect(yield* Ref.get(getLightCalls)).toBeGreaterThan(0)
+    }),
+  )
+
+  it.effect('propagates light queue failures through the attached renderer update', () =>
+    Effect.gen(function* () {
+      const three = makeFakeThree()
+      const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT)
+      const batches = yield* Ref.make<ReadonlyArray<{
+        readonly changed: ReadonlyArray<ChunkCoord>
+        readonly removed: ReadonlyArray<ChunkCoord>
+      }>>([{ changed: [chunkCoord(0, 0)], removed: [] }])
+      const failure = new LightQueueUnderflowError({ index: 0 })
+      const store: RendererChunkStore = {
+        peek: () => Effect.succeed(chunk(0, 0, [[1, 20, 1, 2]])),
+        neighbours: () => Effect.succeed({}),
+        subscribeDirty: Effect.succeed({
+          id: 0 as SubscriberId,
+          drain: Ref.modify(batches, ([next, ...rest]) => [next ?? { changed: [], removed: [] }, rest]),
+          unsubscribe: Effect.void,
+        }),
+        getLight: () => Effect.fail(failure),
+      }
+
+      const attachment = yield* attachChunkStoreRenderer(renderer, store)
+      const result = yield* Effect.result(attachment.update)
+
+      expect(Result.isFailure(result) && result.failure).toBe(failure)
+      yield* attachment.detach
     }),
   )
 

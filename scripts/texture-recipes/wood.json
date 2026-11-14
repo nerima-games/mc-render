@@ -28,6 +28,13 @@
       "base": "#A75E4D",
       "light": "#DA8D58",
       "accent": "#F1CD75"
+    },
+    "bookshelf": {
+      "shade": "#302832",
+      "shadow": "#61434A",
+      "base": "#A67054",
+      "light": "#4B9AA5",
+      "accent": "#D96B64"
     }
   },
   "recipes": {
@@ -105,6 +112,11 @@
         "side": "tnt-wrap",
         "bottom": "tnt-wrap"
       }
+    },
+    "bookshelf": {
+      "palette": "bookshelf",
+      "pattern": "bookshelf",
+      "alpha": "opaque"
     }
   }
 }
