@@ -74,9 +74,9 @@
     "@nerima-games/mc-meshing": "0.7.0",
     "@nerima-games/mc-sim": "0.11.0",
     "@nerima-games/mc-worldgen": "0.9.0",
-    "@types/three": "0.186.0",
+    "@types/three": "0.187.0",
     "effect": "4.0.5",
-    "three": "0.186.1"
+    "three": "0.187.0"
   },
   "devDependencies": {
     "@changesets/changelog-github": "1.0.1",
