@@ -194,7 +194,10 @@ describe('item icon generation', () => {
     const rasterWithAlpha = (alpha: number): Uint8Array => {
       const raster = new Uint8Array(TILE_PIXELS * TILE_PIXELS * CHANNELS)
       for (let pixel = 0; pixel < TILE_PIXELS * TILE_PIXELS; pixel += 1) {
-        const red = pixel < TILE_PIXELS * TILE_PIXELS / 2 ? 42 : 213
+        let red = 42
+        if (pixel >= TILE_PIXELS * TILE_PIXELS / 2) {
+          red = 213
+        }
         raster.set([red, 128, 128, alpha], pixel * CHANNELS)
       }
       return raster

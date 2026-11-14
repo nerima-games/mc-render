@@ -129,8 +129,8 @@ import {
   type ThreeInstancedBufferGeometry,
   type ThreeInstancedSurface,
   type ThreeMaterial,
-  type ThreeMaterialTexture,
   type ThreeMaterialSide,
+  type ThreeMaterialTexture,
   type ThreeMesh,
   type ThreeObject3D,
   type ThreePerspectiveCamera,
@@ -143,6 +143,7 @@ import {
   type ThreeWebGLRenderer,
   THREE_DOUBLE_SIDE,
 } from './three-surface.js'
+import type { TileUvBounds } from '../domain/texture-atlas.js'
 import { WATER_MATERIAL_SPEC, WATER_WRITES_DEPTH } from '../domain/water-surface.js'
 import { type WeatherFrameOptions, decodeWeatherFrameOptions } from '../domain/weather-rendering.js'
 import { type WeatherRenderer, makeWeatherRenderer } from './weather-renderer.js'
@@ -156,7 +157,6 @@ import {
   applyWaterFrameUniforms,
   makeTranslucentChunkMaterial,
 } from './world-renderer-materials.js'
-import type { TileUvBounds } from '../domain/texture-atlas.js'
 import { CHUNK_HEIGHT } from '@nerima-games/mc-worldgen'
 import { CHUNK_SIZE } from '@nerima-games/mc-meshing'
 import { type EntityModelResolutionIssue } from '../domain/entity-model-catalog.js'
@@ -1320,7 +1320,7 @@ const entityPartPitchAndYaw = (
 }
 
 const hasMatchingIconUv = (previous: EntityPartEntry | undefined, plan: EntityVisualPartPlan): boolean => {
-  let planIconUv: TileUvBounds | undefined
+  let planIconUv: TileUvBounds | undefined = undefined
   if ('iconUv' in plan) {
     planIconUv = plan.iconUv
   }
@@ -1334,6 +1334,27 @@ const hasMatchingIconUv = (previous: EntityPartEntry | undefined, plan: EntityVi
     previous.iconUv.u1 === planIconUv.u1 && previous.iconUv.v1 === planIconUv.v1
 }
 
+const matchesEntityPart = (
+  previous: EntityPartEntry | undefined,
+  plan: EntityVisualPartPlan,
+  brightnessFactor: number,
+): previous is EntityPartEntry => {
+  if (previous === undefined || plan.id !== previous.id) {
+    return false
+  }
+  let planBrightnessFactor = brightnessFactor
+  if ('iconUv' in plan) {
+    planBrightnessFactor = FULL_ENTITY_BRIGHTNESS_FACTOR
+  }
+  if (previous.brightnessFactor !== planBrightnessFactor) {
+    return false
+  }
+  if (!hasMatchingIconUv(previous, plan)) {
+    return false
+  }
+  return !plan.color.some((component, colorIndex) => component !== previous.color[colorIndex])
+}
+
 const matchingEntityParts = (
   entry: EntityEntry,
   plans: EntityVisualPlan['parts'],
@@ -1343,13 +1364,7 @@ const matchingEntityParts = (
   const pairs: Array<readonly [EntityPartEntry, EntityVisualPartPlan]> = []
   for (const [index, plan] of plans.entries()) {
     const previous = entry.parts[index]
-    let planBrightnessFactor = brightnessFactor
-    if ('iconUv' in plan) {
-      planBrightnessFactor = FULL_ENTITY_BRIGHTNESS_FACTOR
-    }
-    if (previous === undefined || plan.id !== previous.id || previous.brightnessFactor !== planBrightnessFactor ||
-      !hasMatchingIconUv(previous, plan) ||
-      plan.color.some((component, colorIndex) => component !== previous.color[colorIndex])) { return undefined }
+    if (!matchesEntityPart(previous, plan, brightnessFactor)) { return undefined }
     pairs.push([previous, plan])
   }
   return pairs
