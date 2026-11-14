@@ -1319,19 +1319,13 @@ const entityPartPitchAndYaw = (
   return [entity.pitchRadians ?? NO_ENTITY_ROTATION, entity.headYawRadians ?? facing]
 }
 
-const hasMatchingIconUv = (previous: EntityPartEntry | undefined, plan: EntityVisualPartPlan): boolean => {
+const hasMatchingIconUv = (previous: EntityPartEntry, plan: EntityVisualPartPlan): boolean => {
   let planIconUv: TileUvBounds | undefined = undefined
   if ('iconUv' in plan) {
     planIconUv = plan.iconUv
   }
-  if (previous?.iconUv === undefined) {
-    return planIconUv === undefined
-  }
-  if (planIconUv === undefined) {
-    return false
-  }
-  return previous.iconUv.u0 === planIconUv.u0 && previous.iconUv.v0 === planIconUv.v0 &&
-    previous.iconUv.u1 === planIconUv.u1 && previous.iconUv.v1 === planIconUv.v1
+  return previous.iconUv?.u0 === planIconUv?.u0 && previous.iconUv?.v0 === planIconUv?.v0 &&
+    previous.iconUv?.u1 === planIconUv?.u1 && previous.iconUv?.v1 === planIconUv?.v1
 }
 
 const matchesEntityPart = (

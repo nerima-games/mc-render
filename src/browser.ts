@@ -512,11 +512,8 @@ const resolveRgbaAtlas = (atlas: RgbaAtlas): Effect.Effect<AtlasResource, Browse
 }
 
 const resolveAtlas = (
-  source: BrowserWorldRuntimeOptions['atlas'] | null,
+  source: BrowserWorldRuntimeOptions['atlas'],
 ): Effect.Effect<AtlasResource, BrowserRuntimeError> => {
-  if (source === null) {
-    return Effect.fail(browserRuntimeError('initialization', 'invalid-input', source))
-  }
   const resolvedSource = defaultIfUndefined(source, DEFAULT_BLOCK_TEXTURE_ATLAS_URL)
   if (resolvedSource instanceof THREE.Texture) {
     return Effect.succeed({ owned: false, texture: resolvedSource })
@@ -536,11 +533,8 @@ const resolveAtlas = (
 }
 
 const resolveItemIconAtlas = (
-  source: BrowserWorldRuntimeOptions['itemIconAtlas'] | null,
+  source: BrowserWorldRuntimeOptions['itemIconAtlas'],
 ): Effect.Effect<AtlasResource, BrowserRuntimeError> => {
-  if (source === null) {
-    return Effect.fail(browserRuntimeError('initialization', 'invalid-input', source))
-  }
   const resolvedSource = defaultIfUndefined(source, DEFAULT_ITEM_ICON_ATLAS_URL)
   if (resolvedSource instanceof THREE.Texture) {
     return Effect.succeed({ owned: false, texture: resolvedSource })
