@@ -1760,7 +1760,7 @@ describe('entity meshes in the scene', () => {
       }])
 
       const [mesh] = three.meshes()
-      expect(mesh?.geometry.attributes.get('uv')).toBeUndefined()
+      expect(mesh?.geometry.attributes.get('uv')?.array).toHaveLength(48)
       expect(mesh?.geometry.attributes.get('color')).toBeDefined()
       yield* renderer.draw(mirroredCameraState(poseAt(0, 0, 4, 0, 0)))
     }),
@@ -1778,6 +1778,7 @@ describe('entity meshes in the scene', () => {
         kind: 'dropped_item',
       }])
 
+      expect(three.meshes()[0]?.geometry.attributes.get('uv')?.array).toHaveLength(8)
       expect(three.meshes()[0]?.material).toMatchObject({ map: null })
     }),
   )

@@ -2131,7 +2131,7 @@ export const makeWorldRenderer = <
         const syncEntities = (input: unknown): Effect.Effect<void, Schema.SchemaError> =>
           Effect.gen(function* reconcileEntities() {
             const incoming = yield* Effect.fromResult(decodeRenderEntities(input))
-            const { desired, diagnostics } = yield* Effect.fromResult(planIncomingEntities(incoming, options.itemIconAtlasTexture !== undefined && options.itemIconAtlasTexture !== null))
+            const { desired, diagnostics } = yield* Effect.fromResult(planIncomingEntities(incoming, options.itemIconAtlasTexture !== undefined))
             yield* Ref.update(entities, (current) => {
               const next = new Map<string, EntityEntry>()
               const context: ReconcileContext = { current, next }
