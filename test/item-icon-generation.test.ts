@@ -58,10 +58,9 @@ const iconPixels = (rgba: Uint8Array, tileIndex: number): ReadonlyArray<Readonly
   return colors
 }
 
-const NEAR_DUPLICATE_PIXEL_THRESHOLD = 8
+const MAX_NEAR_DUPLICATE_RMS_RGB_DISTANCE = 2
 // Channel endpoints combine to the maximum over any opaque RGB background.
 const ITEM_ICON_COMPARISON_BACKGROUND_CHANNELS = [0, 255] as const
-const MIN_COMPOSITED_RGB_DISTANCE = 4
 
 const iconRaster = (rgba: Uint8Array, tileIndex: number): Uint8Array => {
   const left = (tileIndex % ATLAS_COLUMNS) * TILE_CELL_PIXELS + TILE_GUTTER_PIXELS
@@ -74,13 +73,13 @@ const iconRaster = (rgba: Uint8Array, tileIndex: number): Uint8Array => {
   return raster
 }
 
-const differentPixelCount = (left: Uint8Array, right: Uint8Array): number => {
-  let different = 0
+const rootMeanSquareCompositedRgbDistance = (left: Uint8Array, right: Uint8Array): number => {
+  let distanceSquared = 0
+  let pixelCount = 0
   for (let pixelOffset = 0; pixelOffset < left.length; pixelOffset += CHANNELS) {
     const leftAlpha = left[pixelOffset + 3] ?? 0
     const rightAlpha = right[pixelOffset + 3] ?? 0
-    let hasVisibleDifference = false
-    let maximumDistanceSquared = 0
+    let pixelDistanceSquared = 0
     for (let channel = 0; channel < 3; channel += 1) {
       let maximumChannelDifference = 0
       for (const background of ITEM_ICON_COMPARISON_BACKGROUND_CHANNELS) {
@@ -95,17 +94,16 @@ const differentPixelCount = (left: Uint8Array, right: Uint8Array): number => {
           Math.abs(leftComposite - rightComposite),
         )
       }
-      maximumDistanceSquared += maximumChannelDifference * maximumChannelDifference
+      pixelDistanceSquared += maximumChannelDifference * maximumChannelDifference
     }
-    if (maximumDistanceSquared >= MIN_COMPOSITED_RGB_DISTANCE * MIN_COMPOSITED_RGB_DISTANCE) {
-      hasVisibleDifference = true
-    }
-    if (hasVisibleDifference) {
-      different += 1
-    }
+    distanceSquared += pixelDistanceSquared
+    pixelCount += 1
   }
-  return different
+  return Math.sqrt(distanceSquared / pixelCount)
 }
+
+const areNearDuplicateItemIcons = (left: Uint8Array, right: Uint8Array): boolean =>
+  rootMeanSquareCompositedRgbDistance(left, right) <= MAX_NEAR_DUPLICATE_RMS_RGB_DISTANCE
 
 describe('item icon generation', () => {
   it('produces identical atlas and manifest bytes for the same block texture input', () => {
@@ -129,34 +127,31 @@ describe('item icon generation', () => {
     }
   })
 
-  it('ignores hidden and subthreshold RGB differences but counts visible color and alpha differences', () => {
+  it('measures alpha-composited RGB changes across the full icon', () => {
     const transparentPixels = new Uint8Array(TILE_PIXELS * TILE_PIXELS * CHANNELS)
     const hiddenRgbDifferences = new Uint8Array(transparentPixels)
     for (let pixel = 0; pixel < 9; pixel += 1) {
       const offset = pixel * CHANNELS
       hiddenRgbDifferences.set([pixel + 1, pixel + 2, pixel + 3, 0], offset)
     }
-    expect(differentPixelCount(transparentPixels, hiddenRgbDifferences)).toBe(0)
+    expect(rootMeanSquareCompositedRgbDistance(transparentPixels, hiddenRgbDifferences)).toBe(0)
 
     const opaqueGrayPixels = new Uint8Array(transparentPixels)
     opaqueGrayPixels.set([128, 128, 128, 255], 0)
-    expect(differentPixelCount(opaqueGrayPixels, transparentPixels)).toBe(1)
+    expect(rootMeanSquareCompositedRgbDistance(opaqueGrayPixels, transparentPixels)).toBeGreaterThan(0)
 
     const visiblePixels = new Uint8Array(transparentPixels)
     visiblePixels.set([24, 32, 40, 255], 0)
-    const subthresholdVisibleColor = new Uint8Array(visiblePixels)
-    subthresholdVisibleColor[0] = 25
-    const thresholdVisibleColor = new Uint8Array(visiblePixels)
-    thresholdVisibleColor[0] = 28
+    const oneLevelVisibleColor = new Uint8Array(visiblePixels)
+    oneLevelVisibleColor[0] = 25
     const differentVisibleAlpha = new Uint8Array(visiblePixels)
     differentVisibleAlpha[3] = 240
 
-    expect(differentPixelCount(visiblePixels, subthresholdVisibleColor)).toBe(0)
-    expect(differentPixelCount(visiblePixels, thresholdVisibleColor)).toBe(1)
-    expect(differentPixelCount(visiblePixels, differentVisibleAlpha)).toBe(1)
+    expect(rootMeanSquareCompositedRgbDistance(visiblePixels, oneLevelVisibleColor)).toBeGreaterThan(0)
+    expect(rootMeanSquareCompositedRgbDistance(visiblePixels, differentVisibleAlpha)).toBeGreaterThan(0)
   })
 
-  it('treats imperceptible alpha-composited changes as near duplicates', () => {
+  it('rejects low-contrast changes by area-weighted alpha-composited RGB distance', () => {
     const rasterWithRedAdjustment = (redAdjustment: number, alpha = 88): Uint8Array => {
       const raster = new Uint8Array(TILE_PIXELS * TILE_PIXELS * CHANNELS)
       for (let pixel = 0; pixel < 9; pixel += 1) {
@@ -172,13 +167,14 @@ describe('item icon generation', () => {
     const opaqueSource = rasterWithRedAdjustment(0, 255)
     const opaqueRedPlusTwo = rasterWithRedAdjustment(2, 255)
     const opaqueRedPlusFour = rasterWithRedAdjustment(4, 255)
+    const opaqueRedPlusTwelve = rasterWithRedAdjustment(12, 255)
     for (const candidate of [redPlusOne, redPlusThree]) {
-      const differingPixels = differentPixelCount(source, candidate)
-      expect(differingPixels).toBe(0)
-      expect(differingPixels).toBeLessThanOrEqual(NEAR_DUPLICATE_PIXEL_THRESHOLD)
+      expect(areNearDuplicateItemIcons(source, candidate)).toBe(true)
     }
-    expect(differentPixelCount(opaqueSource, opaqueRedPlusTwo)).toBe(0)
-    expect(differentPixelCount(opaqueSource, opaqueRedPlusFour)).toBe(9)
+    for (const candidate of [opaqueRedPlusTwo, opaqueRedPlusFour]) {
+      expect(areNearDuplicateItemIcons(opaqueSource, candidate)).toBe(true)
+    }
+    expect(areNearDuplicateItemIcons(opaqueSource, opaqueRedPlusTwelve)).toBe(false)
   })
 
   it('keeps registered item icons visually distinct and lists duplicate or near-duplicate pairs', () => {
@@ -193,15 +189,15 @@ describe('item icon generation', () => {
     const tooSimilar: Array<string> = []
     for (const [leftIndex, left] of rasters.entries()) {
       for (const right of rasters.slice(leftIndex + 1)) {
-        const differentPixels = differentPixelCount(left.pixels, right.pixels)
-        if (differentPixels <= NEAR_DUPLICATE_PIXEL_THRESHOLD) {
-          tooSimilar.push(`${left.itemId}/${right.itemId}: ${differentPixels} differing pixels`)
+        const distance = rootMeanSquareCompositedRgbDistance(left.pixels, right.pixels)
+        if (distance <= MAX_NEAR_DUPLICATE_RMS_RGB_DISTANCE) {
+          tooSimilar.push(`${left.itemId}/${right.itemId}: RMS RGB distance ${distance}`)
         }
       }
     }
     expect(
       tooSimilar,
-      `duplicate or near-duplicate icons (threshold ${NEAR_DUPLICATE_PIXEL_THRESHOLD} pixels):\n${tooSimilar.join('\n')}`,
+      `duplicate or near-duplicate icons (maximum RMS RGB distance ${MAX_NEAR_DUPLICATE_RMS_RGB_DISTANCE}):\n${tooSimilar.join('\n')}`,
     ).toStrictEqual([])
     expect(rasters).toHaveLength(ITEM_TYPES.length)
   })
