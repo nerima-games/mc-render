@@ -4,6 +4,7 @@ import * as THREE from 'three'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   DEFAULT_BLOCK_TEXTURE_ATLAS_URL,
+  DEFAULT_ITEM_ICON_ATLAS_URL,
   GpuTimerService,
   GpuTimerServiceLayer,
   BrowserRuntimeUnknownResultSchema,
@@ -22,6 +23,7 @@ import { ATLAS_PIXELS, AtlasLayoutIntegerSchema } from '../src/domain/texture-at
 import { planRenderEnvironment } from '../src/domain/render-environment.js'
 import { makeAnimationClockInput } from './support/animation-clock.js'
 
+const CUSTOM_ITEM_ICON_ATLAS_URL = new URL('https://assets.test/item-icons.png')
 const testCamera = mirroredCameraState(undefined)
 const decodeDelta = Schema.decodeUnknownSync(ParticleDeltaSecsSchema)
 const decodeAtlasLayoutInteger = Schema.decodeUnknownSync(AtlasLayoutIntegerSchema)
@@ -219,8 +221,12 @@ const browserMocks = vi.hoisted(() => ({
     omitColorCorrectionUniforms: false,
     failAtlasDataTextureCreation: false,
     failAtlasUrlLoad: false,
+    failItemIconAtlasUrlLoad: false,
     lastAtlasUrl: undefined as string | undefined,
+    lastItemIconAtlasUrl: undefined as string | undefined,
     lastWorldAtlas: undefined as unknown,
+    lastWorldItemIconAtlas: undefined as unknown,
+    lastLoadedAtlasTexture: undefined as unknown,
     failRefractionTargetRender: false,
     failScreenshotCanvasCreation: false,
     failScreenshotImageData: false,
@@ -453,11 +459,22 @@ vi.mock('three', () => {
     loadedUrl: string | undefined
     async loadAsync(url: string): Promise<FakeTexture> {
       this.loadedUrl = url
-      browserMocks.settings.lastAtlasUrl = url
+      if (url === DEFAULT_ITEM_ICON_ATLAS_URL.href || url.includes('/item-icons/') || url.endsWith('/item-icons.png')) {
+        browserMocks.settings.lastItemIconAtlasUrl = url
+      } else {
+        browserMocks.settings.lastAtlasUrl = url
+      }
+      if (browserMocks.settings.failItemIconAtlasUrlLoad && (
+        url === DEFAULT_ITEM_ICON_ATLAS_URL.href || url.includes('/item-icons/') || url.endsWith('/item-icons.png')
+      )) {
+        throw new Error('item icon atlas URL load failed')
+      }
       if (browserMocks.settings.failAtlasUrlLoad) {
         throw new Error('atlas URL load failed')
       }
-      return new FakeTexture()
+      const texture = new FakeTexture()
+      browserMocks.settings.lastLoadedAtlasTexture = texture
+      return texture
     }
   }
 
@@ -810,8 +827,12 @@ beforeEach(() => {
   browserMocks.settings.omitColorCorrectionUniforms = false
   browserMocks.settings.failAtlasDataTextureCreation = false
   browserMocks.settings.failAtlasUrlLoad = false
+  browserMocks.settings.failItemIconAtlasUrlLoad = false
   browserMocks.settings.lastAtlasUrl = undefined
+  browserMocks.settings.lastItemIconAtlasUrl = undefined
   browserMocks.settings.lastWorldAtlas = undefined
+  browserMocks.settings.lastWorldItemIconAtlas = undefined
+  browserMocks.settings.lastLoadedAtlasTexture = undefined
   browserMocks.settings.failRefractionTargetRender = false
   browserMocks.settings.failScreenshotCanvasCreation = false
   browserMocks.settings.failScreenshotImageData = false
@@ -831,6 +852,7 @@ beforeEach(() => {
   browserMocks.worldFactory.mockReset()
   browserMocks.worldFactory.mockImplementation((_three, _canvas, _viewport, atlas, options) => {
     browserMocks.settings.lastWorldAtlas = atlas
+    browserMocks.settings.lastWorldItemIconAtlas = options.itemIconAtlasTexture
     const renderer = new THREE.WebGLRenderer()
     const scene = new THREE.Scene()
     const camera = new THREE.PerspectiveCamera()
@@ -945,18 +967,38 @@ describe('browser world runtime', () => {
     }))).toStrictEqual(failure)
   })
 
+  it.each(['atlas', 'itemIconAtlas'] as const)('rejects null for the %s browser atlas option', async (option) => {
+    const options = {
+      autoResize: false,
+      canvas: new HTMLCanvasElement(),
+    }
+    Object.defineProperty(options, option, { value: null })
+
+    expect(await browserRuntimeFailureAsync(makeBrowserWorldRuntimeEffect(options))).toMatchObject({
+      _tag: 'BrowserRuntimeError',
+      operation: 'initialization',
+      reason: 'invalid-input',
+    })
+  })
+
   it('loads the checked-in atlas by default with nearest and mipmapped sampling', async () => {
     const runtime = await makeBrowserWorldRuntime({
       autoResize: false,
       canvas: new HTMLCanvasElement(),
     })
     const atlas = browserMocks.settings.lastWorldAtlas as THREE.Texture
+    const itemIconAtlas = browserMocks.settings.lastWorldItemIconAtlas as THREE.Texture
 
     expect(browserMocks.settings.lastAtlasUrl).toBe(DEFAULT_BLOCK_TEXTURE_ATLAS_URL)
+    expect(browserMocks.settings.lastItemIconAtlasUrl).toBe(DEFAULT_ITEM_ICON_ATLAS_URL.href)
     expect(atlas.magFilter).toBe(THREE.NearestFilter)
     expect(atlas.minFilter).toBe(THREE.NearestMipmapLinearFilter)
     expect(atlas.generateMipmaps).toBe(true)
     expect(atlas.flipY).toBe(true)
+    expect(itemIconAtlas.magFilter).toBe(THREE.NearestFilter)
+    expect(itemIconAtlas.minFilter).toBe(THREE.NearestMipmapLinearFilter)
+    expect(itemIconAtlas.generateMipmaps).toBe(true)
+    expect(itemIconAtlas.flipY).toBe(true)
     Effect.runSync(runtime.dispose())
   })
 
@@ -1031,6 +1073,30 @@ describe('browser world runtime', () => {
       reason: 'operation-failed',
     })
     Effect.runSync(runtime.dispose())
+  })
+
+  it('rejects null runtime options instead of applying their defaults', () => {
+    const invalidOptions: ReadonlyArray<Readonly<{ option: Record<string, unknown> }>> = [
+      { option: { atlas: null } },
+      { option: { itemIconAtlas: null } },
+      { option: { preserveDrawingBuffer: null } },
+    ]
+    for (const { option } of invalidOptions) {
+      const failure = browserRuntimeFailure(makeBrowserWorldRuntimeEffect({
+        autoResize: false,
+        canvas: new HTMLCanvasElement(),
+        ...option,
+      } as unknown as Parameters<typeof makeBrowserWorldRuntimeEffect>[0]))
+      expect(failure).toStrictEqual({
+        _tag: 'BrowserRuntimeError',
+        cause: null,
+        operation: 'initialization',
+        reason: 'invalid-input',
+      })
+    }
+    expect(browserMocks.settings.lastAtlasUrl).toBeUndefined()
+    expect(browserMocks.settings.lastItemIconAtlasUrl).toBeUndefined()
+    expect(browserMocks.worldFactory).not.toHaveBeenCalled()
   })
 
   it('property: invalid custom pixel caps fail the public runtime Effect with tagged details', () => {
@@ -1449,7 +1515,7 @@ describe('browser world runtime', () => {
     Effect.runSync(runtime.dispose())
   })
 
-  it('validates Three surface instances and requires WebGL2', async () => {
+  it('validates Three surface instances and requires WebGL2', () => {
     const scene = new THREE.Scene()
     const camera = new THREE.PerspectiveCamera()
     const renderer = new THREE.WebGLRenderer()
@@ -1467,6 +1533,7 @@ describe('browser world runtime', () => {
       })
       return browserRuntimeFailure(makeBrowserWorldRuntimeEffect({
         atlas: new THREE.Texture(),
+        itemIconAtlas: new THREE.Texture(),
         autoResize: false,
         canvas: new HTMLCanvasElement(),
       }))
@@ -1487,6 +1554,7 @@ describe('browser world runtime', () => {
     })
     const unsupportedWebGl = makeBrowserWorldRuntimeEffect({
       atlas: new THREE.Texture(),
+      itemIconAtlas: new THREE.Texture(),
       autoResize: false,
       canvas: new HTMLCanvasElement(),
     })
@@ -1557,6 +1625,35 @@ describe('browser world runtime', () => {
     Effect.runSync(defaultAtlas.dispose())
   })
 
+  it('loads a caller-supplied item icon atlas URL and disposes its owned texture', async () => {
+    const runtime = await makeBrowserWorldRuntime({
+      autoResize: false,
+      canvas: new HTMLCanvasElement(),
+      itemIconAtlas: CUSTOM_ITEM_ICON_ATLAS_URL,
+    })
+    const texture = browserMocks.settings.lastWorldItemIconAtlas as THREE.Texture & { disposed: boolean }
+
+    expect(browserMocks.settings.lastItemIconAtlasUrl).toBe('https://assets.test/item-icons.png')
+    expect(texture.generateMipmaps).toBe(true)
+    Effect.runSync(runtime.dispose())
+    expect(texture.disposed).toBe(true)
+  })
+
+  it('disposes the loaded block atlas when the item icon atlas URL fails', async () => {
+    browserMocks.settings.failItemIconAtlasUrlLoad = true
+    const failure = await browserRuntimeFailureAsync(makeBrowserWorldRuntimeEffect({
+      autoResize: false,
+      canvas: new HTMLCanvasElement(),
+    }))
+
+    expect(failure).toMatchObject({
+      _tag: 'BrowserRuntimeError',
+      operation: 'initialization',
+      reason: 'operation-failed',
+    })
+    expect((browserMocks.settings.lastLoadedAtlasTexture as THREE.Texture & { disposed: boolean }).disposed).toBe(true)
+  })
+
   it('builds the individual viewport and god-rays passes when the composite policy is disabled', async () => {
     const runtime = await makeBrowserWorldRuntime({
       atlas: new THREE.Texture(),
@@ -1603,7 +1700,7 @@ describe('browser world runtime', () => {
     browserMocks.worldFactory.mockImplementationOnce(() => Effect.succeed({
       setPostProcessingChain: () => Effect.void,
     }))
-    expect(browserRuntimeFailure(makeBrowserWorldRuntimeEffect({
+    expect(await browserRuntimeFailureAsync(makeBrowserWorldRuntimeEffect({
       atlas: new THREE.Texture(),
       autoResize: false,
       canvas: new HTMLCanvasElement(),
@@ -1630,7 +1727,7 @@ describe('browser world runtime', () => {
     browserMocks.worldFactory.mockImplementationOnce(() =>
       Effect.succeed({ setPostProcessingChain: () => Effect.void }),
     )
-    expect(browserRuntimeFailure(makeBrowserWorldRuntimeEffect({
+    expect(await browserRuntimeFailureAsync(makeBrowserWorldRuntimeEffect({
       atlas: new THREE.Texture(),
       autoResize: false,
       canvas: new HTMLCanvasElement(),
@@ -1724,12 +1821,12 @@ describe('browser world runtime', () => {
     Effect.runSync(runtime.dispose())
   })
 
-  it('maps world option assembly and runtime installation exceptions to initialization failures', () => {
+  it('maps world option assembly and runtime installation exceptions to initialization failures', async () => {
     const world = Object.defineProperty({}, 'invalidOption', {
       enumerable: true,
       get: () => { throw new Error('world option inspection failed') },
     })
-    expect(browserRuntimeFailure(makeBrowserWorldRuntimeEffect({
+    expect(await browserRuntimeFailureAsync(makeBrowserWorldRuntimeEffect({
       atlas: new THREE.Texture(),
       autoResize: false,
       canvas: new HTMLCanvasElement(),
@@ -1741,7 +1838,7 @@ describe('browser world runtime', () => {
     })
 
     browserMocks.settings.failScreenshotListenerInstall = true
-    expect(browserRuntimeFailure(makeBrowserWorldRuntimeEffect({
+    expect(await browserRuntimeFailureAsync(makeBrowserWorldRuntimeEffect({
       atlas: new THREE.Texture(),
       autoResize: false,
       canvas: new HTMLCanvasElement(),

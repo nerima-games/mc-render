@@ -55,8 +55,10 @@ import type {
   ThreeInstancedBufferGeometry,
   ThreeInstancedSurface,
   ThreeMaterial,
+  ThreeMaterialTexture,
   ThreeMesh,
   ThreeShaderSurface,
+  ThreeTexture,
   ThreeUniform,
   ThreeVector3,
 } from './three-surface.js'
@@ -116,8 +118,11 @@ export type ProductionWorldRenderer<TShaderMaterial extends ThreeMaterial> = Wor
   readonly advanceFrame: (frame: ProductionFrame) => Effect.Effect<void, ParticlePoolInputError | AnimationClockInputError>
 }
 
-export type ProductionWorldRendererOptions<TEntityMaterial extends ThreeMaterial = ThreeMaterial> = Omit<
-  WorldRendererOptions<ThreeMaterial, TEntityMaterial>,
+export type ProductionWorldRendererOptions<
+  TEntityMaterial extends ThreeMaterial = ThreeMaterial,
+  TItemIconTexture extends ThreeTexture = ThreeTexture,
+> = Omit<
+  WorldRendererOptions<ThreeMaterial, TEntityMaterial, TItemIconTexture>,
   'material' | 'cutoutMaterial' | 'transparentMaterial' | 'applyMaterialEnvironment' | 'beforeDraw'
 > & {
   readonly particles?: ParticlePoolOptions
@@ -308,7 +313,7 @@ export const makeProductionWorldRenderer = <
   canvas: TCanvas,
   viewport: Viewport,
   atlasTexture: TTexture,
-  options: ProductionWorldRendererOptions<TMaterial> = {},
+  options: ProductionWorldRendererOptions<TMaterial, ThreeMaterialTexture<TMaterial>> = {},
   presentationSurface?: ProductionPresentationSurface<
     TTexture,
     TPresentationGeometry,
@@ -391,6 +396,7 @@ export const makeProductionWorldRenderer = <
         const animationSecs = yield* Effect.fromResult(animationTimeSeconds(frame))
         frameState.latestFrame = frame
         yield* advanceParticleFrame(frame)
+        yield* renderer.setEntityAnimationTimeSeconds(animationSecs)
         applyChunkShaderTime(Object.values(chunkMaterials), animationSecs)
         applyWaterFrameUniforms(water.uniforms, animationSecs, frame.cameraPosition)
         applyWaterFrameUniforms(chunkMaterials.transparent.uniforms, animationSecs, frame.cameraPosition)

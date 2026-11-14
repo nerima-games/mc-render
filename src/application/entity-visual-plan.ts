@@ -30,6 +30,9 @@ import {
   planWitherSkullVisual,
   planWitherVisual,
 } from '../domain/wither-visual.js'
+import type { ItemType } from '@nerima-games/mc-kernel'
+import type { TileUvBounds } from '../domain/texture-atlas.js'
+import { itemIconUvForItemId } from '../domain/item-icon-map.js'
 
 /** Coarse render policy without importing simulation entity classes. */
 export type EntityRenderCategory = 'hostile' | 'passive' | 'item'
@@ -38,6 +41,8 @@ export type EntityRenderCategory = 'hostile' | 'passive' | 'item'
 type RenderEntity = {
   readonly id: string
   readonly kind: string
+  /** Stable item identity for generic dropped-item entities. */
+  readonly itemId?: ItemType
   readonly feetPosition: {
     readonly x: number
     readonly y: number
@@ -135,11 +140,19 @@ const copiedWitherSkullProjectile = (entity: RenderEntity): Pick<RenderEntity, '
   }
 }
 
+const copiedItemId = (entity: RenderEntity): Pick<RenderEntity, 'itemId'> => {
+  if (typeof entity.itemId === 'undefined') {
+    return {}
+  }
+  return { itemId: entity.itemId }
+}
+
 /** Detach mutable source projections before the renderer stores them for reconciliation. */
 export const copyRenderEntity = (entity: RenderEntity): RenderEntity => ({
   feetPosition: { ...entity.feetPosition },
   id: entity.id,
   kind: entity.kind,
+  ...copiedItemId(entity),
   ...copiedCategory(entity),
   ...copiedBodyYawRadians(entity),
   ...copiedHeadYawRadians(entity),
@@ -159,7 +172,9 @@ export type EntityModelPartPlan = Readonly<{
   readonly rotation: MobVisualPartPlan['rotation']
 }>
 
-export type EntityVisualPartPlan = MobVisualPartPlan | WitherVisualPartDescriptor | EntityModelPartPlan
+export type ItemIconVisualPartPlan = MobVisualPartPlan & Readonly<{ iconUv: TileUvBounds }>
+
+export type EntityVisualPartPlan = MobVisualPartPlan | WitherVisualPartDescriptor | EntityModelPartPlan | ItemIconVisualPartPlan
 
 export type EntityVisualPlan = Readonly<{
   position: WitherVisualPosition
@@ -201,6 +216,157 @@ const ITEM_VISUAL_PARTS: ReadonlyArray<EntityVisualPartPlan> = [
   },
 ]
 
+const ITEM_ICON_CENTER_Y = 0.2
+const ITEM_ICON_SIZE = 0.34
+const ITEM_ICON_DEPTH = 0.01
+const ITEM_ICON_COLOR_CHANNEL_MAX = 255
+const ITEM_ICON_COLOR = [ITEM_ICON_COLOR_CHANNEL_MAX, ITEM_ICON_COLOR_CHANNEL_MAX, ITEM_ICON_COLOR_CHANNEL_MAX] as const
+
+const PROJECTILE_CENTER_Y = 0.16
+const ARROW_SHAFT_COLOR_RED = 126
+const ARROW_SHAFT_COLOR_GREEN = 86
+const ARROW_SHAFT_COLOR_BLUE = 51
+const ARROW_SHAFT_COLOR = [ARROW_SHAFT_COLOR_RED, ARROW_SHAFT_COLOR_GREEN, ARROW_SHAFT_COLOR_BLUE] as const
+const ARROW_SHAFT_WIDTH = 0.045
+const ARROW_SHAFT_LENGTH = 0.48
+const ARROW_SHAFT_SIZE = [ARROW_SHAFT_WIDTH, ARROW_SHAFT_WIDTH, ARROW_SHAFT_LENGTH] as const
+const ARROW_HEAD_CENTER_Z = -0.3
+const ARROW_HEAD_COLOR_RED = 184
+const ARROW_HEAD_COLOR_GREEN = 190
+const ARROW_HEAD_COLOR_BLUE = 191
+const ARROW_HEAD_COLOR = [ARROW_HEAD_COLOR_RED, ARROW_HEAD_COLOR_GREEN, ARROW_HEAD_COLOR_BLUE] as const
+const ARROW_HEAD_WIDTH = 0.13
+const ARROW_HEAD_DEPTH = 0.12
+const ARROW_HEAD_SIZE = [ARROW_HEAD_WIDTH, ARROW_HEAD_WIDTH, ARROW_HEAD_DEPTH] as const
+const ARROW_FLETCHING_CENTER_Z = 0.23
+const ARROW_FLETCHING_COLOR_RED = 208
+const ARROW_FLETCHING_COLOR_GREEN = 191
+const ARROW_FLETCHING_COLOR_BLUE = 153
+const ARROW_FLETCHING_COLOR = [
+  ARROW_FLETCHING_COLOR_RED,
+  ARROW_FLETCHING_COLOR_GREEN,
+  ARROW_FLETCHING_COLOR_BLUE,
+] as const
+const ARROW_FLETCHING_WIDTH = 0.12
+const ARROW_FLETCHING_HEIGHT = 0.07
+const ARROW_FLETCHING_DEPTH = 0.08
+const ARROW_FLETCHING_SIZE = [ARROW_FLETCHING_WIDTH, ARROW_FLETCHING_HEIGHT, ARROW_FLETCHING_DEPTH] as const
+
+const EYE_CENTER_Y = 0.18
+const EYE_SHELL_COLOR_RED = 14
+const EYE_SHELL_COLOR_GREEN = 40
+const EYE_SHELL_COLOR_BLUE = 29
+const EYE_SHELL_COLOR = [EYE_SHELL_COLOR_RED, EYE_SHELL_COLOR_GREEN, EYE_SHELL_COLOR_BLUE] as const
+const EYE_SHELL_WIDTH = 0.28
+const EYE_SHELL_DEPTH = 0.2
+const EYE_SHELL_SIZE = [EYE_SHELL_WIDTH, EYE_SHELL_WIDTH, EYE_SHELL_DEPTH] as const
+const EYE_IRIS_CENTER_Z = -0.11
+const EYE_IRIS_COLOR_RED = 72
+const EYE_IRIS_COLOR_GREEN = 190
+const EYE_IRIS_COLOR_BLUE = 126
+const EYE_IRIS_COLOR = [EYE_IRIS_COLOR_RED, EYE_IRIS_COLOR_GREEN, EYE_IRIS_COLOR_BLUE] as const
+const EYE_IRIS_WIDTH = 0.19
+const EYE_IRIS_DEPTH = 0.06
+const EYE_IRIS_SIZE = [EYE_IRIS_WIDTH, EYE_IRIS_WIDTH, EYE_IRIS_DEPTH] as const
+const EYE_PUPIL_CENTER_Z = -0.15
+const EYE_PUPIL_COLOR_RED = 14
+const EYE_PUPIL_COLOR_GREEN = 27
+const EYE_PUPIL_COLOR_BLUE = 31
+const EYE_PUPIL_COLOR = [EYE_PUPIL_COLOR_RED, EYE_PUPIL_COLOR_GREEN, EYE_PUPIL_COLOR_BLUE] as const
+const EYE_PUPIL_WIDTH = 0.075
+const EYE_PUPIL_DEPTH = 0.025
+const EYE_PUPIL_SIZE = [EYE_PUPIL_WIDTH, EYE_PUPIL_WIDTH, EYE_PUPIL_DEPTH] as const
+
+const itemTypeForEntity = (entity: RenderEntity): string | undefined => {
+  if (entity.itemId !== undefined) {
+    return entity.itemId
+  }
+  if (entity.kind === 'dropped_item') {
+    return undefined
+  }
+  return entity.kind
+}
+
+const itemIconParts = (entity: RenderEntity): ReadonlyArray<EntityVisualPartPlan> | undefined => {
+  const itemId = itemTypeForEntity(entity)
+  if (itemId === undefined) {
+    return undefined
+  }
+  const lookup = itemIconUvForItemId(itemId)
+  if (Result.isFailure(lookup)) {
+    return undefined
+  }
+  return [{
+    center: [ITEM_CENTER_X, ITEM_ICON_CENTER_Y, ITEM_CENTER_Z],
+    color: ITEM_ICON_COLOR,
+    iconUv: lookup.success,
+    id: 'item-icon',
+    role: 'body',
+    rotation: [ITEM_ROTATION_X, ITEM_ROTATION_Y, ITEM_ROTATION_Z],
+    size: [ITEM_ICON_SIZE, ITEM_ICON_SIZE, ITEM_ICON_DEPTH],
+  }]
+}
+
+const ARROW_VISUAL_PARTS: ReadonlyArray<EntityVisualPartPlan> = [
+  {
+    center: [ITEM_CENTER_X, PROJECTILE_CENTER_Y, ITEM_CENTER_Z],
+    color: ARROW_SHAFT_COLOR,
+    id: 'arrow-shaft',
+    role: 'body',
+    rotation: [ITEM_ROTATION_X, ITEM_ROTATION_Y, ITEM_ROTATION_Z],
+    size: ARROW_SHAFT_SIZE,
+  },
+  {
+    center: [ITEM_CENTER_X, PROJECTILE_CENTER_Y, ARROW_HEAD_CENTER_Z],
+    color: ARROW_HEAD_COLOR,
+    id: 'arrow-head',
+    role: 'body',
+    rotation: [ITEM_ROTATION_X, ITEM_ROTATION_Y, ITEM_ROTATION_Z],
+    size: ARROW_HEAD_SIZE,
+  },
+  {
+    center: [ITEM_CENTER_X, PROJECTILE_CENTER_Y, ARROW_FLETCHING_CENTER_Z],
+    color: ARROW_FLETCHING_COLOR,
+    id: 'arrow-fletching',
+    role: 'body',
+    rotation: [ITEM_ROTATION_X, ITEM_ROTATION_Y, ITEM_ROTATION_Z],
+    size: ARROW_FLETCHING_SIZE,
+  },
+]
+
+const EYE_OF_ENDER_VISUAL_PARTS: ReadonlyArray<EntityVisualPartPlan> = [
+  {
+    center: [ITEM_CENTER_X, EYE_CENTER_Y, ITEM_CENTER_Z],
+    color: EYE_SHELL_COLOR,
+    id: 'eye-shell',
+    role: 'body',
+    rotation: [ITEM_ROTATION_X, ITEM_ROTATION_Y, ITEM_ROTATION_Z],
+    size: EYE_SHELL_SIZE,
+  },
+  {
+    center: [ITEM_CENTER_X, EYE_CENTER_Y, EYE_IRIS_CENTER_Z],
+    color: EYE_IRIS_COLOR,
+    id: 'eye-iris',
+    role: 'body',
+    rotation: [ITEM_ROTATION_X, ITEM_ROTATION_Y, ITEM_ROTATION_Z],
+    size: EYE_IRIS_SIZE,
+  },
+  {
+    center: [ITEM_CENTER_X, EYE_CENTER_Y, EYE_PUPIL_CENTER_Z],
+    color: EYE_PUPIL_COLOR,
+    id: 'eye-pupil',
+    role: 'body',
+    rotation: [ITEM_ROTATION_X, ITEM_ROTATION_Y, ITEM_ROTATION_Z],
+    size: EYE_PUPIL_SIZE,
+  },
+]
+
+const PROJECTILE_VISUAL_PARTS_BY_KIND: Readonly<Record<string, ReadonlyArray<EntityVisualPartPlan>>> = {
+  arrow: ARROW_VISUAL_PARTS,
+  eye_of_ender: EYE_OF_ENDER_VISUAL_PARTS,
+}
+
+/** The facing this repository assumes for an entity that reports none. */
 /** The facing this repository assumes for an entity that reports none. */
 const DEFAULT_FACING_RADIANS = 0
 const NO_ROTATION = 0
@@ -233,9 +399,28 @@ const facingDirection = (facingRadians: number): WitherVisualPosition => ({
   z: -Math.cos(facingRadians),
 })
 
-const planItemVisual = (entity: RenderEntity, facingRadians: number): UntexturedEntityVisualPlan => ({
+const planItemVisual = (
+  entity: RenderEntity,
+  facingRadians: number,
+  itemIconsAvailable: boolean,
+): UntexturedEntityVisualPlan => {
+  let parts = ITEM_VISUAL_PARTS
+  if (itemIconsAvailable) {
+    const iconParts = itemIconParts(entity)
+    if (iconParts !== undefined) {
+      parts = iconParts
+    }
+  }
+  return { facingRadians, parts, position: entity.feetPosition }
+}
+
+const planProjectileItemVisual = (
+  entity: RenderEntity,
+  facingRadians: number,
+  parts: ReadonlyArray<EntityVisualPartPlan>,
+): UntexturedEntityVisualPlan => ({
   facingRadians,
-  parts: ITEM_VISUAL_PARTS,
+  parts,
   position: entity.feetPosition,
 })
 
@@ -509,9 +694,14 @@ const planDefaultEntityVisual = (
 const planDedicatedEntityVisual = (
   entity: RenderEntity,
   facingRadians: number,
+  itemIconsAvailable: boolean,
 ): Result.Result<UntexturedEntityVisualPlan, Schema.SchemaError> | undefined => {
+  const projectileParts = PROJECTILE_VISUAL_PARTS_BY_KIND[entity.kind]
+  if (projectileParts !== undefined) {
+    return Result.succeed(planProjectileItemVisual(entity, facingRadians, projectileParts))
+  }
   if (entity.category === 'item') {
-    return Result.succeed(planItemVisual(entity, facingRadians))
+    return Result.succeed(planItemVisual(entity, facingRadians, itemIconsAvailable))
   }
   if (entity.kind === 'wither') {
     return planWitherEntityVisual(entity, facingRadians)
@@ -532,9 +722,10 @@ const modelKindInputFor = (entity: RenderEntity): string => {
 const untexturedVisualFor = (
   entity: RenderEntity,
   kind: EntityModelKind,
+  itemIconsAvailable: boolean,
 ): Result.Result<UntexturedEntityVisualPlan, EntityModelResolutionIssue | Schema.SchemaError> => {
   const facingRadians = entityFacing(entity)
-  const dedicatedVisual = planDedicatedEntityVisual(entity, facingRadians)
+  const dedicatedVisual = planDedicatedEntityVisual(entity, facingRadians, itemIconsAvailable)
   if (dedicatedVisual !== undefined) {
     return dedicatedVisual
   }
@@ -549,12 +740,13 @@ const withEntityTextureCoordinates = (
 
 export const planEntityVisual = (
   entity: RenderEntity,
+  itemIconsAvailable = false,
 ): Result.Result<EntityVisualPlan, EntityModelResolutionIssue | EntityTextureResolutionIssue | Schema.SchemaError> => {
   const decodedKind = decodeEntityModelKind(modelKindInputFor(entity))
   if (Result.isFailure(decodedKind)) {
     return Result.fail(decodedKind.failure)
   }
-  const visual = untexturedVisualFor(entity, decodedKind.success)
+  const visual = untexturedVisualFor(entity, decodedKind.success, itemIconsAvailable)
   if (Result.isFailure(visual)) {
     return Result.fail(visual.failure)
   }

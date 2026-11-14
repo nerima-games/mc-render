@@ -133,6 +133,43 @@ describe('makeProductionWorldRenderer (the shipped composition)', () => {
     }),
   )
 
+  it.effect('animates dropped-item billboards from the converted simulation clock', () =>
+    Effect.gen(function* () {
+      const three = makeFakeThree()
+      const renderer = yield* makeProductionWorldRenderer(
+        three,
+        FAKE_CANVAS,
+        VIEWPORT,
+        { isTexture: true },
+        { itemIconAtlasTexture: {}, particles: { capacity: 1 } },
+      )
+      yield* renderer.syncEntities([{
+        category: 'item',
+        feetPosition: { x: 0, y: 2, z: 0 },
+        id: 'animated-book',
+        itemId: 'bookshelf',
+        kind: 'dropped_item',
+      }])
+      const item = three.meshes().find(({ material }) => 'map' in material && material.map !== undefined)
+      if (item === undefined) {
+        throw new Error('the dropped item must use the item icon atlas material')
+      }
+
+      yield* renderer.draw(mirroredCameraState(undefined))
+      expect(item.rotations().at(-1)).toStrictEqual([0, 0, 0, 'YXZ'])
+      yield* renderer.advanceFrame({
+        ...makeAnimationClockInput(5, 0, 0),
+        cameraPosition: { worldX: 0, worldY: 0, worldZ: 0 },
+        deltaSecs: decodeDelta(0),
+      })
+      yield* renderer.draw(mirroredCameraState(undefined))
+
+      expect(item.rotations().at(-1)?.[2]).toBeCloseTo(Math.PI / 8, 12)
+      expect(item.positions().at(-1)?.[1]).toBeCloseTo(2.235, 12)
+      yield* renderer.dispose
+    }),
+  )
+
   it.effect('uses the layer service pool for both accepted requests and rendered instances', () =>
     Effect.gen(function* () {
       const three = makeFakeThree()

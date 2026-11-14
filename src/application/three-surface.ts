@@ -173,6 +173,17 @@ export type ThreeMaterial = {
   readonly forceSinglePass?: boolean
 }
 
+/** Opaque texture handle supplied by the host, which owns its loading and lifetime. */
+export type ThreeTexture = Record<never, never>
+
+/** Texture accepted by a concrete basic material's `map` slot. */
+export type ThreeMaterialTexture<TMaterial extends ThreeMaterial> =
+  TMaterial extends { readonly map?: infer TTexture }
+    ? NonNullable<TTexture> extends ThreeTexture
+      ? NonNullable<TTexture>
+      : never
+    : ThreeTexture
+
 /**
  * The geometry members the chunk mesh path calls.
  *
@@ -349,6 +360,11 @@ export type ThreeSurface<
   readonly MeshBasicMaterial: new (parameters: {
     readonly vertexColors: boolean
     readonly wireframe: boolean
+    readonly map?: ThreeMaterialTexture<TMaterial> | null
+    readonly transparent?: boolean
+    readonly depthWrite?: boolean
+    readonly forceSinglePass?: boolean
+    readonly side?: ThreeMaterialSide
   }) => TMaterial
 }
 

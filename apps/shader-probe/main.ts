@@ -58,9 +58,11 @@ import { Effect, Result, Schema } from 'effect'
 import { BLOCK_IDS, BlockId, ChunkKey, blockTypeOfId } from '@nerima-games/mc-kernel'
 import { makeParticleSystem } from '../../src/application/particle-system.js'
 import {
+  CAMERA_FOV_DEGREES,
   makeChunkShaderMaterial,
   makeWaterMaterial,
   makeWorldRenderer,
+  type WorldRenderer,
 } from '../../src/application/world-renderer.js'
 import {
   buildChunkGeometry,
@@ -72,6 +74,7 @@ import { animationTimeSeconds } from '../../src/domain/animation-clock.js'
 import { ANIMATED_TEXTURE_FRAMES, tileIndexForBlockName } from '../../src/domain/block-texture-map.js'
 import { CHUNK_ANIMATION_KIND } from '../../src/domain/chunk-animation-kind.js'
 import { CHUNK_SHADER_ATTRIBUTES, CHUNK_SHADER_UNIFORMS } from '../../src/domain/chunk-shader.js'
+import { ITEM_ICON_ATLAS_URL, ITEM_ICON_TILE_BY_ITEM_ID } from '../../src/domain/item-icon-map.js'
 import {
   makeParticlePool,
   ParticleBurstCountSchema,
@@ -81,6 +84,7 @@ import {
 } from '../../src/domain/particle-pool.js'
 import {
   ATLAS_COLUMNS,
+  ATLAS_PIXELS,
   TILE_CELL_PIXELS,
   TILE_GUTTER_PIXELS,
   TILE_PIXELS,
@@ -96,6 +100,47 @@ const ANIMATION_PROBE_PARTIAL_TICK = 0.99
 const ANIMATION_PROBE_UV_BELOW_ONE = 0.999999
 const ANIMATION_PROBE_TIME_OF_DAY_TICKS = 0
 const ANIMATION_PROBE_QUERY = 'chunk-animation-pixels'
+const ITEM_ICON_PROBE_QUERY = 'item-icon-pixels'
+const ITEM_ICON_PROBE_WIDTH = 320
+const ITEM_ICON_PROBE_HEIGHT = 240
+const ITEM_ICON_PROBE_DISTANCE = 2.5
+const ITEM_ICON_PROBE_CENTER_X = ITEM_ICON_PROBE_WIDTH / 2
+const ITEM_ICON_PROBE_CENTER_Y = ITEM_ICON_PROBE_HEIGHT / 2
+const ITEM_ICON_PROBE_HALF_REGION = 32
+const ITEM_ICON_PROBE_HALF_VIEW_ANGLE_TANGENT = Math.tan((CAMERA_FOV_DEGREES * Math.PI / 180) / 2)
+const ITEM_ICON_ROTATION_ONLY_TICK = 40
+const ITEM_ICON_BOB_UP_TICK = 5
+const ITEM_ICON_BOB_DOWN_TICK = 15
+const ITEM_ICON_BOB_FIXTURE_ITEM_ID = 'snowball'
+const ITEM_ICON_BOB_FIXTURE_START_ANGLE_RADIANS = 0
+const ITEM_ICON_BOB_FIXTURE_TURN_COUNT = 2
+const ITEM_ICON_BOB_FIXTURE_FULL_TURN_RADIANS = Math.PI * ITEM_ICON_BOB_FIXTURE_TURN_COUNT
+const ITEM_ICON_BOB_FIXTURE_RADIUS = TILE_PIXELS / ITEM_ICON_BOB_FIXTURE_TURN_COUNT - 1
+const ITEM_ICON_BOB_FIXTURE_COLOR = '#ffffff'
+const ITEM_ICON_ROTATION_HEIGHT_TOLERANCE_PIXELS = 1
+const ITEM_ICON_MIN_BOB_HEIGHT_DELTA_PIXELS = 2
+const ITEM_ICON_MIN_ARROW_ASPECT_RATIO = 1.5
+const ITEM_ICON_SIDE_CAMERA_YAW_RADIANS = Math.PI / 2
+const ITEM_ICON_PROBE_CAMERA: MirroredCameraState = {
+  position: { x: 0, y: 0.2, z: ITEM_ICON_PROBE_DISTANCE },
+  rotation: { x: 0, y: 0, z: 0, order: 'YXZ' },
+  sourceCapturedAtSecs: 0,
+} as unknown as MirroredCameraState
+const ITEM_ICON_PROBE_SIDE_CAMERA: MirroredCameraState = {
+  position: { x: ITEM_ICON_PROBE_DISTANCE, y: 0.2, z: 0 },
+  rotation: { x: 0, y: ITEM_ICON_SIDE_CAMERA_YAW_RADIANS, z: 0, order: 'YXZ' },
+  sourceCapturedAtSecs: 0,
+} as unknown as MirroredCameraState
+const ITEM_ICON_PROBE_BACK_CAMERA: MirroredCameraState = {
+  position: { x: 0, y: 0.2, z: -ITEM_ICON_PROBE_DISTANCE },
+  rotation: { x: 0, y: Math.PI, z: 0, order: 'YXZ' },
+  sourceCapturedAtSecs: 0,
+} as unknown as MirroredCameraState
+const ITEM_ICON_PIXEL_THRESHOLD = 12
+const ITEM_ICON_TEST_ENTITIES = [
+  { id: 'bookshelf', itemId: 'bookshelf', kind: 'dropped_item', x: -0.32 },
+  { id: 'diamond', itemId: 'diamond', kind: 'dropped_item', x: 0.32 },
+] as const
 const ANIMATION_PROBE_UNOCCLUDED_COLOR = [255, 255, 255] as const
 const ANIMATION_PROBE_MIN_VISIBLE_ALPHA = 0
 const ANIMATION_PROBE_ALPHA_TEST_UNIFORM = 'uAlphaTest'
@@ -624,6 +669,343 @@ const reportChunkAnimationPixelProbe = async (): Promise<void> => {
   }
 }
 
+type ItemIconPixelProbeResult = Readonly<{
+  readonly distinctIconPixels: number
+  readonly bookshelfVisiblePixels: number
+  readonly diamondVisiblePixels: number
+  readonly rotationOnlyPixelChanges: number
+  readonly rotationOnlyHeightDeltaPixels: number
+  readonly bobOnlyCenterYDeltaPixels: number
+  readonly arrowVisiblePixels: number
+  readonly arrowWarmPixels: number
+  readonly arrowNeutralPixels: number
+  readonly arrowWidthPixels: number
+  readonly arrowHeightPixels: number
+  readonly enderEyeVisiblePixels: number
+  readonly enderEyeGreenPixels: number
+  readonly enderEyePupilPixels: number
+  readonly animationSeconds: readonly [number, number, number, number]
+}>
+
+type VisiblePixelBounds = Readonly<{
+  readonly visiblePixels: number
+  readonly width: number
+  readonly height: number
+  readonly centerY: number
+}>
+
+const ITEM_ICON_PROBE_REGION_SIZE = ITEM_ICON_PROBE_HALF_REGION * 2
+
+const iconProbeRegion = (
+  pixels: Uint8Array,
+  centerX: number,
+  centerY: number = ITEM_ICON_PROBE_CENTER_Y,
+): Uint8Array => {
+  const samples: Array<number> = []
+  const left = Math.floor(centerX) - ITEM_ICON_PROBE_HALF_REGION
+  const right = Math.floor(centerX) + ITEM_ICON_PROBE_HALF_REGION
+  const top = Math.floor(centerY) - ITEM_ICON_PROBE_HALF_REGION
+  const bottom = Math.floor(centerY) + ITEM_ICON_PROBE_HALF_REGION
+  for (let y = top; y < bottom; y += 1) {
+    for (let x = left; x < right; x += 1) {
+      const offset = (y * ITEM_ICON_PROBE_WIDTH + x) * ANIMATION_PROBE_RGBA_CHANNELS
+      samples.push(
+        pixels[offset] ?? 0,
+        pixels[offset + 1] ?? 0,
+        pixels[offset + 2] ?? 0,
+        pixels[offset + 3] ?? 0,
+      )
+    }
+  }
+  return Uint8Array.from(samples)
+}
+
+const visibleIconPixels = (pixels: Uint8Array): number => {
+  let visible = 0
+  for (let offset = 0; offset < pixels.length; offset += ANIMATION_PROBE_RGBA_CHANNELS) {
+    if ((pixels[offset] ?? 0) + (pixels[offset + 1] ?? 0) + (pixels[offset + 2] ?? 0) > ITEM_ICON_PIXEL_THRESHOLD) {
+      visible += 1
+    }
+  }
+  return visible
+}
+
+const visiblePixelBounds = (pixels: Uint8Array): VisiblePixelBounds => {
+  let minimumX = ITEM_ICON_PROBE_REGION_SIZE
+  let maximumX = -1
+  let minimumY = ITEM_ICON_PROBE_REGION_SIZE
+  let maximumY = -1
+  let visiblePixels = 0
+  let sumY = 0
+  for (let y = 0; y < ITEM_ICON_PROBE_REGION_SIZE; y += 1) {
+    for (let x = 0; x < ITEM_ICON_PROBE_REGION_SIZE; x += 1) {
+      const offset = (y * ITEM_ICON_PROBE_REGION_SIZE + x) * ANIMATION_PROBE_RGBA_CHANNELS
+      const brightness = (pixels[offset] ?? 0) + (pixels[offset + 1] ?? 0) + (pixels[offset + 2] ?? 0)
+      if (brightness > ITEM_ICON_PIXEL_THRESHOLD) {
+        visiblePixels += 1
+        sumY += y
+        minimumX = Math.min(minimumX, x)
+        maximumX = Math.max(maximumX, x)
+        minimumY = Math.min(minimumY, y)
+        maximumY = Math.max(maximumY, y)
+      }
+    }
+  }
+  return {
+    centerY: visiblePixels === 0 ? 0 : sumY / visiblePixels,
+    height: visiblePixels === 0 ? 0 : maximumY - minimumY + 1,
+    visiblePixels,
+    width: visiblePixels === 0 ? 0 : maximumX - minimumX + 1,
+  }
+}
+
+const colorPixelCount = (
+  pixels: Uint8Array,
+  matches: (red: number, green: number, blue: number) => boolean,
+): number => {
+  let count = 0
+  for (let offset = 0; offset < pixels.length; offset += ANIMATION_PROBE_RGBA_CHANNELS) {
+    if (matches(pixels[offset] ?? 0, pixels[offset + 1] ?? 0, pixels[offset + 2] ?? 0)) {
+      count += 1
+    }
+  }
+  return count
+}
+
+const differentPixelCount = (left: Uint8Array, right: Uint8Array): number => {
+  let different = 0
+  for (let offset = 0; offset < left.length; offset += ANIMATION_PROBE_RGBA_CHANNELS) {
+    const changed = [0, 1, 2].some((channel) =>
+      Math.abs((left[offset + channel] ?? 0) - (right[offset + channel] ?? 0)) > ITEM_ICON_PIXEL_THRESHOLD,
+    )
+    if (changed) {
+      different += 1
+    }
+  }
+  return different
+}
+
+const readItemIconProbePixels = (canvas: HTMLCanvasElement): Uint8Array => {
+  const gl = canvas.getContext('webgl2')
+  if (gl === null) {
+    throw new Error('item icon probe WebGL2 context is unavailable')
+  }
+  const pixels = new Uint8Array(ITEM_ICON_PROBE_WIDTH * ITEM_ICON_PROBE_HEIGHT * ANIMATION_PROBE_RGBA_CHANNELS)
+  gl.readPixels(0, 0, ITEM_ICON_PROBE_WIDTH, ITEM_ICON_PROBE_HEIGHT, gl.RGBA, gl.UNSIGNED_BYTE, pixels)
+  if (gl.getError() !== gl.NO_ERROR) {
+    throw new Error('item icon probe pixel readback failed')
+  }
+  return pixels
+}
+
+const makeBobProbeAtlasTexture = (atlas: THREE.Texture): THREE.CanvasTexture => {
+  const canvas = document.createElement('canvas')
+  canvas.width = ATLAS_PIXELS
+  canvas.height = ATLAS_PIXELS
+  const context = canvas.getContext('2d')
+  if (context === null) {
+    throw new Error('item icon bob probe 2D canvas context is unavailable')
+  }
+  const atlasImage = atlas.image
+  if (!(atlasImage instanceof HTMLImageElement)) {
+    throw new Error('item icon bob probe atlas is not an HTML image')
+  }
+  context.drawImage(atlasImage, 0, 0, ATLAS_PIXELS, ATLAS_PIXELS)
+
+  const tileIndex = ITEM_ICON_TILE_BY_ITEM_ID[ITEM_ICON_BOB_FIXTURE_ITEM_ID]
+  const column = tileIndex % ATLAS_COLUMNS
+  const row = Math.floor(tileIndex / ATLAS_COLUMNS)
+  const cellLeft = column * TILE_CELL_PIXELS
+  const cellTop = row * TILE_CELL_PIXELS
+  const centerX = cellLeft + TILE_GUTTER_PIXELS + TILE_PIXELS / ITEM_ICON_BOB_FIXTURE_TURN_COUNT
+  const centerY = cellTop + TILE_GUTTER_PIXELS + TILE_PIXELS / ITEM_ICON_BOB_FIXTURE_TURN_COUNT
+  // A centered disc keeps its pixel centroid fixed while the icon card spins.
+  context.clearRect(cellLeft, cellTop, TILE_CELL_PIXELS, TILE_CELL_PIXELS)
+  context.fillStyle = ITEM_ICON_BOB_FIXTURE_COLOR
+  context.beginPath()
+  context.arc(
+    centerX,
+    centerY,
+    ITEM_ICON_BOB_FIXTURE_RADIUS,
+    ITEM_ICON_BOB_FIXTURE_START_ANGLE_RADIANS,
+    ITEM_ICON_BOB_FIXTURE_FULL_TURN_RADIANS,
+  )
+  context.fill()
+
+  const texture = new THREE.CanvasTexture(canvas)
+  texture.flipY = true
+  texture.colorSpace = THREE.SRGBColorSpace
+  texture.magFilter = THREE.NearestFilter
+  texture.minFilter = THREE.NearestMipmapLinearFilter
+  texture.generateMipmaps = true
+  texture.needsUpdate = true
+  return texture
+}
+
+const probeItemIconPixels = async (): Promise<ItemIconPixelProbeResult> => {
+  const sourceAtlasTexture = await new THREE.TextureLoader().loadAsync(ITEM_ICON_ATLAS_URL)
+  const atlasTexture = makeBobProbeAtlasTexture(sourceAtlasTexture)
+
+  const canvas = document.createElement('canvas')
+  canvas.width = ITEM_ICON_PROBE_WIDTH
+  canvas.height = ITEM_ICON_PROBE_HEIGHT
+  canvas.style.width = `${String(ITEM_ICON_PROBE_WIDTH)}px`
+  canvas.style.height = `${String(ITEM_ICON_PROBE_HEIGHT)}px`
+  canvas.setAttribute('data-item-icon-canvas', 'true')
+  document.body.append(canvas)
+
+  let renderer: WorldRenderer | undefined = undefined
+  try {
+    const activeRenderer = await Effect.runPromise(makeWorldRenderer<
+      HTMLCanvasElement,
+      THREE.BufferGeometry,
+      THREE.MeshBasicMaterial
+    >(THREE, canvas, { width: ITEM_ICON_PROBE_WIDTH, height: ITEM_ICON_PROBE_HEIGHT }, {
+      clearColor: 0x000000,
+      itemIconAtlasTexture: atlasTexture,
+    }))
+    renderer = activeRenderer
+    let result: ItemIconPixelProbeResult | undefined = undefined
+    const errors = await captureErrors(async () => {
+      const cameraScale = ITEM_ICON_PROBE_WIDTH /
+        (2 * ITEM_ICON_PROBE_DISTANCE * ITEM_ICON_PROBE_HALF_VIEW_ANGLE_TANGENT *
+          (ITEM_ICON_PROBE_WIDTH / ITEM_ICON_PROBE_HEIGHT))
+      await Effect.runPromise(activeRenderer.syncEntities(ITEM_ICON_TEST_ENTITIES.map((item) => ({
+        category: 'item' as const,
+        feetPosition: { x: item.x, y: 0, z: 0 },
+        id: item.id,
+        itemId: item.itemId,
+        kind: item.kind,
+      }))))
+      const captureAtTick = async (tick: number, camera: MirroredCameraState) => {
+        const seconds = Result.getOrThrow(animationTimeSeconds({
+          partialTick: 0,
+          simulationTick: tick,
+          timeOfDayTicks: 0,
+        }))
+        await Effect.runPromise(activeRenderer.setEntityAnimationTimeSeconds(seconds))
+        await Effect.runPromise(activeRenderer.draw(camera))
+        return { pixels: readItemIconProbePixels(canvas), seconds }
+      }
+      const atZero = await captureAtTick(0, ITEM_ICON_PROBE_CAMERA)
+      const screenOffset = ITEM_ICON_TEST_ENTITIES[1].x * cameraScale
+      const bookshelfRegion = iconProbeRegion(atZero.pixels, ITEM_ICON_PROBE_CENTER_X - screenOffset)
+      const diamondRegion = iconProbeRegion(atZero.pixels, ITEM_ICON_PROBE_CENTER_X + screenOffset)
+      const rotationOnly = await captureAtTick(ITEM_ICON_ROTATION_ONLY_TICK, ITEM_ICON_PROBE_CAMERA)
+      const rotationOnlyBookshelf = iconProbeRegion(rotationOnly.pixels, ITEM_ICON_PROBE_CENTER_X - screenOffset)
+      const rotationOnlyDiamond = iconProbeRegion(rotationOnly.pixels, ITEM_ICON_PROBE_CENTER_X + screenOffset)
+      await Effect.runPromise(activeRenderer.syncEntities([{
+        category: 'item',
+        feetPosition: { x: 0, y: 0, z: 0 },
+        id: 'probe-bob',
+        itemId: ITEM_ICON_BOB_FIXTURE_ITEM_ID,
+        kind: 'dropped_item',
+      }]))
+      const bobUp = await captureAtTick(ITEM_ICON_BOB_UP_TICK, ITEM_ICON_PROBE_CAMERA)
+      const bobUpBounds = visiblePixelBounds(iconProbeRegion(bobUp.pixels, ITEM_ICON_PROBE_CENTER_X))
+      const bobDown = await captureAtTick(ITEM_ICON_BOB_DOWN_TICK, ITEM_ICON_PROBE_CAMERA)
+      const bobDownBounds = visiblePixelBounds(iconProbeRegion(bobDown.pixels, ITEM_ICON_PROBE_CENTER_X))
+
+      await Effect.runPromise(activeRenderer.syncEntities([{
+        category: 'item',
+        feetPosition: { x: 0, y: 0, z: 0 },
+        id: 'probe-arrow',
+        kind: 'arrow',
+      }]))
+      const arrowFrame = await captureAtTick(0, ITEM_ICON_PROBE_SIDE_CAMERA)
+      const arrowRegion = iconProbeRegion(arrowFrame.pixels, ITEM_ICON_PROBE_CENTER_X)
+      const arrowBounds = visiblePixelBounds(arrowRegion)
+      const arrowWarmPixels = colorPixelCount(
+        arrowRegion,
+        (red, green, blue) => red > green + 10 && green > blue + 10,
+      )
+      const arrowNeutralPixels = colorPixelCount(
+        arrowRegion,
+        (red, green, blue) => red > 80 && Math.abs(red - green) < 20 && Math.abs(green - blue) < 20,
+      )
+
+      await Effect.runPromise(activeRenderer.syncEntities([{
+        category: 'item',
+        feetPosition: { x: 0, y: 0, z: 0 },
+        id: 'probe-ender-eye',
+        kind: 'eye_of_ender',
+      }]))
+      const enderEyeFrame = await captureAtTick(0, ITEM_ICON_PROBE_BACK_CAMERA)
+      const enderEyeRegion = iconProbeRegion(enderEyeFrame.pixels, ITEM_ICON_PROBE_CENTER_X)
+      const probeResult = {
+        animationSeconds: [atZero.seconds, rotationOnly.seconds, bobUp.seconds, bobDown.seconds] as const,
+        arrowHeightPixels: arrowBounds.height,
+        arrowNeutralPixels,
+        arrowVisiblePixels: arrowBounds.visiblePixels,
+        arrowWarmPixels,
+        arrowWidthPixels: arrowBounds.width,
+        bobOnlyCenterYDeltaPixels: Math.abs(bobUpBounds.centerY - bobDownBounds.centerY),
+        diamondVisiblePixels: visibleIconPixels(diamondRegion),
+        distinctIconPixels: differentPixelCount(bookshelfRegion, diamondRegion),
+        enderEyeGreenPixels: colorPixelCount(
+          enderEyeRegion,
+          (red, green, blue) => green > red + 20 && green > blue + 10,
+        ),
+        enderEyePupilPixels: colorPixelCount(
+          enderEyeRegion,
+          (red, green, blue) => red < 90 && blue > green + 2,
+        ),
+        enderEyeVisiblePixels: visibleIconPixels(enderEyeRegion),
+        bookshelfVisiblePixels: visibleIconPixels(bookshelfRegion),
+        rotationOnlyHeightDeltaPixels: Math.max(
+          Math.abs(visiblePixelBounds(bookshelfRegion).height - visiblePixelBounds(rotationOnlyBookshelf).height),
+          Math.abs(visiblePixelBounds(diamondRegion).height - visiblePixelBounds(rotationOnlyDiamond).height),
+        ),
+        rotationOnlyPixelChanges: Math.min(
+          differentPixelCount(bookshelfRegion, rotationOnlyBookshelf),
+          differentPixelCount(diamondRegion, rotationOnlyDiamond),
+        ),
+      }
+      if (probeResult.bookshelfVisiblePixels === 0 || probeResult.diamondVisiblePixels === 0 ||
+        probeResult.distinctIconPixels === 0 || probeResult.rotationOnlyPixelChanges === 0 ||
+        probeResult.rotationOnlyHeightDeltaPixels > ITEM_ICON_ROTATION_HEIGHT_TOLERANCE_PIXELS ||
+        probeResult.bobOnlyCenterYDeltaPixels < ITEM_ICON_MIN_BOB_HEIGHT_DELTA_PIXELS ||
+        probeResult.arrowVisiblePixels === 0 || probeResult.arrowWarmPixels === 0 ||
+        probeResult.arrowNeutralPixels === 0 ||
+        probeResult.arrowWidthPixels < probeResult.arrowHeightPixels * ITEM_ICON_MIN_ARROW_ASPECT_RATIO ||
+        probeResult.enderEyeVisiblePixels === 0 || probeResult.enderEyeGreenPixels === 0 ||
+        probeResult.enderEyePupilPixels === 0) {
+        throw new Error(`item icon and entity pixels did not meet their WebGL criteria: ${JSON.stringify(probeResult)}`)
+      }
+      result = probeResult
+    })
+    if (errors.length > 0) {
+      throw new Error(errors.join('\n'))
+    }
+    if (result === undefined) {
+      throw new Error('item icon pixel probe completed without a result')
+    }
+    return result
+  } finally {
+    if (renderer !== undefined) {
+      await Effect.runPromise(renderer.dispose)
+    }
+    atlasTexture.dispose()
+    sourceAtlasTexture.dispose()
+  }
+}
+
+const reportItemIconPixelProbe = async (): Promise<void> => {
+  const report = document.createElement('pre')
+  report.id = 'item-icon-probe-report'
+  document.body.append(report)
+  document.body.setAttribute('data-item-icon-probe', 'running')
+  try {
+    const result = await probeItemIconPixels()
+    report.textContent = JSON.stringify(result, null, 2)
+    document.body.setAttribute('data-item-icon-probe-result', JSON.stringify(result))
+    document.body.setAttribute('data-item-icon-probe', 'passed')
+  } catch (error) {
+    report.textContent = String(error)
+    document.body.setAttribute('data-item-icon-probe', 'failed')
+  }
+}
+
 const probeWaterShader = async (canvas: HTMLCanvasElement): Promise<ProbeResult> => {
   const errors = await captureErrors(() => {
     const renderer = new THREE.WebGLRenderer({ canvas })
@@ -761,6 +1143,9 @@ const main = async (): Promise<void> => {
   document.body.setAttribute('data-shader-probe-total', String(results.length))
   if (new URLSearchParams(location.search).has(ANIMATION_PROBE_QUERY)) {
     await reportChunkAnimationPixelProbe()
+  }
+  if (new URLSearchParams(location.search).has(ITEM_ICON_PROBE_QUERY)) {
+    await reportItemIconPixelProbe()
   }
 }
 

@@ -51,6 +51,7 @@ import {
   type RendererMaterialPolicyError,
   RendererMaterialPolicyErrorSchema,
 } from './application/world-renderer-materials.js'
+import { ITEM_ICON_ATLAS_URL } from './domain/item-icon-map.js'
 
 export type BrowserRuntimeError = {
   readonly _tag: 'BrowserRuntimeError'
@@ -136,6 +137,7 @@ import { createSsimAdaptiveQualityState } from './domain/ssim-adaptive-quality.j
 import { measureWaterVisibility } from './browser-water-visibility.js'
 
 export const DEFAULT_BLOCK_TEXTURE_ATLAS_URL: string = new URL('./assets/block-textures/atlas.png', import.meta.url).href
+export const DEFAULT_ITEM_ICON_ATLAS_URL: URL = new URL(ITEM_ICON_ATLAS_URL)
 
 const requireRenderer = (value: unknown): THREE.WebGLRenderer => {
   if (value instanceof THREE.WebGLRenderer) {
@@ -382,6 +384,7 @@ export type BrowserFrame = {
 export type BrowserWorldRuntimeOptions = {
   readonly canvas: HTMLCanvasElement
   readonly atlas?: THREE.Texture | RgbaAtlas | string
+  readonly itemIconAtlas?: THREE.Texture | URL
   readonly quality?: QualityPreset | GraphicsQuality
   readonly colorVisionCorrection?: ColorVisionCorrection
   readonly maxPixelRatio?: number
@@ -390,9 +393,34 @@ export type BrowserWorldRuntimeOptions = {
   readonly preserveDrawingBuffer?: boolean
   readonly waterGeometry?: THREE.BufferGeometry
   readonly world?: Omit<
-    ProductionWorldRendererOptions<THREE.MeshBasicMaterial>,
+    ProductionWorldRendererOptions<THREE.MeshBasicMaterial, THREE.Texture>,
     'postProcessing' | 'preserveDrawingBuffer'
   >
+}
+
+const validateBrowserWorldRuntimeOptionValues = (
+  options: BrowserWorldRuntimeOptions,
+): Result.Result<void, BrowserRuntimeError> => {
+  const atlas: unknown = options.atlas
+  if (atlas === null) {
+    return Result.fail(browserRuntimeError('initialization', 'invalid-input', atlas))
+  }
+  const itemIconAtlas: unknown = options.itemIconAtlas
+  if (itemIconAtlas === null) {
+    return Result.fail(browserRuntimeError('initialization', 'invalid-input', itemIconAtlas))
+  }
+  const preserveDrawingBuffer: unknown = options.preserveDrawingBuffer
+  if (preserveDrawingBuffer !== undefined && typeof preserveDrawingBuffer !== 'boolean') {
+    return Result.fail(browserRuntimeError('initialization', 'invalid-input', preserveDrawingBuffer))
+  }
+  return Result.succeed(undefined)
+}
+
+const defaultIfUndefined = <Value>(value: Value | undefined, fallback: Value): Value => {
+  if (value === undefined) {
+    return fallback
+  }
+  return value
 }
 
 export type BrowserWorldRuntime = {
@@ -469,10 +497,24 @@ const makeAtlasTexture = (atlas: RgbaAtlas): THREE.DataTexture => {
   return texture
 }
 
+const resolveRgbaAtlas = (atlas: RgbaAtlas): Effect.Effect<AtlasResource, BrowserRuntimeError> => {
+  const validation = validateRgbaAtlas(atlas)
+  if (Result.isFailure(validation)) {
+    return Effect.fail(validation.failure)
+  }
+  return Effect.try({
+    catch: (cause) => browserRuntimeError('initialization', 'operation-failed', cause),
+    try: () => ({
+      owned: true,
+      texture: makeAtlasTexture(atlas),
+    }),
+  })
+}
+
 const resolveAtlas = (
   source: BrowserWorldRuntimeOptions['atlas'],
 ): Effect.Effect<AtlasResource, BrowserRuntimeError> => {
-  const resolvedSource = source ?? DEFAULT_BLOCK_TEXTURE_ATLAS_URL
+  const resolvedSource = defaultIfUndefined(source, DEFAULT_BLOCK_TEXTURE_ATLAS_URL)
   if (resolvedSource instanceof THREE.Texture) {
     return Effect.succeed({ owned: false, texture: resolvedSource })
   }
@@ -487,17 +529,25 @@ const resolveAtlas = (
       }),
     )
   }
-  const validation = validateRgbaAtlas(resolvedSource)
-  if (Result.isFailure(validation)) {
-    return Effect.fail(validation.failure)
+  return resolveRgbaAtlas(resolvedSource)
+}
+
+const resolveItemIconAtlas = (
+  source: BrowserWorldRuntimeOptions['itemIconAtlas'],
+): Effect.Effect<AtlasResource, BrowserRuntimeError> => {
+  const resolvedSource = defaultIfUndefined(source, DEFAULT_ITEM_ICON_ATLAS_URL)
+  if (resolvedSource instanceof THREE.Texture) {
+    return Effect.succeed({ owned: false, texture: resolvedSource })
   }
-  return Effect.try({
+  return Effect.tryPromise({
     catch: (cause) => browserRuntimeError('initialization', 'operation-failed', cause),
-    try: () => ({
-      owned: true,
-      texture: makeAtlasTexture(resolvedSource),
+    try: () => new THREE.TextureLoader().loadAsync(resolvedSource.href),
+  }).pipe(
+    Effect.map((texture) => {
+      configureAtlasTexture(texture)
+      return { owned: true, texture }
     }),
-  })
+  )
 }
 
 type BrowserSurface = {
@@ -1259,6 +1309,7 @@ type BrowserWorldInitialization = {
 
 type BrowserWorldInitializationOptions = {
   readonly atlas: AtlasResource
+  readonly itemIconAtlas: AtlasResource
   readonly options: BrowserWorldRuntimeOptions
   readonly state: BrowserRuntimeState
 }
@@ -1277,6 +1328,7 @@ type BrowserWorldCallbacks = {
 
 type BrowserRuntimeResources = {
   readonly atlas: AtlasResource
+  readonly itemIconAtlas: AtlasResource
   readonly applyPreset: (preset: QualityPreset) => void
   readonly gpuTiming: BrowserGpuTiming
   readonly refraction: BrowserRefractionController
@@ -1532,6 +1584,7 @@ const createBrowserWorldCallbacks = ({
 
 const initializeBrowserWorld = ({
   atlas,
+  itemIconAtlas,
   options,
   state,
 }: BrowserWorldInitializationOptions): Effect.Effect<
@@ -1545,7 +1598,10 @@ const initializeBrowserWorld = ({
       try: () => {
         const buildState: BrowserWorldBuildState = { gpuTiming: undefined, surface: undefined, world: undefined }
         const callbacks = createBrowserWorldCallbacks({ buildState, options, state })
-        const worldOptions = createBrowserWorldOptions(options, callbacks.postProcessing)
+        const worldOptions = {
+          ...createBrowserWorldOptions(options, callbacks.postProcessing),
+          itemIconAtlasTexture: itemIconAtlas.texture,
+        }
         return { buildState, callbacks, worldOptions }
       },
     })
@@ -1885,6 +1941,52 @@ const disposeAtlas = (atlas: AtlasResource): void => {
   }
 }
 
+const disposeRuntimeResources = (resources: BrowserRuntimeResources): void => {
+  disposeWaterSurfaces(resources)
+  Effect.runSync(resources.world.dispose)
+  resources.refraction.dispose()
+  disposeAtlas(resources.atlas)
+  disposeAtlas(resources.itemIconAtlas)
+}
+
+const resolveBrowserAtlases = (
+  options: BrowserWorldRuntimeOptions,
+): Effect.Effect<Pick<BrowserRuntimeResources, 'atlas' | 'itemIconAtlas'>, BrowserRuntimeError> =>
+  Effect.gen(function* resolveBrowserAtlasesEffect() {
+    const atlas = yield* resolveAtlas(options.atlas)
+    const itemIconAtlasResult = yield* Effect.result(resolveItemIconAtlas(options.itemIconAtlas))
+    if (Result.isFailure(itemIconAtlasResult)) {
+      disposeAtlas(atlas)
+      return yield* Effect.fail(itemIconAtlasResult.failure)
+    }
+    return { atlas, itemIconAtlas: itemIconAtlasResult.success }
+  })
+
+const initializeBrowserWorldWithAtlases = ({
+  atlases,
+  options,
+  state,
+}: {
+  readonly atlases: Pick<BrowserRuntimeResources, 'atlas' | 'itemIconAtlas'>
+  readonly options: BrowserWorldRuntimeOptions
+  readonly state: BrowserRuntimeState
+}): Effect.Effect<BrowserWorldInitialization, BrowserRuntimeError | BrowserRenderPolicyError | RendererMaterialPolicyError
+  | GpuTimerServiceFailure | ParticlePoolInputError> =>
+  Effect.gen(function* initializeBrowserWorldWithAtlasesEffect() {
+    const initializedResult = yield* Effect.result(initializeBrowserWorld({
+      atlas: atlases.atlas,
+      itemIconAtlas: atlases.itemIconAtlas,
+      options,
+      state,
+    }))
+    if (Result.isFailure(initializedResult)) {
+      disposeAtlas(atlases.atlas)
+      disposeAtlas(atlases.itemIconAtlas)
+      return yield* Effect.fail(initializedResult.failure)
+    }
+    return initializedResult.success
+  })
+
 const createDisposeHandler = ({
   activity,
   removeScreenshotShortcut,
@@ -1903,10 +2005,7 @@ const createDisposeHandler = ({
   stop()
   removeScreenshotShortcut()
   activity.resizeObserver?.disconnect()
-  disposeWaterSurfaces(resources)
-  Effect.runSync(resources.world.dispose)
-  resources.refraction.dispose()
-  disposeAtlas(resources.atlas)
+  disposeRuntimeResources(resources)
 }
 
 type RuntimeInstallationOptions = {
@@ -1990,7 +2089,7 @@ const createBrowserRuntimeOperations = ({
     activity,
     canvas: options.canvas,
     getLastFrame: () => resources.state.lastPresentedFrame,
-    preserveDrawingBuffer: options.preserveDrawingBuffer ?? true,
+    preserveDrawingBuffer: defaultIfUndefined(options.preserveDrawingBuffer, true),
   })
   const resize = (): Effect.Effect<void, BrowserRuntimeFailure> =>
     browserRuntimeOperation('runtime', resizeSync, activity)
@@ -2135,6 +2234,7 @@ export const makeBrowserWorldRuntime = (
   options: BrowserWorldRuntimeOptions,
 ): Effect.Effect<BrowserWorldRuntime, BrowserRuntimeFailure> =>
   Effect.gen(function* makeBrowserWorldRuntimeEffect() {
+    yield* Effect.fromResult(validateBrowserWorldRuntimeOptionValues(options))
     const { quality, preset: qualityPreset } = yield* Effect.fromResult(resolveBrowserQuality(options.quality))
     const colorFilter = yield* Effect.fromResult(resolveBrowserColorFilterInput({
       colorVisionCorrection: colorVisionCorrectionOrDefault(options.colorVisionCorrection),
@@ -2143,15 +2243,16 @@ export const makeBrowserWorldRuntime = (
     const maxPixelRatio = yield* Effect.fromResult(
       resolveBrowserMaxPixelRatio(options.maxPixelRatio, quality.pixelRatioCap),
     )
-    const atlas = yield* resolveAtlas(options.atlas)
     const state = yield* Effect.fromResult(
       makeRuntimeState({ canvas: options.canvas, colorFilter, maxPixelRatio, quality, qualityPreset }),
     )
-    const initialized = yield* initializeBrowserWorld({ atlas, options, state })
+    const atlases = yield* resolveBrowserAtlases(options)
+    const initialized = yield* initializeBrowserWorldWithAtlases({ atlases, options, state })
     const resources: BrowserRuntimeResources = {
       applyPreset: initialized.applyPreset,
-      atlas,
+      atlas: atlases.atlas,
       gpuTiming: initialized.gpuTiming,
+      itemIconAtlas: atlases.itemIconAtlas,
       refraction: initialized.refraction,
       state,
       surface: initialized.surface,

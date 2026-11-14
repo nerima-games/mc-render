@@ -2,6 +2,7 @@ import { describe, expect, it } from '@effect/vitest'
 import { Result, Schema } from 'effect'
 import { EntityRenderProgressSchema } from '../src/domain/entity-render-input'
 import { planMobVisual } from '../src/domain/mob-visual'
+import { itemIconUvForItemId } from '../src/domain/item-icon-map'
 import { planWitherSkullVisual, planWitherVisual } from '../src/domain/wither-visual'
 import { copyRenderEntity, planEntityVisual } from '../src/application/entity-visual-plan'
 
@@ -46,6 +47,56 @@ describe('entity visual planning', () => {
       ],
       position,
     })
+  })
+
+  it('plans a registered dropped-item ID as an atlas card', () => {
+    const bounds = itemIconUvForItemId('bookshelf')
+    expect(Result.isSuccess(bounds)).toBe(true)
+    if (Result.isFailure(bounds)) {
+      return
+    }
+    const planned = planEntityVisual(entity({ category: 'item', itemId: 'bookshelf', kind: 'dropped_item' }), true)
+    expect(Result.isSuccess(planned)).toBe(true)
+    if (Result.isSuccess(planned)) {
+      expect(planned.success.parts).toStrictEqual([{
+        center: [0, 0.2, 0],
+        color: [255, 255, 255],
+        iconUv: bounds.success,
+        id: 'item-icon',
+        role: 'body',
+        rotation: [0, 0, 0],
+        size: [0.34, 0.34, 0.01],
+      }])
+    }
+  })
+
+  it('keeps a dropped item on the fallback cube path when its identity is missing', () => {
+    expectVisualShape(entity({ category: 'item', kind: 'dropped_item' }), {
+      facingRadians: 0,
+      parts: [{
+        center: [0, 0.15, 0],
+        color: [225, 165, 65],
+        id: 'item',
+        role: 'body',
+        rotation: [0, 0, 0],
+        size: [0.3, 0.3, 0.3],
+      }],
+      position,
+    })
+  })
+
+  it('plans arrows and ender eyes with distinct multi-part geometry', () => {
+    const arrow = planEntityVisual(entity({ category: 'item', kind: 'arrow' }))
+    const eye = planEntityVisual(entity({ category: 'item', kind: 'eye_of_ender' }))
+
+    expect(Result.isSuccess(arrow)).toBe(true)
+    expect(Result.isSuccess(eye)).toBe(true)
+    if (Result.isFailure(arrow) || Result.isFailure(eye)) {
+      return
+    }
+    expect(arrow.success.parts.map(({ id }) => id)).toStrictEqual(['arrow-shaft', 'arrow-head', 'arrow-fletching'])
+    expect(eye.success.parts.map(({ id }) => id)).toStrictEqual(['eye-shell', 'eye-iris', 'eye-pupil'])
+    expect(arrow.success.parts).not.toStrictEqual(eye.success.parts)
   })
 
   it('adapts the wither domain plan without duplicating its state rules', () => {
@@ -272,6 +323,22 @@ describe('entity visual planning', () => {
     expect('witherState' in copy).toBe(false)
     expect('witherSkullProjectile' in copy).toBe(false)
     expect(copy.feetPosition).not.toBe(source.feetPosition)
+  })
+
+  it('preserves item identity when copying a dropped item projection', () => {
+    const source: RenderEntity = {
+      category: 'item',
+      feetPosition: position,
+      id: 'item-1',
+      itemId: 'bookshelf',
+      kind: 'dropped_item',
+    }
+
+    const copy = copyRenderEntity(source)
+
+    expect(copy).toStrictEqual(source)
+    expect(copy).not.toBe(source)
+    expect(copy.itemId).toBe('bookshelf')
   })
 
   it('copies nested entity projections without retaining source references', () => {
