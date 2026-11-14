@@ -889,7 +889,7 @@ describe('attachChunkStoreRenderer', () => {
     }),
   )
 
-  it.effect('propagates light queue failures through the attached renderer update', () =>
+  it.effect('records light queue failures as typed attachment faults', () =>
     Effect.gen(function* () {
       const three = makeFakeThree()
       const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT)
@@ -909,9 +909,17 @@ describe('attachChunkStoreRenderer', () => {
       }
 
       const attachment = yield* attachChunkStoreRenderer(renderer, store)
-      const result = yield* Effect.result(attachment.update)
+      const report = yield* attachment.update
+      const faults = yield* attachment.drainFaults
 
-      expect(Result.isFailure(result) && result.failure).toBe(failure)
+      expect(report).toStrictEqual({ deferred: 0, meshed: 0, removed: 0 })
+      expect(faults).toStrictEqual([{
+        _tag: 'ChunkRenderFault',
+        chunk: chunkCoord(0, 0),
+        error: failure,
+        occurrences: 1,
+      }])
+      expect(yield* attachment.drainFaults).toStrictEqual([])
       yield* attachment.detach
     }),
   )
@@ -1101,13 +1109,21 @@ describe('attachChunkStoreRenderer', () => {
 
       yield* attachment.update
       cameraChunk = chunkCoord(1, 0)
-      const firstRefresh = yield* Effect.result(attachment.update)
-      expect(firstRefresh).toStrictEqual(Result.fail(workerFailure))
+      const firstRefresh = yield* attachment.update
+      const firstFaults = yield* attachment.drainFaults
+      expect(firstRefresh).toStrictEqual({ deferred: 0, meshed: 0, removed: 0 })
+      expect(firstFaults).toStrictEqual([{
+        _tag: 'ChunkRenderFault',
+        chunk: chunkCoord(2, 0),
+        error: workerFailure,
+        occurrences: 1,
+      }])
       yield* attachment.update
 
       expect(submittedLods).toStrictEqual([1, 0, 0])
       yield* attachment.update
       expect(submittedLods).toStrictEqual([1, 0, 0])
+      expect(yield* attachment.drainFaults).toStrictEqual([])
       yield* attachment.detach
       yield* renderer.dispose
     }),
