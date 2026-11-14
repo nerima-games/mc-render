@@ -66,8 +66,14 @@ import type { WorldRenderer } from './world-renderer.js'
 import { meshBlockShapes } from '../domain/block-shapes.js'
 
 /** The kernel registry is the single numeric-id to texture-name authority. */
-export const blockNameFromKernel: BlockNameLookup = (blockId) =>
-  Result.getOrThrow(blockTypeOfId(blockId)) ?? 'unknown'
+export const blockNameFromKernel: BlockNameLookup = (blockId) => {
+  const blockType = blockTypeOfId(blockId)
+  // Preserve unresolved IDs so the texture lookup reports them as unknown blocks.
+  if (Result.isFailure(blockType) || blockType.success === undefined) {
+    return blockId
+  }
+  return blockType.success
+}
 
 /** Maximum fall-off level for each fluid kind. */
 const FLUID_MAX_LEVELS = {
@@ -618,15 +624,19 @@ export const makeChunkStoreMesher = (
 
 /** `options` with default atlas tiles and chunk lighting, unless the caller supplied overrides. */
 const withDefaultColorForChunk = (store: RendererChunkStore, options: SyncOptions): SyncOptions => {
-  const tile = options.tile ?? ((quad) => Result.getOrThrow(quadTileForLookup(blockNameFromKernel)(quad)))
+  const tileLookup = options.tileLookup === undefined
+    ? options.tile === undefined
+      ? quadTileForLookup(blockNameFromKernel)
+      : undefined
+    : options.tileLookup
+  const withTileLookup = tileLookup === undefined ? options : { ...options, tileLookup }
   if (options.colorForChunk !== undefined || options.color !== undefined) {
-    return { ...options, tile }
+    return withTileLookup
   }
   return {
-    ...options,
+    ...withTileLookup,
     colorForChunk: (chunk: { readonly cx: number; readonly cz: number }, quads: ReadonlyArray<GeometryQuad>) =>
       makeChunkStoreLightColor(store, chunk, quads),
-    tile,
   }
 }
 

@@ -45,7 +45,8 @@ import type {
   BrowserWorkerMessageEvent,
 } from '../src/application/browser-worker-port.js'
 import { makeWorldRenderer } from '../src/application/world-renderer'
-import { aoShade } from '../src/domain/chunk-geometry'
+import { quadTileForLookup } from '../src/domain/block-texture-map'
+import { aoShade, POSITION_COMPONENTS, type GeometryQuad } from '../src/domain/chunk-geometry'
 import { WorkerCountSchema } from '../src/domain/worker-parallelism.js'
 import { LodInputErrorSchema, type LodInputError } from '../src/domain/level-of-detail.js'
 import { FAKE_CANVAS, makeFakeThree } from './support/fake-three'
@@ -754,9 +755,31 @@ describe('makeChunkStoreMesher', () => {
 })
 
 describe('blockNameFromKernel', () => {
-  it('resolves canonical texture names and safely falls back for unknown ids', () => {
+  it('resolves canonical names and leaves unknown IDs as typed texture lookup failures', () => {
     expect(blockNameFromKernel(BlockId(4))).toBe('grass_block')
-    expect(blockNameFromKernel(BlockId(255))).toBe('unknown')
+    const unknownBlockId = BlockId(255)
+    expect(() => blockNameFromKernel(unknownBlockId)).not.toThrow()
+    expect(blockNameFromKernel(unknownBlockId)).toBe(unknownBlockId)
+
+    const lookup = quadTileForLookup(blockNameFromKernel)
+    const quad = {
+      ao: 0,
+      blockId: unknownBlockId,
+      direction: 'yPos',
+      height: 1,
+      lx: 0,
+      lz: 0,
+      role: 'top',
+      width: 1,
+      y: 0,
+    } satisfies GeometryQuad
+    expect(() => lookup(quad)).not.toThrow()
+    expect(lookup(quad)).toStrictEqual(Result.fail({
+      _tag: 'BlockTextureLookupError',
+      blockName: unknownBlockId,
+      reason: 'unknown-block',
+      role: 'top',
+    }))
   })
 })
 
@@ -793,12 +816,23 @@ describe('attachChunkStoreRenderer', () => {
         workerPool: pool,
       })
       yield* attachment.update
-      const uploadedTileIndices = three.geometries().flatMap((geometry) => {
-        const attribute = geometry.attributes.get('tileIndex')
-        if (attribute === undefined || !(attribute.array instanceof Float32Array)) {
+      const renderedVertexTiles = three.geometries().flatMap((geometry) => {
+        const tileAttribute = geometry.attributes.get('tileIndex')
+        const positionAttribute = geometry.attributes.get('position')
+        if (
+          tileAttribute === undefined || !(tileAttribute.array instanceof Float32Array) ||
+          positionAttribute === undefined || !(positionAttribute.array instanceof Float32Array)
+        ) {
           return []
         }
-        return Array.from(attribute.array)
+        expect(positionAttribute.array.length).toBe(tileAttribute.array.length * POSITION_COMPONENTS)
+        return Array.from(tileAttribute.array, (tileIndex, vertexIndex) => {
+          const x = positionAttribute.array[vertexIndex * POSITION_COMPONENTS]
+          if (x === undefined) {
+            throw new Error('rendered vertex must have an x coordinate')
+          }
+          return { tileIndex, x }
+        })
       })
       expect(worker.blockStateSidecars()).toHaveLength(1)
       const [sidecar] = worker.blockStateSidecars()
@@ -812,7 +846,14 @@ describe('attachChunkStoreRenderer', () => {
       expect(clonedStates.buffer).not.toBe(postedStates.buffer)
       expect(clonedStates[blockIndex(2, 20, 2)]).toBe(encodedStateFor('wheat_crop', { age: 0 }))
       expect(clonedStates[blockIndex(4, 20, 2)]).toBe(encodedStateFor('wheat_crop', { age: 7 }))
-      expect([...new Set(uploadedTileIndices)].sort((left, right) => left - right)).toStrictEqual([211, 388])
+      const tilesForBlockAtX = (blockX: number): ReadonlyArray<number> =>
+        [...new Set(
+          renderedVertexTiles
+            .filter(({ x }) => x >= blockX && x < blockX + 2)
+            .map(({ tileIndex }) => tileIndex),
+        )].sort((left, right) => left - right)
+      expect(tilesForBlockAtX(2)).toStrictEqual([211])
+      expect(tilesForBlockAtX(4)).toStrictEqual([388])
       yield* attachment.detach
       yield* pool.shutdown
     }),
