@@ -58,7 +58,7 @@ const iconPixels = (rgba: Uint8Array, tileIndex: number): ReadonlyArray<Readonly
   return colors
 }
 
-const MAX_NEAR_DUPLICATE_RMS_CHANNEL_DISTANCE = 2
+const MAX_NEAR_DUPLICATE_RMS_CHANNEL_DISTANCE = 6
 const ITEM_ICON_COMPARISON_BACKGROUND_COUNT = 2 ** 3
 
 const iconRaster = (rgba: Uint8Array, tileIndex: number): Uint8Array => {
@@ -163,14 +163,30 @@ describe('item icon generation', () => {
     const opaqueRedPlusTwo = rasterWithRedAdjustment(2, 255)
     const opaqueRedPlusFour = rasterWithRedAdjustment(4, 255)
     const opaqueRedPlusEleven = rasterWithRedAdjustment(11, 255)
-    const opaqueRedPlusTwenty = rasterWithRedAdjustment(20, 255)
+    const opaqueRedPlusFiftyFive = rasterWithRedAdjustment(55, 255)
+    const opaqueRedPlusFiftySix = rasterWithRedAdjustment(56, 255)
+    const rasterWithUniformRgbAdjustment = (adjustment: number): Uint8Array => {
+      const raster = new Uint8Array(TILE_PIXELS * TILE_PIXELS * CHANNELS)
+      for (let pixel = 0; pixel < TILE_PIXELS * TILE_PIXELS; pixel += 1) {
+        raster.set([64 + adjustment, 128 + adjustment, 192 + adjustment, 255], pixel * CHANNELS)
+      }
+      return raster
+    }
     for (const candidate of [redPlusOne, redPlusThree]) {
       expect(areNearDuplicateItemIcons(source, candidate)).toBe(true)
     }
-    for (const candidate of [opaqueRedPlusTwo, opaqueRedPlusFour, opaqueRedPlusEleven]) {
+    for (const candidate of [opaqueRedPlusTwo, opaqueRedPlusFour, opaqueRedPlusEleven, opaqueRedPlusFiftyFive]) {
       expect(areNearDuplicateItemIcons(opaqueSource, candidate)).toBe(true)
     }
-    expect(areNearDuplicateItemIcons(opaqueSource, opaqueRedPlusTwenty)).toBe(false)
+    expect(areNearDuplicateItemIcons(opaqueSource, opaqueRedPlusFiftySix)).toBe(false)
+    expect(areNearDuplicateItemIcons(
+      rasterWithUniformRgbAdjustment(0),
+      rasterWithUniformRgbAdjustment(3),
+    )).toBe(true)
+    expect(areNearDuplicateItemIcons(
+      rasterWithUniformRgbAdjustment(0),
+      rasterWithUniformRgbAdjustment(7),
+    )).toBe(false)
 
     const rasterWithAlpha = (alpha: number): Uint8Array => {
       const raster = new Uint8Array(TILE_PIXELS * TILE_PIXELS * CHANNELS)
