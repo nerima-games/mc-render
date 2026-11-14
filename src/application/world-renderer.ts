@@ -136,14 +136,13 @@ import {
   type ThreePerspectiveCamera,
   type ThreeScene,
   type ThreeShaderSurface,
-  type ThreeTexture,
   type ThreeSurface,
+  type ThreeTexture,
   type ThreeUniform,
   type ThreeVector3,
   type ThreeWebGLRenderer,
   THREE_DOUBLE_SIDE,
 } from './three-surface.js'
-import type { TileUvBounds } from '../domain/texture-atlas.js'
 import { WATER_MATERIAL_SPEC, WATER_WRITES_DEPTH } from '../domain/water-surface.js'
 import { type WeatherFrameOptions, decodeWeatherFrameOptions } from '../domain/weather-rendering.js'
 import { type WeatherRenderer, makeWeatherRenderer } from './weather-renderer.js'
@@ -163,6 +162,7 @@ import { type EntityModelResolutionIssue } from '../domain/entity-model-catalog.
 import type { EntityTextureResolutionIssue } from '../domain/entity-model-textures.js'
 import type { MirroredCameraState } from '../domain/camera-mirror.js'
 import type { PostProcessingStep } from '../domain/post-processing.js'
+import type { TileUvBounds } from '../domain/texture-atlas.js'
 import { makeThreeWeatherPrecipitation } from './three-weather-runtime.js'
 import { waterShaderSource } from '../domain/water-shader.js'
 // oxlint-disable-next-line sort-imports
