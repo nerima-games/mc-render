@@ -18,6 +18,7 @@ import { BLOCK_TEXTURE_ALPHA_MODES, type BlockNameLookup, quadTileForLookup } fr
 import {
   CHUNK_HEIGHT,
   type ChunkStoreApi,
+  type LightQueueUnderflowError,
   type ReadonlyChunk,
   type ChunkNeighbours as WorldgenChunkNeighbours,
 } from '@nerima-games/mc-worldgen'
@@ -35,6 +36,7 @@ import {
   type ChunkMesh,
   type ChunkMesher,
   type ChunkMesherError,
+  type DirtySubscriptionStore,
   type SyncOptions,
   type WorldRendererAttachment,
   attachWorldRenderer,
@@ -174,14 +176,14 @@ export const KERNEL_MESH_CONFIG: RenderMeshConfig = {
   waterBlockIds: kernelBlockIdsWithFluid('water'),
 }
 
-/** The two store operations required to mesh one resident chunk. */
-export type MeshingChunkStore = Pick<ChunkStoreApi, 'peek' | 'neighbours'>
+/** The chunk-store fields this adapter consumes until #66 adds state-driven model selection. */
+export type MeshingChunkStore = {
+  readonly peek: (coord: ChunkCoord) => Effect.Effect<ReadonlyChunk | undefined>
+  readonly neighbours: (coord: ChunkCoord) => Effect.Effect<ReadonlyWorldgenChunkNeighbours>
+}
 
-/** The published worldgen surface needed for renderer attachment and meshing. */
-export type RendererChunkStore = Pick<
-  ChunkStoreApi,
-  'peek' | 'neighbours' | 'subscribeDirty' | 'getLight'
->
+/** The worldgen surface needed for renderer attachment, meshing, and light sampling. */
+export type RendererChunkStore = MeshingChunkStore & Pick<ChunkStoreApi, 'getLight'> & DirtySubscriptionStore
 
 const lightKey = (blockX: number, blockY: number, blockZ: number): string => `${blockX},${blockY},${blockZ}`
 
@@ -228,7 +230,7 @@ export const makeChunkStoreLightColor = (
   store: Pick<ChunkStoreApi, 'getLight'>,
   chunk: { readonly cx: number; readonly cz: number },
   quads: ReadonlyArray<GeometryQuad>,
-): Effect.Effect<QuadColor> =>
+): Effect.Effect<QuadColor, LightQueueUnderflowError> =>
   Effect.gen(function* () {
     const samples = collectLightSamplePositions(chunk, quads)
 
@@ -272,9 +274,10 @@ export const makeChunkStoreLightColor = (
  * pin-alignment work in mc-worldgen, not something to invent here.
  */
 const toChunkView = (chunk: ReadonlyChunk): ChunkView => ({
-  ...chunk,
+  // #66 owns passing block state into model selection.
   // Worldgen exposes live read-only buffers, so meshing receives detached storage.
   blocks: new Uint16Array(chunk.blocks),
+  coord: chunk.coord,
   height: CHUNK_HEIGHT,
 })
 

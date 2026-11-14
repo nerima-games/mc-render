@@ -1,7 +1,8 @@
 import { describe, expect, it } from '@effect/vitest'
 import type { BlockPosition } from '@nerima-games/mc-kernel'
-import type { LightReading } from '@nerima-games/mc-worldgen'
-import { Effect } from 'effect'
+import { LightQueueUnderflowError, type LightReading } from '@nerima-games/mc-worldgen'
+import { Effect, Result } from 'effect'
+import * as FastCheck from 'fast-check'
 import { blockId, blockPosition } from './support/kernel-brands'
 import { makeChunkStoreLightColor } from '../src/application/chunk-store-mesher'
 import type { MeshQuad } from '../src/domain/chunk-geometry'
@@ -20,6 +21,41 @@ const quad = (overrides: Partial<MeshQuad> = {}): MeshQuad => ({
 })
 
 describe('makeChunkStoreLightColor', () => {
+  it('preserves light queue failures in the typed error channel for arbitrary indices', () => {
+    FastCheck.assert(
+      FastCheck.property(FastCheck.integer(), (index) => {
+        const failure = new LightQueueUnderflowError({ index })
+        const result = Effect.runSync(
+          Effect.result(
+            makeChunkStoreLightColor(
+              { getLight: () => Effect.fail(failure) },
+              { cx: 0, cz: 0 },
+              [quad()],
+            ),
+          ),
+        )
+        return Result.isFailure(result) && result.failure === failure
+      }),
+    )
+  })
+
+  it('preserves light queue failures at and just outside the array index boundaries', () => {
+    for (const index of [-1, 0, 1]) {
+      const failure = new LightQueueUnderflowError({ index })
+      const result = Effect.runSync(
+        Effect.result(
+          makeChunkStoreLightColor(
+            { getLight: () => Effect.fail(failure) },
+            { cx: 0, cz: 0 },
+            [quad()],
+          ),
+        ),
+      )
+
+      expect(Result.isFailure(result) && result.failure).toBe(failure)
+    }
+  })
+
   it.effect('reads the neighbouring world cell at a negative chunk boundary', () =>
     Effect.gen(function* () {
       const requested: Array<BlockPosition> = []

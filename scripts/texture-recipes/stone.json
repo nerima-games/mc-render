@@ -148,6 +148,13 @@
       "light": "#C5BFC0",
       "accent": "#EEE3CE"
     },
+    "sticky-mechanism": {
+      "shade": "#18232C",
+      "shadow": "#40515C",
+      "base": "#4E7F53",
+      "light": "#81B95D",
+      "accent": "#C4DB75"
+    },
     "glass": {
       "shade": "#273A4A",
       "shadow": "#4D7889",
@@ -456,6 +463,16 @@
         "side": "skull",
         "bottom": "stone-mottle"
       }
+    },
+    "sticky_piston": {
+      "palette": "sticky-mechanism",
+      "pattern": "machine-panel",
+      "faces": {
+        "top": "sticky-piston",
+        "side": "machine-panel",
+        "bottom": "machine-panel"
+      },
+      "alpha": "opaque"
     }
   }
 }

@@ -147,6 +147,20 @@
       "base": "#705A8C",
       "light": "#B08FD4",
       "accent": "#E2D6F6"
+    },
+    "copper-ore": {
+      "shade": "#30252A",
+      "shadow": "#704739",
+      "base": "#B26D43",
+      "light": "#D89A5E",
+      "accent": "#F0C37A"
+    },
+    "deep-copper-ore": {
+      "shade": "#151B23",
+      "shadow": "#29343F",
+      "base": "#41505C",
+      "light": "#B66C49",
+      "accent": "#E5A86A"
     }
   },
   "recipes": {
@@ -178,6 +192,9 @@
     "comparator": {"palette": "redstone-circuit", "pattern": "comparator", "alpha": "cutout"},
     "repeater": {"palette": "redstone-circuit", "pattern": "repeater", "alpha": "cutout"},
     "amethyst_block": {"palette": "amethyst", "pattern": "stone-mottle", "alpha": "opaque"},
-    "amethyst_cluster": {"palette": "amethyst-cluster", "pattern": "ore-vein", "alpha": "cutout"}
+    "amethyst_cluster": {"palette": "amethyst-cluster", "pattern": "ore-vein", "alpha": "cutout"},
+    "copper_ore": {"palette": "copper-ore", "pattern": "ore-vein", "alpha": "opaque"},
+    "deepslate_copper_ore": {"palette": "deep-copper-ore", "pattern": "ore-vein", "alpha": "opaque"},
+    "redstone_wall_torch": {"palette": "redstone-circuit", "pattern": "redstone-torch", "alpha": "cutout"}
   }
 }
