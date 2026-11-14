@@ -171,6 +171,10 @@ const storeWithNeighbours = (
 })
 
 type StructuredCloneWorker = BrowserWorkerLike<ArrayBuffer> & {
+  readonly blockStateSidecars: () => ReadonlyArray<{
+    readonly cloned: Uint32Array | undefined
+    readonly posted: Uint32Array | undefined
+  }>
   readonly transferredBuffers: () => ReadonlyArray<ArrayBuffer>
 }
 
@@ -179,6 +183,10 @@ const makeStructuredCloneWorker = (): StructuredCloneWorker => {
     throw new Error('worker message listener is not installed')
   }
   const transferredBuffers: Array<ArrayBuffer> = []
+  const blockStateSidecars: Array<{
+    readonly cloned: Uint32Array | undefined
+    readonly posted: Uint32Array | undefined
+  }> = []
   return {
     addEventListener: (type, listener) => {
       if (type === 'message') {
@@ -186,6 +194,7 @@ const makeStructuredCloneWorker = (): StructuredCloneWorker => {
       }
     },
     postMessage: (message: unknown, transfer?: Array<ArrayBuffer>) => {
+      const postedRequest = decodeChunkMeshingWorkerRequest(message)
       const transferList = transfer ?? []
       const workerMessage = structuredClone(message, { transfer: transferList })
       transferredBuffers.push(...transferList)
@@ -193,9 +202,16 @@ const makeStructuredCloneWorker = (): StructuredCloneWorker => {
       if (Result.isFailure(request)) {
         throw new Error('structured-cloned worker request did not decode')
       }
+      if (Result.isSuccess(postedRequest)) {
+        blockStateSidecars.push({
+          cloned: request.success.payload.chunk.blockStates,
+          posted: postedRequest.success.payload.chunk.blockStates,
+        })
+      }
       messageListener({ data: processChunkMeshingWorkerRequest(request.success) })
     },
     terminate: () => undefined,
+    blockStateSidecars: () => blockStateSidecars,
     transferredBuffers: () => transferredBuffers,
   }
 }
@@ -767,7 +783,15 @@ describe('attachChunkStoreRenderer', () => {
         getLight: () => Effect.succeed({ _tag: 'Light' as const, block: 15, sky: 15 }),
       }
 
-      const attachment = yield* attachChunkStoreRenderer(renderer, store, { color: () => [255, 255, 255] })
+      const worker = makeStructuredCloneWorker()
+      const pool = yield* startMeshingWorkerPool({
+        createWorker: () => worker,
+        workerCount: workerCount(1),
+      })
+      const attachment = yield* attachChunkStoreRenderer(renderer, store, {
+        color: () => [255, 255, 255],
+        workerPool: pool,
+      })
       yield* attachment.update
       const uploadedTileIndices = three.geometries().flatMap((geometry) => {
         const attribute = geometry.attributes.get('tileIndex')
@@ -776,9 +800,21 @@ describe('attachChunkStoreRenderer', () => {
         }
         return Array.from(attribute.array)
       })
+      expect(worker.blockStateSidecars()).toHaveLength(1)
+      const [sidecar] = worker.blockStateSidecars()
+      const postedStates = sidecar?.posted
+      const clonedStates = sidecar?.cloned
+      if (postedStates === undefined || clonedStates === undefined) {
+        throw new Error('worker request must carry wheat block states')
+      }
 
+      expect(clonedStates).not.toBe(postedStates)
+      expect(clonedStates.buffer).not.toBe(postedStates.buffer)
+      expect(clonedStates[blockIndex(2, 20, 2)]).toBe(encodedStateFor('wheat_crop', { age: 0 }))
+      expect(clonedStates[blockIndex(4, 20, 2)]).toBe(encodedStateFor('wheat_crop', { age: 7 }))
       expect([...new Set(uploadedTileIndices)].sort((left, right) => left - right)).toStrictEqual([211, 388])
       yield* attachment.detach
+      yield* pool.shutdown
     }),
   )
 
