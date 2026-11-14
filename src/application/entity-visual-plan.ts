@@ -38,7 +38,7 @@ import {
 export type EntityRenderCategory = 'hostile' | 'passive' | 'item'
 
 /** The renderer-owned entity projection consumed by compose. */
-export type RenderEntity = {
+type RenderEntity = {
   readonly id: string
   readonly kind: string
   /** Stable item identity for generic dropped-item entities. */

@@ -1345,7 +1345,6 @@ const matchingEntityParts = (
       'iconUv' in plan ? FULL_ENTITY_BRIGHTNESS_FACTOR : brightnessFactor
     ) || !hasMatchingIconUv(previous, plan) ||
       plan.color.some((component, colorIndex) => component !== previous.color[colorIndex])) { return undefined }
-      plan.color.some((component, colorIndex) => component !== previous.color[colorIndex])) { return undefined }
     pairs.push([previous, plan])
   }
   return pairs
