@@ -1954,6 +1954,7 @@ export const makeWorldRenderer = <
         const parts = visual.parts.map((part): EntityPartEntry => {
           if ('iconUv' in part) {
             return ops.buildEntityPartEntry(
+              entity,
               visual,
               part,
               part.iconUv,
@@ -2005,6 +2006,7 @@ export const makeWorldRenderer = <
       },
 
       buildEntityPartEntry: (
+        entity: RenderEntity,
         visual: EntityVisualPlan,
         part: EntityVisualPartPlan,
         iconUv: TileUvBounds | undefined,
