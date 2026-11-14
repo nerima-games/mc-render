@@ -1,5 +1,35 @@
 # @nerima-games/mc-render
 
+## 0.11.0
+
+### Minor Changes
+
+- [#60](https://github.com/nerima-games/mc-render/pull/60) [`5bb3d5c`](https://github.com/nerima-games/mc-render/commit/5bb3d5c5971cf277ccb5373cc516c85552115e2b) Thanks [@takeokunn](https://github.com/takeokunn)! - The browser frame payload carries `simulationTick`, `partialTick`, and `timeOfDayTicks`. `animationTimeSeconds` derives animation seconds from `(simulationTick + partialTick) / 20`; this calculation does not accumulate frame elapsed time or use `timeOfDayTicks`.
+  Invalid clock fields return `AnimationClockInputError` before uniforms update. Per-vertex `ChunkAnimationKind` tags follow block identity: water, lava, fire, Nether portals, and End portals animate, while ice stays static even when it shares lava's atlas tile.
+  The package root exports `ChunkAnimationKind` and the clock types `AnimationClockInput`, `AnimationClockInputError`, `AnimationSeconds`, `PartialTick`, and `TimeOfDayTicks`.
+
+- [#59](https://github.com/nerima-games/mc-render/pull/59) [`9661955`](https://github.com/nerima-games/mc-render/commit/9661955468258966871085344f50a64498dedd21) Thanks [@takeokunn](https://github.com/takeokunn)! - Render nonempty opaque, cutout, blended, and water chunk layers with separate meshes and materials. Discard cutout fragments below the alpha threshold. Let Three.js sort blended and water meshes back-to-front by the projected depth of each chunk-layer mesh's bounding-sphere center. Route water block and fluid geometry through the water shader material.
+
+- [#65](https://github.com/nerima-games/mc-render/pull/65) [`3a2fc40`](https://github.com/nerima-games/mc-render/commit/3a2fc40ff97c3bdfea0f44e0a5ac414c0b3a3583) Thanks [@takeokunn](https://github.com/takeokunn)! - Add original generated CC0 entity textures and atlas mappings, then expose the atlas through the world renderer's entity material factory.
+
+- [#67](https://github.com/nerima-games/mc-render/pull/67) [`1811d35`](https://github.com/nerima-games/mc-render/commit/1811d356d820f712eb076c1d849f14abc1415dad) Thanks [@takeokunn](https://github.com/takeokunn)! - Align renderer dependency pins with mc-kernel 0.17.0, add textures for its new block types, and propagate typed light queue failures from mc-worldgen.
+
+- [#65](https://github.com/nerima-games/mc-render/pull/65) [`3a2fc40`](https://github.com/nerima-games/mc-render/commit/3a2fc40ff97c3bdfea0f44e0a5ac414c0b3a3583) Thanks [@takeokunn](https://github.com/takeokunn)! - Add strict entity and frame input schemas for dimension-aware position, orientation, light, movement, and combat animation state, deriving animation time from the shared simulation clock. Add a typed catalog of distinctive cuboid models for the pinned kernel entity kinds, with unsupported kinds represented explicitly.
+
+- [#61](https://github.com/nerima-games/mc-render/pull/61) [`2ccf9c9`](https://github.com/nerima-games/mc-render/commit/2ccf9c920b4cfa991f5ec3f484e6a13e7799c941) Thanks [@takeokunn](https://github.com/takeokunn)! - Add the sky, block selection and mining feedback, hand animation, and damage response.
+
+- [#62](https://github.com/nerima-games/mc-render/pull/62) [`c353baa`](https://github.com/nerima-games/mc-render/commit/c353baa9d3b2f77fe35a921a95c21155507a6ae3) Thanks [@takeokunn](https://github.com/takeokunn)! - Add original mipmapped block textures and typed atlas mappings.
+
+- [#66](https://github.com/nerima-games/mc-render/pull/66) [`c9b5d67`](https://github.com/nerima-games/mc-render/commit/c9b5d6725d816eca8adbf2832c9bb911ce12c50f) Thanks [@takeokunn](https://github.com/takeokunn)! - Use mc-meshing 0.7.0 with mc-kernel 0.17.0 to mesh block states, fluid flow, and rail shapes. State-bearing chunks select their block models and crop texture stages from the encoded per-cell state. A typed texture lookup failure skips only the affected chunk; repeated faults are counted and can be drained through `WorldRendererAttachment.drainFaults`.
+
+- [#64](https://github.com/nerima-games/mc-render/pull/64) [`c307445`](https://github.com/nerima-games/mc-render/commit/c307445babc32f92292a77ee4d99f97ab5a4a884) Thanks [@takeokunn](https://github.com/takeokunn)! - Expose host-controlled render distance, LOD meshing, worker startup, particles, color correction, and weather rendering.
+
+- [#63](https://github.com/nerima-games/mc-render/pull/63) [`fc42a24`](https://github.com/nerima-games/mc-render/commit/fc42a24f5f492405422c70392cf653b6d80f49de) Thanks [@takeokunn](https://github.com/takeokunn)! - Add a deterministic item icon atlas and type-specific visuals for dropped items, arrows, and eye projectiles.
+
+### Patch Changes
+
+- [#71](https://github.com/nerima-games/mc-render/pull/71) [`a8ad9be`](https://github.com/nerima-games/mc-render/commit/a8ad9beefacd62e36b9440fb8cb119957890b584) Thanks [@takeokunn](https://github.com/takeokunn)! - Update mc-sim to 0.11.1 and mc-worldgen to 0.9.1.
+
 ## 0.10.0
 
 ### Minor Changes
