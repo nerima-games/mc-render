@@ -1,6 +1,6 @@
 import { type Page, expect, test } from '@playwright/test'
 import { createHash } from 'node:crypto'
-import { readFile } from 'node:fs/promises'
+import { readFile, writeFile } from 'node:fs/promises'
 
 const WEB_ORIGIN = process.env['WEB_ORIGIN'] ?? 'http://127.0.0.1:5182'
 const ZERO = 0
@@ -456,6 +456,7 @@ test('render preview state views draw and differ with encoded block states', asy
 
   const mainScreenshot = await screenshotFor('main')
   const rn6Screenshot = await screenshotFor('rn6')
+  await writeFile(new URL('../docs/screenshots/rn6-after-render.png', import.meta.url), rn6Screenshot)
   const similarity = await page.evaluate(compareScreenshotSsim, {
     actualBase64: rn6Screenshot.toString('base64'),
     constants: SSIM_CONSTANTS,
