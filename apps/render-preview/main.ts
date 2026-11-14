@@ -54,7 +54,7 @@ import {
   type WorldRenderer,
 } from '../../src/application/world-renderer.js'
 import { chunkKeyOf, syncWorld, type ChunkRef } from '../../src/application/world-sync.js'
-import { tileIndexForBlockName, type BlockTextureLookupError } from '../../src/domain/block-texture-map.js'
+import { quadTileForLookup, tileIndexForBlockName, type BlockTextureLookupError } from '../../src/domain/block-texture-map.js'
 import type { GeometryQuad, MeshQuad } from '../../src/domain/meshing-vocabulary.js'
 import type { MirroredCameraState } from '../../src/domain/camera-mirror.js'
 import {
@@ -186,9 +186,10 @@ type TerrainFixture = {
   }>
 }
 
+const fixtureTileLookup = quadTileForLookup((blockId) => Result.getOrThrow(blockTypeOfId(blockId)))
+
 const fixtureTile = (quad: GeometryQuad): number => {
-  const blockName = Result.getOrThrow(blockTypeOfId(quad.blockId))
-  const tileIndex = tileIndexForBlockName(blockName, quad.role)
+  const tileIndex = fixtureTileLookup(quad)
   if (Result.isFailure(tileIndex)) {
     throw tileIndex.failure
   }

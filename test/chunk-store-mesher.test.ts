@@ -746,6 +746,43 @@ describe('blockNameFromKernel', () => {
 })
 
 describe('attachChunkStoreRenderer', () => {
+  it.effect('uploads stage-selected crop atlas tiles through the attached renderer', () =>
+    Effect.gen(function* () {
+      const three = makeFakeThree()
+      const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT)
+      const resident = chunkWithStates(0, 0, [
+        { blockType: 'wheat_crop', position: [2, 20, 2], state: { age: 0 } },
+        { blockType: 'wheat_crop', position: [4, 20, 2], state: { age: 7 } },
+      ])
+      const batches = yield* Ref.make<ReadonlyArray<{
+        readonly changed: ReadonlyArray<ChunkCoord>
+        readonly removed: ReadonlyArray<ChunkCoord>
+      }>>([{ changed: [chunkCoord(0, 0)], removed: [] }])
+      const store: RendererChunkStore = {
+        peek: () => Effect.succeed(resident),
+        neighbours: () => Effect.succeed({}),
+        subscribeDirty: Effect.succeed({
+          drain: Ref.modify(batches, ([next, ...rest]) => [next ?? { changed: [], removed: [] }, rest]),
+          unsubscribe: Effect.void,
+        }),
+        getLight: () => Effect.succeed({ _tag: 'Light' as const, block: 15, sky: 15 }),
+      }
+
+      const attachment = yield* attachChunkStoreRenderer(renderer, store, { color: () => [255, 255, 255] })
+      yield* attachment.update
+      const uploadedTileIndices = three.geometries().flatMap((geometry) => {
+        const attribute = geometry.attributes.get('tileIndex')
+        if (attribute === undefined || !(attribute.array instanceof Float32Array)) {
+          return []
+        }
+        return Array.from(attribute.array)
+      })
+
+      expect([...new Set(uploadedTileIndices)].sort((left, right) => left - right)).toStrictEqual([211, 388])
+      yield* attachment.detach
+    }),
+  )
+
   it.effect('fills in a light-sampling colorForChunk when the caller supplies neither color option', () =>
     Effect.gen(function* () {
       const three = makeFakeThree()

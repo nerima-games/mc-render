@@ -1,5 +1,7 @@
 import type { BlockId } from '@nerima-games/mc-kernel'
-import type { SpecialBlockQuad } from '@nerima-games/mc-meshing'
+import type { CrossPlantQuad as MeshingCrossPlantQuad, SpecialBlockQuad } from '@nerima-games/mc-meshing'
+
+export type { CrossPlantQuad } from '@nerima-games/mc-meshing'
 
 /** A direction and normal for one axis-aligned cube face. */
 export type FaceDirection = 'xPos' | 'xNeg' | 'yPos' | 'yNeg' | 'zPos' | 'zNeg'
@@ -47,18 +49,6 @@ export type MeshQuad = {
   readonly ao: number
 }
 
-export type PlantVertex = QuadVertex
-
-export type CrossPlantQuad = {
-  readonly blockId: BlockId
-  readonly role: FaceRole
-  readonly vertices: readonly [PlantVertex, PlantVertex, PlantVertex, PlantVertex]
-  readonly nx: number
-  readonly ny: number
-  readonly nz: number
-  readonly ao: number
-}
-
 /** A non-cubic block shape emitted as explicit face vertices. */
 export type BlockShapeKind = 'slab' | 'pressurePlate' | 'cactus' | 'rail' | 'lilyPad'
 
@@ -76,9 +66,9 @@ export type BlockShapeQuad = {
   readonly ao: number
 }
 
-export type GeometryQuad = MeshQuad | CrossPlantQuad | BlockShapeQuad | SpecialBlockQuad
+export type GeometryQuad = MeshQuad | MeshingCrossPlantQuad | BlockShapeQuad | SpecialBlockQuad
 
-export const isCrossPlantQuad = (quad: GeometryQuad): quad is CrossPlantQuad =>
+export const isCrossPlantQuad = (quad: GeometryQuad): quad is MeshingCrossPlantQuad =>
   'nx' in quad && !('direction' in quad)
 
 export const isBlockShapeQuad = (quad: GeometryQuad): quad is BlockShapeQuad =>

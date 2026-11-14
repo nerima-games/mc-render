@@ -138,6 +138,55 @@ describe('block texture manifest mapping', () => {
     }),
   )
 
+  it.effect('selects wheat texture stages and rejects missing or unreadable stages', () =>
+    Effect.sync(() => {
+      expect(tileIndexForBlockName('wheat_crop', 'side', { blockType: 'wheat_crop', stage: 0 }))
+        .toStrictEqual(Result.succeed(211))
+      expect(tileIndexForBlockName('wheat_crop', 'side', { blockType: 'wheat_crop', stage: 7 }))
+        .toStrictEqual(Result.succeed(388))
+      const wheatWithoutStage: GeometryQuad = {
+        blockId: blockId(1),
+        role: 'side',
+        vertices: [[0, 0, 0], [0, 1, 0], [1, 1, 1], [1, 0, 1]],
+        nx: 0,
+        ny: 0,
+        nz: 1,
+        ao: 0,
+      }
+      expect(quadTileForLookup(() => 'wheat_crop')(wheatWithoutStage)).toStrictEqual(Result.fail({
+        _tag: 'BlockTextureLookupError',
+        blockName: 'wheat_crop',
+        reason: 'missing-texture-stage',
+        role: 'side',
+      }))
+      expect(tileIndexForBlockName('wheat_crop', 'side', null)).toStrictEqual(Result.fail({
+        _tag: 'BlockTextureLookupError',
+        blockName: 'wheat_crop',
+        reason: 'invalid-texture-stage',
+        role: 'side',
+      }))
+      expect(tileIndexForBlockName('wheat_crop', 'side', { blockType: 'potato_crop', stage: 0 }))
+        .toStrictEqual(Result.fail({
+          _tag: 'BlockTextureLookupError',
+          blockName: 'wheat_crop',
+          reason: 'texture-stage-block-mismatch',
+          role: 'side',
+        }))
+
+      FastCheck.assert(
+        FastCheck.property(FastCheck.anything(), (textureStage) => {
+          const lookup = tileIndexForBlockName('wheat_crop', 'side', textureStage)
+          if (Result.isSuccess(lookup)) {
+            expect(Schema.is(AtlasTileIndexSchema)(lookup.success)).toBe(true)
+          } else {
+            expect(lookup.failure._tag).toBe('BlockTextureLookupError')
+          }
+        }),
+        { numRuns: 100, seed: 8 },
+      )
+    }),
+  )
+
   it.effect('uses typed failures through the resolver and quad adapter', () =>
     Effect.sync(() => {
       const resolveStone = tileIndexResolver(() => 'stone')
@@ -157,6 +206,18 @@ describe('block texture manifest mapping', () => {
 
       const quad = { blockId: blockId(1), role: 'top' } as unknown as GeometryQuad
       expect(quadTileForLookup(() => 'stone')(quad)).toStrictEqual(Result.succeed(TILE_BY_BLOCK_NAME.stone.top))
+
+      const wheatQuad: GeometryQuad = {
+        blockId: blockId(1),
+        role: 'side',
+        textureStage: { blockType: 'wheat_crop', stage: 7 },
+        vertices: [[0, 0, 0], [0, 1, 0], [1, 1, 1], [1, 0, 1]],
+        nx: 0,
+        ny: 0,
+        nz: 1,
+        ao: 0,
+      }
+      expect(quadTileFromResolver(tileIndexResolver(() => 'wheat_crop'))(wheatQuad)).toStrictEqual(Result.succeed(388))
     }),
   )
 

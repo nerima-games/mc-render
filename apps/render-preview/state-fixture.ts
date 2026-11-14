@@ -62,6 +62,8 @@ const STATEFUL_BLOCKS: ReadonlyArray<StatefulBlock> = [
   { blockType: 'water', position: [8, OBJECT_Y, 8], state: { level: 7 } },
   { blockType: 'rail', position: [10, OBJECT_Y, 8], state: { shape: 'north_east' } },
   { blockType: 'rail', position: [12, OBJECT_Y, 8], state: { shape: 'ascending_east' } },
+  { blockType: 'wheat_crop', position: [4, OBJECT_Y, 12], state: { age: 0 } },
+  { blockType: 'wheat_crop', position: [6, OBJECT_Y, 12], state: { age: 7 } },
 ]
 
 const blockIdForType = (blockType: BlockType) => Option.getOrThrow(blockIdOf(blockType))

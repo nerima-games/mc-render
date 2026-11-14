@@ -276,7 +276,7 @@ export const makeChunkStoreLightColor = (
  */
 const toChunkView = (chunk: ReadonlyChunk): ChunkView => ({
   // Worldgen exposes live read-only buffers, so meshing receives detached storage.
-  blockStates: chunk.blockStates,
+  ...(chunk.blockStates === undefined ? {} : { blockStates: new Uint32Array(chunk.blockStates) }),
   blocks: new Uint16Array(chunk.blocks),
   coord: chunk.coord,
   height: CHUNK_HEIGHT,
