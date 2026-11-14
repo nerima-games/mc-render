@@ -24,6 +24,7 @@ import { blockId } from './support/kernel-brands'
 import sourceManifest from '../src/assets/block-textures/manifest.json' with { type: 'json' }
 
 const FACE_ROLES: ReadonlyArray<FaceRole> = ['top', 'side', 'bottom']
+const STATEFUL_BLOCKS = ['sapling', 'wheat_crop', 'potato_crop', 'nether_wart_crop'] as const
 
 const expectManifestFailure = (input: unknown, reason: BlockTextureManifestFailureReason): void => {
   const result = decodeBlockTextureManifest(input)
@@ -71,10 +72,18 @@ describe('block texture manifest mapping', () => {
           FastCheck.constantFrom(...FACE_ROLES),
           (blockName, role) => {
             const lookup = tileIndexForBlockName(blockName, role)
-            expect(Result.isSuccess(lookup)).toBe(true)
-            if (Result.isSuccess(lookup)) {
+            if (STATEFUL_BLOCKS.some((statefulBlock) => statefulBlock === blockName)) {
+              expect(lookup).toStrictEqual(Result.fail({
+                _tag: 'BlockTextureLookupError',
+                blockName,
+                reason: 'missing-texture-stage',
+                role,
+              }))
+            } else if (Result.isSuccess(lookup)) {
               expect(lookup.success).toBe(TILE_BY_BLOCK_NAME[blockName][role])
               expect(isTileIndex(lookup.success)).toBe(true)
+            } else {
+              expect(lookup.failure._tag).toBe('BlockTextureLookupError')
             }
           },
         ),
@@ -201,8 +210,8 @@ describe('block texture manifest mapping', () => {
           role: 'side',
         }))
       expect(tileIndexForBlockName('sapling', 'side', { blockType: 'sapling', stage: 1 }))
-        .toStrictEqual(Result.succeed(TILE_BY_BLOCK_NAME.sapling.side))
-      expect(tileIndexForVariantStage([], 0, 'wheat_crop', 'side')).toStrictEqual(Result.fail({
+        .toStrictEqual(Result.succeed(59))
+      expect(tileIndexForVariantStage([], 0, { blockName: 'wheat_crop', role: 'side' })).toStrictEqual(Result.fail({
         _tag: 'BlockTextureLookupError',
         blockName: 'wheat_crop',
         reason: 'missing-texture-variant',

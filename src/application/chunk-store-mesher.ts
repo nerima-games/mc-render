@@ -274,13 +274,18 @@ export const makeChunkStoreLightColor = (
  * packages agree on the number. A real variable-height chunk is Wave 1
  * pin-alignment work in mc-worldgen, not something to invent here.
  */
-const toChunkView = (chunk: ReadonlyChunk): ChunkView => ({
+const toChunkView = (chunk: ReadonlyChunk): ChunkView => {
   // Worldgen exposes live read-only buffers, so meshing receives detached storage.
-  ...(chunk.blockStates === undefined ? {} : { blockStates: new Uint32Array(chunk.blockStates) }),
-  blocks: new Uint16Array(chunk.blocks),
-  coord: chunk.coord,
-  height: CHUNK_HEIGHT,
-})
+  const chunkView: ChunkView = {
+    blocks: new Uint16Array(chunk.blocks),
+    coord: chunk.coord,
+    height: CHUNK_HEIGHT,
+  }
+  if (chunk.blockStates !== undefined) {
+    return { ...chunkView, blockStates: new Uint32Array(chunk.blockStates) }
+  }
+  return chunkView
+}
 
 type ReadonlyWorldgenChunkNeighbours = Readonly<{
   [Key in keyof WorldgenChunkNeighbours]: ReadonlyChunk

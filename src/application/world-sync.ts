@@ -120,8 +120,26 @@ export type ChunkMesh = ReadonlyArray<MeshQuad> & {
   readonly specialBlocks?: ReadonlyArray<SpecialBlockQuad>
   readonly fluids?: ReadonlyArray<FluidQuad>
 }
+type ChunkMeshCollectionField = 'blockShapes' | 'crossPlants' | 'fluids' | 'specialBlocks'
+type ChunkMeshGeometryInputField = ChunkMeshCollectionField | 'renderLayers'
+type ChunkMeshGeometryInputFailure = Readonly<{
+  readonly _tag: 'ChunkMeshGeometryInputFailure'
+  readonly field: ChunkMeshGeometryInputField
+}>
+type ChunkMeshGeometryInput = Readonly<{
+  readonly blockShapes: NonNullable<ChunkMesh['blockShapes']>
+  readonly crossPlants: NonNullable<ChunkMesh['crossPlants']>
+  readonly fluids: NonNullable<ChunkMesh['fluids']>
+  readonly renderLayers: NonNullable<ChunkMesh['renderLayers']>
+  readonly specialBlocks: NonNullable<ChunkMesh['specialBlocks']>
+}>
 export type ChunkMesherError = ReturnType<typeof meshChunk> extends Result.Result<unknown, infer Failure>
-  ? Failure | LightQueueUnderflowError | ChunkMeshingWorkerFailure | WorkerPoolFailure | LodInputError
+  ? | Failure
+    | ChunkMeshGeometryInputFailure
+    | LightQueueUnderflowError
+    | ChunkMeshingWorkerFailure
+    | WorkerPoolFailure
+    | LodInputError
   : never
 export type ChunkMesher = ((chunk: ChunkRef) => Effect.Effect<ChunkMesh | undefined, ChunkMesherError>) & {
   /** Worker-backed meshers expose their fixed pool width to the frame batcher. */
@@ -307,18 +325,81 @@ const colorQuadsForMesh = (
   return [...quads, ...crossPlants, ...blockShapes, ...specialBlocks]
 }
 
-const geometryInputForMesh = (mesh: ChunkMesh) => ({
-  blockShapes: mesh.blockShapes ?? [],
-  crossPlants: mesh.crossPlants ?? [],
-  fluids: mesh.fluids ?? [],
-  renderLayers: mesh.renderLayers ?? {
-    cutout: [],
-    opaque: mesh,
-    transparentSolid: [],
-    water: [],
-  },
-  specialBlocks: mesh.specialBlocks ?? [],
-})
+const EMPTY_CHUNK_MESH_COLLECTIONS: Readonly<{
+  readonly [Field in ChunkMeshCollectionField]: NonNullable<ChunkMesh[Field]>
+}> = {
+  blockShapes: [],
+  crossPlants: [],
+  fluids: [],
+  specialBlocks: [],
+}
+
+const chunkMeshGeometryInputFailure = (
+  field: ChunkMeshGeometryInputField,
+): Result.Result<never, ChunkMeshGeometryInputFailure> =>
+  Result.fail({ _tag: 'ChunkMeshGeometryInputFailure', field })
+
+const optionalChunkMeshCollection = <Field extends ChunkMeshCollectionField>(
+  mesh: ChunkMesh,
+  field: Field,
+): Result.Result<NonNullable<ChunkMesh[Field]>, ChunkMeshGeometryInputFailure> => {
+  if (!Object.hasOwn(mesh, field)) {
+    return Result.succeed(EMPTY_CHUNK_MESH_COLLECTIONS[field])
+  }
+  const collection = mesh[field]
+  if (collection === undefined || !Array.isArray(collection)) {
+    return chunkMeshGeometryInputFailure(field)
+  }
+  return Result.succeed(collection)
+}
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null
+
+const isChunkMeshRenderLayers = (
+  value: unknown,
+): value is NonNullable<ChunkMesh['renderLayers']> =>
+  isRecord(value) &&
+  Object.hasOwn(value, 'cutout') &&
+  'cutout' in value &&
+  Array.isArray(value['cutout']) &&
+  Object.hasOwn(value, 'opaque') &&
+  'opaque' in value &&
+  Array.isArray(value['opaque']) &&
+  Object.hasOwn(value, 'transparentSolid') &&
+  'transparentSolid' in value &&
+  Array.isArray(value['transparentSolid']) &&
+  Object.hasOwn(value, 'water') &&
+  'water' in value &&
+  Array.isArray(value['water'])
+
+const chunkMeshRenderLayers = (
+  mesh: ChunkMesh,
+): Result.Result<NonNullable<ChunkMesh['renderLayers']>, ChunkMeshGeometryInputFailure> => {
+  if (!Object.hasOwn(mesh, 'renderLayers')) {
+    return Result.succeed({
+      cutout: [],
+      opaque: mesh,
+      transparentSolid: [],
+      water: [],
+    })
+  }
+  if (!isChunkMeshRenderLayers(mesh.renderLayers)) {
+    return chunkMeshGeometryInputFailure('renderLayers')
+  }
+  return Result.succeed(mesh.renderLayers)
+}
+
+const geometryInputForMesh = (
+  mesh: ChunkMesh,
+): Result.Result<ChunkMeshGeometryInput, ChunkMeshGeometryInputFailure> =>
+  Result.all({
+    blockShapes: optionalChunkMeshCollection(mesh, 'blockShapes'),
+    crossPlants: optionalChunkMeshCollection(mesh, 'crossPlants'),
+    fluids: optionalChunkMeshCollection(mesh, 'fluids'),
+    renderLayers: chunkMeshRenderLayers(mesh),
+    specialBlocks: optionalChunkMeshCollection(mesh, 'specialBlocks'),
+  })
 
 /** Resolve one changed chunk's mesh, if the mesher has it ready. */
 const meshChangedChunk = (
@@ -331,7 +412,7 @@ const meshChangedChunk = (
     if (mesh === undefined) {
       return undefined
     }
-    const geometryInput = geometryInputForMesh(mesh)
+    const geometryInput = yield* Effect.fromResult(geometryInputForMesh(mesh))
     const fluidLayers = splitFluidsByKind(geometryInput.fluids)
     const color = yield* resolveChunkColor(
       options,

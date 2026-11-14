@@ -1,5 +1,5 @@
-import type { BlockId } from '@nerima-games/mc-kernel'
 import type { CrossPlantQuad as MeshingCrossPlantQuad, SpecialBlockQuad } from '@nerima-games/mc-meshing'
+import type { BlockId } from '@nerima-games/mc-kernel'
 
 export type { CrossPlantQuad } from '@nerima-games/mc-meshing'
 

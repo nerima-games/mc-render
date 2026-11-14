@@ -13,7 +13,7 @@
  * as nothing, and so reads as "the world generator only made one chunk".
  */
 import { describe, expect, it } from '@effect/vitest'
-import { Effect, Fiber, Ref, Result, Schema } from 'effect'
+import { Cause, Effect, Exit, Fiber, Ref, Result, Schema } from 'effect'
 import * as FastCheck from 'fast-check'
 import { BLOCK_IDS, BlockAxis, LocalAxis } from '@nerima-games/mc-kernel'
 import type { Chunk } from '@nerima-games/mc-worldgen'
@@ -124,6 +124,29 @@ describe('chunkOrigin', () => {
 })
 
 describe('syncWorld', () => {
+  it.effect('returns typed failures when present mesh fields are unreadable', () =>
+    Effect.gen(function* () {
+      const three = makeFakeThree()
+      const renderer = yield* makeWorldRenderer(three, FAKE_CANVAS, VIEWPORT)
+      const invalidFields = ['fluids', 'renderLayers'] as const
+      for (const [index, field] of invalidFields.entries()) {
+        const source = yield* scriptedSource([{ changed: [chunkCoord(index, 0)], removed: [] }])
+        const mesh = [quad()]
+        Object.defineProperty(mesh, field, { enumerable: true, value: null })
+
+        const result = yield* Effect.exit(syncWorld(renderer, source, () => Effect.succeed(mesh)))
+        expect(Exit.isFailure(result)).toBe(true)
+        if (Exit.isFailure(result)) {
+          const failure = result.cause.reasons.find(Cause.isFailReason)
+          expect(failure?.error).toStrictEqual({
+            _tag: 'ChunkMeshGeometryInputFailure',
+            field,
+          })
+        }
+      }
+    }),
+  )
+
   it.effect('runs worker-backed meshers concurrently up to their advertised pool width', () =>
     Effect.gen(function* () {
       const three = makeFakeThree()
