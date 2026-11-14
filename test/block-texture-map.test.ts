@@ -79,11 +79,12 @@ describe('block texture manifest mapping', () => {
                 reason: 'missing-texture-stage',
                 role,
               }))
-            } else if (Result.isSuccess(lookup)) {
-              expect(lookup.success).toBe(TILE_BY_BLOCK_NAME[blockName][role])
-              expect(isTileIndex(lookup.success)).toBe(true)
             } else {
-              expect(lookup.failure._tag).toBe('BlockTextureLookupError')
+              expect(Result.isSuccess(lookup)).toBe(true)
+              if (Result.isSuccess(lookup)) {
+                expect(lookup.success).toBe(TILE_BY_BLOCK_NAME[blockName][role])
+                expect(isTileIndex(lookup.success)).toBe(true)
+              }
             }
           },
         ),
