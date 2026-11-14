@@ -325,6 +325,22 @@ describe('entity visual planning', () => {
     expect(copy.feetPosition).not.toBe(source.feetPosition)
   })
 
+  it('preserves item identity when copying a dropped item projection', () => {
+    const source: RenderEntity = {
+      category: 'item',
+      feetPosition: position,
+      id: 'item-1',
+      itemId: 'bookshelf',
+      kind: 'dropped_item',
+    }
+
+    const copy = copyRenderEntity(source)
+
+    expect(copy).toStrictEqual(source)
+    expect(copy).not.toBe(source)
+    expect(copy.itemId).toBe('bookshelf')
+  })
+
   it('copies nested entity projections without retaining source references', () => {
     const source: RenderEntity = {
       animation: { phaseRadians: 1, state: 'walk' },
