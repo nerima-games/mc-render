@@ -760,7 +760,7 @@ const buildChunkGeometryWithResolver = <Failure>(
     if (quad !== undefined) {
       const processed = processQuadWithResolver(context, quad, quadIndex, tile)
       if (Result.isFailure(processed)) {
-        return processed
+        return Result.fail(processed.failure)
       }
     }
   }
@@ -974,7 +974,7 @@ const buildBlockShapeGeometryWithResolver = <Failure>(
   for (const quad of quads) {
     const processed = processBlockShapeQuadWithResolver(context, quad, quadIndex, tile)
     if (Result.isFailure(processed)) {
-      return processed
+      return Result.fail(processed.failure)
     }
     quadIndex += LOOP_STEP
   }
@@ -1052,7 +1052,7 @@ const buildCrossPlantGeometryWithResolver = <Failure>(
   for (const quad of quads) {
     const processed = processCrossPlantQuadWithResolver(context, quad, quadIndex, tile)
     if (Result.isFailure(processed)) {
-      return processed
+      return Result.fail(processed.failure)
     }
     quadIndex += LOOP_STEP
   }

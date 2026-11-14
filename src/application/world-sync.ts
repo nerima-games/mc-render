@@ -627,7 +627,7 @@ const syncWorldWithFaults = (
 
     const allFaults: Array<SyncFault> = Result.isFailure(lodResult)
       ? [{ chunk: undefined, error: lodResult.failure }, ...faults]
-      : faults
+      : [...faults]
     return { faults: allFaults, report: { deferred, meshed: updates.length, removed } }
   })
 
