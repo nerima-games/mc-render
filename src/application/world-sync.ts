@@ -82,7 +82,7 @@ export type DirtySource = {
   readonly drain: Effect.Effect<DirtyBatch>
 }
 
-/** The lifecycle-bearing dirty API published by mc-worldgen's ChunkStore. */
+/** The part of mc-worldgen's dirty subscription used by the renderer. */
 export type DirtySubscription = DirtySource & {
   readonly unsubscribe: Effect.Effect<void>
 }

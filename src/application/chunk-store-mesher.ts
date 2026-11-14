@@ -176,7 +176,7 @@ export const KERNEL_MESH_CONFIG: RenderMeshConfig = {
   waterBlockIds: kernelBlockIdsWithFluid('water'),
 }
 
-/** The chunk-store fields this adapter consumes before RN6 adds state-driven models. */
+/** The chunk-store fields this adapter consumes until #66 adds state-driven model selection. */
 export type MeshingChunkStore = {
   readonly peek: (coord: ChunkCoord) => Effect.Effect<ReadonlyChunk | undefined>
   readonly neighbours: (coord: ChunkCoord) => Effect.Effect<ReadonlyWorldgenChunkNeighbours>
@@ -274,7 +274,7 @@ export const makeChunkStoreLightColor = (
  * pin-alignment work in mc-worldgen, not something to invent here.
  */
 const toChunkView = (chunk: ReadonlyChunk): ChunkView => ({
-  // RN6 owns passing the block-state sidecar into model meshing.
+  // #66 owns passing block state into model selection.
   // Worldgen exposes live read-only buffers, so meshing receives detached storage.
   blocks: new Uint16Array(chunk.blocks),
   coord: chunk.coord,
