@@ -212,7 +212,7 @@ describe('block texture manifest mapping', () => {
         }))
       expect(tileIndexForBlockName('sapling', 'side', { blockType: 'sapling', stage: 1 }))
         .toStrictEqual(Result.succeed(59))
-      expect(tileIndexForVariantStage([], 0, { blockName: 'wheat_crop', role: 'side' })).toStrictEqual(Result.fail({
+      expect(tileIndexForVariantStage([], { blockType: 'wheat_crop', stage: 0 }, { blockName: 'wheat_crop', role: 'side' })).toStrictEqual(Result.fail({
         _tag: 'BlockTextureLookupError',
         blockName: 'wheat_crop',
         reason: 'missing-texture-variant',
