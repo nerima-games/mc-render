@@ -10,14 +10,6 @@ export const tileIndexForVariantStage = (
   textureStage: PlantTextureStage,
   context: VariantLookupContext,
 ): Result.Result<AtlasTileIndex, BlockTextureLookupError> => {
-  if (textureStage.blockType !== context.blockName) {
-    return Result.fail({
-      _tag: 'BlockTextureLookupError',
-      blockName: context.blockName,
-      reason: 'texture-stage-block-mismatch',
-      role: context.role,
-    })
-  }
   const variant = variants[textureStage.stage]
   if (variant === undefined) {
     return Result.fail({
