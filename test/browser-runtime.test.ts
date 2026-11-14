@@ -967,6 +967,20 @@ describe('browser world runtime', () => {
     }))).toStrictEqual(failure)
   })
 
+  it.each(['atlas', 'itemIconAtlas'] as const)('rejects null for the %s browser atlas option', async (option) => {
+    const options = {
+      autoResize: false,
+      canvas: new HTMLCanvasElement(),
+    }
+    Object.defineProperty(options, option, { value: null })
+
+    expect(await browserRuntimeFailureAsync(makeBrowserWorldRuntimeEffect(options))).toMatchObject({
+      _tag: 'BrowserRuntimeError',
+      operation: 'initialization',
+      reason: 'invalid-input',
+    })
+  })
+
   it('loads the checked-in atlas by default with nearest and mipmapped sampling', async () => {
     const runtime = await makeBrowserWorldRuntime({
       autoResize: false,
