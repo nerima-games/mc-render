@@ -11,7 +11,7 @@
     "capacity": 1024,
     "mipLevels": 11
   },
-  "tileCount": 309,
+  "tileCount": 310,
   "provenance": {
     "generator": "scripts/generate-item-icons.ts",
     "source": "Original pixel art drawn by this repository's deterministic generator. Placeable item icons use this repository's generated block texture atlas; all other icons are drawn in code. No third-party or upstream assets are used.",
@@ -326,6 +326,7 @@
     "deepslate_copper_ore": 305,
     "raw_copper": 306,
     "copper_ingot": 307,
-    "bookshelf": 308
+    "bookshelf": 308,
+    "sticky_piston": 309
   }
 }
