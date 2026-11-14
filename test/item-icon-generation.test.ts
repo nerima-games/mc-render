@@ -59,9 +59,9 @@ const iconPixels = (rgba: Uint8Array, tileIndex: number): ReadonlyArray<Readonly
 }
 
 const NEAR_DUPLICATE_PIXEL_THRESHOLD = 8
-// Black and white bound alpha-composited channel differences over any opaque background.
-const ITEM_ICON_COMPARISON_BACKGROUNDS = [[0, 0, 0], [255, 255, 255]] as const
-const MIN_COMPOSITED_RGB_CHANNEL_DIFFERENCE = 2
+// Channel endpoints combine to the maximum over any opaque RGB background.
+const ITEM_ICON_COMPARISON_BACKGROUND_CHANNELS = [0, 255] as const
+const MIN_COMPOSITED_RGB_DISTANCE = 4
 
 const iconRaster = (rgba: Uint8Array, tileIndex: number): Uint8Array => {
   const left = (tileIndex % ATLAS_COLUMNS) * TILE_CELL_PIXELS + TILE_GUTTER_PIXELS
@@ -80,21 +80,25 @@ const differentPixelCount = (left: Uint8Array, right: Uint8Array): number => {
     const leftAlpha = left[pixelOffset + 3] ?? 0
     const rightAlpha = right[pixelOffset + 3] ?? 0
     let hasVisibleDifference = false
+    let maximumDistanceSquared = 0
     for (let channel = 0; channel < 3; channel += 1) {
-      let maximumDifference = 0
-      for (const backgroundRgb of ITEM_ICON_COMPARISON_BACKGROUNDS) {
-        const background = backgroundRgb[channel] ?? 0
+      let maximumChannelDifference = 0
+      for (const background of ITEM_ICON_COMPARISON_BACKGROUND_CHANNELS) {
         const leftComposite = (
           (left[pixelOffset + channel] ?? 0) * leftAlpha + background * (255 - leftAlpha)
         ) / 255
         const rightComposite = (
           (right[pixelOffset + channel] ?? 0) * rightAlpha + background * (255 - rightAlpha)
         ) / 255
-        maximumDifference = Math.max(maximumDifference, Math.abs(leftComposite - rightComposite))
+        maximumChannelDifference = Math.max(
+          maximumChannelDifference,
+          Math.abs(leftComposite - rightComposite),
+        )
       }
-      if (maximumDifference >= MIN_COMPOSITED_RGB_CHANNEL_DIFFERENCE) {
-        hasVisibleDifference = true
-      }
+      maximumDistanceSquared += maximumChannelDifference * maximumChannelDifference
+    }
+    if (maximumDistanceSquared >= MIN_COMPOSITED_RGB_DISTANCE * MIN_COMPOSITED_RGB_DISTANCE) {
+      hasVisibleDifference = true
     }
     if (hasVisibleDifference) {
       different += 1
@@ -143,7 +147,7 @@ describe('item icon generation', () => {
     const subthresholdVisibleColor = new Uint8Array(visiblePixels)
     subthresholdVisibleColor[0] = 25
     const thresholdVisibleColor = new Uint8Array(visiblePixels)
-    thresholdVisibleColor[0] = 26
+    thresholdVisibleColor[0] = 28
     const differentVisibleAlpha = new Uint8Array(visiblePixels)
     differentVisibleAlpha[3] = 240
 
@@ -152,12 +156,12 @@ describe('item icon generation', () => {
     expect(differentPixelCount(visiblePixels, differentVisibleAlpha)).toBe(1)
   })
 
-  it('treats nine subthreshold alpha-composited channel changes as near duplicates', () => {
-    const rasterWithRedAdjustment = (redAdjustment: number): Uint8Array => {
+  it('treats imperceptible alpha-composited changes as near duplicates', () => {
+    const rasterWithRedAdjustment = (redAdjustment: number, alpha = 88): Uint8Array => {
       const raster = new Uint8Array(TILE_PIXELS * TILE_PIXELS * CHANNELS)
       for (let pixel = 0; pixel < 9; pixel += 1) {
         const offset = pixel * CHANNELS
-        raster.set([10 + redAdjustment, 20, 30, 88], offset)
+        raster.set([10 + redAdjustment, 20, 30, alpha], offset)
       }
       return raster
     }
@@ -165,11 +169,16 @@ describe('item icon generation', () => {
     const source = rasterWithRedAdjustment(0)
     const redPlusOne = rasterWithRedAdjustment(1)
     const redPlusThree = rasterWithRedAdjustment(3)
+    const opaqueSource = rasterWithRedAdjustment(0, 255)
+    const opaqueRedPlusTwo = rasterWithRedAdjustment(2, 255)
+    const opaqueRedPlusFour = rasterWithRedAdjustment(4, 255)
     for (const candidate of [redPlusOne, redPlusThree]) {
       const differingPixels = differentPixelCount(source, candidate)
       expect(differingPixels).toBe(0)
       expect(differingPixels).toBeLessThanOrEqual(NEAR_DUPLICATE_PIXEL_THRESHOLD)
     }
+    expect(differentPixelCount(opaqueSource, opaqueRedPlusTwo)).toBe(0)
+    expect(differentPixelCount(opaqueSource, opaqueRedPlusFour)).toBe(9)
   })
 
   it('keeps registered item icons visually distinct and lists duplicate or near-duplicate pairs', () => {
