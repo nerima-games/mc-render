@@ -577,7 +577,7 @@ export type ChunkLightTrackerSnapshot = {
 const RESOLVED_CHUNK_INCREMENT = 1
 const SAMPLED_QUAD_INCREMENT = 1
 
-export const trackChunkLightColor = (
+export const trackChunkLightColor = <E>(
   /**
    * Forwarded to `resolve` and never inspected by name here, so this stays
    * `GeometryQuad` even though every sampled quad passes through
@@ -587,7 +587,7 @@ export const trackChunkLightColor = (
   resolve: (
     chunk: LightTrackerChunkRef,
     quads: ReadonlyArray<GeometryQuad>,
-  ) => Effect.Effect<QuadColor>,
+  ) => Effect.Effect<QuadColor, E>,
 ): {
   readonly colorForChunk: typeof resolve
   readonly snapshot: () => ChunkLightTrackerSnapshot
