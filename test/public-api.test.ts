@@ -32,6 +32,8 @@ import {
   AnimationSecondsSchema,
   AnimationClockInputErrorSchema,
   animationTimeSeconds,
+  syncWorld,
+  trackChunkLightColor,
   ParticleColorSchema,
   RenderEnvironmentInputSchema,
   RenderEnvironmentPlanSchema,
@@ -91,11 +93,29 @@ import {
   type WorkerQueueCapacity,
   type ParticleEventContext,
   type PlantVertex,
+  type ChunkMesherError,
+  type GeometryQuad,
+  type QuadColor,
 } from '../src/index.js'
 
 describe('public meshing types', () => {
   it('exports PlantVertex from the package root', () => {
     expectTypeOf<PlantVertex>().toEqualTypeOf<readonly [number, number, number]>()
+  })
+})
+
+describe('public chunk light color tracker', () => {
+  it('preserves ChunkMesherError for syncWorld colorForChunk', () => {
+    const resolver: (
+      chunk: Readonly<{ readonly cx: number; readonly cz: number }>,
+      quads: ReadonlyArray<GeometryQuad>,
+    ) => Effect.Effect<QuadColor, ChunkMesherError> = () =>
+      Effect.succeed<QuadColor>(() => [0, 0, 0])
+
+    const tracked = trackChunkLightColor(resolver)
+    const options = { colorForChunk: tracked.colorForChunk } satisfies Parameters<typeof syncWorld>[3]
+
+    expectTypeOf(options.colorForChunk).toEqualTypeOf<typeof resolver>()
   })
 })
 
