@@ -1,5 +1,11 @@
 # @nerima-games/mc-render
 
+## 0.12.0
+
+### Minor Changes
+
+- [#73](https://github.com/nerima-games/mc-render/pull/73) [`98b4c68`](https://github.com/nerima-games/mc-render/commit/98b4c683bcd19aaf105f3e5bb434df37597a5ec3) Thanks [@takeokunn](https://github.com/takeokunn)! - Preserve resolver error types in `trackChunkLightColor`.
+
 ## 0.11.0
 
 ### Minor Changes
