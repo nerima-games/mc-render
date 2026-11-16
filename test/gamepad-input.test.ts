@@ -16,6 +16,7 @@ import {
   type GamepadSource,
 } from '../src/application/gamepad-input-adapter'
 import {
+  ESCAPE_KEY_CODE,
   GAMEPLAY_LISTENER_TARGET,
   MODAL_LISTENER_TARGET,
 } from '../src/domain/input-bindings'
@@ -37,6 +38,26 @@ const pad = (buttons: ReadonlyArray<{ pressed: boolean; value?: number }>, axes:
   buttons: buttons.map((button) => ({ pressed: button.pressed, value: button.value ?? defaultButtonValueFor(button.pressed) })),
   axes,
 })
+
+const STANDARD_GAMEPAD_BUTTON_MAPPINGS = [
+  { index: 0, button: 'a', action: 'jump' },
+  { index: 1, button: 'b', action: 'sneak' },
+  { index: 2, button: 'x', action: 'attack' },
+  { index: 3, button: 'y', action: 'use' },
+  { index: 4, button: 'leftShoulder', action: 'hotbarSlot9' },
+  { index: 5, button: 'rightShoulder', action: 'hotbarSlot1' },
+  { index: 6, button: 'leftTrigger', action: undefined },
+  { index: 7, button: 'rightTrigger', action: undefined },
+  { index: 8, button: 'back', action: 'openInventory' },
+  { index: 9, button: 'start', action: 'escape' },
+  { index: 10, button: 'leftStick', action: 'sprint' },
+  { index: 11, button: 'rightStick', action: undefined },
+  { index: 12, button: 'dpadUp', action: 'moveForward' },
+  { index: 13, button: 'dpadDown', action: 'moveBackward' },
+  { index: 14, button: 'dpadLeft', action: 'moveLeft' },
+  { index: 15, button: 'dpadRight', action: 'moveRight' },
+  { index: 16, button: 'home', action: undefined },
+] as const
 
 describe('gamepad input', () => {
   it.effect('applies a rescaled deadzone to valid axes', () =>
@@ -181,6 +202,41 @@ describe('gamepad input', () => {
     }),
   )
 
+  it.effect('maps every Standard Gamepad button index to its button and action', () =>
+    Effect.gen(function* () {
+      let current: ReadonlyArray<GamepadSnapshot | null> = []
+      const input = yield* makeInputService()
+      const adapter = makeGamepadInputAdapter(input, () => current)
+
+      for (const { index, button, action } of STANDARD_GAMEPAD_BUTTON_MAPPINGS) {
+        const result = gamepadButtonForIndex(index)
+        expect(Result.isSuccess(result)).toBe(true)
+        if (Result.isSuccess(result)) {
+          expect(result.success).toBe(button)
+        }
+
+        const buttons = Array.from({ length: index + 1 }, (_unused, buttonIndex) => ({
+          pressed: buttonIndex === index,
+        }))
+        current = [pad(buttons)]
+        yield* adapter.poll
+
+        if (typeof action === 'undefined') {
+          expect((yield* input.snapshot).pressed.size).toBe(0)
+        } else if (action === 'escape') {
+          expect((yield* input.snapshot).pressed.has(ESCAPE_KEY_CODE)).toBe(true)
+        } else {
+          expect(
+            yield* input.isActionActive(action),
+            `Standard Gamepad button ${index} (${button}) should activate ${action}`,
+          ).toBe(true)
+        }
+        yield* adapter.reset
+        expect((yield* input.snapshot).pressed.size).toBe(0)
+      }
+    }),
+  )
+
   it.effect('releases held actions and axes when the controller disconnects', () =>
     Effect.gen(function* () {
       let current: ReadonlyArray<GamepadSnapshot | null> = [pad([{ pressed: true }], [1, 0, 0, 0])]
@@ -222,23 +278,23 @@ describe('gamepad input', () => {
 
   it.effect('a button index past the known mapping is dropped, not misbound', () =>
     Effect.gen(function* () {
-      // `gamepadButtonForIndex` is a fixed 14-entry table (`GAMEPAD_BUTTONS`);
+      // `gamepadButtonForIndex` is a fixed 17-entry table (`GAMEPAD_BUTTONS`);
       // a gamepad reporting MORE buttons than that — real hardware does, e.g.
       // extra paddles — hands `bindingForButtonIndex` an index the table has
       // no name for. It must resolve to "no action" rather than throwing or
       // aliasing onto a real one.
       const input = yield* makeInputService()
-      // 15 buttons: indices 0-13 are the known mapping (all unpressed here),
-      // and index 14 is the one past the end of `GAMEPAD_BUTTONS`.
-      const buttons = Array.from({ length: 15 }, (_unused, index) => ({
-        pressed: index === 14,
+      // 18 buttons: indices 0-16 are the known mapping (all unpressed here),
+      // and index 17 is the one past the end of `GAMEPAD_BUTTONS`.
+      const buttons = Array.from({ length: 18 }, (_unused, index) => ({
+        pressed: index === 17,
       }))
       let current: ReadonlyArray<ReturnType<typeof pad> | null> = [pad(buttons)]
       const adapter = makeGamepadInputAdapter(input, () => current)
 
       yield* adapter.poll
 
-      // Nothing became active: the phantom 15th button pressed no bound
+      // Nothing became active: the 18th button pressed no bound
       // action, and the poll did not throw reaching it.
       const snapshot = yield* input.snapshot
       expect(snapshot.pressed.size).toBe(0)

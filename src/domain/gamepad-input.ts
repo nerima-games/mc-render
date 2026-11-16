@@ -8,6 +8,8 @@ export const GAMEPAD_BUTTONS = [
   'y',
   'leftShoulder',
   'rightShoulder',
+  'leftTrigger',
+  'rightTrigger',
   'back',
   'start',
   'leftStick',
@@ -16,6 +18,7 @@ export const GAMEPAD_BUTTONS = [
   'dpadDown',
   'dpadLeft',
   'dpadRight',
+  'home',
 ] as const
 
 export type GamepadButton = (typeof GAMEPAD_BUTTONS)[number]
@@ -117,7 +120,12 @@ export const GamepadButtonForIndexResultSchema: Schema.Codec<
   }),
 ])
 
-export type GamepadBindings = Readonly<Record<GamepadButton, InputAction | undefined>>
+type OptionalGamepadButton = 'leftTrigger' | 'rightTrigger' | 'home'
+
+export type GamepadBindings = Readonly<
+  Record<Exclude<GamepadButton, OptionalGamepadButton>, InputAction | undefined> &
+    Partial<Record<OptionalGamepadButton, InputAction | undefined>>
+>
 
 /* Gamepad button identifiers below ('a', 'b', 'x', 'y', ...) are the Web
    Gamepad API's standard mapping button names and must match `GamepadButton`
@@ -128,8 +136,9 @@ const NO_DEFAULT_BINDING: InputAction | undefined = undefined
 export const DEFAULT_GAMEPAD_BINDINGS: GamepadBindings = {
   a: 'jump', b: 'sneak', back: 'openInventory', dpadDown: 'moveBackward',
   dpadLeft: 'moveLeft', dpadRight: 'moveRight', dpadUp: 'moveForward',
-  leftShoulder: 'hotbarSlot9', leftStick: 'sprint', rightShoulder: 'hotbarSlot1',
-  rightStick: NO_DEFAULT_BINDING, start: 'escape', x: 'attack', y: 'use',
+  home: NO_DEFAULT_BINDING, leftShoulder: 'hotbarSlot9', leftStick: 'sprint',
+  leftTrigger: NO_DEFAULT_BINDING, rightShoulder: 'hotbarSlot1', rightStick: NO_DEFAULT_BINDING,
+  rightTrigger: NO_DEFAULT_BINDING, start: 'escape', x: 'attack', y: 'use',
 }
 
 /** Clamp bounds for a normalized joystick axis value. */
