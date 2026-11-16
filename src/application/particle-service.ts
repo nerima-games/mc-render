@@ -185,7 +185,7 @@ const ParticleServicePoolAccessBase: Context.ServiceClass<
 export class ParticleServicePoolAccess extends ParticleServicePoolAccessBase {}
 
 export type ParticleServiceForPoolOptions = Readonly<{
-  readonly renderContext?: (() => ParticleFrameSnapshot) | undefined
+  readonly renderContext: () => ParticleFrameSnapshot
 }>
 
 export type ParticleServiceLiveOptions = Readonly<{
@@ -368,11 +368,11 @@ const makeParticleService = (
 
 export const ParticleServiceForPool = (
   pool: ParticlePool,
-  options: ParticleServiceForPoolOptions = {},
+  options: ParticleServiceForPoolOptions,
 ): Layer.Layer<ParticleService | ParticleServicePoolAccess> =>
   Layer.succeedContext(Context.make(
     ParticleService,
-    makeParticleService(pool, renderContextOrDefault(options.renderContext)),
+    makeParticleService(pool, options.renderContext),
   ).pipe(Context.add(ParticleServicePoolAccess, pool)))
 
 export const ParticleServiceLive = (
@@ -380,5 +380,7 @@ export const ParticleServiceLive = (
 ): Layer.Layer<ParticleService | ParticleServicePoolAccess, ParticlePoolInputError> =>
   Layer.unwrap(Effect.gen(function* () {
     const pool = yield* Effect.fromResult(makeParticlePool(options.pool))
-    return ParticleServiceForPool(pool, options)
+    return ParticleServiceForPool(pool, {
+      renderContext: renderContextOrDefault(options.renderContext),
+    })
   }))

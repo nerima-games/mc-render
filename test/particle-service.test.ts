@@ -916,7 +916,9 @@ describe('ParticleServiceForPool', () => {
           direction: Schema.decodeUnknownSync(ParticleDirectionSchema)({ x: 2, y: 0, z: -1 }),
           lifetimeSeconds: Schema.decodeUnknownSync(ParticleLifetimeSecondsSchema)(0.25),
         }))).toBe(1)
-      }).pipe(Effect.provide(ParticleServiceForPool(pool)))
+      }).pipe(Effect.provide(ParticleServiceForPool(pool, {
+        renderContext: () => ({ dimension: 'overworld', entities: [] }),
+      })))
 
       expect(pool.activeCount()).toBe(5)
       expect(readSlot(pool, 0)).toStrictEqual(existing)
