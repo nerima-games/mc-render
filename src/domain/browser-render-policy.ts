@@ -368,10 +368,12 @@ type BrowserCompositeShader<Vector2> = {
   readonly vertexShader: string
 }
 
-export const createBrowserCopyShader = (): {
+type BrowserCopyShader = {
   readonly fragmentShader: string
   readonly vertexShader: string
-} => ({
+}
+
+export const createBrowserCopyShader = (): BrowserCopyShader => ({
   fragmentShader: `
       uniform sampler2D tDiffuse;
       varying vec2 vUv;
