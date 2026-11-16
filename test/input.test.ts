@@ -56,6 +56,7 @@ import {
   WHEEL_PIXELS_PER_NOTCH,
   wrapHotbarSelection,
   type Bindings,
+  type InputAction,
 } from '../src/domain/input-bindings'
 import {
   consumeNativeInput,
@@ -85,16 +86,83 @@ const resultValue = <Value, Error>(result: Result.Result<Value, Error>): Value |
 const FAST_CHECK_OPTIONS = { numRuns: 100, seed: 0x5eed }
 
 describe('frame reading consumption', () => {
+  it.effect('does not fire an edge in both the receiving frame and the following frame', () => Effect.gen(function* () {
+    const input = yield* makeInputService()
+    const first = yield* input.snapshot
+    yield* input.dispatch({ kind: 'keydown', code: 'KeyE', target: 'window' })
+    const frameOne = yield* input.wasActionJustTriggered('openInventory', first)
+    yield* input.endFrame(first)
+    const second = yield* input.snapshot
+    const frameTwo = yield* input.wasActionJustTriggered('openInventory', second)
+    yield* input.endFrame(second)
+    const frameThree = yield* input.wasActionJustTriggered('openInventory', yield* input.snapshot)
+    expect([frameOne, frameTwo, frameThree]).toStrictEqual([false, true, false])
+  }))
+
+  it.effect('consumes copied and structured-cloned readings without object identity', () => Effect.gen(function* () {
+    const input = yield* makeInputService()
+    yield* input.dispatch({ kind: 'keydown', code: 'KeyE', target: 'window' })
+    const reading = yield* input.snapshot
+    yield* input.endFrame({ ...reading })
+    yield* input.endFrame(structuredClone(reading))
+    expect((yield* input.snapshot).justPressed.size).toBe(0)
+  }))
+
+  it.effect('treats duplicate unlocked mousedown as one edge until mouseup', () => Effect.gen(function* () {
+    const input = yield* makeInputService()
+    yield* input.dispatch({ kind: 'mousedown', button: 'MouseLeft', target: 'window', landing: 'ui' })
+    const reading = yield* input.snapshot
+    yield* input.dispatch({ kind: 'mousedown', button: 'MouseLeft', target: 'window', landing: 'ui' })
+    yield* input.endFrame(reading)
+    expect((yield* input.snapshot).uiClickLandings).toStrictEqual([])
+    yield* input.dispatch({ kind: 'mouseup', button: 'MouseLeft', target: 'window' })
+    yield* input.dispatch({ kind: 'mousedown', button: 'MouseLeft', target: 'window', landing: 'ui' })
+    expect((yield* input.snapshot).uiClickLandings).toStrictEqual([{ button: 'MouseLeft', landing: 'ui' }])
+  }))
+
+  it.effect('no-argument consumption clears all wheel travel including its fraction', () => Effect.gen(function* () {
+    const input = yield* makeInputService()
+    yield* input.dispatch({ kind: 'pointerlockchange', locked: true })
+    yield* input.dispatch({ kind: 'wheel', deltaY: 250, deltaMode: 'pixel' })
+    yield* input.endFrame()
+    expect((yield* input.snapshot).wheelNotches).toBe(0)
+  }))
+
+  it.effect('uses the reading bindings and held levels even after a later remap and release', () => Effect.gen(function* () {
+    const input = yield* makeInputService()
+    yield* input.dispatch({ kind: 'keydown', code: 'KeyE', target: 'window' })
+    const reading = yield* input.snapshot
+    yield* input.rebind('openInventory', 'KeyI')
+    yield* input.dispatch({ kind: 'keyup', code: 'KeyE', target: 'window' })
+    expect(yield* input.wasActionJustTriggered('openInventory', reading)).toBe(true)
+    expect(yield* input.isActionActive('openInventory', reading)).toBe(true)
+    expect(yield* input.isActionActive('openInventory')).toBe(false)
+    expect(reading.bindings['openInventory']).toBe('KeyE')
+    expect((yield* input.snapshot).bindings['openInventory']).toBe('KeyI')
+  }))
+
+  it.effect('consumes a sampled wheel notch before a later reversal can cancel it', () => Effect.gen(function* () {
+    const input = yield* makeInputService()
+    yield* input.dispatch({ kind: 'pointerlockchange', locked: true })
+    yield* input.dispatch({ kind: 'wheel', deltaY: 120, deltaMode: 'pixel' })
+    const reading = yield* input.snapshot
+    yield* input.dispatch({ kind: 'wheel', deltaY: -200, deltaMode: 'pixel' })
+    yield* input.endFrame(reading)
+    expect((yield* input.snapshot).wheelNotches).toBeCloseTo(-1.8)
+    expect((yield* input.snapshot).wheelSteps).toBe(-1)
+  }))
+
   const edgeCases: ReadonlyArray<{
     readonly name: string
     readonly press: InputEvent
     readonly release: InputEvent
     readonly code: string
+    readonly action: InputAction
   }> = [
-    { name: 'keyboard', press: { kind: 'keydown', code: 'Digit4', target: 'window' }, release: { kind: 'keyup', code: 'Digit4', target: 'window' }, code: 'Digit4' },
-    { name: 'mouse', press: { kind: 'mousedown', button: 'MouseLeft', landing: 'lock-target', target: 'window' }, release: { kind: 'mouseup', button: 'MouseLeft', target: 'window' }, code: 'MouseLeft' },
-    { name: 'touch', press: { kind: 'touchpress', action: 'jump', target: 'window' }, release: { kind: 'touchrelease', action: 'jump', target: 'window' }, code: 'Space' },
-    { name: 'gamepad', press: { kind: 'gamepadpress', action: 'jump', target: 'window' }, release: { kind: 'gamepadrelease', action: 'jump', target: 'window' }, code: 'Space' },
+    { name: 'keyboard', press: { kind: 'keydown', code: 'Digit4', target: 'window' }, release: { kind: 'keyup', code: 'Digit4', target: 'window' }, code: 'Digit4', action: 'hotbarSlot4' },
+    { name: 'mouse', press: { kind: 'mousedown', button: 'MouseLeft', landing: 'lock-target', target: 'window' }, release: { kind: 'mouseup', button: 'MouseLeft', target: 'window' }, code: 'MouseLeft', action: 'attack' },
+    { name: 'touch', press: { kind: 'touchpress', action: 'jump', target: 'window' }, release: { kind: 'touchrelease', action: 'jump', target: 'window' }, code: 'Space', action: 'jump' },
+    { name: 'gamepad', press: { kind: 'gamepadpress', action: 'jump', target: 'window' }, release: { kind: 'gamepadrelease', action: 'jump', target: 'window' }, code: 'Space', action: 'jump' },
   ]
   for (const entry of edgeCases) {
     it.effect(`keeps ${entry.name} press and release delivered after the reading`, () => Effect.gen(function* () {
@@ -103,9 +171,15 @@ describe('frame reading consumption', () => {
       const reading = yield* input.snapshot
       yield* input.dispatch(entry.press)
       yield* input.dispatch(entry.release)
+      expect(yield* input.wasActionJustTriggered(entry.action, reading)).toBe(false)
+      if (entry.press.kind === 'mousedown') {
+        expect(yield* input.wasButtonJustPressed(entry.press.button, reading)).toBe(false)
+        expect(yield* input.isButtonDown(entry.press.button, reading)).toBe(false)
+      }
       yield* input.endFrame(reading)
       const next = yield* input.snapshot
       expect(next.justPressed.has(entry.code)).toBe(true)
+      expect(yield* input.wasActionJustTriggered(entry.action, next)).toBe(true)
       expect(next.pressed.has(entry.code)).toBe(false)
       yield* input.endFrame(next)
       expect((yield* input.snapshot).justPressed.has(entry.code)).toBe(false)
@@ -116,6 +190,10 @@ describe('frame reading consumption', () => {
       yield* input.dispatch(entry.press)
       const reading = yield* input.snapshot
       yield* input.dispatch(entry.release)
+      expect(yield* input.isActionActive(entry.action, reading)).toBe(true)
+      if (entry.press.kind === 'mousedown') {
+        expect(yield* input.isButtonDown(entry.press.button, reading)).toBe(true)
+      }
       yield* input.dispatch(entry.press)
       yield* input.endFrame(reading)
       yield* input.endFrame(reading)
@@ -133,13 +211,11 @@ describe('frame reading consumption', () => {
     yield* input.dispatch({ kind: 'pointerlockchange', locked: true })
     yield* input.dispatch({ kind: 'pointermove', deltaX: 4, deltaY: -3 })
     yield* input.dispatch({ kind: 'wheel', deltaY: 250, deltaMode: 'pixel' })
-    const host = yield* input.snapshot
-    const render = yield* input.snapshot
+    const reading = yield* input.snapshot
     yield* input.dispatch({ kind: 'pointermove', deltaX: -9, deltaY: 7 })
     yield* input.dispatch({ kind: 'wheel', deltaY: 100, deltaMode: 'pixel' })
-    yield* input.endFrame(render)
-    yield* input.endFrame(host)
-    yield* input.endFrame(render)
+    yield* input.endFrame(reading)
+    yield* input.endFrame(reading)
     const next = yield* input.snapshot
     expect(next.pointerDelta).toStrictEqual({ x: -9, y: 7 })
     expect(next.wheelNotches).toBeCloseTo(1.5)
@@ -149,39 +225,20 @@ describe('frame reading consumption', () => {
     expect((yield* input.snapshot).wheelNotches).toBeCloseTo(0.5)
   }))
 
-  it.effect('consumes overlapping readings without counting their shared travel twice', () => Effect.gen(function* () {
-    const input = yield* makeInputService()
-    yield* input.dispatch({ kind: 'pointerlockchange', locked: true })
-    yield* input.dispatch({ kind: 'pointermove', deltaX: 4, deltaY: -3 })
-    yield* input.dispatch({ kind: 'wheel', deltaY: 250, deltaMode: 'pixel' })
-    const older = yield* input.snapshot
-    yield* input.dispatch({ kind: 'pointermove', deltaX: -9, deltaY: 7 })
-    yield* input.dispatch({ kind: 'wheel', deltaY: 100, deltaMode: 'pixel' })
-    const newer = yield* input.snapshot
-    yield* input.endFrame(older)
-    yield* input.endFrame(newer)
-    expect((yield* input.snapshot).pointerDelta).toStrictEqual({ x: 0, y: 0 })
-    expect((yield* input.snapshot).wheelNotches).toBeCloseTo(0.5)
-    yield* input.dispatch({ kind: 'pointermove', deltaX: 6, deltaY: -8 })
-    yield* input.dispatch({ kind: 'wheel', deltaY: 100, deltaMode: 'pixel' })
-    yield* input.endFrame(older)
-    yield* input.endFrame(newer)
-    expect((yield* input.snapshot).pointerDelta).toStrictEqual({ x: 6, y: -8 })
-    expect((yield* input.snapshot).wheelNotches).toBeCloseTo(1.5)
-  }))
 
   it.effect('preserves click landings delivered after the reading, including the same pair', () => Effect.gen(function* () {
     const input = yield* makeInputService()
     yield* input.dispatch({ kind: 'mousedown', button: 'MouseLeft', landing: 'ui', target: 'window' })
     const reading = yield* input.snapshot
     yield* input.dispatch({ kind: 'mousedown', button: 'MouseRight', landing: 'elsewhere', target: 'window' })
+    yield* input.dispatch({ kind: 'mouseup', button: 'MouseLeft', target: 'window' })
     yield* input.dispatch({ kind: 'mousedown', button: 'MouseLeft', landing: 'ui', target: 'window' })
     yield* input.endFrame(reading)
     yield* input.endFrame(reading)
     const next = yield* input.snapshot
     expect(next.uiClickLandings).toStrictEqual([
-      { button: 'MouseLeft', landing: 'ui' },
       { button: 'MouseRight', landing: 'elsewhere' },
+      { button: 'MouseLeft', landing: 'ui' },
     ])
     yield* input.endFrame(next)
     expect((yield* input.snapshot).uiClickLandings).toStrictEqual([])
@@ -237,24 +294,8 @@ describe('frame reading consumption', () => {
     }))
   }
 
-  for (const sign of [1, -1]) {
-    it.effect(`preserves signed wheel movement after reverse-order readings, direction ${sign}`, () => Effect.gen(function* () {
-      const input = yield* makeInputService()
-      yield* input.dispatch({ kind: 'pointerlockchange', locked: true })
-      yield* input.dispatch({ kind: 'wheel', deltaY: sign * 250, deltaMode: 'pixel' })
-      const older = yield* input.snapshot
-      yield* input.dispatch({ kind: 'wheel', deltaY: -sign * 600, deltaMode: 'pixel' })
-      const newer = yield* input.snapshot
-      yield* input.endFrame(newer)
-      yield* input.dispatch({ kind: 'wheel', deltaY: sign * 200, deltaMode: 'pixel' })
-      yield* input.endFrame(older)
-      yield* input.endFrame(newer)
-      expect((yield* input.snapshot).wheelNotches).toBeCloseTo(sign * 1.5)
-      expect((yield* input.snapshot).wheelSteps).toBe(sign)
-    }))
-  }
 
-  it.effect('no-argument consumption clears current edges and pointer movement while retaining unread wheel', () => Effect.gen(function* () {
+  it.effect('no-argument consumption clears all current input and leaves later events untouched', () => Effect.gen(function* () {
     const input = yield* makeInputService()
     yield* input.dispatch({ kind: 'pointerlockchange', locked: true })
     yield* input.dispatch({ kind: 'keydown', code: 'Digit4', target: 'window' })
@@ -265,7 +306,7 @@ describe('frame reading consumption', () => {
     expect((yield* input.snapshot).justPressed.size).toBe(0)
     expect((yield* input.snapshot).pressed.has('Digit4')).toBe(true)
     expect((yield* input.snapshot).pointerDelta).toStrictEqual({ x: 0, y: 0 })
-    expect((yield* input.snapshot).wheelNotches).toBe(2.5)
+    expect((yield* input.snapshot).wheelNotches).toBe(0)
     yield* input.dispatch({ kind: 'keyup', code: 'Digit4', target: 'window' })
     yield* input.dispatch({ kind: 'keydown', code: 'Digit4', target: 'window' })
     yield* input.dispatch({ kind: 'pointermove', deltaX: -9, deltaY: 7 })
@@ -275,7 +316,7 @@ describe('frame reading consumption', () => {
     const next = yield* input.snapshot
     expect(next.justPressed.has('Digit4')).toBe(true)
     expect(next.pointerDelta).toStrictEqual({ x: -9, y: 7 })
-    expect(next.wheelNotches).toBe(1.5)
+    expect(next.wheelNotches).toBe(1)
   }))
 
   it.effect('no-argument consumption clears UI clicks and does not overwrite newer gamepad axes', () => Effect.gen(function* () {
@@ -399,7 +440,7 @@ describe('REGRESSION: Escape has exactly one owner', () => {
       yield* input.dispatch({ kind: 'keydown', code: ESCAPE_KEY_CODE, target: GAMEPLAY_LISTENER_TARGET })
 
       expect(yield* input.isActionActive('escape')).toBe(false)
-      expect(yield* input.wasActionJustTriggered('escape')).toBe(false)
+      expect(yield* input.wasActionJustTriggered('escape', yield* input.snapshot)).toBe(false)
       // ...though the raw key IS visible, because the frame handler needs it.
       expect((yield* input.snapshot).pressed.has(ESCAPE_KEY_CODE)).toBe(true)
     }),
@@ -587,12 +628,12 @@ describe('InputService frame semantics', () => {
       const input = yield* makeInputService()
 
       yield* input.dispatch({ kind: 'keydown', code: 'KeyE', target: GAMEPLAY_LISTENER_TARGET })
-      expect(yield* input.wasActionJustTriggered('openInventory')).toBe(true)
+      expect(yield* input.wasActionJustTriggered('openInventory', yield* input.snapshot)).toBe(true)
 
       yield* input.endFrame()
       yield* input.dispatch({ kind: 'keydown', code: 'KeyE', target: GAMEPLAY_LISTENER_TARGET })
 
-      expect(yield* input.wasActionJustTriggered('openInventory')).toBe(false)
+      expect(yield* input.wasActionJustTriggered('openInventory', yield* input.snapshot)).toBe(false)
       expect(yield* input.isActionActive('openInventory')).toBe(true)
     }),
   )
@@ -759,15 +800,15 @@ describe('mouse buttons are gameplay input, in the same code space as keys', () 
       const input = yield* lockedInput
 
       yield* input.dispatch({ kind: 'mousedown', button: 'MouseLeft', target: GAMEPLAY_LISTENER_TARGET, landing: 'lock-target' })
-      expect(yield* input.wasActionJustTriggered('attack')).toBe(true)
-      expect(yield* input.wasButtonJustPressed('MouseLeft')).toBe(true)
+      expect(yield* input.wasActionJustTriggered('attack', yield* input.snapshot)).toBe(true)
+      expect(yield* input.wasButtonJustPressed('MouseLeft', yield* input.snapshot)).toBe(true)
       // Reading it twice in one frame is still the same one edge.
-      expect(yield* input.wasButtonJustPressed('MouseLeft')).toBe(true)
+      expect(yield* input.wasButtonJustPressed('MouseLeft', yield* input.snapshot)).toBe(true)
 
       yield* input.endFrame()
 
-      expect(yield* input.wasActionJustTriggered('attack')).toBe(false)
-      expect(yield* input.wasButtonJustPressed('MouseLeft')).toBe(false)
+      expect(yield* input.wasActionJustTriggered('attack', yield* input.snapshot)).toBe(false)
+      expect(yield* input.wasButtonJustPressed('MouseLeft', yield* input.snapshot)).toBe(false)
     }),
   )
 
@@ -806,9 +847,9 @@ describe('mouse buttons are gameplay input, in the same code space as keys', () 
 
       yield* input.dispatch({ kind: 'mousedown', button: 'MouseRight', target: GAMEPLAY_LISTENER_TARGET, landing: 'lock-target' })
 
-      expect(yield* input.wasActionJustTriggered('use')).toBe(true)
-      expect(yield* input.wasActionJustTriggered('attack')).toBe(false)
-      expect(yield* input.wasActionJustTriggered('pickBlock')).toBe(false)
+      expect(yield* input.wasActionJustTriggered('use', yield* input.snapshot)).toBe(true)
+      expect(yield* input.wasActionJustTriggered('attack', yield* input.snapshot)).toBe(false)
+      expect(yield* input.wasActionJustTriggered('pickBlock', yield* input.snapshot)).toBe(false)
     }),
   )
 
@@ -818,9 +859,9 @@ describe('mouse buttons are gameplay input, in the same code space as keys', () 
 
       yield* input.dispatch({ kind: 'mousedown', button: 'MouseMiddle', target: GAMEPLAY_LISTENER_TARGET, landing: 'lock-target' })
 
-      expect(yield* input.wasActionJustTriggered('pickBlock')).toBe(true)
-      expect(yield* input.wasActionJustTriggered('attack')).toBe(false)
-      expect(yield* input.wasActionJustTriggered('use')).toBe(false)
+      expect(yield* input.wasActionJustTriggered('pickBlock', yield* input.snapshot)).toBe(true)
+      expect(yield* input.wasActionJustTriggered('attack', yield* input.snapshot)).toBe(false)
+      expect(yield* input.wasActionJustTriggered('use', yield* input.snapshot)).toBe(false)
     }),
   )
 
@@ -833,7 +874,7 @@ describe('mouse buttons are gameplay input, in the same code space as keys', () 
       expect((yield* input.rebind('attack', 'KeyB')).kind).toBe('ok')
       yield* input.dispatch({ kind: 'keydown', code: 'KeyB', target: GAMEPLAY_LISTENER_TARGET })
 
-      expect(yield* input.wasActionJustTriggered('attack')).toBe(true)
+      expect(yield* input.wasActionJustTriggered('attack', yield* input.snapshot)).toBe(true)
 
       // ...and the button it used to have no longer triggers it, so the rebind
       // MOVED the action rather than adding a second way to fire it.
@@ -841,7 +882,7 @@ describe('mouse buttons are gameplay input, in the same code space as keys', () 
       yield* input.dispatch({ kind: 'keyup', code: 'KeyB', target: GAMEPLAY_LISTENER_TARGET })
       yield* input.dispatch({ kind: 'mousedown', button: 'MouseLeft', target: GAMEPLAY_LISTENER_TARGET, landing: 'lock-target' })
 
-      expect(yield* input.wasActionJustTriggered('attack')).toBe(false)
+      expect(yield* input.wasActionJustTriggered('attack', yield* input.snapshot)).toBe(false)
       expect(yield* input.isActionActive('attack')).toBe(false)
     }),
   )
@@ -900,8 +941,8 @@ describe('mouse buttons are gameplay input, in the same code space as keys', () 
       // ASKS for the lock again — and fires no game action.
       yield* input.dispatch({ kind: 'mousedown', button: 'MouseLeft', target: GAMEPLAY_LISTENER_TARGET, landing: 'lock-target' })
 
-      expect(yield* input.wasUiClick('MouseLeft')).toBe(true)
-      expect(yield* input.wasActionJustTriggered('attack')).toBe(false)
+      expect(yield* input.wasUiClick('MouseLeft', yield* input.snapshot)).toBe(true)
+      expect(yield* input.wasActionJustTriggered('attack', yield* input.snapshot)).toBe(false)
       expect(yield* input.isActionActive('attack')).toBe(false)
       expect(acquiresPointerLock('MouseLeft', yield* input.pointerLockState, 'lock-target')).toBe(true)
     }),
@@ -945,9 +986,9 @@ describe('mouse buttons are gameplay input, in the same code space as keys', () 
 
       yield* input.dispatch({ kind: 'mousedown', button: 'MouseLeft', target: MODAL_LISTENER_TARGET, landing: 'lock-target' })
 
-      expect(yield* input.wasActionJustTriggered('attack')).toBe(false)
+      expect(yield* input.wasActionJustTriggered('attack', yield* input.snapshot)).toBe(false)
       expect(yield* input.isButtonDown('MouseLeft')).toBe(false)
-      expect(yield* input.wasUiClick('MouseLeft')).toBe(false)
+      expect(yield* input.wasUiClick('MouseLeft', yield* input.snapshot)).toBe(false)
     }),
   )
 })
@@ -959,8 +1000,8 @@ describe('REGRESSION: a click means different things locked and unlocked', () =>
 
       yield* input.dispatch({ kind: 'mousedown', button: 'MouseRight', target: GAMEPLAY_LISTENER_TARGET, landing: 'lock-target' })
 
-      expect(yield* input.wasActionJustTriggered('use')).toBe(true)
-      expect(yield* input.wasUiClick('MouseRight')).toBe(false)
+      expect(yield* input.wasActionJustTriggered('use', yield* input.snapshot)).toBe(true)
+      expect(yield* input.wasUiClick('MouseRight', yield* input.snapshot)).toBe(false)
     }),
   )
 
@@ -970,7 +1011,7 @@ describe('REGRESSION: a click means different things locked and unlocked', () =>
 
       yield* input.dispatch({ kind: 'mousedown', button: 'MouseLeft', target: GAMEPLAY_LISTENER_TARGET, landing: 'lock-target' })
 
-      expect(yield* input.wasActionJustTriggered('attack')).toBe(false)
+      expect(yield* input.wasActionJustTriggered('attack', yield* input.snapshot)).toBe(false)
       expect(yield* input.isActionActive('attack')).toBe(false)
       expect(yield* input.isButtonDown('MouseLeft')).toBe(false)
       expect((yield* input.snapshot).pressed.size).toBe(0)
@@ -985,7 +1026,7 @@ describe('REGRESSION: a click means different things locked and unlocked', () =>
 
       yield* input.dispatch({ kind: 'mousedown', button: 'MouseLeft', target: GAMEPLAY_LISTENER_TARGET, landing: 'lock-target' })
 
-      expect(yield* input.wasUiClick('MouseLeft')).toBe(true)
+      expect(yield* input.wasUiClick('MouseLeft', yield* input.snapshot)).toBe(true)
       expect((yield* input.snapshot).uiClicks.has('MouseLeft')).toBe(true)
     }),
   )
@@ -997,7 +1038,7 @@ describe('REGRESSION: a click means different things locked and unlocked', () =>
       yield* input.dispatch({ kind: 'mousedown', button: 'MouseLeft', target: GAMEPLAY_LISTENER_TARGET, landing: 'lock-target' })
       yield* input.endFrame()
 
-      expect(yield* input.wasUiClick('MouseLeft')).toBe(false)
+      expect(yield* input.wasUiClick('MouseLeft', yield* input.snapshot)).toBe(false)
       expect((yield* input.snapshot).uiClicks.size).toBe(0)
     }),
   )
@@ -1014,7 +1055,7 @@ describe('REGRESSION: a click means different things locked and unlocked', () =>
       yield* input.dispatch({ kind: 'pointerlockchange', locked: false })
 
       expect(yield* input.isActionActive('attack')).toBe(false)
-      expect(yield* input.wasButtonJustPressed('MouseLeft')).toBe(false)
+      expect(yield* input.wasButtonJustPressed('MouseLeft', yield* input.snapshot)).toBe(false)
     }),
   )
 
@@ -1085,7 +1126,7 @@ describe('REGRESSION: the browser context menu', () => {
       yield* input.endFrame()
       yield* input.dispatch({ kind: 'contextmenu', target: GAMEPLAY_LISTENER_TARGET })
 
-      expect(yield* input.wasActionJustTriggered('use')).toBe(false)
+      expect(yield* input.wasActionJustTriggered('use', yield* input.snapshot)).toBe(false)
       // ...and it does not release the still-held button either.
       expect(yield* input.isButtonDown('MouseRight')).toBe(true)
     }),
@@ -1371,19 +1412,16 @@ describe('the wheel is a DELTA — not an edge, not a level', () => {
     }),
   )
 
-  it.effect('a frame loop that never samples consumes nothing — travel is deferred, not lost', () =>
+  it.effect('a frame loop that omits its reading consumes all wheel travel', () =>
     Effect.gen(function* () {
-      // The corollary of "consume exactly what was reported", and the reason
-      // omitting the argument is the honest default rather than a convenience.
-      // Nothing acted on this travel, so throwing it away would lose it
-      // outright rather than defer it to a frame that will read it.
+      // Omitting a reading explicitly discards the entire current input batch.
       const input = yield* lockedInput
 
       yield* input.dispatch({ kind: 'wheel', deltaY: 150, deltaMode: 'pixel' })
       yield* input.endFrame()
 
-      expect((yield* input.snapshot).wheelNotches).toBeCloseTo(1.5, 10)
-      expect((yield* input.snapshot).wheelSteps).toBe(1)
+      expect((yield* input.snapshot).wheelNotches).toBe(0)
+      expect((yield* input.snapshot).wheelSteps).toBe(0)
     }),
   )
 
@@ -1539,8 +1577,8 @@ describe('hotbar selection', () => {
 
       yield* input.dispatch({ kind: 'keydown', code: 'Digit5', target: GAMEPLAY_LISTENER_TARGET })
 
-      expect(yield* input.wasActionJustTriggered('hotbarSlot5')).toBe(true)
-      expect(yield* input.wasActionJustTriggered('hotbarSlot4')).toBe(false)
+      expect(yield* input.wasActionJustTriggered('hotbarSlot5', yield* input.snapshot)).toBe(true)
+      expect(yield* input.wasActionJustTriggered('hotbarSlot4', yield* input.snapshot)).toBe(false)
     }),
   )
 
@@ -1878,10 +1916,10 @@ describe('REGRESSION: pointer lock is a REQUEST, and a request can be refused', 
 
       yield* input.dispatch({ kind: 'mousedown', button: 'MouseLeft', target: GAMEPLAY_LISTENER_TARGET, landing: 'ui' })
 
-      expect(yield* input.wasUiClick('MouseLeft')).toBe(true)
+      expect(yield* input.wasUiClick('MouseLeft', yield* input.snapshot)).toBe(true)
       expect([...(yield* input.snapshot).uiClicks]).toStrictEqual(['MouseLeft'])
       // ...and it is NOT a gameplay click either, exactly as before.
-      expect(yield* input.wasActionJustTriggered('attack')).toBe(false)
+      expect(yield* input.wasActionJustTriggered('attack', yield* input.snapshot)).toBe(false)
       expect(yield* input.isActionActive('attack')).toBe(false)
       // What changed is that the frame can now tell where it landed.
       expect((yield* input.snapshot).uiClickLandings).toStrictEqual([
@@ -1899,6 +1937,7 @@ describe('REGRESSION: pointer lock is a REQUEST, and a request can be refused', 
       const input = yield* makeInputService()
 
       yield* input.dispatch({ kind: 'mousedown', button: 'MouseLeft', target: GAMEPLAY_LISTENER_TARGET, landing: 'ui' })
+      yield* input.dispatch({ kind: 'mouseup', button: 'MouseLeft', target: GAMEPLAY_LISTENER_TARGET })
       yield* input.dispatch({ kind: 'mousedown', button: 'MouseLeft', target: GAMEPLAY_LISTENER_TARGET, landing: 'lock-target' })
 
       const snapshot = yield* input.snapshot
@@ -1974,8 +2013,8 @@ describe('REGRESSION: pointer lock is a REQUEST, and a request can be refused', 
 
       yield* input.dispatch({ kind: 'mousedown', button: 'MouseLeft', target: GAMEPLAY_LISTENER_TARGET, landing: 'lock-target' })
 
-      expect(yield* input.wasUiClick('MouseLeft')).toBe(true)
-      expect(yield* input.wasActionJustTriggered('attack')).toBe(false)
+      expect(yield* input.wasUiClick('MouseLeft', yield* input.snapshot)).toBe(true)
+      expect(yield* input.wasActionJustTriggered('attack', yield* input.snapshot)).toBe(false)
       expect(acquiresPointerLock('MouseLeft', yield* input.pointerLockState, 'lock-target')).toBe(true)
     }),
   )

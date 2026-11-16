@@ -172,6 +172,7 @@ export const makeRenderFrameState = (
     const mirroredCamera = yield* Ref.make(mirroredCameraState(undefined))
     const lag = yield* Ref.make<number | undefined>(undefined)
     const input = yield* Ref.make<InputSnapshot>({
+      bindings: defaultBindings(),
       gamepadAxes: { leftX: 0, leftY: 0, rightX: 0, rightY: 0 },
       justPressed: new Set<string>(),
       // No keyboard focus until the browser says otherwise. `undefined` and NOT
@@ -182,6 +183,7 @@ export const makeRenderFrameState = (
       pointerLockState: 'unlocked',
       pointerLocked: false,
       pressed: new Set<string>(),
+      sequence: 0,
       uiClickLandings: [],
       uiClicks: new Set<MouseButton>(),
       wheelNotches: 0,
@@ -258,11 +260,11 @@ export const renderStages = ({
         yield* Ref.set(state.input, sampled)
 
         const [forward, backward, left, right, jump] = yield* Effect.all([
-          input.isActionActive('moveForward'),
-          input.isActionActive('moveBackward'),
-          input.isActionActive('moveLeft'),
-          input.isActionActive('moveRight'),
-          input.wasActionJustTriggered('jump'),
+          input.isActionActive('moveForward', sampled),
+          input.isActionActive('moveBackward', sampled),
+          input.isActionActive('moveLeft', sampled),
+          input.isActionActive('moveRight', sampled),
+          input.wasActionJustTriggered('jump', sampled),
         ])
         yield* control.setMovementIntent({
           forward: Number(forward) - Number(backward),

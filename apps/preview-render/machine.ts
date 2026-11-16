@@ -426,16 +426,22 @@ export const makeMachine = (
           // overlay. See `endFrame` in application/input-service.ts.
           //
           // The frame's own reading — the one a `readSnapshot` step took — is what
-          // gets handed back, and it is CLEARED afterwards: a frame that never
-          // read the wheel must consume nothing.
+          // gets handed back, and is cleared afterwards. Without a reading the
+          // explicit reset branch consumes all input, including fractional wheel travel.
           return Effect.gen(function* () {
             const before = (yield* service.snapshot).wheelNotches
-            yield* service.endFrame(book.frameReading)
+            const reading = book.frameReading
+            yield* service.endFrame(reading)
             book.frameReading = undefined
             const after = (yield* service.snapshot).wheelNotches
-            const consumed = Math.round(before - after)
+            let consumed = Math.round(before - after)
+            let unit = 'whole notch(es)'
+            if (reading === undefined) {
+              consumed = before - after
+              unit = 'notch(es), including fractions'
+            }
             book.notchesConsumed += consumed
-            push(book, `endFrame: consumed ${String(consumed)} whole notch(es)`, 'command')
+            push(book, `endFrame: consumed ${String(consumed)} ${unit}`, 'command')
           })
 
         case 'clearHeld':
@@ -559,7 +565,7 @@ export const makeMachine = (
     const view = (): Effect.Effect<MachineView, PlayerServiceInputError | CameraPoseError> =>
       Effect.gen(function* () {
         const snapshot = yield* service.snapshot
-        const bindings = yield* service.bindings
+        const { bindings } = snapshot
         const now = MonotonicTimeSecs(book.clockSecs)
         const mirrored = yield* Ref.get(book.renderState.mirroredCamera)
         const viewOffset = yield* Ref.get(book.renderState.viewOffset)
@@ -570,8 +576,8 @@ export const makeMachine = (
           actions.push({
             action,
             code: action === 'escape' ? undefined : bindings[action],
-            active: yield* service.isActionActive(action),
-            justTriggered: yield* service.wasActionJustTriggered(action),
+            active: yield* service.isActionActive(action, snapshot),
+            justTriggered: yield* service.wasActionJustTriggered(action, snapshot),
           })
         }
 

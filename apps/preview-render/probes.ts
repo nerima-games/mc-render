@@ -250,8 +250,9 @@ const blurProbe = Effect.gen(function* () {
 
   // The click that brings the window back.
   yield* service.dispatch({ kind: 'mousedown', button: 'MouseLeft', target: 'window', landing: 'lock-target' })
-  const refocusIsAttack = yield* service.wasActionJustTriggered('attack')
-  const refocusIsUiClick = yield* service.wasUiClick('MouseLeft')
+  const refocused = yield* service.snapshot
+  const refocusIsAttack = yield* service.wasActionJustTriggered('attack', refocused)
+  const refocusIsUiClick = yield* service.wasUiClick('MouseLeft', refocused)
 
   return [
     ...section('BLUR-STATE', 'What does `blur` clear, and what does it keep?'),

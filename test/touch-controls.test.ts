@@ -185,7 +185,7 @@ describe('PORTED #35: a tap binds to the same intent a key does', () => {
       // keyboard's. If touch had its own vocabulary, `isActionActive` would be
       // false here and only a touch-shaped read would be true.
       expect(yield* input.isActionActive('openInventory')).toBe(true)
-      expect(yield* input.wasActionJustTriggered('openInventory')).toBe(true)
+      expect(yield* input.wasActionJustTriggered('openInventory', yield* input.snapshot)).toBe(true)
       const snapshot = yield* input.snapshot
       expect(snapshot.pressed.has('KeyE')).toBe(true)
     }),
@@ -249,7 +249,7 @@ describe('PORTED #35: a tap binds to the same intent a key does', () => {
       expect(snapshot.justPressed.has(ESCAPE_KEY_CODE)).toBe(true)
       // And still bound to NO action, so nothing has become a second owner.
       expect(yield* input.isActionActive('escape')).toBe(false)
-      expect(yield* input.wasActionJustTriggered('escape')).toBe(false)
+      expect(yield* input.wasActionJustTriggered('escape', yield* input.snapshot)).toBe(false)
     }),
   )
 
@@ -273,7 +273,7 @@ describe('PORTED #35: a tap binds to the same intent a key does', () => {
       yield* input.dispatch(tap('openInventory'))
       yield* input.endFrame()
       yield* input.dispatch(tap('openInventory'))
-      expect(yield* input.wasActionJustTriggered('openInventory')).toBe(false)
+      expect(yield* input.wasActionJustTriggered('openInventory', yield* input.snapshot)).toBe(false)
       expect(yield* input.isActionActive('openInventory')).toBe(true)
     }),
   )
@@ -620,7 +620,7 @@ describe('REGRESSION: a tap can NOT reach pointer-lock acquisition', () => {
 
       expect(snapshot.uiClickLandings).toStrictEqual([])
       expect(snapshot.uiClicks.size).toBe(0)
-      expect(yield* input.wasUiClick('MouseLeft')).toBe(false)
+      expect(yield* input.wasUiClick('MouseLeft', yield* input.snapshot)).toBe(false)
       // ...and it IS a gameplay press, so hold-to-break works from glass.
       expect(yield* input.isButtonDown('MouseLeft')).toBe(true)
       expect(snapshot.pointerLockState).toBe('unlocked')

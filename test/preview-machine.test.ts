@@ -7,6 +7,17 @@ import { makeMachine, makePreviewPlayerService } from '../apps/preview-render/ma
 const makeMirrorMachine = () => makeMachine({ scenario: 'mirror-staleness', lockPort: 'unavailable' })
 
 describe('preview render machine camera lifecycle', () => {
+  it.effect('reports fractional wheel travel discarded by an unsampled endFrame', () =>
+    Effect.gen(function* () {
+      const machine = yield* makeMirrorMachine()
+      yield* machine.inject({ kind: 'pointerlockchange', locked: true })
+      yield* machine.inject({ kind: 'wheel', deltaY: 150, deltaMode: 'pixel' })
+      yield* machine.inject({ kind: 'endFrame' })
+      const view = yield* machine.view()
+      expect(view.wheelNotches).toBe(0)
+      expect(view.notchesConsumed).toBe(1.5)
+    }),
+  )
   it.effect('preserves position input errors from injected preview commands', () =>
     Effect.gen(function* () {
       const machine = yield* makeMirrorMachine()
