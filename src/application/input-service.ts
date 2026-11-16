@@ -1176,8 +1176,8 @@ export const makeInputService = (
             uiClicks: new Set(current.uiClicks.map((click) => click.button)),
             wheelNotches,
             /* Truncated TOWARD ZERO, so a partial notch is never a step and
-               the sign is never flipped by rounding. `endFrame` keeps what is
-               left. */
+               the sign is never flipped by rounding. `endFrame(reading)` carries
+               the fraction; `endFrame()` consumes it. */
             wheelSteps: Math.trunc(wheelNotches),
           }
         }),
