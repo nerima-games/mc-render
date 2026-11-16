@@ -396,15 +396,10 @@ void main() {
  */
 type ChunkShaderText = string
 
-export const chunkFragmentDeclarations = (includeSunIntensity = true): ChunkShaderText => {
-  let sunIntensityDeclaration = ''
-  if (includeSunIntensity) {
-    sunIntensityDeclaration = `uniform float ${CHUNK_SHADER_UNIFORMS.sunIntensity};`
-  }
-  return `
+export const chunkFragmentDeclarations = (): ChunkShaderText => `
 uniform sampler2D ${CHUNK_SHADER_UNIFORMS.atlas};
 uniform float ${CHUNK_SHADER_UNIFORMS.time};
-${sunIntensityDeclaration}
+uniform float ${CHUNK_SHADER_UNIFORMS.sunIntensity};
 uniform vec3 ${CHUNK_SHADER_UNIFORMS.fogColor};
 uniform float ${CHUNK_SHADER_UNIFORMS.fogNear};
 uniform float ${CHUNK_SHADER_UNIFORMS.fogFar};
@@ -423,7 +418,6 @@ const float CELL_UV_PITCH = ${glslFloat(TILE_CELL_PIXELS / ATLAS_PIXELS)};
 const float TILE_GUTTER_UV = ${glslFloat(TILE_GUTTER_PIXELS / ATLAS_PIXELS)};
 const float TILE_UV_SPAN = ${glslFloat(TILE_UV_SPAN)};
 `
-}
 
 export const chunkFragmentShadeFunction = (): ChunkShaderText => `${chunkTextureFrameShaderFunction()}
 vec4 shadeChunkSurface() {

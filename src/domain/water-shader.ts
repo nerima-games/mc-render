@@ -159,19 +159,17 @@ void main() {
  */
 type WaterShaderText = string
 
-export const waterFragmentDeclarations = (includeSunIntensity = true): WaterShaderText => {
-  let sunIntensityDeclaration = ''
-  if (includeSunIntensity) {
-    sunIntensityDeclaration = 'uniform float uSunIntensity;'
+export const waterFragmentDeclarations = (includeSharedUniforms = true): WaterShaderText => {
+  let sharedUniformDeclarations = ''
+  if (includeSharedUniforms) {
+    sharedUniformDeclarations = 'uniform float uTime;\nuniform float uSunIntensity;'
   }
   return `
-uniform float uTime;
+${sharedUniformDeclarations}
 uniform sampler2D uRefractionMap;
 uniform vec3 uCameraPosition;
 uniform vec2 uResolution;
 uniform float uRefractionValid;
-${sunIntensityDeclaration}
-
 varying vec3 vWorldPosition;
 varying vec4 vClipPosition;
 varying vec3 vNormal;

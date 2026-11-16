@@ -22,6 +22,7 @@ const FLUID_FALLING_ATTRIBUTE = 'fluidFalling'
 export const translucentChunkShaderSource = (): ChunkShaderSource => {
   const vertexShader = `
 attribute float ${CHUNK_SHADER_ATTRIBUTES.tileIndex};
+attribute float ${CHUNK_SHADER_ATTRIBUTES.animationKind};
 attribute vec2 ${FLUID_DIRECTION_ATTRIBUTE};
 attribute float ${FLUID_FALLING_ATTRIBUTE};
 attribute float ${WATER_SURFACE_ATTRIBUTE};
@@ -29,6 +30,7 @@ attribute float ${WATER_SURFACE_ATTRIBUTE};
 varying vec2 vUv;
 varying vec3 vColor;
 varying float vTileIndex;
+varying float vAnimationKind;
 varying float vFaceBrightness;
 varying float vFogDepth;
 varying float vWaterSurface;
@@ -42,6 +44,7 @@ void main() {
   vUv = uv;
   vColor = color;
   vTileIndex = ${CHUNK_SHADER_ATTRIBUTES.tileIndex};
+  vAnimationKind = ${CHUNK_SHADER_ATTRIBUTES.animationKind};
   vWaterSurface = ${WATER_SURFACE_ATTRIBUTE};
   vFluidDirection = ${FLUID_DIRECTION_ATTRIBUTE};
   vFluidFalling = ${FLUID_FALLING_ATTRIBUTE};
@@ -65,9 +68,8 @@ void main() {
 `
 
   const fragmentShader = `
-${chunkFragmentDeclarations(false)}
+${chunkFragmentDeclarations()}
 ${waterFragmentDeclarations(false)}
-uniform float ${CHUNK_SHADER_UNIFORMS.sunIntensity};
 varying float vWaterSurface;
 
 ${chunkFragmentShadeFunction()}
@@ -83,6 +85,7 @@ void main() {
 
   const attributeNames = [
     CHUNK_SHADER_ATTRIBUTES.tileIndex,
+    CHUNK_SHADER_ATTRIBUTES.animationKind,
     FLUID_DIRECTION_ATTRIBUTE,
     FLUID_FALLING_ATTRIBUTE,
     WATER_SURFACE_ATTRIBUTE,
