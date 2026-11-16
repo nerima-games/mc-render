@@ -14,7 +14,7 @@ import { Effect, Result, Schema } from 'effect'
 import * as THREE from 'three'
 import { mirroredCameraState } from '../src/domain/camera-mirror'
 import type { AnimationClockInputError } from '../src/domain/animation-clock'
-import { ParticleRequestSchema } from '../src/application/particle-service'
+import { ParticleRequestSchema, ParticleService, ParticleServiceForPool } from '../src/index.js'
 import { makeProductionWorldRenderer, type ProductionFrame } from '../src/application/world-renderer-production'
 import { chunkKeyOf } from '../src/application/world-sync'
 import {
@@ -191,6 +191,41 @@ describe('makeProductionWorldRenderer (the shipped composition)', () => {
       expect(yield* renderer.particles.drawnInstances).toBe(4)
       expect(three.instancedGeometries()[0]?.instanceCount).toBe(4)
 
+      yield* renderer.dispose
+    }),
+  )
+
+  it.effect('renders particles spawned through a public layer over the renderer pool', () =>
+    Effect.gen(function* () {
+      const three = makeFakeThree()
+      const renderer = yield* makeProductionWorldRenderer(
+        three,
+        FAKE_CANVAS,
+        VIEWPORT,
+        { isTexture: true },
+        { particles: { capacity: 4 } },
+      )
+      const request = Schema.decodeUnknownSync(ParticleRequestSchema)({
+        kind: 'entity-hit',
+        position: { dimension: 'overworld', x: 4, y: 5, z: 6 },
+      })
+
+      const accepted = yield* Effect.gen(function* () {
+        const service = yield* ParticleService
+        return yield* service.spawn(request)
+      }).pipe(Effect.provide(ParticleServiceForPool(renderer.particlePool)))
+
+      expect(accepted).toBe(1)
+      expect(readSlot(renderer.particlePool, 0)).toMatchObject({
+        positionX: 4,
+        positionY: 5,
+        positionZ: 6,
+        initialLifetimeSecs: 0.5,
+      })
+      expect(renderer.particlePool.activeCount()).toBe(4)
+      yield* renderer.particles.sync
+      expect(yield* renderer.particles.drawnInstances).toBe(4)
+      expect(three.instancedGeometries()[0]?.instanceCount).toBe(4)
       yield* renderer.dispose
     }),
   )

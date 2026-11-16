@@ -184,6 +184,10 @@ const ParticleServicePoolAccessBase: Context.ServiceClass<
 /** Internal companion service so production composition shares the layer-owned pool. */
 export class ParticleServicePoolAccess extends ParticleServicePoolAccessBase {}
 
+export type ParticleServiceForPoolOptions = Readonly<{
+  readonly renderContext?: (() => ParticleFrameSnapshot) | undefined
+}>
+
 export type ParticleServiceLiveOptions = Readonly<{
   readonly pool?: ParticlePoolOptions | undefined
   readonly renderContext?: (() => ParticleFrameSnapshot) | undefined
@@ -362,16 +366,19 @@ const makeParticleService = (
   }),
 })
 
+export const ParticleServiceForPool = (
+  pool: ParticlePool,
+  options: ParticleServiceForPoolOptions = {},
+): Layer.Layer<ParticleService | ParticleServicePoolAccess> =>
+  Layer.succeedContext(Context.make(
+    ParticleService,
+    makeParticleService(pool, renderContextOrDefault(options.renderContext)),
+  ).pipe(Context.add(ParticleServicePoolAccess, pool)))
+
 export const ParticleServiceLive = (
   options: ParticleServiceLiveOptions = {},
 ): Layer.Layer<ParticleService | ParticleServicePoolAccess, ParticlePoolInputError> =>
-  Layer.effectContext(Effect.gen(function* () {
+  Layer.unwrap(Effect.gen(function* () {
     const pool = yield* Effect.fromResult(makeParticlePool(options.pool))
-    const service = makeParticleService(
-      pool,
-      renderContextOrDefault(options.renderContext),
-    )
-    return Context.make(ParticleService, service).pipe(
-      Context.add(ParticleServicePoolAccess, pool),
-    )
+    return ParticleServiceForPool(pool, options)
   }))

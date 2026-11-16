@@ -1,4 +1,5 @@
 import { describe, expect, it } from '@effect/vitest'
+import { ParticleServiceForPool } from '../src/index.js'
 import { Effect, Result, Schema } from 'effect'
 import * as FastCheck from 'fast-check'
 import { afterEach, vi } from 'vitest'
@@ -22,6 +23,8 @@ import {
 } from '../src/application/particle-service.js'
 import {
   advanceParticles as advanceParticlesTypedResult,
+  makeParticlePool,
+  spawnParticle,
   ParticleDeltaSecsSchema,
   ParticleFrameSnapshotSchema,
   ParticlePoolInputErrorSchema,
@@ -886,5 +889,89 @@ describe('ParticleServiceLive', () => {
       expect(pool.evictionCount()).toBe(1)
       expect(readSlot(pool, 0)?.positionX).toBe(9)
     }).pipe(Effect.provide(ParticleServiceLive({ pool: { capacity: 1 } }))),
+  )
+})
+
+describe('ParticleServiceForPool', () => {
+  it.effect('uses the supplied populated pool without replacing its slots', () =>
+    Effect.gen(function* () {
+      const pool = yield* Effect.fromResult(makeParticlePool({ capacity: 8 }))
+      expect(yield* Effect.fromResult(spawnParticle(pool, {
+        dimension: 'overworld',
+        positionX: 9,
+        positionY: 8,
+        positionZ: 7,
+        uvU: 0,
+        uvV: 0,
+        tint: { red: 1, green: 1, blue: 1 },
+        lifetimeSecs: 1,
+      }))).toBe(true)
+      const existing = readSlot(pool, 0)
+
+      yield* Effect.gen(function* () {
+        const service = yield* ParticleService
+        expect(yield* ParticleServicePoolAccess).toBe(pool)
+        expect(yield* service.spawn(particleRequest({
+          kind: 'entity-hit',
+          direction: Schema.decodeUnknownSync(ParticleDirectionSchema)({ x: 2, y: 0, z: -1 }),
+          lifetimeSeconds: Schema.decodeUnknownSync(ParticleLifetimeSecondsSchema)(0.25),
+        }))).toBe(1)
+      }).pipe(Effect.provide(ParticleServiceForPool(pool)))
+
+      expect(pool.activeCount()).toBe(5)
+      expect(readSlot(pool, 0)).toStrictEqual(existing)
+      expect(readSlot(pool, 1)).toMatchObject({
+        positionX: 1,
+        positionY: 2,
+        positionZ: 3,
+        velocityX: 3,
+        velocityY: 0,
+        velocityZ: -1.5,
+        initialLifetimeSecs: 0.25,
+        remainingSecs: 0.25,
+      })
+    }),
+  )
+
+  it.effect('reads the supplied render context on every spawn and returns typed callback failures', () =>
+    Effect.gen(function* () {
+      const pool = yield* Effect.fromResult(makeParticlePool({ capacity: 4 }))
+      let frame: ParticleFrameSnapshot = { dimension: 'nether', entities: [] }
+      let unavailable = false
+      const layer = ParticleServiceForPool(pool, {
+        renderContext: () => {
+          if (unavailable) {
+            throw new Error('snapshot unavailable')
+          }
+          return frame
+        },
+      })
+
+      yield* Effect.gen(function* () {
+        const service = yield* ParticleService
+        expect(yield* service.spawn(particleRequest())).toBe(0)
+        expect(pool.activeCount()).toBe(0)
+
+        frame = {
+          dimension: 'overworld',
+          entities: [{ id: 'mob-1', feetPosition: { x: 0, y: 1, z: 2 } }],
+        }
+        expect(yield* service.spawn(particleRequest({
+          kind: 'entity-hit',
+          followEntity: Schema.decodeUnknownSync(EntityIdSchema)('mob-1'),
+        }))).toBe(1)
+        expect(readSlot(pool, 0)?.followEntity).toBe('mob-1')
+        expect(pool.activeCount()).toBe(4)
+
+        unavailable = true
+        const result = yield* Effect.result(service.spawn(particleRequest()))
+        expect(Result.isFailure(result)).toBe(true)
+        if (Result.isFailure(result)) {
+          expect(isParticlePoolInputFailure(result.failure, 'render-context', 'render-context-failed')).toBe(true)
+        }
+        expect(pool.activeCount()).toBe(4)
+        expect(pool.evictionCount()).toBe(0)
+      }).pipe(Effect.provide(layer))
+    }),
   )
 })
