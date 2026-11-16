@@ -42,6 +42,7 @@ import {
   ParticleLifetimeSecondsSchema,
   ParticleRequestSchema,
   ParticleService,
+  ParticleServiceForPool,
   ParticleServiceLive,
   decodeColorFilterInput,
   decodeLightningBoltInput,
@@ -72,7 +73,10 @@ import {
   type ParticleRequest,
   type ParticleEventResult,
   type ParticleServiceApi,
+  type ParticleServiceForPoolOptions,
   type ParticleServiceLiveOptions,
+  type ParticlePool,
+  type ParticleFrameSnapshot,
   type ColorCorrectionShader,
   type ColorCorrectionShaderSource,
   type ColorFilterInput,
@@ -190,6 +194,16 @@ describe('public animation clock conversion', () => {
 })
 
 describe('public particle request API', () => {
+  it('requires a render-context getter for a service over an existing pool', () => {
+    expectTypeOf<Parameters<typeof ParticleServiceForPool>>().toEqualTypeOf<[
+      ParticlePool,
+      ParticleServiceForPoolOptions,
+    ]>()
+    expectTypeOf<ParticleServiceForPoolOptions>().toEqualTypeOf<Readonly<{
+      readonly renderContext: () => ParticleFrameSnapshot
+    }>>()
+  })
+
   it('exports the branded request DTOs and a usable Effect service layer', () => {
     const kind: ParticleKind = Schema.decodeUnknownSync(ParticleKindSchema)('explosion')
     const color: ParticleColor = Schema.decodeUnknownSync(ParticleColorSchema)({ red: 0.2, green: 0.4, blue: 0.6 })

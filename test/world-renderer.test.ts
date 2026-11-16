@@ -22,6 +22,13 @@ import { EntityRenderFrameInputSchema } from '../src/index'
 import { ENTITY_MODEL_CATALOG } from '../src/domain/entity-model-catalog'
 import { ENTITY_MODEL_TEXTURE_ATLAS } from '../src/domain/entity-model-textures.js'
 import { mirroredCameraState } from '../src/domain/camera-mirror'
+import {
+  makeProductionWorldRenderer,
+  ParticleFrameSnapshotSchema,
+  ParticleRequestSchema,
+  ParticleService,
+  ParticleServiceForPool,
+} from '../src/index.js'
 import type { AnimationClockInputError } from '../src/domain/animation-clock'
 import {
   buildChunkGeometry,
@@ -49,7 +56,6 @@ import {
   CAMERA_NEAR_PLANE,
   RenderDistanceCullingErrorSchema,
   decodeRenderEntities,
-  makeProductionWorldRenderer,
   makeWorldRenderer,
   NO_DRAW_TARGET,
   type ProductionFrame,
@@ -2355,6 +2361,56 @@ describe('NO_DRAW_TARGET', () => {
 })
 
 describe('makeProductionWorldRenderer', () => {
+  it.effect('renders requests from a required host context through a layer over the root renderer pool', () =>
+    Effect.gen(function* () {
+      const three = makeFakeThree()
+      const renderer = yield* makeProductionWorldRenderer(
+        three,
+        FAKE_CANVAS,
+        VIEWPORT,
+        { name: 'terrain-atlas' },
+        { particles: { capacity: 4 } },
+      )
+      const frame = Schema.decodeUnknownSync(ParticleFrameSnapshotSchema)({
+        dimension: 'nether',
+        entities: [{ id: 'mob-1', feetPosition: { x: 1, y: 2, z: 3 } }],
+      })
+      const request = Schema.decodeUnknownSync(ParticleRequestSchema)({
+        kind: 'entity-hit',
+        position: { dimension: 'nether', x: 4, y: 5, z: 6 },
+        followEntity: 'mob-1',
+      })
+
+      const accepted = yield* Effect.gen(function* () {
+        const service = yield* ParticleService
+        return yield* service.spawn(request)
+      }).pipe(Effect.provide(ParticleServiceForPool(renderer.particlePool, {
+        renderContext: () => frame,
+      })))
+
+      expect(accepted).toBe(1)
+      expect(readSlot(renderer.particlePool, 0)).toMatchObject({
+        positionX: 4,
+        positionY: 5,
+        positionZ: 6,
+        initialLifetimeSecs: 0.5,
+        followEntity: 'mob-1',
+      })
+      expect(renderer.particlePool.activeCount()).toBe(4)
+
+      yield* renderer.advanceFrame({
+        ...makeAnimationClockInput(2, 0, 2),
+        deltaSecs: decodeDelta(0.1),
+        cameraPosition: { worldX: 4, worldY: 5, worldZ: 6 },
+      })
+      expect(readSlot(renderer.particlePool, 0)?.remainingSecs).toBeCloseTo(0.4, 8)
+      yield* renderer.particles.sync
+      expect(yield* renderer.particles.drawnInstances).toBe(4)
+      expect(three.instancedGeometries()[0]?.instanceCount).toBe(4)
+      yield* renderer.dispose
+    }),
+  )
+
   it.effect('owns the atlas shaders, animated water, and shared particle system', () =>
     Effect.gen(function* () {
       const three = makeFakeThree()

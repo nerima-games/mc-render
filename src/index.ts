@@ -155,6 +155,7 @@ export {
   ParticleLifetimeSecondsSchema,
   ParticleRequestSchema,
   ParticleService,
+  ParticleServiceForPool,
   ParticleServiceLive,
 } from './application/particle-service.js'
 export type {
@@ -166,6 +167,7 @@ export type {
   ParticleLifetimeSeconds,
   ParticleRequest,
   ParticleServiceApi,
+  ParticleServiceForPoolOptions,
   ParticleServiceLiveOptions,
 } from './application/particle-service.js'
 export * from './application/particle-event-adapter.js'
