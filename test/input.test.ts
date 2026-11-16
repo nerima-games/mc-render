@@ -71,6 +71,7 @@ import {
   type NativeInputAction,
   type PointerLockPort,
   type PointerLockRequestOutcome,
+  type InputEvent,
 } from '../src/application/input-service'
 import { PREVENT_DEFAULT_EVENTS, mayPreventDefault } from '../src/application/browser-input-adapter'
 
@@ -82,6 +83,212 @@ const resultValue = <Value, Error>(result: Result.Result<Value, Error>): Value |
 }
 
 const FAST_CHECK_OPTIONS = { numRuns: 100, seed: 0x5eed }
+
+describe('frame reading consumption', () => {
+  const edgeCases: ReadonlyArray<{
+    readonly name: string
+    readonly press: InputEvent
+    readonly release: InputEvent
+    readonly code: string
+  }> = [
+    { name: 'keyboard', press: { kind: 'keydown', code: 'Digit4', target: 'window' }, release: { kind: 'keyup', code: 'Digit4', target: 'window' }, code: 'Digit4' },
+    { name: 'mouse', press: { kind: 'mousedown', button: 'MouseLeft', landing: 'lock-target', target: 'window' }, release: { kind: 'mouseup', button: 'MouseLeft', target: 'window' }, code: 'MouseLeft' },
+    { name: 'touch', press: { kind: 'touchpress', action: 'jump', target: 'window' }, release: { kind: 'touchrelease', action: 'jump', target: 'window' }, code: 'Space' },
+    { name: 'gamepad', press: { kind: 'gamepadpress', action: 'jump', target: 'window' }, release: { kind: 'gamepadrelease', action: 'jump', target: 'window' }, code: 'Space' },
+  ]
+  for (const entry of edgeCases) {
+    it.effect(`keeps ${entry.name} press and release delivered after the reading`, () => Effect.gen(function* () {
+      const input = yield* makeInputService()
+      yield* input.dispatch({ kind: 'pointerlockchange', locked: true })
+      const reading = yield* input.snapshot
+      yield* input.dispatch(entry.press)
+      yield* input.dispatch(entry.release)
+      yield* input.endFrame(reading)
+      const next = yield* input.snapshot
+      expect(next.justPressed.has(entry.code)).toBe(true)
+      expect(next.pressed.has(entry.code)).toBe(false)
+      yield* input.endFrame(next)
+      expect((yield* input.snapshot).justPressed.has(entry.code)).toBe(false)
+    }))
+    it.effect(`keeps a newer ${entry.name} repress when consuming its older edge`, () => Effect.gen(function* () {
+      const input = yield* makeInputService()
+      yield* input.dispatch({ kind: 'pointerlockchange', locked: true })
+      yield* input.dispatch(entry.press)
+      const reading = yield* input.snapshot
+      yield* input.dispatch(entry.release)
+      yield* input.dispatch(entry.press)
+      yield* input.endFrame(reading)
+      yield* input.endFrame(reading)
+      const next = yield* input.snapshot
+      expect(next.justPressed.has(entry.code)).toBe(true)
+      expect(next.pressed.has(entry.code)).toBe(true)
+      yield* input.endFrame(next)
+      expect((yield* input.snapshot).justPressed.has(entry.code)).toBe(false)
+      expect((yield* input.snapshot).pressed.has(entry.code)).toBe(true)
+    }))
+  }
+
+  it.effect('consumes a reading once and preserves later pointer and wheel input', () => Effect.gen(function* () {
+    const input = yield* makeInputService()
+    yield* input.dispatch({ kind: 'pointerlockchange', locked: true })
+    yield* input.dispatch({ kind: 'pointermove', deltaX: 4, deltaY: -3 })
+    yield* input.dispatch({ kind: 'wheel', deltaY: 250, deltaMode: 'pixel' })
+    const host = yield* input.snapshot
+    const render = yield* input.snapshot
+    yield* input.dispatch({ kind: 'pointermove', deltaX: -9, deltaY: 7 })
+    yield* input.dispatch({ kind: 'wheel', deltaY: 100, deltaMode: 'pixel' })
+    yield* input.endFrame(render)
+    yield* input.endFrame(host)
+    yield* input.endFrame(render)
+    const next = yield* input.snapshot
+    expect(next.pointerDelta).toStrictEqual({ x: -9, y: 7 })
+    expect(next.wheelNotches).toBeCloseTo(1.5)
+    expect(next.wheelSteps).toBe(1)
+    yield* input.endFrame(next)
+    expect((yield* input.snapshot).pointerDelta).toStrictEqual({ x: 0, y: 0 })
+    expect((yield* input.snapshot).wheelNotches).toBeCloseTo(0.5)
+  }))
+
+  it.effect('consumes overlapping readings without counting their shared travel twice', () => Effect.gen(function* () {
+    const input = yield* makeInputService()
+    yield* input.dispatch({ kind: 'pointerlockchange', locked: true })
+    yield* input.dispatch({ kind: 'pointermove', deltaX: 4, deltaY: -3 })
+    yield* input.dispatch({ kind: 'wheel', deltaY: 250, deltaMode: 'pixel' })
+    const older = yield* input.snapshot
+    yield* input.dispatch({ kind: 'pointermove', deltaX: -9, deltaY: 7 })
+    yield* input.dispatch({ kind: 'wheel', deltaY: 100, deltaMode: 'pixel' })
+    const newer = yield* input.snapshot
+    yield* input.endFrame(older)
+    yield* input.endFrame(newer)
+    expect((yield* input.snapshot).pointerDelta).toStrictEqual({ x: 0, y: 0 })
+    expect((yield* input.snapshot).wheelNotches).toBeCloseTo(0.5)
+    yield* input.dispatch({ kind: 'pointermove', deltaX: 6, deltaY: -8 })
+    yield* input.dispatch({ kind: 'wheel', deltaY: 100, deltaMode: 'pixel' })
+    yield* input.endFrame(older)
+    yield* input.endFrame(newer)
+    expect((yield* input.snapshot).pointerDelta).toStrictEqual({ x: 6, y: -8 })
+    expect((yield* input.snapshot).wheelNotches).toBeCloseTo(1.5)
+  }))
+
+  it.effect('preserves click landings delivered after the reading, including the same pair', () => Effect.gen(function* () {
+    const input = yield* makeInputService()
+    yield* input.dispatch({ kind: 'mousedown', button: 'MouseLeft', landing: 'ui', target: 'window' })
+    const reading = yield* input.snapshot
+    yield* input.dispatch({ kind: 'mousedown', button: 'MouseRight', landing: 'elsewhere', target: 'window' })
+    yield* input.dispatch({ kind: 'mousedown', button: 'MouseLeft', landing: 'ui', target: 'window' })
+    yield* input.endFrame(reading)
+    yield* input.endFrame(reading)
+    const next = yield* input.snapshot
+    expect(next.uiClickLandings).toStrictEqual([
+      { button: 'MouseLeft', landing: 'ui' },
+      { button: 'MouseRight', landing: 'elsewhere' },
+    ])
+    yield* input.endFrame(next)
+    expect((yield* input.snapshot).uiClickLandings).toStrictEqual([])
+  }))
+
+  const resetCases: ReadonlyArray<{ readonly name: string; readonly reset: InputEvent | 'clearHeld' }> = [
+    { name: 'clearHeld', reset: 'clearHeld' },
+    { name: 'blur', reset: { kind: 'blur' } },
+    { name: 'lost pointer lock', reset: { kind: 'pointerlockchange', locked: false } },
+  ]
+  for (const entry of resetCases) {
+    it.effect(`does not subtract an old reading from new analogue input after ${entry.name}`, () => Effect.gen(function* () {
+      const input = yield* makeInputService()
+      yield* input.dispatch({ kind: 'pointerlockchange', locked: true })
+      yield* input.dispatch({ kind: 'pointermove', deltaX: 10, deltaY: -5 })
+      yield* input.dispatch({ kind: 'wheel', deltaY: 200, deltaMode: 'pixel' })
+      const stale = yield* input.snapshot
+      if (entry.reset === 'clearHeld') {
+        yield* input.clearHeld
+      } else {
+        yield* input.dispatch(entry.reset)
+      }
+      yield* input.dispatch({ kind: 'pointerlockchange', locked: true })
+      yield* input.dispatch({ kind: 'pointermove', deltaX: -7, deltaY: 3 })
+      yield* input.dispatch({ kind: 'wheel', deltaY: 300, deltaMode: 'pixel' })
+      yield* input.endFrame(stale)
+      expect((yield* input.snapshot).pointerDelta).toStrictEqual({ x: -7, y: 3 })
+      expect((yield* input.snapshot).wheelNotches).toBe(3)
+    }))
+  }
+
+  const levels: ReadonlyArray<{ readonly name: string; readonly event: InputEvent; readonly lock: string }> = [
+    { name: 'pointer lock granted', event: { kind: 'pointerlockchange', locked: true }, lock: 'locked' },
+    { name: 'pointer lock lost', event: { kind: 'pointerlockchange', locked: false }, lock: 'unlocked' },
+    { name: 'pointer lock refused', event: { kind: 'pointerlockerror' }, lock: 'refused' },
+    { name: 'focus changed', event: { kind: 'focuschange', focus: { group: 'hotbar', index: 3 } }, lock: 'unlocked' },
+    { name: 'blur', event: { kind: 'blur' }, lock: 'unlocked' },
+  ]
+  for (const entry of levels) {
+    it.effect(`clearHeld and an older endFrame preserve the latest ${entry.name} level`, () => Effect.gen(function* () {
+      const input = yield* makeInputService()
+      const reading = yield* input.snapshot
+      yield* input.dispatch({ kind: 'keydown', code: 'Digit4', target: 'window' })
+      yield* input.dispatch(entry.event)
+      const beforeClear = yield* input.snapshot
+      yield* input.clearHeld
+      yield* input.endFrame(reading)
+      const after = yield* input.snapshot
+      expect(after.pointerLockState).toBe(entry.lock)
+      expect(after.keyboardFocus).toStrictEqual(beforeClear.keyboardFocus)
+      expect(after.pressed.size).toBe(0)
+      expect(after.justPressed.size).toBe(0)
+    }))
+  }
+
+  for (const sign of [1, -1]) {
+    it.effect(`preserves signed wheel movement after reverse-order readings, direction ${sign}`, () => Effect.gen(function* () {
+      const input = yield* makeInputService()
+      yield* input.dispatch({ kind: 'pointerlockchange', locked: true })
+      yield* input.dispatch({ kind: 'wheel', deltaY: sign * 250, deltaMode: 'pixel' })
+      const older = yield* input.snapshot
+      yield* input.dispatch({ kind: 'wheel', deltaY: -sign * 600, deltaMode: 'pixel' })
+      const newer = yield* input.snapshot
+      yield* input.endFrame(newer)
+      yield* input.dispatch({ kind: 'wheel', deltaY: sign * 200, deltaMode: 'pixel' })
+      yield* input.endFrame(older)
+      yield* input.endFrame(newer)
+      expect((yield* input.snapshot).wheelNotches).toBeCloseTo(sign * 1.5)
+      expect((yield* input.snapshot).wheelSteps).toBe(sign)
+    }))
+  }
+
+  it.effect('no-argument consumption clears current edges and pointer movement while retaining unread wheel', () => Effect.gen(function* () {
+    const input = yield* makeInputService()
+    yield* input.dispatch({ kind: 'pointerlockchange', locked: true })
+    yield* input.dispatch({ kind: 'keydown', code: 'Digit4', target: 'window' })
+    yield* input.dispatch({ kind: 'pointermove', deltaX: 4, deltaY: -3 })
+    yield* input.dispatch({ kind: 'wheel', deltaY: 250, deltaMode: 'pixel' })
+    const old = yield* input.snapshot
+    yield* input.endFrame()
+    expect((yield* input.snapshot).justPressed.size).toBe(0)
+    expect((yield* input.snapshot).pressed.has('Digit4')).toBe(true)
+    expect((yield* input.snapshot).pointerDelta).toStrictEqual({ x: 0, y: 0 })
+    expect((yield* input.snapshot).wheelNotches).toBe(2.5)
+    yield* input.dispatch({ kind: 'keyup', code: 'Digit4', target: 'window' })
+    yield* input.dispatch({ kind: 'keydown', code: 'Digit4', target: 'window' })
+    yield* input.dispatch({ kind: 'pointermove', deltaX: -9, deltaY: 7 })
+    yield* input.dispatch({ kind: 'wheel', deltaY: 100, deltaMode: 'pixel' })
+    yield* input.endFrame(old)
+    yield* input.endFrame(old)
+    const next = yield* input.snapshot
+    expect(next.justPressed.has('Digit4')).toBe(true)
+    expect(next.pointerDelta).toStrictEqual({ x: -9, y: 7 })
+    expect(next.wheelNotches).toBe(1.5)
+  }))
+
+  it.effect('no-argument consumption clears UI clicks and does not overwrite newer gamepad axes', () => Effect.gen(function* () {
+    const input = yield* makeInputService()
+    yield* input.dispatch({ kind: 'mousedown', button: 'MouseLeft', landing: 'ui', target: 'window' })
+    const reading = yield* input.snapshot
+    yield* input.dispatch({ kind: 'gamepadtick', axes: { leftX: 0.5, leftY: -0.25, rightX: -0.75, rightY: 1 } })
+    yield* input.endFrame()
+    expect((yield* input.snapshot).uiClickLandings).toStrictEqual([])
+    yield* input.endFrame(reading)
+    expect((yield* input.snapshot).gamepadAxes).toStrictEqual({ leftX: 0.5, leftY: -0.25, rightX: -0.75, rightY: 1 })
+  }))
+})
 
 describe('input settings boundary', () => {
   it('decodes complete JSON-shaped bindings and rejects malformed values', () => {

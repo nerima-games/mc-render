@@ -75,7 +75,7 @@ import {
   suppressesBrowserContextMenu,
   suppressesBrowserScroll,
 } from '../domain/input-bindings.js'
-import { Context, Effect, Layer, Ref, Result } from 'effect'
+import { Context, Effect, Layer, Option, Ref, Result } from 'effect'
 import type { GamepadAxes } from '../domain/gamepad-input.js'
 
 /**
@@ -526,9 +526,10 @@ export type InputServiceApi = {
   /**
    * Clear per-frame edges. The frame loop calls this exactly once per frame.
    *
-   * Clears `justPressed`, `uiClicks` and the pointer delta outright, and
-   * consumes the whole wheel notches THIS FRAME WAS TOLD ABOUT — which is what
-   * `frame` is for. Pass the snapshot the frame acted on; `render:input` in
+   * Consumes the key edges, UI clicks, pointer delta and whole wheel notches
+   * captured by `frame`, leaving later arrivals for the next frame. Repeated
+   * or overlapping readings never consume the same input twice.
+   * Pass the snapshot the frame acted on; `render:input` in
    * `stages/registration.ts` is the shipped example, and it already holds one.
    *
    * ---------------------------------------------------------------------------
@@ -573,8 +574,10 @@ const InputServiceBase: Context.ServiceClass<
 export class InputService extends InputServiceBase {}
 
 type InputState = {
+  readonly revision: number
   readonly pressed: ReadonlySet<InputCode>
-  readonly justPressed: ReadonlySet<InputCode>
+  // Identity distinguishes a release/repress from an older edge for the same code.
+  readonly justPressed: ReadonlyMap<InputCode, object>
   /**
    * The PAIRS. `InputSnapshot.uiClicks` is this projected to buttons, computed
    * at snapshot time so that the set and the list cannot disagree about whether
@@ -588,6 +591,12 @@ type InputState = {
    * `wheelSteps` is a view of it.
    */
   readonly wheelNotches: number
+  // Reset epochs reject stale readings; consumed totals reconcile overlapping readings.
+  readonly analogueEpoch: object
+  readonly pointerConsumed: PointerDelta
+  readonly pointerConsumedRevision: number
+  readonly wheelConsumed: number
+  readonly wheelConsumedRevision: number
   /**
    * The single source of lock truth. `pointerLocked` is derived from it at
    * snapshot time rather than stored, so there is no pair of fields that can
@@ -610,16 +619,23 @@ type InputState = {
 
 /** Shared "nothing focused" value so call sites never spell the `undefined` literal. */
 const NO_KEYBOARD_FOCUS: FocusTarget | undefined = undefined
+const INPUT_REVISION_INCREMENT = 1
 
 const initialState = (bindings: Bindings): InputState => ({
+  analogueEpoch: {},
   bindings,
   gamepadAxes: { leftX: 0, leftY: 0, rightX: 0, rightY: 0 },
-  justPressed: new Set<InputCode>(),
+  justPressed: new Map<InputCode, object>(),
   keyboardFocus: NO_KEYBOARD_FOCUS,
+  pointerConsumed: ZERO_POINTER_DELTA,
+  pointerConsumedRevision: -1,
   pointerDelta: ZERO_POINTER_DELTA,
   pointerLockState: 'unlocked',
   pressed: new Set<InputCode>(),
+  revision: 0,
   uiClicks: [],
+  wheelConsumed: 0,
+  wheelConsumedRevision: -1,
   wheelNotches: 0,
 })
 
@@ -635,7 +651,7 @@ const withCodeDown = (state: InputState, code: InputCode): InputState => {
   const alreadyHeld = state.pressed.has(code)
   let { justPressed } = state
   if (!alreadyHeld) {
-    justPressed = new Set([...state.justPressed, code])
+    justPressed = new Map(state.justPressed).set(code, {})
   }
   return {
     ...state,
@@ -686,7 +702,16 @@ const withButtonDown = (state: InputState, button: MouseButton, landing: ClickLa
     (click) => click.button === button && click.landing === landing,
   )
   if (alreadyClicked) {
-    return state
+    // Keep one public pair, but a later click must survive consumption of an older reading.
+    return {
+      ...state,
+      uiClicks: state.uiClicks.map((click) => {
+        if (click.button === button && click.landing === landing) {
+          return { button, landing }
+        }
+        return click
+      }),
+    }
   }
   return { ...state, uiClicks: [...state.uiClicks, { button, landing }] }
 }
@@ -762,7 +787,7 @@ const withTouchUp = (state: InputState, action: InputAction): InputState => {
  */
 const withoutHeldButtons = (state: InputState): InputState => ({
   ...state,
-  justPressed: new Set([...state.justPressed].filter((code) => !isMouseButton(code))),
+  justPressed: new Map([...state.justPressed].filter(([code]) => !isMouseButton(code))),
   pressed: new Set([...state.pressed].filter((code) => !isMouseButton(code))),
 })
 
@@ -778,7 +803,12 @@ const withoutHeldButtons = (state: InputState): InputState => ({
  */
 const withoutAnalogueState = (state: InputState): InputState => ({
   ...state,
+  analogueEpoch: {},
+  pointerConsumed: ZERO_POINTER_DELTA,
+  pointerConsumedRevision: -1,
   pointerDelta: ZERO_POINTER_DELTA,
+  wheelConsumed: 0,
+  wheelConsumedRevision: -1,
   wheelNotches: 0,
 })
 
@@ -797,11 +827,7 @@ const withoutAnalogueState = (state: InputState): InputState => ({
 /** No wheel travel: the fallback reading, and the outcome when nothing is consumable. */
 const NO_WHEEL_TRAVEL = 0
 
-const consumableSteps = (frame: InputSnapshot | undefined, state: InputState): number => {
-  let reported = NO_WHEEL_TRAVEL
-  if (typeof frame !== 'undefined') {
-    reported = frame.wheelSteps
-  }
+const consumableSteps = (reported: number, state: InputState): number => {
   const available = Math.trunc(state.wheelNotches)
   if (
     reported === NO_WHEEL_TRAVEL ||
@@ -1036,6 +1062,59 @@ const maskedKeyboardFocus = (current: InputState): FocusTarget | undefined => {
   return NO_KEYBOARD_FOCUS
 }
 
+const consumeReading = (current: InputState, sampled: InputState, frame: InputSnapshot): InputState => {
+  let next: InputState = {
+    ...current,
+    justPressed: new Map([...current.justPressed].filter(([code, edge]) =>
+      sampled.justPressed.get(code) !== edge,
+    )),
+    uiClicks: current.uiClicks.filter((click) => !sampled.uiClicks.includes(click)),
+  }
+  if (sampled.analogueEpoch !== current.analogueEpoch) {
+    return next
+  }
+  if (sampled.revision > current.pointerConsumedRevision) {
+    const consumed = makePointerDelta(
+      sampled.pointerConsumed.x + sampled.pointerDelta.x,
+      sampled.pointerConsumed.y + sampled.pointerDelta.y,
+    )
+    next = {
+      ...next,
+      pointerConsumed: consumed,
+      pointerConsumedRevision: sampled.revision,
+      pointerDelta: makePointerDelta(
+        current.pointerDelta.x - (consumed.x - current.pointerConsumed.x),
+        current.pointerDelta.y - (consumed.y - current.pointerConsumed.y),
+      ),
+    }
+  }
+  /* Whole notches are consumed; the SUB-NOTCH REMAINDER is kept. This
+     is the one deliberate difference from `pointerDelta`, which is
+     consumed in full, and the reason is the trackpad: it emits a few
+     pixels per event, so every frame's total rounds to zero notches
+     and a clear-everything rule would make the hotbar unreachable on
+     a laptop. The remainder is dropped whenever the lock is lost or
+     the window blurs, and cancels itself out when the player
+     scrolls back — so it cannot accumulate into a phantom step.
+
+     Consumed: exactly the whole notches `frame` was told about. What
+     the accumulator holds NOW is not the question; see the doc on
+     `endFrame` in `InputServiceApi`. */
+  if (sampled.revision > current.wheelConsumedRevision) {
+    const consumed = consumableSteps(
+      frame.wheelSteps - (current.wheelConsumed - sampled.wheelConsumed),
+      current,
+    )
+    next = {
+      ...next,
+      wheelConsumed: current.wheelConsumed + consumed,
+      wheelConsumedRevision: sampled.revision,
+      wheelNotches: current.wheelNotches - consumed,
+    }
+  }
+  return next
+}
+
 export const makeInputService = (
   bindings: Bindings = defaultBindings(),
   /**
@@ -1046,7 +1125,8 @@ export const makeInputService = (
   pointerLock: PointerLockPort = UNAVAILABLE_POINTER_LOCK,
 ): Effect.Effect<InputServiceApi> =>
   Effect.map(Ref.make(initialState(bindings)), (state) => {
-    const resolveHeld = (action: InputAction, held: ReadonlySet<InputCode>) =>
+    const readings = new WeakMap<InputSnapshot, InputState>()
+    const resolveHeld = (action: InputAction, held: ReadonlySet<InputCode> | ReadonlyMap<InputCode, object>) =>
       Ref.get(state).pipe(
         Effect.map((current) => {
           if (action === 'escape') {
@@ -1070,30 +1150,33 @@ export const makeInputService = (
         ...initialState(current.bindings),
         keyboardFocus: current.keyboardFocus,
         pointerLockState: current.pointerLockState,
+        revision: current.revision + INPUT_REVISION_INCREMENT,
       })),
 
-      dispatch: (event) => Ref.update(state, (current): InputState => applyInputEvent(current, event)),
+      dispatch: (event) => Ref.update(state, (current): InputState => ({
+        ...applyInputEvent(current, event),
+        revision: current.revision + INPUT_REVISION_INCREMENT,
+      })),
 
       endFrame: (frame) =>
-        Ref.update(state, (current) => ({
-          ...current,
-          justPressed: new Set<InputCode>(),
-          /* Whole notches are consumed; the SUB-NOTCH REMAINDER is kept. This
-             is the one deliberate difference from `pointerDelta`, which is
-             zeroed outright, and the reason is the trackpad: it emits a few
-             pixels per event, so every frame's total rounds to zero notches
-             and a clear-everything rule would make the hotbar unreachable on
-             a laptop. The remainder is dropped whenever the lock is lost or
-             the window blurs, and cancels itself out when the player
-             scrolls back — so it cannot accumulate into a phantom step.
-
-             Consumed: exactly the whole notches `frame` was told about. What
-             the accumulator holds NOW is not the question; see the doc on
-             `endFrame` in `InputServiceApi`. */
-          pointerDelta: ZERO_POINTER_DELTA,
-          uiClicks: [],
-          wheelNotches: current.wheelNotches - consumableSteps(frame, current),
-        })),
+        Ref.update(state, (current) => {
+          if (frame === undefined) {
+            return {
+              ...current,
+              justPressed: new Map<InputCode, object>(),
+              pointerConsumed: makePointerDelta(
+                current.pointerConsumed.x + current.pointerDelta.x,
+                current.pointerConsumed.y + current.pointerDelta.y,
+              ),
+              pointerConsumedRevision: current.revision,
+              pointerDelta: ZERO_POINTER_DELTA,
+              uiClicks: [],
+            }
+          }
+          // Every reading comes from this service's snapshot; metadata stays private to it.
+          const sampled = Option.getOrThrow(Option.fromNullishOr(readings.get(frame)))
+          return consumeReading(current, sampled, frame)
+        }),
 
       isActionActive: (action) =>
         Ref.get(state).pipe(Effect.flatMap((current) => resolveHeld(action, current.pressed))),
@@ -1157,25 +1240,29 @@ export const makeInputService = (
       /* A PURE read, with no effect on the frame boundary — see `endFrame` on
          why the reading is handed back rather than remembered here. */
       snapshot: Ref.get(state).pipe(
-        Effect.map((current) => ({
-          gamepadAxes: current.gamepadAxes,
-          justPressed: current.justPressed,
-          keyboardFocus: maskedKeyboardFocus(current),
-          pointerDelta: current.pointerDelta,
-          pointerLockState: current.pointerLockState,
-          pointerLocked: isLocked(current),
-          pressed: current.pressed,
-          uiClickLandings: current.uiClicks,
-          /* PROJECTED from the pairs, never stored beside them. A set and a
-             list that both claimed to know whether a click happened would
-             be two answers to one question. */
-          uiClicks: new Set(current.uiClicks.map((click) => click.button)),
-          wheelNotches: current.wheelNotches,
-          /* Truncated TOWARD ZERO, so a partial notch is never a step and
-             the sign is never flipped by rounding. `endFrame` keeps what is
-             left. */
-          wheelSteps: Math.trunc(current.wheelNotches),
-        })),
+        Effect.map((current) => {
+          const snapshot: InputSnapshot = {
+            gamepadAxes: current.gamepadAxes,
+            justPressed: new Set(current.justPressed.keys()),
+            keyboardFocus: maskedKeyboardFocus(current),
+            pointerDelta: current.pointerDelta,
+            pointerLockState: current.pointerLockState,
+            pointerLocked: isLocked(current),
+            pressed: current.pressed,
+            uiClickLandings: current.uiClicks,
+            /* PROJECTED from the pairs, never stored beside them. A set and a
+               list that both claimed to know whether a click happened would
+               be two answers to one question. */
+            uiClicks: new Set(current.uiClicks.map((click) => click.button)),
+            wheelNotches: current.wheelNotches,
+            /* Truncated TOWARD ZERO, so a partial notch is never a step and
+               the sign is never flipped by rounding. `endFrame` keeps what is
+               left. */
+            wheelSteps: Math.trunc(current.wheelNotches),
+          }
+          readings.set(snapshot, current)
+          return snapshot
+        }),
       ),
 
       wasActionJustTriggered: (action) =>
