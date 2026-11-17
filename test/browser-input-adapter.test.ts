@@ -940,10 +940,10 @@ describe('the adapter drives the service the way a browser would', () => {
       dom.fire('keydown', { code: 'KeyW' })
 
       expect(yield* input.isActionActive('moveForward')).toBe(true)
-      expect(yield* input.wasActionJustTriggered('moveForward')).toBe(true)
+      expect(yield* input.wasActionJustTriggered('moveForward', yield* input.snapshot)).toBe(true)
 
       yield* input.endFrame()
-      expect(yield* input.wasActionJustTriggered('moveForward')).toBe(false)
+      expect(yield* input.wasActionJustTriggered('moveForward', yield* input.snapshot)).toBe(false)
       expect(yield* input.isActionActive('moveForward')).toBe(true)
 
       dom.fire('keyup', { code: 'KeyW' })
@@ -958,15 +958,16 @@ describe('the adapter drives the service the way a browser would', () => {
       installInputListeners(dom.targets, input)
 
       dom.fire('mousedown', { button: 0 })
-      expect(yield* input.wasActionJustTriggered('attack')).toBe(false)
-      expect(yield* input.wasUiClick('MouseLeft')).toBe(true)
+      expect(yield* input.wasActionJustTriggered('attack', yield* input.snapshot)).toBe(false)
+      expect(yield* input.wasUiClick('MouseLeft', yield* input.snapshot)).toBe(true)
 
       yield* input.endFrame()
+      dom.fire('mouseup', { button: 0 })
       dom.setPointerLockElement({ tagName: 'CANVAS' })
       dom.fire('pointerlockchange')
       dom.fire('mousedown', { button: 0 })
 
-      expect(yield* input.wasActionJustTriggered('attack')).toBe(true)
+      expect(yield* input.wasActionJustTriggered('attack', yield* input.snapshot)).toBe(true)
     }),
   )
 
@@ -1324,7 +1325,7 @@ describe('click landing is classified by the host and dispatched as a scalar DTO
 
       dom.fire('mousedown', { button: 0, target: canvas })
 
-      expect(yield* input.wasButtonJustPressed('MouseLeft')).toBe(true)
+      expect(yield* input.wasButtonJustPressed('MouseLeft', yield* input.snapshot)).toBe(true)
       expect(yield* input.isActionActive('attack')).toBe(true)
       expect(dom.preventedDefaults()).toBe(0)
       expect(PREVENT_DEFAULT_EVENTS).toStrictEqual(['wheel', 'contextmenu'])

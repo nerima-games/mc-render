@@ -415,10 +415,15 @@ type InputEvent =
   | { kind: 'gamepadpress' | 'gamepadrelease'; action: InputAction; target: ListenerTarget }
   | { kind: 'gamepadtick'; axes: GamepadAxes }
 
+type InputSequence = Brand.Branded<number, 'InputSequence'>
+const INITIAL_INPUT_SEQUENCE: InputSequence
+
 type InputSnapshot = {
+  readonly sequence: InputSequence              // この reading の入力境界
+  readonly bindings: Bindings                    // この reading のアクション対応
   readonly pressed: ReadonlySet<InputCode>       // キー + ロック中に押されたボタン
-  readonly justPressed: ReadonlySet<InputCode>   // 同じエッジ集合。endFrame でクリア
-  readonly uiClicks: ReadonlySet<MouseButton>    // 非ロック中のクリック。endFrame でクリア
+  readonly justPressed: ReadonlySet<InputCode>   // sequence までの未消費エッジ
+  readonly uiClicks: ReadonlySet<MouseButton>    // sequence までの非ロック中のクリック
   // 同じクリックを「ボタン + 落ちた先」の対で。uiClicks はこれの射影（§2.11）
   readonly uiClickLandings: ReadonlyArray<UiClick>
   readonly pointerDelta: { x: number; y: number }
@@ -462,18 +467,17 @@ const UNAVAILABLE_POINTER_LOCK: PointerLockPort
 type InputServiceApi = {
   readonly dispatch: (event: InputEvent) => Effect.Effect<void>
   readonly snapshot: Effect.Effect<InputSnapshot>
-  readonly isActionActive: (action: InputAction) => Effect.Effect<boolean>
-  readonly wasActionJustTriggered: (action: InputAction) => Effect.Effect<boolean>
-  readonly isButtonDown: (button: MouseButton) => Effect.Effect<boolean>
-  readonly wasButtonJustPressed: (button: MouseButton) => Effect.Effect<boolean>
-  readonly wasUiClick: (button: MouseButton) => Effect.Effect<boolean>
+  readonly isActionActive: (action: InputAction, reading?: InputSnapshot) => Effect.Effect<boolean>
+  readonly wasActionJustTriggered: (action: InputAction, reading: InputSnapshot) => Effect.Effect<boolean>
+  readonly isButtonDown: (button: MouseButton, reading?: InputSnapshot) => Effect.Effect<boolean>
+  readonly wasButtonJustPressed: (button: MouseButton, reading: InputSnapshot) => Effect.Effect<boolean>
+  readonly wasUiClick: (button: MouseButton, reading: InputSnapshot) => Effect.Effect<boolean>
   readonly shouldSuppressContextMenu: Effect.Effect<boolean>
   readonly shouldSuppressWheelScroll: Effect.Effect<boolean>
   readonly pointerLockState: Effect.Effect<PointerLockState>
   readonly requestPointerLock: Effect.Effect<PointerLockState>
-  // フレームが読んだスナップショットを**返してもらう**。整数ノッチは
-  // 「そのフレームに伝えた分」だけを消費する。省略＝「このフレームはホイールを
-  // 読んでいない」＝ 0 消費（移動量は次のフレームへ繰り越す）。§2.7
+  // reading の sequence までを消費する。後着入力と wheel の端数は残す。
+  // 省略時は現在のエッジ・クリック・pointer delta・wheel 全量を消費する。§2.7
   readonly endFrame: (frame?: InputSnapshot | undefined) => Effect.Effect<void>
   readonly clearHeld: Effect.Effect<void>
   readonly bindings: Effect.Effect<Bindings>
@@ -487,6 +491,51 @@ const InputServiceLayer: (bindings?: Bindings, pointerLock?: PointerLockPort) =>
 const LISTENER_PLAN: ReadonlyArray<{ event: string; target: ListenerTarget; note: string }>
 const ESCAPE_POLICY
 ```
+
+### フレームの reading と移行
+
+`snapshot` は入力を消費せず、単調に進む入力境界 `sequence` と、その時点の
+`bindings` を含む reading を返す。フレームごとに 1 つの reading を取得し、入力判定で共有する。
+エッジの問い合わせ 3 種は reading が必須で、それを消費せず、現在のサービスの状態も読まない。
+`isActionActive` と `isButtonDown` もフレーム内では reading を渡す。
+引数を省略したレベルの問い合わせは、フレーム外で現在の押下状態を調べるために残す。
+
+```ts
+const reading = yield* input.snapshot
+const opened = yield* input.wasActionJustTriggered('openInventory', reading)
+const clicked = yield* input.wasButtonJustPressed('MouseLeft', reading)
+const uiClicked = yield* input.wasUiClick('MouseLeft', reading)
+const forward = yield* input.isActionActive('moveForward', reading)
+yield* input.endFrame(reading)
+```
+
+以前の `wasActionJustTriggered(action)`、`wasButtonJustPressed(button)`、
+`wasUiClick(button)` の呼び出しには reading を追加する必要がある。
+手作りの `InputSnapshot` にも `sequence` と `bindings` が必要になる。
+
+`sequence` は `InputSequence` 型で、初期 fixture には値 0 の `INITIAL_INPUT_SEQUENCE` を使う。
+フレームでは同じ service インスタンスの `snapshot` が返した reading を渡す。
+sequence の構築用 factory は公開しない。
+
+```ts
+import { INITIAL_INPUT_SEQUENCE, type InputSequence } from '@nerima-games/mc-render'
+
+const sequence: InputSequence = INITIAL_INPUT_SEQUENCE
+```
+
+`endFrame(reading)` は、その sequence までに届いた未消費のエッジ・UI click・
+pointer delta と整数ノッチだけを消費し、後着入力を次のフレームへ残す。
+同じ sequence の reading を再び `endFrame` に渡しても二重に消費しない。
+`{ ...reading }` や `structuredClone(reading)` も受け付け、元の object の同一性を要求しない。
+
+`endFrame()` は実行時にあるエッジ・UI click・pointer delta・wheel をすべて消費し、
+wheel の端数も残さない。どちらの形式も押下レベル、gamepad axes、pointer lock、
+keyboard focus は維持する。`clearHeld` などのリセットは即時に適用され、
+sequence を巻き戻さない。
+
+非ロック中の同じボタン・同じ landing の重複 `mousedown` は `mouseup` まで抑止する。
+landing が変われば、前の `mouseup` が届かなくても次のクリックを受け付ける。
+ロック取得時はこの UI 押下記録を消し、ゲーム中の attack を抑止しない。
 
 An omitted gamepad axis is treated as neutral. A present axis with an invalid,
 non-finite, or out-of-range value returns `GamepadAxesInputError`.
@@ -505,10 +554,10 @@ non-finite, or out-of-range value returns `GamepadAxesInputError`.
 | blur クリア | `handleBlur`（:159-168） | `clearHeld` / `dispatch({kind:'blur'})` |
 | ポインタロック | `requestPointerLock`（:252-269）、`pointerlockchange`（:184）、`pointerlockerror`（:185, :150-153 は `console.warn` のみ） | `PointerLockPort` 越しに要求し、`pointerlockchange` / `pointerlockerror` の 2 つで答えを受ける 4 状態機械。§2.8 |
 | ロック要求の失敗 | `pointerLockFallbackRef`（:52）。feature policy が拒否したら**ロック済みと嘘をつく**（:263-266, :282-284） | `refused` 状態。嘘をつかない。**未移植**（§2.8） |
-| ホイール | 生の `event.deltaY` を累積（:130-133）。`deltaMode` を見ない | ノッチに正規化して累積。`endFrame` でクリア、端数は持ち越し。§2.7 |
+| ホイール | 生の `event.deltaY` を累積（:130-133）。`deltaMode` を見ない | ノッチに正規化して累積。`endFrame(reading)` で reading の整数ノッチを消費し、端数と後着入力は持ち越す。§2.7 |
 | ホットバー | 1-9 キーは `KeyMappings.HOTBAR_SLOT_*`、循環は `hotbar-service.ts:74-80` が符号だけ見る | `hotbarSlot1`..`9` は普通のバインド。循環幅は `wheelSteps`、剰余は `wrapHotbarSelection`。§2.7 |
 | マウスボタン | `HashMap<number, boolean>` + `HashSet<number>`（:46-48）。`isMouseDown(2)` のように**番号で**読む | 名前（`MouseLeft` / `MouseMiddle` / `MouseRight`）でキーと**同じコード空間**に入れる。§2.5 |
-| クリックのエッジ | `consumeMouseClick`（:286）。**読んだら消える** | `wasButtonJustPressed`。`justPressed` と同じで `endFrame` が消す。§2.5 |
+| クリックのエッジ | `consumeMouseClick`（:286）。**読んだら消える** | `wasButtonJustPressed(button, reading)` は reading を問い合わせる。`endFrame(reading)` がその入力境界まで消費する。§2.5 |
 | `contextmenu` | 無条件 `preventDefault`（:140-142） | ロック中のみ抑止。`suppressesBrowserContextMenu`。§2.6 |
 | ゲームパッド | `domain/gamepad-input.ts` + `application/gamepad-input-adapter.ts` | 実装済み。ホストが `GamepadSource` を注入し、毎フレーム `poll` する |
 | タッチ / 仮想入力 | `domain/input-bindings.ts` + `application/browser-input-adapter.ts` | 実装済み。DOM のタッチイベントを `InputEvent` に変換する |
@@ -571,8 +620,11 @@ DOM はボタンを番号で渡す（`MouseEvent.button`: 0 左 / 1 中 / 2 右�
 
 | 状態 | `mousedown` の行き先 | 読み口 |
 | --- | --- | --- |
-| ロック中 | `pressed` / `justPressed`（キーと同じ） | `isActionActive('attack')` / `wasButtonJustPressed` |
-| 非ロック中 | `uiClicks` のみ（**落ちた先つき**。§2.11） | `wasUiClick` / `InputSnapshot.uiClickLandings` |
+| ロック中 | `pressed` / `justPressed`（キーと同じ） | `isActionActive('attack', reading)` / `wasButtonJustPressed(button, reading)` |
+| 非ロック中 | `uiClicks` のみ（**落ちた先つき**。§2.11） | `wasUiClick(button, reading)` / `reading.uiClickLandings` |
+
+非ロック中も `mouseup` までの重複 `mousedown` は 1 エッジとして扱う。
+UI の押下は、ロック状態が変わっても gameplay の attack エッジに変換しない。
 
 非ロック中のクリックを**捨てない**のは、ポインタロックを取り直すクリックがまさにそれであり、
 かつ 1 フレーム後にブロックを壊すのと同じ左クリックだからである。
@@ -615,8 +667,6 @@ plan.md §3.10 のとおり Playwright（SwiftShader）はヘッドレスでポ�
 `contextmenu` は `InputEvent` の 1 ケースとして受けるが、**ボタン状態を一切変えない**。
 イベントとして受けるのは、「何もしない」がテストで assert できる性質になるからである
 （省略は誰にも見えない）。
-なお本実装のエッジは consume 型ではなく `endFrame` クリア型なので、参照実装のような
-「誰が先に読んだかで結果が変わる」競合はそもそも成立しない。
 
 ## 2.7 ホイール — エッジでもレベルでもなく**デルタ**
 
@@ -634,13 +684,15 @@ plan.md §3.10 のとおり Playwright（SwiftShader）はヘッドレスでポ�
 素早く 3 ノッチ回しても 1 スロットしか動かない。
 
 したがってホイールは `pointerDelta` と同じ**アナログ状態**であり、
-蓄積して `endFrame` でクリアする。`pointerDelta` との整合は 3 点で取ってある。
+蓄積して `endFrame(reading)` で読取時の入力境界までを消費する。
+`pointerDelta` との対応は次のとおり。
 
 | 規則 | `pointerDelta` | `wheelNotches` |
 | --- | --- | --- |
 | 非ロック中は無視 | する（DN-09） | する。非ロック中のホイールはチャット欄のスクロールである |
 | ロック喪失で捨てる | する（DN-09） | する。ポーズ前の半回転が復帰後にホットバーを動かしてはならない |
-| `endFrame` でクリア | 全部 0 に | **整数ノッチだけ**。端数は持ち越す（下記） |
+| `endFrame(reading)` で消費 | reading の境界まで。後着分は残す | reading の境界までの**整数ノッチだけ**。端数と後着分は持ち越す（下記） |
+| `endFrame()` で消費 | 現在の全量 | 端数を含む現在の全量 |
 
 端数の持ち越しだけが差分である。トラックパッドは 1 イベント数ピクセルしか送らないので、
 毎フレーム全部捨てると常に 0 ノッチに丸まり、**ノート PC でホットバーが操作不能になる**。
@@ -1415,8 +1467,9 @@ const makeRenderStagesForPreview: (quality?) => Effect<{state, stages}, never, I
    `mc-meshing` で、**これは既に mc-render の行そのもの**である。
 2. 描画 stage には**ゲームルールが 1 つも無い**。体験モジュール（plan.md §2.2）が所有するのは
    VERB であり、これらを抱えたモジュールは VERB を 1 つも所有しない。
-3. **mc-render はどのみち stage を登録しなければならない。** `InputService.endFrame` は
-   フレーム毎にちょうど 1 回呼ばれなければならず、それは定義上 stage である。
+3. **mc-render はどのみち stage を登録しなければならない。** 入力を読む consumer は
+   フレームの reading を共有し、読み終えた後に `InputService.endFrame(reading)` を呼ぶ。
+   mc-render の入力 stage は、その読取と消費の入口になる。
    それまでロスター全体で登録されていた入力 stage は `mc-playground-kit` の `input:sample` だけで、
    kit は開発時専用だった。つまり**出荷ビルドには入力 stage が存在しなかった** —
    `justPressed` が永久にクリアされず、インベントリキーを 1 回押すと押しっぱなしのフレーム全部で

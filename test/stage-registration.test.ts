@@ -26,6 +26,7 @@ import {
   InputService,
   InputServiceLayer,
   type InputServiceApi,
+  type InputSnapshot,
   type PointerLockPort,
   type PointerLockRequestOutcome,
 } from '../src/application/input-service'
@@ -129,6 +130,38 @@ const stageById = (
 }
 
 describe('what mc-render registers', () => {
+  it.effect('shares one reading with movement and jump when input arrives after sampling', () =>
+    withStages((_stages, state, source) => Effect.gen(function* () {
+      const jumps: Array<boolean> = []
+      const readings: Array<InputSnapshot> = []
+      const endings: Array<InputSnapshot | undefined> = []
+      const input: InputServiceApi = {
+        ...source,
+        snapshot: source.snapshot.pipe(
+          Effect.tap((reading) => Effect.sync(() => { readings.push(reading) })),
+          Effect.tap(() => source.dispatch({ kind: 'touchpress', action: 'jump', target: 'window' })),
+        ),
+        endFrame: (reading) => Effect.sync(() => { endings.push(reading) }).pipe(Effect.andThen(source.endFrame(reading))),
+      }
+      const inputStage = stageById(renderStages({
+        input,
+        player: FAKE_PLAYER_SERVICE,
+        state,
+        control: {
+          setMovementIntent: () => Effect.void,
+          setJumpIntent: (jump) => Effect.sync(() => { jumps.push(jump) }),
+        },
+      }), RENDER_STAGE_IDS.input)
+      for (let frame = 0; frame < 3; frame += 1) {
+        yield* inputStage.run(dt).pipe(Effect.provide(FRAME_SERVICES))
+      }
+      expect(jumps).toStrictEqual([false, true, false])
+      expect(readings).toHaveLength(3)
+      expect(endings).toHaveLength(3)
+      readings.forEach((reading, index) => { expect(endings[index]).toBe(reading) })
+      expect(yield* Ref.get(state.input)).toBe(readings[2])
+    })),
+  )
   it.effect('registers exactly the five stages of stage-ids.ts, each once', () =>
     withStages((stages) =>
       Effect.sync(() => {
@@ -326,7 +359,7 @@ describe('render:input', () => {
         yield* input.dispatch({ kind: 'mousedown', button: 'MouseLeft', target: GAMEPLAY_LISTENER_TARGET, landing: 'ui' })
 
         // Read BEFORE the stage, because `endFrame` clears the edge.
-        expect(yield* input.wasUiClick('MouseLeft')).toBe(true)
+        expect(yield* input.wasUiClick('MouseLeft', yield* input.snapshot)).toBe(true)
 
         yield* stageById(stages, RENDER_STAGE_IDS.input).run(dt).pipe(Effect.provide(FRAME_SERVICES))
 

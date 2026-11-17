@@ -186,14 +186,14 @@ describe('gamepad input', () => {
       current = [pad([{ pressed: true }], [0.5, 0, -0.5, 0])]
       yield* adapter.poll
       expect(yield* input.isActionActive('jump')).toBe(true)
-      expect(yield* input.wasActionJustTriggered('jump')).toBe(true)
+      expect(yield* input.wasActionJustTriggered('jump', yield* input.snapshot)).toBe(true)
       expect(yield* input.snapshot).toMatchObject({
         gamepadAxes: { leftX: expect.closeTo(0.4117, 3), rightX: expect.closeTo(-0.4117, 3) },
       })
 
       yield* input.endFrame()
       yield* adapter.poll
-      expect(yield* input.wasActionJustTriggered('jump')).toBe(false)
+      expect(yield* input.wasActionJustTriggered('jump', yield* input.snapshot)).toBe(false)
 
       current = [pad([{ pressed: false }])]
       yield* adapter.poll

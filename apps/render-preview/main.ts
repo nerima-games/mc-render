@@ -1041,7 +1041,7 @@ const main = async (): Promise<void> => {
     )
 
     const active = (action: Parameters<typeof input.isActionActive>[0]): number =>
-      Effect.runSync(input.isActionActive(action)) ? 1 : 0
+      Effect.runSync(input.isActionActive(action, snapshot)) ? 1 : 0
 
     const forward = active('moveForward') - active('moveBackward')
     const strafe = active('moveRight') - active('moveLeft')
@@ -1056,6 +1056,7 @@ const main = async (): Promise<void> => {
     pose.x += (-sinYaw * forward + cosYaw * strafe) * speed
     pose.z += (-cosYaw * forward - sinYaw * strafe) * speed
     pose.y += lift * speed
+    Effect.runSync(input.endFrame(snapshot))
 
     // STREAM, then draw. `syncWorld` drains once per frame — see its header on
     // why one drain and not a loop: meshing a chunk can dirty its neighbours,

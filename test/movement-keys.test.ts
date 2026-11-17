@@ -99,7 +99,7 @@ describe('sprint (ControlLeft)', () => {
       yield* input.dispatch(down(SPRINT_KEY))
 
       expect(yield* input.isActionActive('sprint')).toBe(true)
-      expect(yield* input.wasActionJustTriggered('sprint')).toBe(true)
+      expect(yield* input.wasActionJustTriggered('sprint', yield* input.snapshot)).toBe(true)
       expect((yield* input.snapshot).pressed.has(SPRINT_KEY)).toBe(true)
     }),
   )
@@ -140,7 +140,7 @@ describe('sprint (ControlLeft)', () => {
 
         expect(yield* input.isActionActive('sprint')).toBe(true)
         expect(yield* input.isActionActive('moveForward')).toBe(true)
-        expect(yield* input.wasActionJustTriggered('sprint')).toBe(false)
+        expect(yield* input.wasActionJustTriggered('sprint', yield* input.snapshot)).toBe(false)
       }
     }),
   )
@@ -171,7 +171,7 @@ describe('jump (Space)', () => {
 
       yield* input.dispatch(down(JUMP_KEY))
 
-      expect(yield* input.wasActionJustTriggered('jump')).toBe(true)
+      expect(yield* input.wasActionJustTriggered('jump', yield* input.snapshot)).toBe(true)
       expect(yield* input.isActionActive('jump')).toBe(true)
     }),
   )
@@ -187,14 +187,14 @@ describe('jump (Space)', () => {
 
       yield* input.dispatch(down(JUMP_KEY))
       let edges = 0
-      if (yield* input.wasActionJustTriggered('jump')) {
+      if (yield* input.wasActionJustTriggered('jump', yield* input.snapshot)) {
         edges = 1
       }
 
       for (let frame = 0; frame < 6; frame += 1) {
         yield* input.endFrame()
         yield* input.dispatch(down(JUMP_KEY))
-        if (yield* input.wasActionJustTriggered('jump')) {
+        if (yield* input.wasActionJustTriggered('jump', yield* input.snapshot)) {
           edges += 1
         }
       }
@@ -220,7 +220,7 @@ describe('jump (Space)', () => {
       yield* input.endFrame()
       yield* input.dispatch(down(JUMP_KEY))
 
-      expect(yield* input.wasActionJustTriggered('jump')).toBe(true)
+      expect(yield* input.wasActionJustTriggered('jump', yield* input.snapshot)).toBe(true)
     }),
   )
 
@@ -233,7 +233,7 @@ describe('jump (Space)', () => {
       yield* input.dispatch(down(FORWARD_KEY))
       yield* input.dispatch(down(JUMP_KEY))
 
-      expect(yield* input.wasActionJustTriggered('jump')).toBe(true)
+      expect(yield* input.wasActionJustTriggered('jump', yield* input.snapshot)).toBe(true)
       expect(yield* input.isActionActive('sprint')).toBe(true)
       expect(yield* input.isActionActive('moveForward')).toBe(true)
 

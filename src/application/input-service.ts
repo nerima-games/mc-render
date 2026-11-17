@@ -66,6 +66,7 @@ import {
   type PointerLockState,
   type RemapOutcome,
   type WheelDeltaMode,
+  bindingFor,
   codeForTouchAction,
   defaultBindings,
   isMouseButton,
@@ -75,7 +76,7 @@ import {
   suppressesBrowserContextMenu,
   suppressesBrowserScroll,
 } from '../domain/input-bindings.js'
-import { Context, Effect, Layer, Ref, Result } from 'effect'
+import { Brand, Context, Effect, Layer, Ref, Result, Schema } from 'effect'
 import type { GamepadAxes } from '../domain/gamepad-input.js'
 
 /**
@@ -257,13 +258,24 @@ const makePointerDelta = (deltaX: number, deltaY: number): PointerDelta => ({
 /** The delta at rest: shared by every call site that needs a zeroed one. */
 const ZERO_POINTER_DELTA: PointerDelta = { [POINTER_DELTA_X_KEY]: 0, [POINTER_DELTA_Y_KEY]: 0 }
 
+export type InputSequence = Brand.Branded<number, 'InputSequence'>
+
+const MIN_INPUT_SEQUENCE = 0
+
+const InputSequenceSchema: Schema.Codec<InputSequence, number> = Schema.Int
+  .check(Schema.isGreaterThanOrEqualTo(MIN_INPUT_SEQUENCE))
+  .pipe(Schema.brand('InputSequence'))
+
+export const INITIAL_INPUT_SEQUENCE: InputSequence = Schema.decodeUnknownSync(InputSequenceSchema)(MIN_INPUT_SEQUENCE)
+
 /**
  * A snapshot of input state, taken once per frame.
  *
  * `justPressed` is separate from `pressed` because "is the jump key down" and
  * "was jump pressed this frame" are different questions, and conflating them
- * is how a single press opens a menu on every frame it is held. It is cleared
- * by `endFrame`, which the frame loop must call exactly once per frame.
+ * is how a single press opens a menu on every frame it is held.
+ * `endFrame(reading)` consumes source edges through the reading's sequence;
+ * it does not change this snapshot. Call it once per frame.
  *
  * Mouse buttons live in `pressed` and `justPressed` alongside keys, as
  * `InputCode`s — "break one block per click" is the same edge that "open the
@@ -271,12 +283,16 @@ const ZERO_POINTER_DELTA: PointerDelta = { [POINTER_DELTA_X_KEY]: 0, [POINTER_DE
  * a second way to be cleared, or not cleared, at the frame boundary.
  */
 export type InputSnapshot = {
+  /** Branded service-local input cutoff; copies preserve it for the same service's endFrame. */
+  readonly sequence: InputSequence
+  /** Bindings captured with the input, so a later remap cannot change this frame. */
+  readonly bindings: Bindings
   /** Held gameplay codes: keys, plus buttons pressed while the pointer was LOCKED. */
   readonly pressed: ReadonlySet<InputCode>
-  /** Gameplay codes that went down this frame. Cleared by `endFrame`. */
+  /** Gameplay codes that went down in this reading; unchanged by endFrame. */
   readonly justPressed: ReadonlySet<InputCode>
   /**
-   * Buttons clicked while the pointer was NOT locked. Cleared by `endFrame`.
+   * Buttons clicked while the pointer was NOT locked, as captured in this reading.
    *
    * A click while unlocked is a UI click, not a game action: it is the player
    * dismissing a menu, clicking a hotbar slot, or clicking the canvas to
@@ -292,7 +308,7 @@ export type InputSnapshot = {
    */
   readonly uiClicks: ReadonlySet<MouseButton>
   /**
-   * Every UI click this frame, with WHERE it landed. Cleared by `endFrame`.
+   * Every UI click in this reading, with WHERE it landed. The snapshot stays unchanged.
    *
    * The reading `acquiresPointerLock` needs, and the reason it is a list of
    * PAIRS rather than a second set: a player can click their hotbar and then the
@@ -300,10 +316,9 @@ export type InputSnapshot = {
    * first click's landing answer for the second — or the second's for the first,
    * which is the hazard back again with an extra step.
    *
-   * Deduplicated on the pair, so a `mousedown` delivered twice for one physical
-   * click is one entry, exactly as `justPressed` is one edge. Two clicks of the
-   * same button on DIFFERENT landings stay two entries, because they are two
-   * different facts.
+   * One edge per button and landing, until mouseup or a landing change.
+   * Repeated mousedown events at the same landing do not become another click.
+   * A release and new press can record the same button and landing again.
    */
   readonly uiClickLandings: ReadonlyArray<UiClick>
   readonly pointerDelta: PointerDelta
@@ -323,10 +338,10 @@ export type InputSnapshot = {
    * This is what a hotbar reads, and `wrapHotbarSelection` is what it does
    * with it.
    *
-   * `Math.trunc` of `wheelNotches`, and `endFrame` keeps the sub-notch
-   * remainder rather than dropping it — see `endFrame`. So `wheelSteps` is
-   * never a partial slot, and a trackpad that emits 0.2 notches per frame
-   * still advances one slot every fifth frame instead of never advancing.
+   * `Math.trunc` of `wheelNotches`. `endFrame(reading)` keeps the source's
+   * sub-notch remainder; `endFrame()` discards all current wheel travel.
+   * Thus a trackpad emitting 0.2 notches per frame advances one slot every
+   * fifth frame when the loop returns each reading to endFrame.
    */
   readonly wheelSteps: number
   /**
@@ -429,27 +444,28 @@ export type InputServiceApi = {
    */
   readonly dispatch: (event: InputEvent) => Effect.Effect<void>
   readonly snapshot: Effect.Effect<InputSnapshot>
-  /** True while the code bound to `action` is held. Never true for `escape`. */
-  readonly isActionActive: (action: InputAction) => Effect.Effect<boolean>
-  /** True only on the frame the action's code went down. Never true for `escape`. */
-  readonly wasActionJustTriggered: (action: InputAction) => Effect.Effect<boolean>
+  /** Held action in the reading; without one, read the live level. Never true for escape. */
+  readonly isActionActive: (action: InputAction, reading?: InputSnapshot) => Effect.Effect<boolean>
+  /** Edge from this frame's reading and its bindings. Never read live input; never true for escape. */
+  readonly wasActionJustTriggered: (action: InputAction, reading: InputSnapshot) => Effect.Effect<boolean>
   /**
    * True while `button` is held as GAMEPLAY input — i.e. it went down while the
    * pointer was locked. The level, for hold-to-break; the reference's
    * `isMouseDown` (:241).
    */
-  readonly isButtonDown: (button: MouseButton) => Effect.Effect<boolean>
+  readonly isButtonDown: (button: MouseButton, reading?: InputSnapshot) => Effect.Effect<boolean>
   /**
    * True only on the frame `button` went down as gameplay input. The edge, for
    * one-action-per-click; the reference's `consumeMouseClick` (:286).
    *
    * NOT consuming, unlike the reference: reading it twice in one frame returns
-   * true twice, and `endFrame` is what clears it. The reference's consume-on-
+   * true twice. `endFrame(reading)` consumes source edges, leaving the reading
+   * unchanged. The reference's consume-on-
    * read is why its `contextmenu` handler needed the :137-139 warning at all —
    * with a consuming read, whether a click survives depends on who read it
    * first, and two stages that both care about right-click silently race.
    */
-  readonly wasButtonJustPressed: (button: MouseButton) => Effect.Effect<boolean>
+  readonly wasButtonJustPressed: (button: MouseButton, reading: InputSnapshot) => Effect.Effect<boolean>
   /**
    * True only on the frame `button` was clicked while the pointer was NOT
    * locked, WHEREVER it landed. What a menu reads.
@@ -460,7 +476,7 @@ export type InputServiceApi = {
    * click was on the canvas or on the hotbar, and answering the lock question
    * from one is DN-16 §5(b).
    */
-  readonly wasUiClick: (button: MouseButton) => Effect.Effect<boolean>
+  readonly wasUiClick: (button: MouseButton, reading: InputSnapshot) => Effect.Effect<boolean>
   /**
    * Whether the adapter's `contextmenu` handler must call `preventDefault()`.
    *
@@ -524,37 +540,20 @@ export type InputServiceApi = {
    */
   readonly requestPointerLock: Effect.Effect<PointerLockState>
   /**
-   * Clear per-frame edges. The frame loop calls this exactly once per frame.
+   * Consume one frame's reading through its sequence cutoff.
    *
-   * Clears `justPressed`, `uiClicks` and the pointer delta outright, and
-   * consumes the whole wheel notches THIS FRAME WAS TOLD ABOUT — which is what
-   * `frame` is for. Pass the snapshot the frame acted on; `render:input` in
-   * `stages/registration.ts` is the shipped example, and it already holds one.
+   * Take one snapshot at frame start, use it for every frame predicate, and
+   * pass it here once to the same service instance. Later events remain for
+   * the next frame. Repeating the same reading is harmless, including a spread
+   * or structured clone.
    *
-   * ---------------------------------------------------------------------------
-   * Why the reading is an argument rather than something the service remembers
-   * ---------------------------------------------------------------------------
+   * Wheel events through the cutoff contribute whole notches; their signed
+   * fraction carries into the next frame. Later wheel events are not used to
+   * cancel travel that this frame already read.
    *
-   * `snapshot` truncates the accumulator at READ time. `endFrame` used to
-   * re-read it and truncate AGAIN, at a different instant, so a wheel event
-   * arriving between the two — exactly where a DOM listener runs — could carry
-   * the second truncation past a notch boundary the first never reached. The
-   * frame was told 0 steps and moved 0 hotbar slots; `endFrame` consumed 1. The
-   * player turned a detent and the selection did not move, once,
-   * unreproducibly. That is the same class as the reference's consume-on-read
-   * `consumeMouseClick`, which `wasButtonJustPressed` above rejects by name.
-   *
-   * The service could remember what the last `snapshot` reported instead. It
-   * deliberately does not: that would make `snapshot` a read WITH AN EFFECT on
-   * the frame boundary, so a debug overlay or a preview redrawing its analogue
-   * panel would change how much travel the next `endFrame` consumed. An
-   * observer must not be able to move the thing it observes. Passing the
-   * reading back states the contract in the type instead — you cannot end a
-   * frame on a reading you did not take.
-   *
-   * OMITTING `frame` means "no frame read the wheel", and consumes no notches.
-   * That is the honest default rather than a convenience: travel nothing acted
-   * on is deferred to the frame that does read it, never spent on its behalf.
+   * Without a reading, consume all current edges, UI clicks, pointer movement,
+   * and wheel travel, including its fraction. Held levels, axes, lock and
+   * focus remain unchanged. Snapshot itself never consumes input.
    */
   readonly endFrame: (frame?: InputSnapshot | undefined) => Effect.Effect<void>
   /** Drop every held code and analogue value. Wired to `blur`. */
@@ -573,21 +572,24 @@ const InputServiceBase: Context.ServiceClass<
 export class InputService extends InputServiceBase {}
 
 type InputState = {
+  readonly sequence: number
+  readonly sampledThrough: number
   readonly pressed: ReadonlySet<InputCode>
-  readonly justPressed: ReadonlySet<InputCode>
+  readonly justPressed: ReadonlyMap<InputCode, number>
   /**
    * The PAIRS. `InputSnapshot.uiClicks` is this projected to buttons, computed
    * at snapshot time so that the set and the list cannot disagree about whether
    * a click happened.
    */
-  readonly uiClicks: ReadonlyArray<UiClick>
-  readonly pointerDelta: PointerDelta
+  readonly uiClicks: ReadonlyArray<UiClick & { readonly sequence: number }>
+  readonly uiPressed: ReadonlyMap<MouseButton, ClickLanding>
+  readonly pointerMoves: ReadonlyArray<{ readonly delta: PointerDelta; readonly sequence: number }>
   /**
    * Accumulated wheel travel in notches, INCLUDING the sub-notch remainder
    * carried over from previous frames. The single source of wheel truth;
    * `wheelSteps` is a view of it.
    */
-  readonly wheelNotches: number
+  readonly wheelMoves: ReadonlyArray<{ readonly notches: number; readonly sequence: number }>
   /**
    * The single source of lock truth. `pointerLocked` is derived from it at
    * snapshot time rather than stored, so there is no pair of fields that can
@@ -610,17 +612,24 @@ type InputState = {
 
 /** Shared "nothing focused" value so call sites never spell the `undefined` literal. */
 const NO_KEYBOARD_FOCUS: FocusTarget | undefined = undefined
+const INPUT_SEQUENCE_INCREMENT = 1
+const NO_WHEEL_TRAVEL = 0
+const FIRST_BUCKET_INDEX = 0
+const LAST_BUCKET_INDEX = -1
 
 const initialState = (bindings: Bindings): InputState => ({
   bindings,
   gamepadAxes: { leftX: 0, leftY: 0, rightX: 0, rightY: 0 },
-  justPressed: new Set<InputCode>(),
+  justPressed: new Map<InputCode, number>(),
   keyboardFocus: NO_KEYBOARD_FOCUS,
-  pointerDelta: ZERO_POINTER_DELTA,
   pointerLockState: 'unlocked',
+  pointerMoves: [],
   pressed: new Set<InputCode>(),
+  sampledThrough: 0,
+  sequence: 0,
   uiClicks: [],
-  wheelNotches: 0,
+  uiPressed: new Map<MouseButton, ClickLanding>(),
+  wheelMoves: [],
 })
 
 /** Mouselook is live. The one question most readers of the lock state ask. */
@@ -635,7 +644,7 @@ const withCodeDown = (state: InputState, code: InputCode): InputState => {
   const alreadyHeld = state.pressed.has(code)
   let { justPressed } = state
   if (!alreadyHeld) {
-    justPressed = new Set([...state.justPressed, code])
+    justPressed = new Map(state.justPressed).set(code, state.sequence)
   }
   return {
     ...state,
@@ -678,18 +687,21 @@ const withButtonDown = (state: InputState, button: MouseButton, landing: ClickLa
   if (isLocked(state)) {
     return withCodeDown(state, button)
   }
-  /* Deduplicated on the PAIR. Two `mousedown`s for one physical click are
-     one UI click, for the reason `withCodeDown` guards the `justPressed`
-     edge; two clicks on two different landings are two facts and both
-     survive. */
-  const alreadyClicked = state.uiClicks.some(
-    (click) => click.button === button && click.landing === landing,
-  )
-  if (alreadyClicked) {
+  // A changed landing can be a new click whose previous mouseup never reached us.
+  if (state.uiPressed.get(button) === landing) {
     return state
   }
-  return { ...state, uiClicks: [...state.uiClicks, { button, landing }] }
+  return {
+    ...state,
+    uiClicks: [...state.uiClicks, { button, landing, sequence: state.sequence }],
+    uiPressed: new Map(state.uiPressed).set(button, landing),
+  }
 }
+
+const withButtonUp = (state: InputState, button: MouseButton): InputState => ({
+  ...withCodeUp(state, button),
+  uiPressed: new Map([...state.uiPressed].filter(([held]) => held !== button)),
+})
 
 /**
  * An on-screen control going down, resolved through the CURRENT bindings.
@@ -762,8 +774,9 @@ const withTouchUp = (state: InputState, action: InputAction): InputState => {
  */
 const withoutHeldButtons = (state: InputState): InputState => ({
   ...state,
-  justPressed: new Set([...state.justPressed].filter((code) => !isMouseButton(code))),
+  justPressed: new Map([...state.justPressed].filter(([code]) => !isMouseButton(code))),
   pressed: new Set([...state.pressed].filter((code) => !isMouseButton(code))),
+  uiPressed: new Map<MouseButton, ClickLanding>(),
 })
 
 /**
@@ -778,40 +791,10 @@ const withoutHeldButtons = (state: InputState): InputState => ({
  */
 const withoutAnalogueState = (state: InputState): InputState => ({
   ...state,
-  pointerDelta: ZERO_POINTER_DELTA,
-  wheelNotches: 0,
+  pointerMoves: [],
+  wheelMoves: [],
 })
 
-/**
- * Whole wheel notches `endFrame` may take, given what the frame was told.
- *
- * `frame.wheelSteps` is the figure a consumer acted on, and consuming exactly
- * it is the whole rule. The clamp guards the one way a caller can get this
- * wrong: handing back a STALE snapshot, whose reading the accumulator can no
- * longer cover — the lock was lost in between, or the player scrolled back. A
- * bare subtraction would then drive the accumulator past zero and invent travel
- * in the opposite direction, which is a hotbar that cycles on its own. Taking
- * the smaller magnitude, and only when the two agree on direction, makes the
- * worst case "this frame consumed nothing" instead.
- */
-/** No wheel travel: the fallback reading, and the outcome when nothing is consumable. */
-const NO_WHEEL_TRAVEL = 0
-
-const consumableSteps = (frame: InputSnapshot | undefined, state: InputState): number => {
-  let reported = NO_WHEEL_TRAVEL
-  if (typeof frame !== 'undefined') {
-    reported = frame.wheelSteps
-  }
-  const available = Math.trunc(state.wheelNotches)
-  if (
-    reported === NO_WHEEL_TRAVEL ||
-    available === NO_WHEEL_TRAVEL ||
-    Math.sign(reported) !== Math.sign(available)
-  ) {
-    return NO_WHEEL_TRAVEL
-  }
-  return Math.sign(reported) * Math.min(Math.abs(reported), Math.abs(available))
-}
 
 /**
  * Runs `apply` unless `target` is `MODAL_LISTENER_TARGET`.
@@ -838,10 +821,20 @@ const withPointerDelta = (current: InputState, deltaX: number, deltaY: number): 
   if (!isLocked(current)) {
     return current
   }
-  return {
-    ...current,
-    pointerDelta: makePointerDelta(current.pointerDelta.x + deltaX, current.pointerDelta.y + deltaY),
+  const last = current.pointerMoves.at(LAST_BUCKET_INDEX)
+  // A bucket observed by a reading must keep its cutoff; later events start another.
+  if (last !== undefined && last.sequence > current.sampledThrough) {
+    return {
+      ...current,
+      pointerMoves: [...current.pointerMoves.slice(FIRST_BUCKET_INDEX, LAST_BUCKET_INDEX), {
+        delta: makePointerDelta(last.delta.x + deltaX, last.delta.y + deltaY),
+        sequence: current.sequence,
+      }],
+    }
   }
+  return { ...current, pointerMoves: [...current.pointerMoves, {
+    delta: makePointerDelta(deltaX, deltaY), sequence: current.sequence,
+  }] }
 }
 
 /**
@@ -869,7 +862,13 @@ const withWheelDelta = (current: InputState, deltaY: number, deltaMode: WheelDel
   if (Result.isFailure(notches)) {
     return current
   }
-  return { ...current, wheelNotches: current.wheelNotches + notches.success }
+  const last = current.wheelMoves.at(LAST_BUCKET_INDEX)
+  if (last !== undefined && last.sequence > current.sampledThrough) {
+    return { ...current, wheelMoves: [...current.wheelMoves.slice(FIRST_BUCKET_INDEX, LAST_BUCKET_INDEX), {
+      notches: last.notches + notches.success, sequence: current.sequence,
+    }] }
+  }
+  return { ...current, wheelMoves: [...current.wheelMoves, { notches: notches.success, sequence: current.sequence }] }
 }
 
 /**
@@ -885,7 +884,7 @@ const withWheelDelta = (current: InputState, deltaY: number, deltaMode: WheelDel
  */
 const withPointerLockChange = (current: InputState, locked: boolean): InputState => {
   if (locked) {
-    return { ...current, pointerLockState: 'locked' }
+    return { ...current, pointerLockState: 'locked', uiPressed: new Map<MouseButton, ClickLanding>() }
   }
   return {
     ...withoutAnalogueState(withoutHeldButtons(current)),
@@ -943,6 +942,7 @@ const withBlur = (current: InputState): InputState => {
     ...initialState(current.bindings),
     keyboardFocus: current.keyboardFocus,
     pointerLockState,
+    sequence: current.sequence,
   }
 }
 
@@ -962,7 +962,7 @@ const applyInputEvent = (current: InputState, event: InputEvent): InputState => 
          unlocked is not in `pressed` anyway, so this is a no-op for it; a
          button that went down while locked and is released after the lock
          was lost must not be left held. */
-      return unlessModalConsumed(event.target, current, () => withCodeUp(current, event.button))
+      return unlessModalConsumed(event.target, current, () => withButtonUp(current, event.button))
     case 'contextmenu':
       /* Deliberately no state change. `mousedown` already recorded the right
          button; recording it again here would fire `use` twice for one click
@@ -1036,6 +1036,25 @@ const maskedKeyboardFocus = (current: InputState): FocusTarget | undefined => {
   return NO_KEYBOARD_FOCUS
 }
 
+const consumeReading = (current: InputState, sequence: number): InputState => {
+  const reported = current.wheelMoves
+    .filter((move) => move.sequence <= sequence)
+    .reduce((total, move) => total + move.notches, NO_WHEEL_TRAVEL)
+  const remainder = reported - Math.trunc(reported)
+  const wheelMoves = current.wheelMoves.filter((move) => move.sequence > sequence)
+  // Keep the trackpad fraction before later events, including a later reversal.
+  if (remainder !== NO_WHEEL_TRAVEL) {
+    wheelMoves.unshift({ notches: remainder, sequence })
+  }
+  return {
+    ...current,
+    justPressed: new Map([...current.justPressed].filter(([, pressedAt]) => pressedAt > sequence)),
+    pointerMoves: current.pointerMoves.filter((move) => move.sequence > sequence),
+    uiClicks: current.uiClicks.filter((click) => click.sequence > sequence),
+    wheelMoves,
+  }
+}
+
 export const makeInputService = (
   bindings: Bindings = defaultBindings(),
   /**
@@ -1046,18 +1065,10 @@ export const makeInputService = (
   pointerLock: PointerLockPort = UNAVAILABLE_POINTER_LOCK,
 ): Effect.Effect<InputServiceApi> =>
   Effect.map(Ref.make(initialState(bindings)), (state) => {
-    const resolveHeld = (action: InputAction, held: ReadonlySet<InputCode>) =>
-      Ref.get(state).pipe(
-        Effect.map((current) => {
-          if (action === 'escape') {
-            /* `escape` resolves to no key by construction — it is owned by
-               the frame-level handler, not by any binding. */
-            return false
-          }
-          const key = current.bindings[action]
-          return typeof key !== 'undefined' && held.has(key)
-        }),
-      )
+    const resolveAction = (action: InputAction, actionBindings: Bindings, held: ReadonlySet<InputCode>) => {
+      const code = bindingFor(actionBindings, action)
+      return code !== undefined && held.has(code)
+    }
 
     return {
       bindings: Ref.get(state).pipe(Effect.map((current) => current.bindings)),
@@ -1070,35 +1081,45 @@ export const makeInputService = (
         ...initialState(current.bindings),
         keyboardFocus: current.keyboardFocus,
         pointerLockState: current.pointerLockState,
+        sequence: current.sequence + INPUT_SEQUENCE_INCREMENT,
       })),
 
-      dispatch: (event) => Ref.update(state, (current): InputState => applyInputEvent(current, event)),
+      dispatch: (event) => Ref.update(state, (current): InputState => {
+        const sequenced = { ...current, sequence: current.sequence + INPUT_SEQUENCE_INCREMENT }
+        const next = applyInputEvent(sequenced, event)
+        if (next === sequenced) {
+          return current
+        }
+        return next
+      }),
 
       endFrame: (frame) =>
-        Ref.update(state, (current) => ({
-          ...current,
-          justPressed: new Set<InputCode>(),
-          /* Whole notches are consumed; the SUB-NOTCH REMAINDER is kept. This
-             is the one deliberate difference from `pointerDelta`, which is
-             zeroed outright, and the reason is the trackpad: it emits a few
-             pixels per event, so every frame's total rounds to zero notches
-             and a clear-everything rule would make the hotbar unreachable on
-             a laptop. The remainder is dropped whenever the lock is lost or
-             the window blurs, and cancels itself out when the player
-             scrolls back — so it cannot accumulate into a phantom step.
+        Ref.update(state, (current) => {
+          if (frame === undefined) {
+            return {
+              ...current,
+              justPressed: new Map<InputCode, number>(),
+              pointerMoves: [],
+              uiClicks: [],
+              wheelMoves: [],
+            }
+          }
+          return consumeReading(current, frame.sequence)
+        }),
 
-             Consumed: exactly the whole notches `frame` was told about. What
-             the accumulator holds NOW is not the question; see the doc on
-             `endFrame` in `InputServiceApi`. */
-          pointerDelta: ZERO_POINTER_DELTA,
-          uiClicks: [],
-          wheelNotches: current.wheelNotches - consumableSteps(frame, current),
-        })),
+      isActionActive: (action, reading) => {
+        if (reading === undefined) {
+          return Ref.get(state).pipe(Effect.map((current) => resolveAction(action, current.bindings, current.pressed)))
+        }
+        return Effect.succeed(resolveAction(action, reading.bindings, reading.pressed))
+      },
 
-      isActionActive: (action) =>
-        Ref.get(state).pipe(Effect.flatMap((current) => resolveHeld(action, current.pressed))),
-
-      isButtonDown: (button) => Ref.get(state).pipe(Effect.map((current) => current.pressed.has(button))),
+      isButtonDown: (button, reading) => {
+        if (reading === undefined) {
+          return Ref.get(state).pipe(Effect.map((current) => current.pressed.has(button)))
+        }
+        return Effect.succeed(reading.pressed.has(button))
+      },
 
       keyboardFocus: Ref.get(state).pipe(Effect.map((current) => maskedKeyboardFocus(current))),
 
@@ -1154,43 +1175,44 @@ export const makeInputService = (
         Effect.map((current) => suppressesBrowserScroll(isLocked(current))),
       ),
 
-      /* A PURE read, with no effect on the frame boundary — see `endFrame` on
-         why the reading is handed back rather than remembered here. */
-      snapshot: Ref.get(state).pipe(
-        Effect.map((current) => ({
+      // Sampling only seals contribution buckets; it neither consumes nor changes input values.
+      snapshot: Ref.modify(state, (current): [InputSnapshot, InputState] => {
+        const wheelNotches = current.wheelMoves.reduce((total, move) => total + move.notches, NO_WHEEL_TRAVEL)
+        return [{
+          bindings: current.bindings,
           gamepadAxes: current.gamepadAxes,
-          justPressed: current.justPressed,
+          justPressed: new Set(current.justPressed.keys()),
           keyboardFocus: maskedKeyboardFocus(current),
-          pointerDelta: current.pointerDelta,
+          pointerDelta: current.pointerMoves.reduce(
+            (total, move) => makePointerDelta(total.x + move.delta.x, total.y + move.delta.y),
+            ZERO_POINTER_DELTA,
+          ),
           pointerLockState: current.pointerLockState,
           pointerLocked: isLocked(current),
           pressed: current.pressed,
-          uiClickLandings: current.uiClicks,
+          sequence: Schema.decodeUnknownSync(InputSequenceSchema)(current.sequence),
+          uiClickLandings: current.uiClicks.map(({ button, landing }) => ({ button, landing })),
           /* PROJECTED from the pairs, never stored beside them. A set and a
              list that both claimed to know whether a click happened would
              be two answers to one question. */
           uiClicks: new Set(current.uiClicks.map((click) => click.button)),
-          wheelNotches: current.wheelNotches,
+          wheelNotches,
           /* Truncated TOWARD ZERO, so a partial notch is never a step and
-             the sign is never flipped by rounding. `endFrame` keeps what is
-             left. */
-          wheelSteps: Math.trunc(current.wheelNotches),
-        })),
-      ),
+             the sign is never flipped by rounding. `endFrame(reading)` carries
+             the fraction; `endFrame()` consumes it. */
+          wheelSteps: Math.trunc(wheelNotches),
+        }, { ...current, sampledThrough: current.sequence }]
+      }),
 
-      wasActionJustTriggered: (action) =>
-        Ref.get(state).pipe(Effect.flatMap((current) => resolveHeld(action, current.justPressed))),
+      wasActionJustTriggered: (action, reading) =>
+        Effect.succeed(resolveAction(action, reading.bindings, reading.justPressed)),
 
-      wasButtonJustPressed: (button) =>
-        Ref.get(state).pipe(Effect.map((current) => current.justPressed.has(button))),
+      wasButtonJustPressed: (button, reading) => Effect.succeed(reading.justPressed.has(button)),
 
       /* Whatever it landed ON. A menu asks "was I clicked", not "was the canvas
          clicked"; the landing is `acquiresPointerLock`'s question and is read
          through `InputSnapshot.uiClickLandings`. */
-      wasUiClick: (button) =>
-        Ref.get(state).pipe(
-          Effect.map((current) => current.uiClicks.some((click) => click.button === button)),
-        ),
+      wasUiClick: (button, reading) => Effect.succeed(reading.uiClicks.has(button)),
     }
   })
 
