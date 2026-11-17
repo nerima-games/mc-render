@@ -12,6 +12,7 @@ import {
   browserPostProcessingChainKey,
   captureBrowserWaterVisibility,
   createBrowserCompositeShader,
+  createBrowserCopyShader,
   createBrowserGodRaysShader,
   hideBrowserWaterMeshes,
   isBrowserScreenshotShortcut,
@@ -778,22 +779,9 @@ const createReferenceCopyResources = (): {
   const copyMaterial = new THREE.ShaderMaterial({
     depthTest: false,
     depthWrite: false,
-    fragmentShader: `
-      uniform sampler2D tDiffuse;
-      varying vec2 vUv;
-      void main() {
-        gl_FragColor = texture2D(tDiffuse, vUv);
-      }
-    `,
+    ...createBrowserCopyShader(),
     toneMapped: false,
     uniforms: { tDiffuse: { value: null } },
-    vertexShader: `
-      varying vec2 vUv;
-      void main() {
-        vUv = uv;
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-      }
-    `,
   })
   return { copyMaterial, copyQuad: new FullScreenQuad(copyMaterial) }
 }

@@ -57,6 +57,7 @@ import * as THREE from 'three'
 import { Effect, Result, Schema } from 'effect'
 import { BLOCK_IDS, BlockId, ChunkKey, blockTypeOfId } from '@nerima-games/mc-kernel'
 import { makeParticleSystem } from '../../src/application/particle-system.js'
+import { makeTranslucentChunkMaterial } from '../../src/application/world-renderer-materials.js'
 import {
   CAMERA_FOV_DEGREES,
   makeChunkShaderMaterial,
@@ -1006,6 +1007,35 @@ const reportItemIconPixelProbe = async (): Promise<void> => {
   }
 }
 
+const probeTranslucentChunkShader = async (canvas: HTMLCanvasElement): Promise<ProbeResult> => {
+  const errors = await captureErrors(() => {
+    const renderer = new THREE.WebGLRenderer({ canvas })
+    const scene = new THREE.Scene()
+    const camera = new THREE.PerspectiveCamera(75, 16 / 9, 0.1, 300)
+    const atlasTexture = new THREE.Texture()
+    const { material } = Result.getOrThrow(makeTranslucentChunkMaterial<
+      HTMLCanvasElement,
+      THREE.BufferGeometry,
+      THREE.MeshBasicMaterial,
+      THREE.ShaderMaterial
+    >({
+      atlasTexture,
+      three: THREE,
+      viewport: VIEWPORT,
+    }))
+    const geometry = new THREE.PlaneGeometry(4, 4)
+    const mesh = new THREE.Mesh(geometry, material)
+    mesh.position.z = -4
+    scene.add(mesh)
+    renderer.render(scene, camera)
+    geometry.dispose()
+    material.dispose()
+    atlasTexture.dispose()
+    renderer.dispose()
+  })
+  return { name: 'translucent chunk', compiled: errors.length === 0, errors }
+}
+
 const probeWaterShader = async (canvas: HTMLCanvasElement): Promise<ProbeResult> => {
   const errors = await captureErrors(() => {
     const renderer = new THREE.WebGLRenderer({ canvas })
@@ -1121,6 +1151,7 @@ const main = async (): Promise<void> => {
     // already has a context — which would make probes 2 and 3 report a
     // context-creation failure and look like shader failures.
     results.push(await probeChunkShader(canvas))
+    results.push(await probeTranslucentChunkShader(document.createElement('canvas')))
     results.push(await probeWaterShader(document.createElement('canvas')))
     results.push(await probeParticleShader(document.createElement('canvas')))
   } catch (thrown) {

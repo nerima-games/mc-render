@@ -368,6 +368,28 @@ type BrowserCompositeShader<Vector2> = {
   readonly vertexShader: string
 }
 
+type BrowserCopyShader = {
+  readonly fragmentShader: string
+  readonly vertexShader: string
+}
+
+export const createBrowserCopyShader = (): BrowserCopyShader => ({
+  fragmentShader: `
+      uniform sampler2D tDiffuse;
+      varying vec2 vUv;
+      void main() {
+        gl_FragColor = texture2D(tDiffuse, vUv);
+      }
+    `,
+  vertexShader: `
+      varying vec2 vUv;
+      void main() {
+        vUv = uv;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `,
+})
+
 export const createBrowserGodRaysShader = <Vector2>(
   samples: unknown,
   makeVector2: BrowserVector2Factory<Vector2>,

@@ -306,10 +306,10 @@ test('shader probe compiles and draws each generated shader on WebGL2', async ({
 
   const body = page.locator('body')
   await expect(body).toHaveAttribute('data-shader-probe', 'passed')
-  await expect(body).toHaveAttribute('data-shader-probe-compiled', '3')
-  await expect(body).toHaveAttribute('data-shader-probe-total', '3')
+  await expect(body).toHaveAttribute('data-shader-probe-compiled', '4')
+  await expect(body).toHaveAttribute('data-shader-probe-total', '4')
   await expect(page.locator('#probe-report')).toContainText(
-    /OK\s+chunk[\s\S]*OK\s+water[\s\S]*OK\s+particle/u,
+    /OK\s+chunk[\s\S]*OK\s+translucent chunk[\s\S]*OK\s+water[\s\S]*OK\s+particle/u,
   )
 })
 
