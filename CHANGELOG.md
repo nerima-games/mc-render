@@ -1,5 +1,11 @@
 # @nerima-games/mc-render
 
+## 0.14.1
+
+### Patch Changes
+
+- Fix duplicate uniforms and the missing animation varying in the composed translucent chunk shader.
+
 ## 0.14.0
 
 ### Minor Changes
