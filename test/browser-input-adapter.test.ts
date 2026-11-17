@@ -1258,9 +1258,7 @@ describe('click landing is classified by the host and dispatched as a scalar DTO
 
       dom.fire('focusin', { target: slot })
       dom.fire('mousedown', { button: 0, target: slot })
-      dom.fire('mouseup', { button: 0 })
       dom.fire('mousedown', { button: 0, target: canvas })
-      dom.fire('mouseup', { button: 0 })
       dom.fire('mousedown', { button: 0, target: { letterbox: true } })
 
       const snapshot = yield* input.snapshot

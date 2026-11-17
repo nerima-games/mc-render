@@ -66,6 +66,7 @@ import {
   FOCUS_NAVIGATION_POLICY,
   InputService,
   InputServiceLayer,
+  INITIAL_INPUT_SEQUENCE,
   LISTENER_PLAN,
   makeInputService,
   UNAVAILABLE_POINTER_LOCK,
@@ -84,6 +85,76 @@ const resultValue = <Value, Error>(result: Result.Result<Value, Error>): Value |
 }
 
 const FAST_CHECK_OPTIONS = { numRuns: 100, seed: 0x5eed }
+
+describe('input sequence recovery', () => {
+  it.effect('a foreign future reading does not prevent subsequent local consumption', () => Effect.gen(function* () {
+    const input = yield* makeInputService()
+    const other = yield* makeInputService()
+    for (let index = 0; index < 20; index += 1) {
+      yield* other.dispatch({ kind: 'keydown', code: 'KeyE', target: GAMEPLAY_LISTENER_TARGET })
+      yield* other.dispatch({ kind: 'keyup', code: 'KeyE', target: GAMEPLAY_LISTENER_TARGET })
+    }
+    yield* input.endFrame(yield* other.snapshot)
+    yield* input.dispatch({ kind: 'keydown', code: 'KeyE', target: GAMEPLAY_LISTENER_TARGET })
+    const reading = yield* input.snapshot
+    expect(yield* input.wasActionJustTriggered('openInventory', reading)).toBe(true)
+    yield* input.endFrame(reading)
+    expect(yield* input.wasActionJustTriggered('openInventory', yield* input.snapshot)).toBe(false)
+  }))
+
+  it.effect('a lost UI mouseup cannot suppress gameplay after acquiring pointer lock', () => Effect.gen(function* () {
+    const input = yield* makeInputService()
+    yield* input.dispatch({ kind: 'mousedown', button: 'MouseLeft', target: GAMEPLAY_LISTENER_TARGET, landing: 'ui' })
+    yield* input.dispatch({ kind: 'pointerlockchange', locked: true })
+    yield* input.dispatch({ kind: 'mousedown', button: 'MouseLeft', target: GAMEPLAY_LISTENER_TARGET, landing: 'lock-target' })
+    const reading = yield* input.snapshot
+    expect(yield* input.wasActionJustTriggered('attack', reading)).toBe(true)
+    expect(yield* input.isActionActive('attack', reading)).toBe(true)
+  }))
+})
+
+describe('input sequence values', () => {
+  it.effect('starts at the public initial value and emits increasing sequences', () => Effect.gen(function* () {
+    const input = yield* makeInputService()
+    const first = yield* input.snapshot
+    expect(first.sequence).toBe(INITIAL_INPUT_SEQUENCE)
+    yield* input.dispatch({ kind: 'keydown', code: 'KeyE', target: 'window' })
+    const next = yield* input.snapshot
+    expect(next.sequence).toBe(1)
+  }))
+})
+
+describe('analogue reading buckets', () => {
+  it.effect('coalesces event bursts without merging across sampled cutoffs', () => Effect.gen(function* () {
+    const input = yield* makeInputService()
+    yield* input.dispatch({ kind: 'pointerlockchange', locked: true })
+    for (let index = 0; index < 300; index += 1) {
+      yield* input.dispatch({ kind: 'pointermove', deltaX: 2, deltaY: -1 })
+      yield* input.dispatch({ kind: 'wheel', deltaY: 3, deltaMode: 'line' })
+    }
+    const first = yield* input.snapshot
+    expect(first.pointerDelta).toStrictEqual({ x: 600, y: -300 })
+    expect(first.wheelSteps).toBe(300)
+    expect(yield* input.snapshot).toStrictEqual(first)
+    for (let index = 0; index < 200; index += 1) {
+      yield* input.dispatch({ kind: 'pointermove', deltaX: -1, deltaY: 2 })
+      yield* input.dispatch({ kind: 'wheel', deltaY: -3, deltaMode: 'line' })
+    }
+    const second = yield* input.snapshot
+    expect(second.pointerDelta).toStrictEqual({ x: 400, y: 100 })
+    expect(second.wheelSteps).toBe(100)
+    yield* input.endFrame(first)
+    yield* input.endFrame({ ...first })
+    const remaining = yield* input.snapshot
+    expect(remaining.pointerDelta).toStrictEqual({ x: -200, y: 400 })
+    expect(remaining.wheelSteps).toBe(-200)
+    yield* input.endFrame(second)
+    expect((yield* input.snapshot).pointerDelta).toStrictEqual({ x: 0, y: 0 })
+    expect((yield* input.snapshot).wheelNotches).toBe(0)
+    expect(first.pointerDelta).toStrictEqual({ x: 600, y: -300 })
+    expect(first.wheelSteps).toBe(300)
+  }))
+})
 
 describe('frame reading consumption', () => {
   it.effect('does not fire an edge in both the receiving frame and the following frame', () => Effect.gen(function* () {

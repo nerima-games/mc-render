@@ -429,7 +429,6 @@ describe('render:input', () => {
         // And the mask is not broken either: a click that SHOULD lock still
         // masks it, so this test cannot pass by the report having stopped
         // following the lock state at all.
-        yield* input.dispatch({ kind: 'mouseup', button: 'MouseLeft', target: GAMEPLAY_LISTENER_TARGET })
         yield* input.dispatch({ kind: 'mousedown', button: 'MouseLeft', target: GAMEPLAY_LISTENER_TARGET, landing: 'lock-target' })
         yield* stageById(stages, RENDER_STAGE_IDS.input).run(dt).pipe(Effect.provide(FRAME_SERVICES))
         yield* input.dispatch({ kind: 'pointerlockchange', locked: true })

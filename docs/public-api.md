@@ -415,8 +415,11 @@ type InputEvent =
   | { kind: 'gamepadpress' | 'gamepadrelease'; action: InputAction; target: ListenerTarget }
   | { kind: 'gamepadtick'; axes: GamepadAxes }
 
+type InputSequence = Brand.Branded<number, 'InputSequence'>
+const INITIAL_INPUT_SEQUENCE: InputSequence
+
 type InputSnapshot = {
-  readonly sequence: number                     // この reading の入力境界
+  readonly sequence: InputSequence              // この reading の入力境界
   readonly bindings: Bindings                    // この reading のアクション対応
   readonly pressed: ReadonlySet<InputCode>       // キー + ロック中に押されたボタン
   readonly justPressed: ReadonlySet<InputCode>   // sequence までの未消費エッジ
@@ -510,6 +513,16 @@ yield* input.endFrame(reading)
 `wasUiClick(button)` の呼び出しには reading を追加する必要がある。
 手作りの `InputSnapshot` にも `sequence` と `bindings` が必要になる。
 
+`sequence` は `InputSequence` 型で、初期 fixture には値 0 の `INITIAL_INPUT_SEQUENCE` を使う。
+フレームでは同じ service インスタンスの `snapshot` が返した reading を渡す。
+sequence の構築用 factory は公開しない。
+
+```ts
+import { INITIAL_INPUT_SEQUENCE, type InputSequence } from '@nerima-games/mc-render'
+
+const sequence: InputSequence = INITIAL_INPUT_SEQUENCE
+```
+
 `endFrame(reading)` は、その sequence までに届いた未消費のエッジ・UI click・
 pointer delta と整数ノッチだけを消費し、後着入力を次のフレームへ残す。
 同じ sequence の reading を再び `endFrame` に渡しても二重に消費しない。
@@ -519,6 +532,10 @@ pointer delta と整数ノッチだけを消費し、後着入力を次のフレ
 wheel の端数も残さない。どちらの形式も押下レベル、gamepad axes、pointer lock、
 keyboard focus は維持する。`clearHeld` などのリセットは即時に適用され、
 sequence を巻き戻さない。
+
+非ロック中の同じボタン・同じ landing の重複 `mousedown` は `mouseup` まで抑止する。
+landing が変われば、前の `mouseup` が届かなくても次のクリックを受け付ける。
+ロック取得時はこの UI 押下記録を消し、ゲーム中の attack を抑止しない。
 
 An omitted gamepad axis is treated as neutral. A present axis with an invalid,
 non-finite, or out-of-range value returns `GamepadAxesInputError`.

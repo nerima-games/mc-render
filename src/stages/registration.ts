@@ -58,6 +58,7 @@ import {
   buildPostProcessingChain,
 } from '../domain/post-processing.js'
 import {
+  INITIAL_INPUT_SEQUENCE,
   InputService,
   type InputServiceApi,
   InputServiceLayer,
@@ -183,7 +184,7 @@ export const makeRenderFrameState = (
       pointerLockState: 'unlocked',
       pointerLocked: false,
       pressed: new Set<string>(),
-      sequence: 0,
+      sequence: INITIAL_INPUT_SEQUENCE,
       uiClickLandings: [],
       uiClicks: new Set<MouseButton>(),
       wheelNotches: 0,
@@ -250,12 +251,8 @@ export const renderStages = ({
     // NAME half of this id (`input`) for the first phase.
     run: () =>
       Effect.gen(function* () {
-        // Sample FIRST, then close the edges. The two halves are one stage on
-        // Purpose: `snapshot` reads `justPressed`, `endFrame` clears it, and
-        // Anything that ran between them would see the edge either twice or
-        // Never depending on where the scheduler put it. Keeping them adjacent
-        // Makes "exactly once per frame" a property of one function body rather
-        // Than of the stage order.
+        // Share this reading with every predicate, then consume its sequence.
+        // Events arriving after sampling remain available to the next frame.
         const sampled = yield* input.snapshot
         yield* Ref.set(state.input, sampled)
 

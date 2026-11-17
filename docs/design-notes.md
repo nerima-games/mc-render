@@ -885,7 +885,13 @@ Firefox（Windows・クラシックホイール）では `3`（行）である�
 `endFrame(reading)` はその sequence を使うため、元の object そのものを要求しない。
 spread や `structuredClone` でコピーした reading も受け付ける。
 フレームごとに 1 つの reading を使う。
+reading は同じ service インスタンスの `snapshot` から取得する。
 同じ sequence の reading を再び `endFrame` に渡しても二重に消費しない。
+
+`snapshot` は未消費入力の値を変えず、内部では寄与の集約境界だけを記録する。
+pointer と wheel は snapshot 間のイベントをそれぞれ末尾の寄与へ合算し、
+snapshot を跨いだ最初のイベントから別の寄与にする。
+格納する寄与数は未消費の reading 境界数に比例する。
 
 引数なしの `endFrame()` は実行時にあるエッジ、UI click、pointer delta、wheel を
 端数も含めてすべて消費する。どちらの形式も押下レベル、gamepad axes、pointer lock、

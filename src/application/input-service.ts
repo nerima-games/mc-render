@@ -76,7 +76,7 @@ import {
   suppressesBrowserContextMenu,
   suppressesBrowserScroll,
 } from '../domain/input-bindings.js'
-import { Context, Effect, Layer, Ref, Result } from 'effect'
+import { Brand, Context, Effect, Layer, Ref, Result, Schema } from 'effect'
 import type { GamepadAxes } from '../domain/gamepad-input.js'
 
 /**
@@ -258,6 +258,16 @@ const makePointerDelta = (deltaX: number, deltaY: number): PointerDelta => ({
 /** The delta at rest: shared by every call site that needs a zeroed one. */
 const ZERO_POINTER_DELTA: PointerDelta = { [POINTER_DELTA_X_KEY]: 0, [POINTER_DELTA_Y_KEY]: 0 }
 
+export type InputSequence = Brand.Branded<number, 'InputSequence'>
+
+const MIN_INPUT_SEQUENCE = 0
+
+const InputSequenceSchema: Schema.Codec<InputSequence, number> = Schema.Int
+  .check(Schema.isGreaterThanOrEqualTo(MIN_INPUT_SEQUENCE))
+  .pipe(Schema.brand('InputSequence'))
+
+export const INITIAL_INPUT_SEQUENCE: InputSequence = Schema.decodeUnknownSync(InputSequenceSchema)(MIN_INPUT_SEQUENCE)
+
 /**
  * A snapshot of input state, taken once per frame.
  *
@@ -273,8 +283,8 @@ const ZERO_POINTER_DELTA: PointerDelta = { [POINTER_DELTA_X_KEY]: 0, [POINTER_DE
  * a second way to be cleared, or not cleared, at the frame boundary.
  */
 export type InputSnapshot = {
-  /** Input cutoff used by predicates and endFrame; survives copying the reading. */
-  readonly sequence: number
+  /** Branded service-local input cutoff; copies preserve it for the same service's endFrame. */
+  readonly sequence: InputSequence
   /** Bindings captured with the input, so a later remap cannot change this frame. */
   readonly bindings: Bindings
   /** Held gameplay codes: keys, plus buttons pressed while the pointer was LOCKED. */
@@ -306,9 +316,9 @@ export type InputSnapshot = {
    * first click's landing answer for the second — or the second's for the first,
    * which is the hazard back again with an extra step.
    *
-   * One edge per press, until mouseup. Repeated mousedown events while a UI
-   * button is held do not become another click. A release and new press can
-   * record the same button again, including a different landing.
+   * One edge per button and landing, until mouseup or a landing change.
+   * Repeated mousedown events at the same landing do not become another click.
+   * A release and new press can record the same button and landing again.
    */
   readonly uiClickLandings: ReadonlyArray<UiClick>
   readonly pointerDelta: PointerDelta
@@ -449,7 +459,8 @@ export type InputServiceApi = {
    * one-action-per-click; the reference's `consumeMouseClick` (:286).
    *
    * NOT consuming, unlike the reference: reading it twice in one frame returns
-   * true twice, and `endFrame` is what clears it. The reference's consume-on-
+   * true twice. `endFrame(reading)` consumes source edges, leaving the reading
+   * unchanged. The reference's consume-on-
    * read is why its `contextmenu` handler needed the :137-139 warning at all —
    * with a consuming read, whether a click survives depends on who read it
    * first, and two stages that both care about right-click silently race.
@@ -532,8 +543,9 @@ export type InputServiceApi = {
    * Consume one frame's reading through its sequence cutoff.
    *
    * Take one snapshot at frame start, use it for every frame predicate, and
-   * pass it here once. Later events remain for the next frame. Repeating the
-   * same reading is harmless, including a spread or structured clone.
+   * pass it here once to the same service instance. Later events remain for
+   * the next frame. Repeating the same reading is harmless, including a spread
+   * or structured clone.
    *
    * Wheel events through the cutoff contribute whole notches; their signed
    * fraction carries into the next frame. Later wheel events are not used to
@@ -561,7 +573,7 @@ export class InputService extends InputServiceBase {}
 
 type InputState = {
   readonly sequence: number
-  readonly consumedThrough: number
+  readonly sampledThrough: number
   readonly pressed: ReadonlySet<InputCode>
   readonly justPressed: ReadonlyMap<InputCode, number>
   /**
@@ -570,7 +582,7 @@ type InputState = {
    * a click happened.
    */
   readonly uiClicks: ReadonlyArray<UiClick & { readonly sequence: number }>
-  readonly uiPressed: ReadonlySet<MouseButton>
+  readonly uiPressed: ReadonlyMap<MouseButton, ClickLanding>
   readonly pointerMoves: ReadonlyArray<{ readonly delta: PointerDelta; readonly sequence: number }>
   /**
    * Accumulated wheel travel in notches, INCLUDING the sub-notch remainder
@@ -602,19 +614,21 @@ type InputState = {
 const NO_KEYBOARD_FOCUS: FocusTarget | undefined = undefined
 const INPUT_SEQUENCE_INCREMENT = 1
 const NO_WHEEL_TRAVEL = 0
+const FIRST_BUCKET_INDEX = 0
+const LAST_BUCKET_INDEX = -1
 
 const initialState = (bindings: Bindings): InputState => ({
   bindings,
-  consumedThrough: -1,
   gamepadAxes: { leftX: 0, leftY: 0, rightX: 0, rightY: 0 },
   justPressed: new Map<InputCode, number>(),
   keyboardFocus: NO_KEYBOARD_FOCUS,
   pointerLockState: 'unlocked',
   pointerMoves: [],
   pressed: new Set<InputCode>(),
+  sampledThrough: 0,
   sequence: 0,
   uiClicks: [],
-  uiPressed: new Set<MouseButton>(),
+  uiPressed: new Map<MouseButton, ClickLanding>(),
   wheelMoves: [],
 })
 
@@ -670,22 +684,23 @@ const withCodeUp = (state: InputState, code: InputCode): InputState => ({
  * the service already tracks, removes the coupling.
  */
 const withButtonDown = (state: InputState, button: MouseButton, landing: ClickLanding): InputState => {
-  if (state.uiPressed.has(button)) {
-    return state
-  }
   if (isLocked(state)) {
     return withCodeDown(state, button)
+  }
+  // A changed landing can be a new click whose previous mouseup never reached us.
+  if (state.uiPressed.get(button) === landing) {
+    return state
   }
   return {
     ...state,
     uiClicks: [...state.uiClicks, { button, landing, sequence: state.sequence }],
-    uiPressed: new Set([...state.uiPressed, button]),
+    uiPressed: new Map(state.uiPressed).set(button, landing),
   }
 }
 
 const withButtonUp = (state: InputState, button: MouseButton): InputState => ({
   ...withCodeUp(state, button),
-  uiPressed: new Set([...state.uiPressed].filter((held) => held !== button)),
+  uiPressed: new Map([...state.uiPressed].filter(([held]) => held !== button)),
 })
 
 /**
@@ -761,7 +776,7 @@ const withoutHeldButtons = (state: InputState): InputState => ({
   ...state,
   justPressed: new Map([...state.justPressed].filter(([code]) => !isMouseButton(code))),
   pressed: new Set([...state.pressed].filter((code) => !isMouseButton(code))),
-  uiPressed: new Set<MouseButton>(),
+  uiPressed: new Map<MouseButton, ClickLanding>(),
 })
 
 /**
@@ -806,10 +821,20 @@ const withPointerDelta = (current: InputState, deltaX: number, deltaY: number): 
   if (!isLocked(current)) {
     return current
   }
-  return {
-    ...current,
-    pointerMoves: [...current.pointerMoves, { delta: makePointerDelta(deltaX, deltaY), sequence: current.sequence }],
+  const last = current.pointerMoves.at(LAST_BUCKET_INDEX)
+  // A bucket observed by a reading must keep its cutoff; later events start another.
+  if (last !== undefined && last.sequence > current.sampledThrough) {
+    return {
+      ...current,
+      pointerMoves: [...current.pointerMoves.slice(FIRST_BUCKET_INDEX, LAST_BUCKET_INDEX), {
+        delta: makePointerDelta(last.delta.x + deltaX, last.delta.y + deltaY),
+        sequence: current.sequence,
+      }],
+    }
   }
+  return { ...current, pointerMoves: [...current.pointerMoves, {
+    delta: makePointerDelta(deltaX, deltaY), sequence: current.sequence,
+  }] }
 }
 
 /**
@@ -837,6 +862,12 @@ const withWheelDelta = (current: InputState, deltaY: number, deltaMode: WheelDel
   if (Result.isFailure(notches)) {
     return current
   }
+  const last = current.wheelMoves.at(LAST_BUCKET_INDEX)
+  if (last !== undefined && last.sequence > current.sampledThrough) {
+    return { ...current, wheelMoves: [...current.wheelMoves.slice(FIRST_BUCKET_INDEX, LAST_BUCKET_INDEX), {
+      notches: last.notches + notches.success, sequence: current.sequence,
+    }] }
+  }
   return { ...current, wheelMoves: [...current.wheelMoves, { notches: notches.success, sequence: current.sequence }] }
 }
 
@@ -853,7 +884,7 @@ const withWheelDelta = (current: InputState, deltaY: number, deltaMode: WheelDel
  */
 const withPointerLockChange = (current: InputState, locked: boolean): InputState => {
   if (locked) {
-    return { ...current, pointerLockState: 'locked' }
+    return { ...current, pointerLockState: 'locked', uiPressed: new Map<MouseButton, ClickLanding>() }
   }
   return {
     ...withoutAnalogueState(withoutHeldButtons(current)),
@@ -909,7 +940,6 @@ const withBlur = (current: InputState): InputState => {
   }
   return {
     ...initialState(current.bindings),
-    consumedThrough: current.consumedThrough,
     keyboardFocus: current.keyboardFocus,
     pointerLockState,
     sequence: current.sequence,
@@ -1007,9 +1037,6 @@ const maskedKeyboardFocus = (current: InputState): FocusTarget | undefined => {
 }
 
 const consumeReading = (current: InputState, sequence: number): InputState => {
-  if (sequence <= current.consumedThrough) {
-    return current
-  }
   const reported = current.wheelMoves
     .filter((move) => move.sequence <= sequence)
     .reduce((total, move) => total + move.notches, NO_WHEEL_TRAVEL)
@@ -1021,7 +1048,6 @@ const consumeReading = (current: InputState, sequence: number): InputState => {
   }
   return {
     ...current,
-    consumedThrough: sequence,
     justPressed: new Map([...current.justPressed].filter(([, pressedAt]) => pressedAt > sequence)),
     pointerMoves: current.pointerMoves.filter((move) => move.sequence > sequence),
     uiClicks: current.uiClicks.filter((click) => click.sequence > sequence),
@@ -1053,7 +1079,6 @@ export const makeInputService = (
          wrong. */
       clearHeld: Ref.update(state, (current) => ({
         ...initialState(current.bindings),
-        consumedThrough: current.consumedThrough,
         keyboardFocus: current.keyboardFocus,
         pointerLockState: current.pointerLockState,
         sequence: current.sequence + INPUT_SEQUENCE_INCREMENT,
@@ -1073,7 +1098,6 @@ export const makeInputService = (
           if (frame === undefined) {
             return {
               ...current,
-              consumedThrough: current.sequence,
               justPressed: new Map<InputCode, number>(),
               pointerMoves: [],
               uiClicks: [],
@@ -1151,37 +1175,34 @@ export const makeInputService = (
         Effect.map((current) => suppressesBrowserScroll(isLocked(current))),
       ),
 
-      /* A PURE read, with no effect on the frame boundary — see `endFrame` on
-         why the reading is handed back rather than remembered here. */
-      snapshot: Ref.get(state).pipe(
-        Effect.map((current) => {
-          const wheelNotches = current.wheelMoves.reduce((total, move) => total + move.notches, NO_WHEEL_TRAVEL)
-          return {
-            bindings: current.bindings,
-            gamepadAxes: current.gamepadAxes,
-            justPressed: new Set(current.justPressed.keys()),
-            keyboardFocus: maskedKeyboardFocus(current),
-            pointerDelta: current.pointerMoves.reduce(
-              (total, move) => makePointerDelta(total.x + move.delta.x, total.y + move.delta.y),
-              ZERO_POINTER_DELTA,
-            ),
-            pointerLockState: current.pointerLockState,
-            pointerLocked: isLocked(current),
-            pressed: current.pressed,
-            sequence: current.sequence,
-            uiClickLandings: current.uiClicks.map(({ button, landing }) => ({ button, landing })),
-            /* PROJECTED from the pairs, never stored beside them. A set and a
-               list that both claimed to know whether a click happened would
-               be two answers to one question. */
-            uiClicks: new Set(current.uiClicks.map((click) => click.button)),
-            wheelNotches,
-            /* Truncated TOWARD ZERO, so a partial notch is never a step and
-               the sign is never flipped by rounding. `endFrame(reading)` carries
-               the fraction; `endFrame()` consumes it. */
-            wheelSteps: Math.trunc(wheelNotches),
-          }
-        }),
-      ),
+      // Sampling only seals contribution buckets; it neither consumes nor changes input values.
+      snapshot: Ref.modify(state, (current): [InputSnapshot, InputState] => {
+        const wheelNotches = current.wheelMoves.reduce((total, move) => total + move.notches, NO_WHEEL_TRAVEL)
+        return [{
+          bindings: current.bindings,
+          gamepadAxes: current.gamepadAxes,
+          justPressed: new Set(current.justPressed.keys()),
+          keyboardFocus: maskedKeyboardFocus(current),
+          pointerDelta: current.pointerMoves.reduce(
+            (total, move) => makePointerDelta(total.x + move.delta.x, total.y + move.delta.y),
+            ZERO_POINTER_DELTA,
+          ),
+          pointerLockState: current.pointerLockState,
+          pointerLocked: isLocked(current),
+          pressed: current.pressed,
+          sequence: Schema.decodeUnknownSync(InputSequenceSchema)(current.sequence),
+          uiClickLandings: current.uiClicks.map(({ button, landing }) => ({ button, landing })),
+          /* PROJECTED from the pairs, never stored beside them. A set and a
+             list that both claimed to know whether a click happened would
+             be two answers to one question. */
+          uiClicks: new Set(current.uiClicks.map((click) => click.button)),
+          wheelNotches,
+          /* Truncated TOWARD ZERO, so a partial notch is never a step and
+             the sign is never flipped by rounding. `endFrame(reading)` carries
+             the fraction; `endFrame()` consumes it. */
+          wheelSteps: Math.trunc(wheelNotches),
+        }, { ...current, sampledThrough: current.sequence }]
+      }),
 
       wasActionJustTriggered: (action, reading) =>
         Effect.succeed(resolveAction(action, reading.bindings, reading.justPressed)),

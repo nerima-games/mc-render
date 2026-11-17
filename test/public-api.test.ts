@@ -20,6 +20,9 @@ import {
   LightningFlashSchema,
   LightningSeedSchema,
   LightningSequenceSchema,
+  INITIAL_INPUT_SEQUENCE,
+  type InputSequence,
+  type InputSnapshot,
   MeshingWorkerPoolFactoryOptionsSchema,
   MeshingWorkerPoolStartupError,
   HardwareConcurrencySchema,
@@ -343,6 +346,14 @@ describe('public color correction and lightning APIs', () => {
     expect(seed).toBe(0)
     expect(sequence).toBe(0)
     expect(Result.isSuccess(decodeLightningFlash(flash))).toBe(true)
+  })
+})
+
+describe('public input sequence API', () => {
+  it('exports the initial value and branded snapshot sequence from the package root', () => {
+    const sequence: InputSequence = INITIAL_INPUT_SEQUENCE
+    expectTypeOf<InputSnapshot['sequence']>().toEqualTypeOf<InputSequence>()
+    expect(sequence).toBe(0)
   })
 })
 
